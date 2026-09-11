@@ -246,10 +246,40 @@ Axes noise for xy-axis accelerometer:
 ```
 
 This qualifies native RootFS NumPy import and `MEASURE_AXES_NOISE` **ON THE
-INVESTIGATED REFERENCE DEVICE**. `TEST_RESONANCES`, `SHAPER_CALIBRATE`, derived
-input-shaper frequencies and types, and input-shaping `SAVE_CONFIG` remain
-unperformed and unqualified. The tracked `[input_shaper]` section remains empty;
-no shaper result has been determined or saved.
+INVESTIGATED REFERENCE DEVICE**.
+
+`SHAPER_CALIBRATE` subsequently completed successfully for both X and Y. The
+initial run used the configured 80-Hz sweep. Y stably recommended MZV at
+39.8 Hz, while the X fit recommended 3hump_ei at 88.6 Hz. That X fit was
+technically valid but above the frequency range actually excited by the run,
+so X was repeated successfully with `SHAPER_CALIBRATE AXIS=X FREQ_END=100`.
+The extended sweep recommended MZV at 62.4 Hz for X. This 100-Hz result and the
+stable Y result form the qualified reference-device baseline:
+
+```ini
+[input_shaper]
+shaper_type_x: mzv
+shaper_freq_x: 62.4
+shaper_type_y: mzv
+shaper_freq_y: 39.8
+```
+
+`SAVE_CONFIG` then completed successfully and wrote the same four values to
+the persistent Klipper block. Thus `SHAPER_CALIBRATE` X/Y, the extended X sweep
+to 100 Hz, and `SAVE_CONFIG` are **PASS ON DEVICE** for the investigated
+reference device. A separate `TEST_RESONANCES` run is not required for this
+qualification because `SHAPER_CALIBRATE` already performed the resonance
+excitation and evaluation; `TEST_RESONANCES` remains an optional raw-data
+diagnostic.
+
+The tracked reference configuration now uses `max_freq: 100` so later normal
+calibration runs cover the qualified sweep range. Its `max_accel: 4500` is a
+conservative baseline below Klipper's theoretical smoothing-based suggestion
+of `max_accel <= 4700 mm/s²` for the limiting Y/MZV result. That suggestion is
+not a mechanical maximum for the printer, and higher acceleration may be
+reassessed through later print tests. All shaper and acceleration values are
+specific to the investigated reference device; other printers must be
+calibrated independently.
 
 The prior isolated `Timer too close` event belongs to the historical
 primary-MCU startup described above; there is no evidence connecting it to the

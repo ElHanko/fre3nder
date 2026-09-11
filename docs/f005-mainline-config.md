@@ -71,7 +71,8 @@ The reference PID baselines are now published in the mainline configuration
 because they were exercised during the controlled bring-up and print:
 extruder Kp 20.584 / Ki 1.737 / Kd 60.981 and bed Kp 70.652 / Ki 1.798 /
 Kd 694.157. They are reference values, not universal calibration. Pressure
-advance and calibrated input-shaper values remain intentionally absent.
+advance remains intentionally absent. The input-shaper values described below
+are likewise a reference-device calibration, not universal values.
 
 The minimal bring-up remains deliberately limited to primary-MCU
 communication configuration, printer limits, the three rails, and BLTouch
@@ -100,8 +101,10 @@ first-mainline dependency.
 The tracked full reference configuration now includes the upstream secondary
 `[mcu rpi]` at `/tmp/klipper_host_mcu`, the ADXL345 on `spidev2.0` at 2 MHz
 with `axes_map: z,y,x`, and resonance-test limits `accel_per_hz: 50`, point
-`117.5,117.5,100`, and `max_freq: 80`. `[input_shaper]` is intentionally empty:
-no calibration result is invented or inherited from another system.
+`117.5,117.5,100`, and `max_freq: 100`. Its hardware-validated reference
+baseline is MZV at 62.4 Hz for X and MZV at 39.8 Hz for Y. These values were
+measured on the investigated reference device; other printers must calibrate
+independently.
 
 The matching kernel/DTS, reproducible Linux-process MCU build, and S59-before-
 S60 service path are **SOURCE IMPLEMENTED / STATICALLY CHECKED / BUILT /
@@ -129,11 +132,22 @@ No automatic configuration migration is implied.
 The subsequent RootFS-only development build included Buildroot-native NumPy.
 On the investigated reference device, Python 3.12.14 imported NumPy 1.25.0
 from the system package path, and `MEASURE_AXES_NOISE` completed with
-159.113215 (x), 95.617217 (y), and 90.125327 (z). This is a qualified noise
-measurement, not a completed input-shaper calibration. `TEST_RESONANCES`,
-`SHAPER_CALIBRATE`, derived shaper frequencies/types, and input-shaping
-`SAVE_CONFIG` remain unperformed. The configured `axes_map: z,y,x` remains the
-qualified reference mapping, and `[input_shaper]` remains intentionally empty.
+159.113215 (x), 95.617217 (y), and 90.125327 (z). `SHAPER_CALIBRATE` then
+completed successfully for X and Y, and `SAVE_CONFIG` persisted the resulting
+values. The initial 80-Hz X sweep produced a technically valid fit of
+3hump_ei at 88.6 Hz, above the actually excited frequency range. A successful
+repeat with `FREQ_END=100` recommended MZV at 62.4 Hz for X; Y remained MZV at
+39.8 Hz. The reference configuration therefore uses `max_freq: 100` for future
+normal calibration runs.
+
+For the limiting qualified Y/MZV result, Klipper's theoretical smoothing-based
+suggestion was `max_accel <= 4700 mm/s²`. The configured `max_accel: 4500` is a
+deliberately conservative reference baseline below that estimate, not the
+printer's mechanical maximum. Higher acceleration may be reassessed through
+later print testing. A separate `TEST_RESONANCES` run is not required for this
+qualification because `SHAPER_CALIBRATE` already performed the resonance
+excitation and evaluation; it remains available as an optional raw-data
+diagnostic.
 
 OpenKE/NebulaOS provides exact external hardware evidence for the
 GPE16/17/18/21 wiring and polarity, but no external binary or service is used;

@@ -44,7 +44,7 @@ implementation commitment.
 | Display | 480x272 panel, 60 Hz; `fb0` through `fb3` | X2000 display path | `jzfb` stock framebuffer/display stack | Display controller, panel, clocks, power/backlight, reserved memory | Open DRM/fb-capable display stack and touchscreen UI | LIKELY | The stock framebuffer stack is observed. The selected SDK and NebulaOS prior art provide an X2000 DPU/panel route; panel timings and full display acceptance remain open. The minimal GPC22 backlight-enable DT path is separately OFFLINE CONFIRMED, not a physical display or backlight result. [^phase32] |
 | Touch | NS2009 at I2C address `0x48` on bus 4 | I2C 4, input event 0 | Stock touchscreen driver | I2C controller, NS2009 node, IRQ/reset/pinctrl | Smallest maintainable open driver route for the selected LTS kernel | LIKELY | Controller, bus/address, and input event are observed. Current upstream Linux has no NS2009 touchscreen driver, but NebulaOS provides a GPL NS2009 driver and I2C4/`pendown-gpios` prior art for the selected SDK; exact reference-board properties still need acceptance. [^phase32] |
 | Camera | One active alias resolves to `video4`; nodes `video0` through `video4` exist | USB UVC endpoint | `uvcvideo`, `cam_app`, `mjpg_streamer`, MJPEG TCP 8080 | USB controller/PHY, UVC/V4L2 node, power/role wiring | Standard V4L2 node -> small open MJPEG/RTSP streamer -> Moonraker/Web UI | LIKELY | The active camera is an observed USB UVC endpoint on this reference. The selected SDK and NebulaOS prior art support this route; its exact board integration remains a later acceptance item. [^phase32] |
-| ADXL345 | ADXL345 accelerometer | `spidev2.0`, chip select 0 | Klipper Linux Host MCU | `spi-gpio` GPIO/pinmux/CS, `spidev` child node | Upstream Klipper Linux-process MCU using `/dev/spidev2.0` | COMMUNICATION AND NOISE QUALIFIED ON DEVICE / INPUT SHAPING OPEN | On the investigated reference device, the generated DT path produced `/dev/spidev2.0`, and physical ADXL345 communication, `ACCELEROMETER_QUERY`, native NumPy import, and `MEASURE_AXES_NOISE` succeeded. Resonance testing and shaper calibration remain open. [^klipper-host-mcu] [^openke-adxl] |
+| ADXL345 | ADXL345 accelerometer | `spidev2.0`, chip select 0 | Klipper Linux Host MCU | `spi-gpio` GPIO/pinmux/CS, `spidev` child node | Upstream Klipper Linux-process MCU using `/dev/spidev2.0` | INPUT SHAPING QUALIFIED ON DEVICE | On the investigated reference device, the complete path through NumPy, `SHAPER_CALIBRATE` X/Y, the extended 100-Hz X sweep, and `SAVE_CONFIG` succeeded. The measured reference baseline is MZV at 62.4 Hz for X and MZV at 39.8 Hz for Y; it is not universal across printers. [^klipper-host-mcu] [^openke-adxl] |
 | Linux Host MCU | X2000 Linux process | `/tmp/klipper_host_mcu` | `/usr/bin/klipper_mcu -r` | Linux process, Unix PTY, required SPI character device | Upstream Klipper Linux-process MCU before Klippy | QUALIFIED ON DEVICE | On the investigated reference device, the built binary ran on the X2000, created the PTY, and exchanged real traffic with Klippy `[mcu rpi]`. This result is scoped to that reference device. [^klipper-host-mcu] |
 | BL24C16F | 2-KiB I2C EEPROM | I2C 2, addresses `0x50`--`0x57`, 400 kHz | Creality `bl24c16f` Klipper module | I2C 2 only if a retained function needs it | No target dependency currently identified | NOT REQUIRED | It is configured on the reference, but the Phase-2 complete print did not require it. The available module exposes generic EEPROM read/write commands; no evidence shows that normal open Host-MCU/ADXL operation needs its contents. |
 | Watchdog / reset | Boot/Reset controls and SoC recovery entry | board-specific | `ingenic-watchdog`; stock boot chain | Reset source and, if used, watchdog DT node/driver | A demonstrable non-destructive reset/watchdog path | LIKELY | Stock node `10002000.watchdog` uses `ingenic,watchdog`. The selected SDK has this path and NebulaOS supplies a bounded watchdog fix; reset policy and reference-board acceptance remain open. [^phase32] |
@@ -170,11 +170,22 @@ On the investigated reference device, Python 3.12.14 imported NumPy 1.25.0
 from the system RootFS, a repeated `ACCELEROMETER_QUERY` returned
 `8580.269578, -296.082377, 592.164754`, and `MEASURE_AXES_NOISE` completed with
 159.113215 (x), 95.617217 (y), and 90.125327 (z). This qualifies the complete
-Host-MCU/ADXL/NumPy noise-measurement path on that device. It does not qualify
-`TEST_RESONANCES`, `SHAPER_CALIBRATE`, derived shaper frequencies/types, or
-input-shaping `SAVE_CONFIG`; all remain unperformed. The tracked configuration
-still provides `axes_map: z,y,x`, an empty `[input_shaper]` section, and no
-calibrated shaper values.
+Host-MCU/ADXL/NumPy noise-measurement path on that device.
+
+`SHAPER_CALIBRATE` later passed for X and Y, including a successful repeated X
+sweep through 100 Hz. The original 80-Hz X sweep produced a technically valid
+3hump_ei fit at 88.6 Hz, above its actually excited range; the extended sweep
+instead recommended MZV at 62.4 Hz. Y recommended MZV at 39.8 Hz. `SAVE_CONFIG`
+successfully persisted those four values. The tracked configuration retains
+the qualified `axes_map: z,y,x`, uses `max_freq: 100`, and publishes this
+reference-device shaper baseline.
+
+The tracked `max_accel: 4500` is conservatively below Klipper's theoretical
+smoothing-based suggestion of `max_accel <= 4700 mm/s²` for the limiting Y/MZV
+result. It is not a mechanical maximum, and all values remain specific to the
+investigated reference device. `TEST_RESONANCES` remains an optional raw-data
+diagnostic, not an unmet qualification gate after the completed
+`SHAPER_CALIBRATE` runs.
 
 OpenKE's hardware result remains external evidence for the board wiring. The
 Fre3nder qualification above is an independent result limited to the
