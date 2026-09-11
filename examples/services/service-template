@@ -1,0 +1,38 @@
+#!/bin/sh
+# Copy to apps/<name>/service, implement the actions, then make executable.
+# Repository-only example: never staged into the platform RootFS.
+set -eu
+
+[ "$#" -eq 1 ] || {
+	echo 'usage: service {install|uninstall|status|restore}' >&2
+	exit 1
+}
+
+case "$1" in
+install)
+	# Validate prerequisites; stage and validate software before activation.
+	# Persist app-specific desired state under /home only after success.
+	echo 'implement this app install action' >&2
+	exit 1
+	;;
+uninstall)
+	# Remove only owned files; remove desired state last. Be idempotent.
+	echo 'implement this app uninstall action' >&2
+	exit 1
+	;;
+status)
+	# Report simple key=value lines using this app's actual lifecycle.
+	echo 'implement this app status action' >&2
+	exit 1
+	;;
+restore)
+	# Consult persistent desired state; reconcile only when requested there.
+	# Payload/update ownership and version semantics belong to each app.
+	echo 'implement this app restore action' >&2
+	exit 1
+	;;
+*)
+	echo 'usage: service {install|uninstall|status|restore}' >&2
+	exit 1
+	;;
+esac

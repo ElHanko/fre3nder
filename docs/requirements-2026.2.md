@@ -178,8 +178,10 @@ the Fre3nder base platform.
 Reference hardware qualifies the pinned Moonraker runtime and dependency set,
 real startup, local HTTP API, network discovery, volatile Moonraker UDS,
 persistent configuration, ready Klippy connection, and S60 readiness through a
-natural boot. The fixed RootFS source and Python-environment construction is
-implemented but not yet built or hardware-qualified. Self-update remains
+natural boot. It now also qualifies LAN access to `/server/info` and real
+Moonraker JSON-RPC WebSocket traffic through Lighttpd while Moonraker remains
+loopback-only. The complete fixed RootFS source/Python-environment update and
+recovery lifecycle is not yet hardware-qualified. Self-update remains
 incomplete until its dependency behavior and automatic post-update S61 restart
 are integrated and qualified.
 
@@ -253,6 +255,12 @@ outside the immutable RootFS.
 The local display integration shall consume the selected active frontend rather
 than containing Fluidd-specific control logic.
 
+Partial reference-hardware evidence now demonstrates the frontend-neutral
+selection file driving the generic S62 document root, a selected Fluidd payload
+served over the LAN, and HTTP/WebSocket forwarding to loopback-only Moonraker.
+The status remains `PLANNED`: replacement with another compatible frontend and
+consumption of the selection by the local display stack are not yet qualified.
+
 ## REQ-2026.2-007 - Fluidd reference frontend
 
 Status: **PLANNED**
@@ -270,6 +278,13 @@ Qualification shall demonstrate:
 
 Support for alternative compatible frontends is an architectural requirement;
 hardware qualification of multiple frontends is not required for `2026.2`.
+
+Partial reference-hardware evidence now demonstrates initial Fluidd bootstrap,
+installation into the persistent application/UI layout, active frontend
+selection, static LAN access, and real Moonraker HTTP and WebSocket connectivity.
+The status remains `PLANNED`: printer control through Fluidd, reboot
+persistence, Moonraker-driven frontend update, and independent replacement
+without RootFS deployment are not yet qualified.
 
 ## REQ-2026.2-008 - Display, touch, and local presentation
 

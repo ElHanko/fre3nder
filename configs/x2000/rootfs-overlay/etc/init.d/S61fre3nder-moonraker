@@ -14,6 +14,8 @@ printer_data=${FRE3NDER_PRINTER_DATA_DIR:-$fre3nder_home/printer_data}
 config_dir=$printer_data/config
 config=${FRE3NDER_MOONRAKER_CONFIG:-$config_dir/moonraker.conf}
 default_config=${FRE3NDER_MOONRAKER_DEFAULT_CONFIG:-/usr/share/fre3nder/defaults/moonraker.conf}
+fre3nder_config_dir=$config_dir/fre3nder
+fre3nder_base_config=$fre3nder_config_dir/00-base.conf
 persistent_logs=${FRE3NDER_MOONRAKER_LOG_DIR:-$printer_data/logs}
 moonraker_root=${FRE3NDER_MOONRAKER_ROOT:-/opt/fre3nder/moonraker}
 moonraker=${FRE3NDER_MOONRAKER_ENTRYPOINT:-$moonraker_root/moonraker/moonraker.py}
@@ -53,6 +55,17 @@ prepare_printer_data() {
 	ensure_directory "$printer_data" || return 1
 	ensure_directory "$config_dir" || return 1
 	ensure_directory "$persistent_logs" || return 1
+	ensure_directory "$fre3nder_config_dir" || return 1
+
+	if [ -e "$fre3nder_base_config" ] || [ -L "$fre3nder_base_config" ]; then
+		[ -f "$fre3nder_base_config" ] && [ ! -L "$fre3nder_base_config" ] ||
+			return 1
+	else
+		printf '%s\n' \
+			'# Fre3nder-managed Moonraker configuration fragments.' \
+			> "$fre3nder_base_config" || return 1
+		chmod 0644 "$fre3nder_base_config" || return 1
+	fi
 
 	if [ -e "$config" ] || [ -L "$config" ]; then
 		[ -f "$config" ] && [ ! -L "$config" ]

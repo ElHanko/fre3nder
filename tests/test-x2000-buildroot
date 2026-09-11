@@ -312,6 +312,8 @@ f005_release_manifest=$root/configs/x2000/f005-mcu-release.json
 f005_target_path=/var/lib/fre3nder/firmware/f005/klipper-f005-mainline.bin
 f005_firmware=$root/local/production/artifacts/x2000/f005/klipper-f005-mainline.bin
 artifact_mode=release
+project_commit=$(git -C "$root" rev-parse HEAD)
+project_worktree_status=clean
 sed -n '/^validate_f005_firmware() {$/,/^}$/p' "$entrypoint" \
 	> "$tmp/validate-f005-firmware.sh"
 sed -n '/^prepare_klipper_overlay() {$/,/^}$/p' "$entrypoint" \
@@ -319,6 +321,7 @@ sed -n '/^prepare_klipper_overlay() {$/,/^}$/p' "$entrypoint" \
 . "$tmp/validate-f005-firmware.sh"
 . "$tmp/prepare-klipper-overlay.sh"
 prepare_klipper_overlay
+[ "$(cat "$klipper_overlay/usr/share/fre3nder/APP_REF")" = "$project_commit" ]
 staged_f005=$klipper_overlay$f005_target_path
 python3 - "$f005_release_manifest" "$staged_f005" <<'PY'
 import hashlib
@@ -367,18 +370,24 @@ moonraker_root="$moonraker_overlay/opt/fre3nder/moonraker"
 	https://github.com/Arksine/moonraker.git ]
 
 target=$tmp/target
-mkdir -p "$target/etc/init.d" "$target/usr/libexec/fre3nder"
+mkdir -p "$target/etc/init.d" "$target/usr/libexec/fre3nder" "$target/usr/bin"
+cp "$root/configs/x2000/rootfs-overlay/usr/bin/fre3nder" "$target/usr/bin/"
 touch "$target/etc/init.d/fre3nder-root" \
 	"$target/etc/init.d/S20fre3nder-provision" \
 	"$target/etc/init.d/S40fre3nder-network" \
 	"$target/etc/init.d/S50dropbear" \
 	"$target/etc/init.d/S60fre3nder-klipper" \
 	"$target/etc/init.d/S61fre3nder-moonraker" \
+	"$target/etc/init.d/S62fre3nder-web" \
+	"$target/etc/init.d/S50lighttpd" \
 	"$target/usr/libexec/fre3nder/f005-mcu-state" \
 	"$target/usr/libexec/fre3nder/f005-stock-to-fre3nder" \
 	"$target/usr/libexec/fre3nder-udhcpc"
 cp -a "$moonraker_overlay/." "$target/"
 "$post_build" "$target"
+[ -x "$target/usr/bin/fre3nder" ]
+[ -x "$target/etc/init.d/S62fre3nder-web" ]
+[ ! -e "$target/etc/init.d/S50lighttpd" ]
 moonraker_root="$target/opt/fre3nder/moonraker"
 [ -d "$moonraker_root/.git" ]
 [ ! -e "$moonraker_root/.fre3nder-git" ]

@@ -1,6 +1,6 @@
 # Moonraker runtime bring-up — current state
 
-Status date: 2026-09-04
+Status date: 2026-09-11
 
 ## Current architecture
 
@@ -118,6 +118,22 @@ automatic Klipper detection consequently classifies it as `none` and retains a
 non-updateable base entry rather than a Git deployer. Moonraker system updates
 are disabled. Kernel, RootFS, Klipper, A/B state, F005 firmware, and system
 packages remain exclusively Fre3nder-owned.
+
+The default now also contains `[include fre3nder/*.conf]`. The current S61
+preparation supplies the fragment directory and app-neutral `00-base.conf`,
+without migrating existing user configuration. The repository-only
+[Fluidd app handler](apps.md) owns `fre3nder/fluidd.conf` and bootstraps its web
+payload outside the RootFS. Existing installations must add the include
+manually. Fragment changes report the existing S61 restart command.
+Optional frontend-neutral Lighttpd/S62 infrastructure is now offline
+implemented above the loopback-only Moonraker API. It proxies HTTP/WebSocket
+without taking ownership of application updates. On the reference X2000,
+Moonraker remained bound only to `127.0.0.1:17126` while Lighttpd exposed port
+80. HTTP `/server/info` and a real Moonraker JSON-RPC WebSocket were validated
+through that proxy over the LAN. Lighttpd also recovered backend availability
+after a controlled Moonraker restart. See the app documentation for the
+detailed evidence, routes, authorization ownership, opt-out, and remaining
+qualification.
 
 Self-update is not yet a qualified complete lifecycle. With `provider: none`,
 the pinned machine component's base provider raises `Service Actions Not

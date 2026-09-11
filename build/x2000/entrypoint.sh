@@ -532,6 +532,10 @@ prepare_klipper_overlay() {
 		"$klipper_overlay$f005_target_path"
 	install -m 0644 "$version_file" \
 		"$klipper_overlay/usr/share/fre3nder/VERSION"
+	# A dirty tree has no remotely reconstructible app-definition revision.
+	app_ref=unpublished
+	[ "$project_worktree_status" != clean ] || app_ref=$project_commit
+	printf '%s\n' "$app_ref" > "$klipper_overlay/usr/share/fre3nder/APP_REF"
 	if [ "$artifact_mode" = development ]; then
 		printf '%s\n' \
 			'mode=development' \
@@ -867,6 +871,9 @@ check_rootfs() {
 	grep -Fxq 'BR2_PACKAGE_PYTHON_SETUPTOOLS=y' "$brout/.config"
 	grep -Fxq 'BR2_PACKAGE_PYTHON3_SSL=y' "$brout/.config"
 	grep -Fxq 'BR2_PACKAGE_CA_CERTIFICATES=y' "$brout/.config"
+	grep -Fxq 'BR2_PACKAGE_LIGHTTPD=y' "$brout/.config"
+	grep -Fxq 'BR2_PACKAGE_LIGHTTPD_PCRE=y' "$brout/.config"
+	[ "$(grep -Ec '^BR2_PACKAGE_LIGHTTPD.*=y$' "$brout/.config")" -eq 2 ]
 	grep -Fxq 'BR2_PACKAGE_PYTHON_PILLOW=y' "$brout/.config"
 	grep -Fxq 'BR2_PACKAGE_PYTHON_PYYAML=y' "$brout/.config"
 	grep -Fxq 'BR2_PACKAGE_PYTHON_TORNADO=y' "$brout/.config"
@@ -950,6 +957,8 @@ check_rootfs() {
 	[ ! -e "$target/lib/ld.so.1" ]
 	for elf in \
 		"$target/bin/busybox" \
+		"$target/usr/sbin/lighttpd" \
+		"$target/usr/lib/lighttpd/mod_proxy.so" \
 		"$target/sbin/ip" \
 		"$target/lib/ld-linux-mipsn8.so.1" \
 		"$target/lib/libc.so.6"; do
@@ -990,6 +999,16 @@ check_rootfs() {
 	[ -x "$target/usr/sbin/dropbear" ]
 	[ -x "$target/usr/bin/dropbearkey" ]
 	[ -x "$target/usr/bin/python3" ]
+	[ -x "$target/usr/bin/fre3nder" ]
+	[ -x "$target/usr/sbin/lighttpd" ]
+	[ -f "$target/usr/lib/lighttpd/mod_proxy.so" ]
+	[ -x "$target/etc/init.d/S62fre3nder-web" ]
+	[ ! -e "$target/etc/init.d/S50lighttpd" ]
+	cmp -s "$project/configs/x2000/rootfs-overlay/etc/lighttpd/fre3nder.conf" \
+		"$target/etc/lighttpd/fre3nder.conf"
+	app_ref=unpublished
+	[ "$project_worktree_status" != clean ] || app_ref=$project_commit
+	printf '%s\n' "$app_ref" | cmp -s - "$target/usr/share/fre3nder/APP_REF"
 	[ -x "$target/usr/libexec/fre3nder/f005-mcu-state" ]
 	[ -x "$target/usr/libexec/fre3nder/f005-stock-to-fre3nder" ]
 	[ -x "$target/usr/bin/git" ]
@@ -1037,6 +1056,8 @@ check_rootfs() {
 		"$moonraker_service"
 	grep -Fq 'python=${FRE3NDER_PYTHON:-/opt/fre3nder/moonraker-env/bin/python}' \
 		"$moonraker_service"
+	grep -Fxq '[include fre3nder/*.conf]' \
+		"$target/usr/share/fre3nder/defaults/moonraker.conf"
 	grep -Fq 'PIP_ONLY_BINARY=:all:' "$moonraker_service"
 	grep -Fq -- '-d "$printer_data"' "$moonraker_service"
 	grep -Fq -- '-u "$uds"' "$moonraker_service"

@@ -1,0 +1,7 @@
+#!/bin/sh
+set -eu
+
+root=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+sh -n "$root/apps/fluidd/service"
+sh -n "$root/examples/services/service-template"
+python3 "$root/tests/test_fre3nder_apps.py"

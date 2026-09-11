@@ -1,0 +1,210 @@
+#!/bin/sh
+
+runtime=${FRE3NDER_WEB_RUNTIME:-/run/fre3nder-web}
+root_state=${FRE3NDER_ROOT_STATE:-/run/fre3nder-root}
+fre3nder_home=${FRE3NDER_HOME_DIR:-/home/fre3nder}
+web_root=${FRE3NDER_WEB_DIR:-/opt/fre3nder/web}
+base_config=${FRE3NDER_WEB_BASE_CONFIG:-/etc/lighttpd/fre3nder.conf}
+daemon=${FRE3NDER_LIGHTTPD:-/usr/sbin/lighttpd}
+python=${FRE3NDER_PYTHON:-/usr/bin/python3}
+config=$runtime/lighttpd.conf
+pid_file=$runtime/lighttpd.pid
+status=$runtime/status
+
+log() {
+	echo "fre3nder web: $*"
+}
+
+set_status() {
+	printf '%s\n' "$1" > "$status"
+	log "$1"
+}
+
+safe_path() (
+	case "$1" in /*) ;; *) exit 1 ;; esac
+	case "/$1/" in */../*) exit 1 ;; esac
+	check_path=$1
+	while [ -n "$check_path" ]; do
+		[ ! -L "$check_path" ] || exit 1
+		check_path=${check_path%/*}
+	done
+)
+
+prepare_runtime() {
+	safe_path "$runtime" || return 1
+	mkdir -p "$runtime" && chmod 0700 "$runtime" || return 1
+	for file in "$config" "$pid_file" "$status" "$runtime/lighttpd.log"; do
+		[ ! -L "$file" ] || return 1
+		[ ! -e "$file" ] || [ -f "$file" ] || return 1
+	done
+}
+
+prepare_config() {
+	"$python" - "$runtime" "$root_state" "$fre3nder_home" "$web_root" "$base_config" <<'PY'
+import os
+from pathlib import Path
+import re
+import sys
+import tempfile
+
+runtime, root_state, home, web_root, base = map(Path, sys.argv[1:])
+
+
+def safe(path):
+    if not path.is_absolute() or ".." in path.parts or any(c in str(path) for c in '\n\r"\\'):
+        raise ValueError(f"unsafe path: {path}")
+    for part in (path, *path.parents):
+        if part.is_symlink():
+            raise ValueError(f"symlink: {part}")
+        if part != path and part.exists() and not part.is_dir():
+            raise ValueError(f"not a directory: {part}")
+
+
+def regular(path):
+    safe(path)
+    if path.exists() and not path.is_file():
+        raise ValueError(f"not a regular file: {path}")
+    return path.is_file()
+
+
+def stop(reason):
+    print(reason)
+    sys.exit(1)
+
+
+try:
+    root_status = root_state / "status"
+    if not regular(root_status) or root_status.read_text().strip() != "active":
+        stop("degraded-root")
+    safe(home)
+    if not home.is_dir():
+        stop("userdata-unavailable")
+    disabled = home / ".fre3nder/web/disabled"
+    if regular(disabled):
+        stop("disabled")
+    active = home / ".fre3nder/frontend/active"
+    if not regular(active):
+        stop("no-frontend")
+    name = active.read_text().removesuffix("\n")
+    if not re.fullmatch(r"[a-z][a-z0-9_-]{0,63}", name):
+        stop("frontend-invalid")
+    document_root = web_root / name
+    safe(document_root)
+    if not document_root.is_dir():
+        stop("payload-unavailable")
+    index = document_root / "index.html"
+    if not regular(index) or not index.stat().st_size:
+        stop("payload-invalid")
+    if not regular(base):
+        stop("config-unavailable")
+    safe(runtime / "lighttpd.conf")
+    text = f'server.document-root = "{document_root}"\ninclude "{base}"\n'
+    with tempfile.NamedTemporaryFile(mode="w", dir=runtime, prefix=".config-", delete=False) as output:
+        staging = Path(output.name)
+        try:
+            output.write(text)
+            output.flush()
+            os.replace(staging, runtime / "lighttpd.conf")
+        finally:
+            staging.unlink(missing_ok=True)
+except (OSError, ValueError) as exc:
+    print(f"fre3nder web: {exc}", file=sys.stderr)
+    stop("state-invalid")
+PY
+}
+
+pid_has_arg() {
+	[ -r "/proc/$1/cmdline" ] || return 1
+	tr '\000' '\n' < "/proc/$1/cmdline" | grep -F -x -q -- "$2"
+}
+
+pid_is_lighttpd() {
+	case "$1" in *[!0-9]*|'') return 1 ;; esac
+	[ "$1" -gt 1 ] || return 1
+	kill -0 "$1" 2>/dev/null || return 1
+	pid_has_arg "$1" "$daemon" && pid_has_arg "$1" -D &&
+		pid_has_arg "$1" -f && pid_has_arg "$1" "$config"
+}
+
+start() {
+	if [ -f "$pid_file" ]; then
+		pid=$(cat "$pid_file")
+		if pid_is_lighttpd "$pid"; then
+			set_status active
+			return 0
+		fi
+		case "$pid" in
+		*[!0-9]*|'') ;;
+		*)
+			if kill -0 "$pid" 2>/dev/null; then
+				set_status stale-pid
+				return 0
+			fi
+			;;
+		esac
+		rm -f "$pid_file"
+	fi
+	if reason=$(prepare_config); then
+		:
+	else
+		set_status "${reason:-config-invalid}"
+		return 0
+	fi
+	[ -x "$daemon" ] || { set_status baseline-invalid; return 0; }
+	if ! "$daemon" -tt -f "$config" > "$runtime/lighttpd.log" 2>&1; then
+		set_status config-invalid
+		return 0
+	fi
+	set_status starting
+	"$daemon" -D -f "$config" >> "$runtime/lighttpd.log" 2>&1 &
+	pid=$!
+	printf '%s\n' "$pid" > "$pid_file" || {
+		kill "$pid" 2>/dev/null || true
+		set_status pid-write-failed
+		return 0
+	}
+	# Lighttpd runs in the foreground; bind/config errors normally exit at once.
+	sleep 1
+	if pid_is_lighttpd "$pid"; then
+		set_status active
+	else
+		rm -f "$pid_file"
+		set_status startup-failed
+	fi
+}
+
+stop() {
+	if [ -f "$pid_file" ]; then
+		pid=$(cat "$pid_file")
+		if pid_is_lighttpd "$pid"; then
+			kill "$pid" 2>/dev/null || true
+			seconds=0
+			while pid_is_lighttpd "$pid"; do
+				if [ "$seconds" -ge 10 ]; then
+					set_status stop-timeout
+					return 0
+				fi
+				sleep 1
+				seconds=$((seconds + 1))
+			done
+		else
+			log 'stale PID ignored; no unrelated process was stopped'
+		fi
+		rm -f "$pid_file"
+	fi
+	set_status stopped
+}
+
+[ "$#" -eq 1 ] || { log 'usage: S62fre3nder-web {start|stop|restart}'; exit 1; }
+case "$1" in start|stop|restart) ;; *) log 'usage: S62fre3nder-web {start|stop|restart}'; exit 1 ;; esac
+prepare_runtime || { log 'unsafe or unavailable runtime directory'; exit 1; }
+case "$1" in
+start) start ;;
+stop) stop ;;
+restart)
+	stop
+	[ "$(cat "$status")" = stopped ] && start
+	;;
+esac
+
+exit 0

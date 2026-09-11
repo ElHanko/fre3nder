@@ -95,6 +95,12 @@ matching tag.
 Build manifests carry the structured version fields documented above together
 with project commit, source/config/patch identities, and artifact hashes.
 
+Installable app definitions use that exact build-source commit rather than a
+tag inferred from `VERSION`. Clean RootFS builds embed `project_commit` in
+`/usr/share/fre3nder/APP_REF`; dirty builds write `unpublished` and require a
+local handler or explicitly selected local source. There is no floating-branch
+fallback. See [the app-definition source rule](apps.md#app-definition-source-revision).
+
 ## 2026.2 usable-system line
 
 The next release target is `2026.2`, scope ID `usable-system`, titled

@@ -1,0 +1,130 @@
+#!/usr/bin/python3
+"""Load an app from the platform's source revision, then dispatch one action."""
+
+import os
+from pathlib import Path
+import re
+import stat
+import sys
+import tempfile
+import urllib.request
+
+
+def safe_path(path):
+    if not path.is_absolute() or ".." in path.parts:
+        raise ValueError(f"unsafe path: {path}")
+    for part in reversed((path, *path.parents)):
+        if part.is_symlink():
+            raise ValueError(f"symlink is not allowed: {part}")
+        if part != path and part.exists() and not part.is_dir():
+            raise ValueError(f"not a directory: {part}")
+
+
+def handler_present(path):
+    safe_path(path.parent)
+    if path.is_symlink() or not path.is_file():
+        return False
+    if not stat.S_ISREG(path.stat().st_mode) or not os.access(path, os.X_OK):
+        return False
+    content = path.read_bytes()
+    return content.startswith(b"#!/bin/sh\n") and b"\0" not in content
+
+
+def read_ref(path):
+    safe_path(path.parent)
+    if path.is_symlink() or not path.is_file():
+        return None
+    try:
+        return path.read_text().removesuffix("\n")
+    except UnicodeError:
+        return None
+
+
+def platform_ref():
+    path = Path(os.environ.get("FRE3NDER_APP_REF_FILE", "/usr/share/fre3nder/APP_REF"))
+    ref = read_ref(path)
+    if ref != "unpublished" and not re.fullmatch(r"[0-9a-f]{40}", ref or ""):
+        raise ValueError(f"missing or invalid platform app source revision: {path}")
+    return ref
+
+
+def load_handler(app, target, ref=None):
+    # Local source is an explicit administrator/development override, never a URL.
+    local = os.environ.get("FRE3NDER_APP_SOURCE_DIR")
+    safe_path(target.parent)
+    if local:
+        source = Path(local) / "apps" / app / "service"
+        if not handler_present(source):
+            raise ValueError(f"app definition missing: {source}")
+        content = source.read_bytes()
+        ref = None
+    else:
+        ref = ref if ref is not None else platform_ref()
+        if ref == "unpublished":
+            raise ValueError(
+                "no published app source revision (dirty or invalid build); "
+                "use a matching local handler or FRE3NDER_APP_SOURCE_DIR")
+        url = f"https://raw.githubusercontent.com/ElHanko/fre3nder/{ref}/apps/{app}/service"
+        with urllib.request.urlopen(url, timeout=60) as response:
+            if response.geturl() != url:
+                raise ValueError("unexpected app source redirect")
+            content = response.read()
+    if not content.startswith(b"#!/bin/sh\n") or b"\0" in content:
+        raise ValueError("app definition must be a POSIX shell script (#!/bin/sh)")
+    # Activate the complete two-file cache directory, never a mixed pair.
+    app_dir = target.parent
+    app_dir.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(dir=app_dir.parent, prefix=f".{app}-") as tmp:
+        staging = Path(tmp) / "new"
+        staging.mkdir(mode=0o755)
+        (staging / "service").write_bytes(content)
+        (staging / "service").chmod(0o755)
+        if ref is not None:
+            (staging / "APP_REF").write_text(ref + "\n")
+            (staging / "APP_REF").chmod(0o644)
+        previous = Path(tmp) / "previous"
+        safe_path(app_dir)
+        if app_dir.exists():
+            os.replace(app_dir, previous)
+        try:
+            os.replace(staging, app_dir)
+        except OSError:
+            if previous.exists():
+                os.replace(previous, app_dir)
+            raise
+
+
+def ensure_handler(app, target):
+    if os.environ.get("FRE3NDER_APP_SOURCE_DIR"):
+        load_handler(app, target)
+        return
+    ref = platform_ref()
+    present = handler_present(target)
+    if ref == "unpublished":
+        if not present:
+            raise ValueError("unpublished build needs a valid local handler or FRE3NDER_APP_SOURCE_DIR")
+        return
+    if not present or read_ref(target.parent / "APP_REF") != ref:
+        load_handler(app, target, ref)
+
+
+def main():
+    if len(sys.argv) != 3 or sys.argv[1] not in (
+            "install", "uninstall", "status", "restore"):
+        raise ValueError("usage: fre3nder {install|uninstall|status|restore} <app>")
+    action, app = sys.argv[1:]
+    if not re.fullmatch(r"[a-z][a-z0-9_-]{0,63}", app):
+        raise ValueError("invalid app name: use 1–64 lowercase letters, digits, _ or -, starting with a letter")
+    target = Path(os.environ.get("FRE3NDER_APPS_DIR", "/opt/fre3nder/apps")) / app / "service"
+    ensure_handler(app, target)
+    if not handler_present(target):
+        raise ValueError(f"app handler missing: {target}")
+    os.execv(str(target), [str(target), action])
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except (OSError, ValueError) as exc:
+        print(f"fre3nder: {exc}", file=sys.stderr)
+        sys.exit(1)

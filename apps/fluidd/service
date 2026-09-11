@@ -1,0 +1,326 @@
+#!/bin/sh
+# Fluidd owns the bootstrap below; this file is never part of the RootFS.
+exec "${FRE3NDER_PYTHON:-/usr/bin/python3}" - "$@" <<'PY'
+import hashlib
+import json
+import os
+from pathlib import Path
+import re
+import shutil
+import stat
+import sys
+import tempfile
+import urllib.request
+import zipfile
+import zlib
+
+
+home = Path(os.environ.get("FRE3NDER_HOME_DIR", "/home/fre3nder"))
+printer_data = Path(os.environ.get("FRE3NDER_PRINTER_DATA_DIR", str(home / "printer_data")))
+moonraker = Path(os.environ.get("FRE3NDER_MOONRAKER_CONFIG", str(printer_data / "config/moonraker.conf")))
+config = printer_data / "config/fre3nder/fluidd.conf"
+marker = home / ".fre3nder/services/fluidd/installed"
+active_frontend = home / ".fre3nder/frontend/active"
+payload = Path(os.environ.get("FRE3NDER_WEB_DIR", "/opt/fre3nder/web")) / "fluidd"
+handler = Path(os.environ.get("FRE3NDER_APPS_DIR", "/opt/fre3nder/apps")) / "fluidd/service"
+fixtures = os.environ.get("FRE3NDER_FLUIDD_FIXTURE_DIR")
+release_url = "https://api.github.com/repos/fluidd-core/fluidd/releases/latest"
+include = "[include fre3nder/*.conf]"
+config_text = (
+    "[update_manager fluidd]\n"
+    "type: web\n"
+    "channel: stable\n"
+    "repo: fluidd-core/fluidd\n"
+    f"path: {payload}\n"
+)
+
+
+def safe_path(path):
+    if not path.is_absolute() or ".." in path.parts or "\n" in str(path) or "\r" in str(path):
+        raise ValueError(f"unsafe path: {path}")
+    for part in reversed((path, *path.parents)):
+        if part.is_symlink():
+            raise ValueError(f"symlink is not allowed: {part}")
+        if part != path and part.exists() and not part.is_dir():
+            raise ValueError(f"not a directory: {part}")
+
+
+def regular_or_missing(path):
+    safe_path(path)
+    if path.exists() and not path.is_file():
+        raise ValueError(f"not a regular file: {path}")
+    return path.is_file()
+
+
+def file_state(path, executable=False):
+    try:
+        if not regular_or_missing(path):
+            return "missing"
+        if executable and not os.access(path, os.X_OK):
+            return "invalid"
+        return "present"
+    except (OSError, ValueError):
+        return "invalid"
+
+
+def has_include():
+    return regular_or_missing(moonraker) and include in moonraker.read_text().splitlines()
+
+
+def require_include():
+    if not has_include():
+        raise ValueError(
+            f"{moonraker}: add the exact line {include}\n"
+            "Fre3nder does not automatically modify existing user configuration.")
+
+
+def payload_state(path):
+    try:
+        safe_path(path)
+        if not path.exists():
+            return "missing"
+        if not path.is_dir():
+            return "invalid"
+        def walk_error(exc):
+            raise exc
+        for root, dirs, files in os.walk(path, onerror=walk_error):
+            for name in dirs + files:
+                mode = (Path(root) / name).lstat().st_mode
+                if not (stat.S_ISREG(mode) or stat.S_ISDIR(mode)):
+                    return "invalid"
+        index = path / "index.html"
+        info = path / "release_info.json"
+        if not index.is_file() or not index.stat().st_size or not info.is_file():
+            return "invalid"
+        data = json.loads(info.read_text())
+        if not isinstance(data, dict) or data.get("project_name") != "fluidd" or data.get("project_owner") != "fluidd-core":
+            return "invalid"
+        # The pinned Moonraker web deployer also requires this upstream field.
+        if not isinstance(data.get("version"), str) or not data["version"]:
+            return "invalid"
+        if data.get("asset_name", "fluidd.zip") != "fluidd.zip":
+            return "invalid"
+        return "present"
+    except (OSError, ValueError):
+        return "invalid"
+
+
+def atomic_file(path, content):
+    regular_or_missing(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.NamedTemporaryFile(dir=path.parent, prefix=".fluidd-", delete=False) as tmp:
+        staging = Path(tmp.name)
+        try:
+            tmp.write(content)
+            tmp.flush()
+            os.fchmod(tmp.fileno(), 0o644)
+            os.replace(staging, path)
+        finally:
+            staging.unlink(missing_ok=True)
+
+
+def restart_notice():
+    print("fluidd: Moonraker configuration changed; apply it with "
+          "/etc/init.d/S61fre3nder-moonraker restart", file=sys.stderr)
+
+
+def frontend_selection():
+    if not regular_or_missing(active_frontend):
+        return None
+    name = active_frontend.read_text().removesuffix("\n")
+    if not re.fullmatch(r"[a-z][a-z0-9_-]{0,63}", name):
+        raise ValueError(f"invalid frontend name in {active_frontend}")
+    return name
+
+
+def frontend_notice():
+    print("fluidd: active frontend changed; apply it with "
+          "/etc/init.d/S62fre3nder-web restart (respects the disabled marker)",
+          file=sys.stderr)
+
+
+def ensure_config():
+    if regular_or_missing(config) and config.read_text() == config_text:
+        return
+    atomic_file(config, config_text.encode())
+    restart_notice()
+
+
+def read_release():
+    if fixtures:
+        path = Path(fixtures) / "release.json"
+        if not regular_or_missing(path):
+            raise ValueError(f"release fixture missing: {path}")
+        return json.loads(path.read_text())
+    request = urllib.request.Request(release_url, headers={"Accept": "application/vnd.github+json"})
+    with urllib.request.urlopen(request, timeout=60) as response:
+        if response.geturl() != release_url:
+            raise ValueError("unexpected release API redirect")
+        return json.load(response)
+
+
+def release_asset():
+    release = read_release()
+    if not isinstance(release, dict) or release.get("draft") is not False or release.get("prerelease") is not False:
+        raise ValueError("expected an official stable Fluidd release")
+    tag = release.get("tag_name", "")
+    if not isinstance(tag, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", tag):
+        raise ValueError("invalid Fluidd release tag")
+    if release.get("html_url") != f"https://github.com/fluidd-core/fluidd/releases/tag/{tag}":
+        raise ValueError("unexpected Fluidd release repository")
+    assets = release.get("assets")
+    if not isinstance(assets, list):
+        raise ValueError("release assets missing")
+    assets = [a for a in assets if isinstance(a, dict) and a.get("name") == "fluidd.zip"]
+    if len(assets) != 1:
+        raise ValueError("expected exactly one official fluidd.zip asset")
+    asset = assets[0]
+    expected_url = f"https://github.com/fluidd-core/fluidd/releases/download/{tag}/fluidd.zip"
+    if asset.get("browser_download_url") != expected_url or asset.get("state") != "uploaded":
+        raise ValueError("unexpected Fluidd asset URL or state")
+    if type(asset.get("size")) is not int or asset["size"] <= 0:
+        raise ValueError("invalid Fluidd asset size")
+    digest = asset.get("digest")
+    if digest is not None and (not isinstance(digest, str) or not re.fullmatch(r"sha256:[0-9a-f]{64}", digest)):
+        raise ValueError("invalid Fluidd asset SHA256 digest")
+    return asset
+
+
+def download(asset, destination):
+    if fixtures:
+        source = Path(fixtures) / "fluidd.zip"
+        if not regular_or_missing(source):
+            raise ValueError(f"asset fixture missing: {source}")
+        stream = source.open("rb")
+    else:
+        stream = urllib.request.urlopen(asset["browser_download_url"], timeout=60)
+        # GitHub redirects release downloads to its HTTPS asset storage.
+        if not stream.geturl().startswith("https://"):
+            stream.close()
+            raise ValueError("asset download left HTTPS")
+    sha = hashlib.sha256()
+    size = 0
+    with stream, destination.open("xb") as output:
+        while chunk := stream.read(128 * 1024):
+            size += len(chunk)
+            if size > asset["size"]:
+                raise ValueError("Fluidd asset exceeds published size")
+            sha.update(chunk)
+            output.write(chunk)
+    if size != asset["size"]:
+        raise ValueError("Fluidd asset size mismatch")
+    if asset.get("digest"):
+        if "sha256:" + sha.hexdigest() != asset["digest"]:
+            raise ValueError("Fluidd asset SHA256 mismatch")
+    else:
+        print("fluidd: upstream supplied no SHA256 digest; relying on HTTPS, "
+              "size checks and staged ZIP validation", file=sys.stderr)
+
+
+def extract(archive, destination):
+    with zipfile.ZipFile(archive) as zipped:
+        for entry in zipped.infolist():
+            name = entry.orig_filename
+            parts = name.rstrip("/").split("/")
+            mode = stat.S_IFMT(entry.external_attr >> 16)
+            if (not name or "\0" in name or "\\" in name or
+                    any(p in ("", ".", "..") for p in parts) or
+                    mode not in (0, stat.S_IFREG, stat.S_IFDIR)):
+                raise ValueError(f"unsafe ZIP entry: {name!r}")
+            target = destination.joinpath(*parts)
+            if entry.is_dir():
+                target.mkdir(parents=True, exist_ok=True)
+            else:
+                target.parent.mkdir(parents=True, exist_ok=True)
+                with zipped.open(entry) as source, target.open("xb") as output:
+                    shutil.copyfileobj(source, output, 128 * 1024)
+
+
+def remove_payload(path):
+    safe_path(path)
+    if path.is_dir():
+        shutil.rmtree(path)
+    elif path.exists():
+        path.unlink()
+
+
+def bootstrap():
+    if payload_state(payload) == "present":
+        return
+    safe_path(payload)
+    asset = release_asset()
+    payload.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(dir=payload.parent, prefix=".fluidd-") as tmp:
+        staging = Path(tmp)
+        archive = staging / "fluidd.zip"
+        candidate = staging / "payload"
+        candidate.mkdir()
+        download(asset, archive)
+        extract(archive, candidate)
+        if payload_state(candidate) != "present":
+            raise ValueError("downloaded Fluidd payload is invalid")
+        # Preserve a valid installation that appeared while downloading.
+        if payload_state(payload) == "present":
+            return
+        safe_path(payload)
+        previous = staging / "previous"
+        if payload.exists():
+            os.replace(payload, previous)
+        try:
+            os.replace(candidate, payload)
+        except OSError:
+            if previous.exists():
+                os.replace(previous, payload)
+            raise
+
+
+def main():
+    if len(sys.argv) != 2 or sys.argv[1] not in ("install", "uninstall", "status", "restore"):
+        raise ValueError("usage: service {install|uninstall|status|restore}")
+    action = sys.argv[1]
+    if action == "status":
+        print("desired=" + ("installed" if file_state(marker) == "present" else "absent"))
+        print("app_handler=" + file_state(handler, executable=True))
+        print("payload=" + payload_state(payload))
+        print("moonraker_config=" + ("present" if file_state(config) == "present" else "missing"))
+        try:
+            included = has_include()
+        except (OSError, ValueError):
+            included = False
+        print("moonraker_include=" + ("present" if included else "missing"))
+        return
+    desired = regular_or_missing(marker)
+    if action == "restore" and not desired:
+        return
+    selected = frontend_selection() if action != "restore" else None
+    regular_or_missing(config)
+    safe_path(payload)
+    if action == "uninstall":
+        if config.exists():
+            config.unlink()
+            restart_notice()
+        remove_payload(payload)
+        if selected == "fluidd":
+            active_frontend.unlink()
+            frontend_notice()
+        marker.unlink(missing_ok=True)
+        return
+    require_include()
+    if action == "restore":
+        ensure_config()
+    bootstrap()
+    ensure_config()
+    if action == "install" and selected is None:
+        atomic_file(active_frontend, b"fluidd\n")
+        frontend_notice()
+    # Desired state is written only after payload and config succeeded.
+    if not desired:
+        atomic_file(marker, b"")
+
+
+try:
+    main()
+except (OSError, ValueError, zipfile.BadZipFile, zlib.error, RuntimeError) as exc:
+    print(f"fluidd: {exc}", file=sys.stderr)
+    sys.exit(1)
+PY
