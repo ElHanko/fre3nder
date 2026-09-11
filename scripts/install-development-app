@@ -1,0 +1,64 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+die() {
+	echo "REFUSED: $*" >&2
+	exit 1
+}
+
+usage() {
+	echo "usage: $0 <printer-host> <app>" >&2
+	exit 2
+}
+
+[[ $# == 2 ]] || usage
+
+host=$1
+app=$2
+[[ -n $host && $host != -* ]] || usage
+[[ $app =~ ^[a-z][a-z0-9_-]{0,63}$ ]] || die "invalid app name"
+
+root=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+source=$root/apps/$app/service
+prepare=$root/scripts/prepare-x2000-development
+remote_root=/tmp/fre3nder-app-source
+remote_dir=$remote_root/apps/$app
+remote_service=$remote_dir/service
+
+[[ -f $source && ! -L $source ]] ||
+	die "local app definition is missing, non-regular, or a symlink: $source"
+[[ $(head -n 1 -- "$source") == '#!/bin/sh' ]] ||
+	die "local app definition must begin with #!/bin/sh: $source"
+[[ -x $prepare ]] || die "development preparation helper is unavailable"
+
+local_sha=$(sha256sum "$source" | awk '{print $1}')
+
+"$prepare" "$host" || die "development preparation failed"
+
+remote_write="set -eu
+for directory in '$remote_root' '$remote_root/apps' '$remote_dir'; do
+	if [ -e \"\$directory\" ] || [ -L \"\$directory\" ]; then
+		[ -d \"\$directory\" ] && [ ! -L \"\$directory\" ] || exit 1
+	else
+		mkdir -m 0700 \"\$directory\"
+	fi
+done
+if [ -e '$remote_service' ] || [ -L '$remote_service' ]; then
+	[ -f '$remote_service' ] && [ ! -L '$remote_service' ] || exit 1
+fi
+cat > '$remote_service'
+chmod 0755 '$remote_service'"
+
+ssh -o BatchMode=yes "$host" "$remote_write" < "$source" ||
+	die "app definition transfer failed"
+
+remote_sha=$(
+	ssh -o BatchMode=yes "$host" "sha256sum '$remote_service'" |
+		awk '{print $1}'
+) || die "cannot verify transferred app definition"
+
+[[ $remote_sha == "$local_sha" ]] ||
+	die "transferred app definition SHA256 mismatch"
+
+exec ssh -o BatchMode=yes "$host" \
+	"FRE3NDER_APP_SOURCE_DIR=$remote_root /usr/bin/fre3nder install '$app'"

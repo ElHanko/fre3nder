@@ -127,6 +127,31 @@ without a valid cache or local override the call fails. Missing or malformed
 platform refs fail without a local override. No compatibility promise is made for
 manually mixing a definition from a different platform revision.
 
+The standard host-side workflow for a dirty development build is:
+
+```sh
+scripts/install-development-app <printer-host> fluidd
+```
+
+The helper validates the repository app definition, runs the required
+`prepare-x2000-development` safety preparation, transfers only that definition
+through SSH/stdin, verifies its SHA256 on the target, and invokes
+`fre3nder install <app>` with `/tmp/fre3nder-app-source` as the explicit local
+source. It does not restart services; handler restart notices remain
+instructions for the operator.
+
+In summary, a clean build whose `APP_REF` names a published commit uses:
+
+```sh
+fre3nder install <app>
+```
+
+A dirty build carrying `APP_REF=unpublished` uses:
+
+```sh
+scripts/install-development-app <printer-host> <app>
+```
+
 ## Fluidd lifecycle
 
 ### Install

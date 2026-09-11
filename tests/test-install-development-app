@@ -1,0 +1,140 @@
+#!/bin/sh
+set -eu
+
+root=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+helper=$root/scripts/install-development-app
+tmp=$(mktemp -d)
+trap 'rm -rf -- "$tmp"' EXIT HUP INT TERM
+
+fixture=$tmp/project
+bin=$tmp/bin
+log=$tmp/calls
+transferred=$tmp/transferred-service
+mkdir -p \
+	"$fixture/scripts" \
+	"$fixture/apps/sample" \
+	"$fixture/apps/linked" \
+	"$fixture/apps/bad-shebang" \
+	"$bin"
+cp "$helper" "$fixture/scripts/install-development-app"
+printf '%s\n' '#!/bin/sh' 'echo sample fixture' > "$fixture/apps/sample/service"
+printf '%s\n' '#!/bin/bash' > "$fixture/apps/bad-shebang/service"
+
+cat > "$fixture/scripts/prepare-x2000-development" <<'EOF'
+#!/bin/sh
+printf 'prepare:%s\n' "$*" >> "$TEST_CALLS"
+[ "${TEST_PREPARE_FAIL:-0}" -eq 0 ]
+EOF
+
+cat > "$bin/ssh" <<'EOF'
+#!/bin/sh
+set -eu
+[ "$1" = -o ] && [ "$2" = BatchMode=yes ]
+host=$3
+command=$4
+printf 'ssh-host:%s\nssh-command:%s\n' "$host" "$command" >> "$TEST_CALLS"
+
+case "$command" in
+*"cat > '/tmp/fre3nder-app-source/apps/sample/service'"*)
+	cat > "$TEST_TRANSFERRED"
+	;;
+"sha256sum '/tmp/fre3nder-app-source/apps/sample/service'")
+	if [ "${TEST_SHA_MISMATCH:-0}" -eq 1 ]; then
+		printf '%064d  %s\n' 0 /tmp/fre3nder-app-source/apps/sample/service
+	else
+		sha256sum "$TEST_TRANSFERRED"
+	fi
+	;;
+"FRE3NDER_APP_SOURCE_DIR=/tmp/fre3nder-app-source /usr/bin/fre3nder install 'sample'")
+	exit "${TEST_INSTALL_RC:-0}"
+	;;
+*)
+	echo "unexpected SSH command: $command" >&2
+	exit 1
+	;;
+esac
+EOF
+
+chmod 0755 \
+	"$fixture/scripts/install-development-app" \
+	"$fixture/scripts/prepare-x2000-development" \
+	"$fixture/apps/sample/service" \
+	"$bin/ssh"
+
+run_helper() {
+	PATH=$bin:$PATH \
+	TEST_CALLS=$log \
+	TEST_TRANSFERRED=$transferred \
+	TEST_PREPARE_FAIL=${TEST_PREPARE_FAIL:-0} \
+	TEST_SHA_MISMATCH=${TEST_SHA_MISMATCH:-0} \
+	TEST_INSTALL_RC=${TEST_INSTALL_RC:-0} \
+		"$fixture/scripts/install-development-app" "$@"
+}
+
+for args in '' 'host' 'host sample extra'; do
+	if run_helper $args >/dev/null 2>&1; then
+		echo "invalid argument count unexpectedly accepted: $args" >&2
+		exit 1
+	fi
+done
+
+for app in '../sample' Upper 'two names'; do
+	if run_helper host "$app" >/dev/null 2>&1; then
+		echo "invalid app name unexpectedly accepted: $app" >&2
+		exit 1
+	fi
+done
+
+if run_helper host missing >/dev/null 2>&1; then
+	echo 'missing app unexpectedly accepted' >&2
+	exit 1
+fi
+
+if run_helper host bad-shebang >/dev/null 2>&1; then
+	echo 'invalid app-definition shebang unexpectedly accepted' >&2
+	exit 1
+fi
+
+ln -s ../sample/service "$fixture/apps/linked/service"
+if run_helper host linked >/dev/null 2>&1; then
+	echo 'symlink app definition unexpectedly accepted' >&2
+	exit 1
+fi
+
+rm -f "$log" "$transferred"
+if TEST_PREPARE_FAIL=1 run_helper host sample >/dev/null 2>&1; then
+	echo 'failed development preparation unexpectedly accepted' >&2
+	exit 1
+fi
+grep -Fxq 'prepare:host' "$log"
+! grep -Fq 'ssh-' "$log"
+[ ! -e "$transferred" ]
+
+rm -f "$log" "$transferred"
+if TEST_SHA_MISMATCH=1 run_helper host sample >/dev/null 2>&1; then
+	echo 'SHA256 mismatch unexpectedly accepted' >&2
+	exit 1
+fi
+cmp -s "$fixture/apps/sample/service" "$transferred"
+! grep -Fq '/usr/bin/fre3nder install' "$log"
+
+rm -f "$log" "$transferred"
+run_helper host sample
+cmp -s "$fixture/apps/sample/service" "$transferred"
+[ "$(sed -n '1p' "$log")" = prepare:host ]
+[ "$(grep -Fc 'ssh-host:host' "$log")" -eq 3 ]
+grep -Fq "chmod 0755 '/tmp/fre3nder-app-source/apps/sample/service'" "$log"
+grep -Fxq \
+	"ssh-command:FRE3NDER_APP_SOURCE_DIR=/tmp/fre3nder-app-source /usr/bin/fre3nder install 'sample'" \
+	"$log"
+! grep -Eq 'S60|S61|S62|restart|scp|sftp|rsync' "$log"
+! grep -Eq '(^|[^[:alnum:]_])(scp|sftp|rsync)([^[:alnum:]_]|$)' "$helper"
+
+rm -f "$log" "$transferred"
+set +e
+TEST_INSTALL_RC=23 run_helper host sample >/dev/null 2>&1
+rc=$?
+set -e
+[ "$rc" -eq 23 ]
+
+echo 'fre3nder development app installer fixtures: PASS'
