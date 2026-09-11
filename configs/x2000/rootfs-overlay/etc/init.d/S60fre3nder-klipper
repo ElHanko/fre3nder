@@ -16,6 +16,8 @@ config_dir=$printer_data/config
 config=${FRE3NDER_KLIPPER_CONFIG:-$config_dir/printer.cfg}
 default_config=${FRE3NDER_KLIPPER_DEFAULT_CONFIG:-/usr/share/fre3nder/defaults/printer.cfg}
 persistent_logs=${FRE3NDER_KLIPPER_LOG_DIR:-$printer_data/logs}
+transition_helper=${FRE3NDER_F005_TRANSITION_HELPER:-/usr/libexec/fre3nder/f005-stock-to-fre3nder}
+auto_transition_file=${FRE3NDER_F005_AUTO_TRANSITION_FILE:-$fre3nder_home/f005-auto-transition.enabled}
 
 case "$startup_timeout" in
 ''|*[!0-9]*) startup_timeout=10 ;;
@@ -105,6 +107,13 @@ wait_for_klippy_ready() {
 	pid_is_klippy "$proc_pid" || return 2
 }
 
+f005_auto_transition_enabled() {
+	[ -f "$auto_transition_file" ] && [ ! -L "$auto_transition_file" ] || return 1
+	auto_transition_size=$(wc -c < "$auto_transition_file" 2>/dev/null) || return 1
+	[ "$auto_transition_size" -eq 7 ] &&
+		[ "$(cat "$auto_transition_file" 2>/dev/null)" = enabled ]
+}
+
 start() {
 	mkdir -p "$runtime" || {
 		log 'runtime setup failed'
@@ -155,9 +164,28 @@ start() {
 	case "$mcu_state" in
 	fre3nder) ;;
 	stock)
-		set_status stock-mcu
-		log 'Stock MCU detected; normal Klippy remains stopped'
-		return 0
+		if ! f005_auto_transition_enabled; then
+			set_status stock-mcu
+			log 'Stock MCU detected; automatic F005 transition is not enabled'
+			return 0
+		fi
+
+		if [ ! -x "$transition_helper" ]; then
+			set_status mcu-transition-unavailable
+			log 'Stock MCU detected, but the F005 transition helper is unavailable'
+			return 0
+		fi
+
+		set_status mcu-transitioning
+		log 'Stock MCU detected; automatic F005 transition is enabled'
+
+		if ! "$transition_helper" --write >>"$runtime/mcu-transition.log" 2>&1; then
+			set_status mcu-transition-failed
+			log 'automatic F005 transition failed; normal Klippy remains stopped'
+			return 0
+		fi
+
+		log 'automatic F005 transition completed'
 		;;
 	*)
 		set_status unknown-mcu

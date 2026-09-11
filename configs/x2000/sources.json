@@ -88,7 +88,7 @@
     "license": "GPL-2.0-only"
   },
   "klipper_patch_set": {
-    "identity": "x2000-passive-uart-opt-in-v1",
+    "identity": "x2000-passive-uart-opt-in-v2",
     "file": "patches/klipper/0004-x2000-passive-uart-opt-in.patch",
     "source_commit": "0499b30374315f2a9f49fc12808527fc7d0f5cfa",
     "license": "GPL-3.0-only"

@@ -330,3 +330,79 @@ artifact.
 **FULL CURRENT-MAIN KERNEL + ROOTFS INSTALL: QUALIFIED ON DEVICE.**
 
 **HOSTNAME `fre3nder`: QUALIFIED ON DEVICE.**
+
+## 2026-09-11 resilient startup and automatic Stock-to-Fre3nder qualification
+
+A development RootFS containing passive-UART v2, bounded Moonraker process
+cleanup, and the opt-in automatic Stock-to-Fre3nder F005 startup path was built
+and installed on the investigated reference system.
+
+The deployed RootFS was 58085376 bytes with SHA-256
+`2f0760d69531ff2417ca8c6295e6b730350e77e7297da003696470ea7b5c2bde`.
+It was written from Stock A on p7 to inactive p8. Artifact readback passed,
+Stock p5 and p7 remained unchanged, Fre3nder booted from p8, and the selector
+was restored to `STOCK_A`. `deploy-x2000` reported `DEPLOY_X2000=PASS`.
+
+### Passive UART v2
+
+Exactly one `FIRMWARE_RESTART` was issued. Three passive identify attempts
+timed out before a later automatic attempt identified the exact qualified
+Fre3nder MCU and returned the printer to ready without a manual Klippy restart.
+
+**X2000 PASSIVE UART V2 AUTOMATIC RECONNECT: QUALIFIED ON DEVICE.**
+
+### Moonraker startup cleanup
+
+The installed RootFS ran exactly one Klippy process and exactly one Moonraker
+process. Moonraker reached `active`, and no new SQLite insertion errors were
+observed.
+
+**MOONRAKER BOUNDED STARTUP/CLEANUP: QUALIFIED ON DEVICE.**
+
+### Opt-in automatic Stock -> Fre3nder transition
+
+The persistent opt-in marker was a regular seven-byte file containing exactly
+`enabled` without a trailing newline. The RootFS itself did not pre-create the
+marker.
+
+After a complete power-cycle, unchanged Stock `S13mcu_update` successfully
+handshook with `/dev/ttyS1`, reported `mcu0_001_G32-mcu0_004_000`, selected
+`mcu0_001_G32-mcu0_005_000.bin`, and completed `fw_update`.
+
+Stock Klipper then identified the expected runtime
+`38d96adc-dirty-20231016_135251-longer-virtual-machine`.
+
+Fre3nder B was then selected and booted without manual MCU or service
+intervention. S60 recognized the supported Stock runtime and valid opt-in.
+The transition log reported:
+
+    f005-stock-to-fre3nder: transition-complete
+
+After the transition:
+
+- Klipper service status was `active`;
+- Moonraker service status was `active`;
+- Klipper reported `Printer is ready`;
+- MCU version was `?-20260830_120730-cde6ec7a76a4`;
+- `bytes_retransmit` was 0;
+- `bytes_invalid` was 0;
+- `retransmit_seq` was 0.
+
+**AUTOMATIC OPT-IN STOCK -> FRE3NDER HOST/MCU TRANSITION:
+QUALIFIED ON DEVICE.**
+
+### Remaining warm-reboot boundary
+
+A separate warm X2000 reboot into Stock did not reset the F005 into a state in
+which unchanged Stock successfully replaced the Fre3nder application. On the
+following Fre3nder boot, the exact qualified Fre3nder MCU was still
+identifiable but was in firmware shutdown. Klipper reported
+`Can not update MCU 'mcu' config as it is shutdown`.
+
+A subsequent complete power-cycle allowed unchanged Stock `S13mcu_update` to
+perform the successful 004 -> 005 update described above.
+
+The full-power-cycle Stock recovery boundary therefore remains qualified. The
+software-only Fre3nder -> Stock warm-reboot handoff remains
+**REQUIRES QUALIFICATION**. The shutdown state is recorded without assigning an
+unproven cause.

@@ -444,7 +444,8 @@ fetch_moonraker_inputs() {
 	git -C "$moonraker" fetch origin "$moonraker_commit"
 	git -C "$moonraker" reset --hard "$moonraker_commit"
 	git -C "$moonraker" clean -fdx
-	git -C "$moonraker" checkout --detach "$moonraker_commit"
+	git -C "$moonraker" checkout -B master "$moonraker_commit"
+	git -C "$moonraker" branch --set-upstream-to=origin/master master
 	[ "$(git -C "$moonraker" rev-parse HEAD)" = "$moonraker_commit" ]
 
 	fetch_moonraker_python_wheels
@@ -495,7 +496,8 @@ prepare_moonraker_source() {
 	[ "$(git -C "$moonraker" remote get-url origin)" = "$moonraker_url" ]
 	git -C "$moonraker" reset --hard "$moonraker_commit"
 	git -C "$moonraker" clean -fdx
-	git -C "$moonraker" checkout --detach "$moonraker_commit"
+	git -C "$moonraker" checkout -B master "$moonraker_commit"
+	git -C "$moonraker" branch --set-upstream-to=origin/master master
 	[ "$(git -C "$moonraker" rev-parse HEAD)" = "$moonraker_commit" ]
 	[ -z "$(git -C "$moonraker" status --porcelain=v1)" ]
 	grep -Fxq 'GNU GENERAL PUBLIC LICENSE' "$moonraker/LICENSE"
@@ -521,7 +523,7 @@ prepare_klipper_overlay() {
 		"$klipper_overlay/var/lib/fre3nder/firmware/f005"
 	rsync -a --exclude=.git/ "$klipper/" \
 		"$klipper_overlay/usr/share/klipper/"
-	printf '%s\n' 'v0.13.0-733-g0499b3037-fre3nder-passive-uart-v1' > \
+	printf '%s\n' 'v0.13.0-733-g0499b3037-fre3nder-passive-uart-v2' > \
 		"$klipper_overlay/usr/share/klipper/klippy/.version"
 	install -m 0644 "$project/configs/klipper-f005/printer-f005-mainline.cfg" \
 		"$klipper_overlay/usr/share/fre3nder/defaults/printer.cfg"
@@ -1056,6 +1058,10 @@ check_rootfs() {
 		"$moonraker_service"
 	grep -Fq 'python=${FRE3NDER_PYTHON:-/opt/fre3nder/moonraker-env/bin/python}' \
 		"$moonraker_service"
+	grep -Fxq 'startup_timeout=${FRE3NDER_MOONRAKER_START_TIMEOUT:-30}' \
+		"$moonraker_service"
+	grep -Fq 'if [ "$seconds" -ge "$startup_timeout" ]; then' \
+		"$moonraker_service"
 	grep -Fxq '[include fre3nder/*.conf]' \
 		"$target/usr/share/fre3nder/defaults/moonraker.conf"
 	grep -Fq 'PIP_ONLY_BINARY=:all:' "$moonraker_service"
@@ -1068,7 +1074,10 @@ check_rootfs() {
 	[ -f "$moonraker_root/moonraker/moonraker.py" ]
 	[ -d "$moonraker_root/.git" ]
 	[ "$(git -C "$moonraker_root" rev-parse HEAD)" = "$moonraker_commit" ]
+	[ "$(git -C "$moonraker_root" symbolic-ref --short HEAD)" = master ]
 	[ "$(git -C "$moonraker_root" remote get-url origin)" = "$moonraker_url" ]
+	[ "$(git -C "$moonraker_root" config --get branch.master.remote)" = origin ]
+	[ "$(git -C "$moonraker_root" config --get branch.master.merge)" = refs/heads/master ]
 	[ -f "$moonraker_env/pyvenv.cfg" ]
 	grep -Fxq 'include-system-site-packages = true' "$moonraker_env/pyvenv.cfg"
 	[ -f "$moonraker_env/bin/activate" ]

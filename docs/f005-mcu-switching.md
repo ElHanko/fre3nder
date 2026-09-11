@@ -99,9 +99,17 @@ underlying Stock-to-Fre3nder transition and F005 product components retain
 their existing **QUALIFIED ON DEVICE** status.
 
 The immutable RootFS now contains the qualified F005 release. A persistent
-system-overlay replacement remains possible, but `deploy-f005` retains the
-manual staging and MCU-transition responsibility. The normal boot sequence
-does not flash or transition the MCU.
+system-overlay replacement remains possible, and `deploy-f005` remains the
+explicit operator-side staging and transition interface.
+
+The normal Fre3nder startup path remains fail-closed by default. If the exact
+supported Stock runtime identity is observed, S60 starts no Klippy unless the
+persistent opt-in file `/home/fre3nder/f005-auto-transition.enabled` is a
+regular non-symlink file containing exactly seven bytes, `enabled`, without a
+trailing newline. With that opt-in present, S60 invokes the existing
+`f005-stock-to-fre3nder --write` helper exactly once. An unknown MCU identity,
+missing helper, invalid marker, or failed transition does not start normal
+Klippy.
 
 ## Historical 2026-08-27 `mcu_util` qualification
 
@@ -539,19 +547,37 @@ host roundtrip.
 
 ### Stock -> Fre3nder
 
-**MCU TRANSITION QUALIFIED ON DEVICE / COORDINATED HOST LEG STILL OPEN:**
+**COORDINATED STOCK -> FRE3NDER HOST LEG: QUALIFIED ON DEVICE.**
 
 ```text
-Stock A + Stock MCU
+Stock A + exact Stock MCU
 -> select and boot Fre3nder B
--> Fre3nder establishes and validates the expected Fre3nder MCU state
--> Upstream Klipper becomes operational
+-> S60 identifies the exact supported Stock runtime
+-> persistent opt-in authorizes one Stock -> Fre3nder transition
+-> F005 transition helper completes and verifies the transition
+-> exact qualified Fre3nder MCU is identified
+-> Upstream Klipper reaches Printer is ready
+-> Moonraker is active
 ```
 
-The transition belongs to Fre3nder B, not to a Stock-side Fre3nder extension.
-The exact Stock-MCU -> Fre3nder-MCU portion is qualified as described above.
-The complete coordinated Stock -> Fre3nder -> Stock host roundtrip remains
-**REQUIRES QUALIFICATION**.
+On 2026-09-11 this complete host leg was exercised on the investigated
+reference system. After a complete power-cycle, unchanged Stock
+`S13mcu_update` handshook with the F005, reported
+`mcu0_001_G32-mcu0_004_000`, and successfully installed
+`mcu0_001_G32-mcu0_005_000.bin`. Stock Klipper then identified the expected
+116-command Stock runtime
+`38d96adc-dirty-20231016_135251-longer-virtual-machine`.
+
+After selecting Fre3nder B and rebooting, the persistent opt-in caused S60 to
+invoke the production transition helper. The runtime log reported
+`f005-stock-to-fre3nder: transition-complete`. Klipper then identified
+`?-20260830_120730-cde6ec7a76a4`, reached `Printer is ready`, and reported zero
+retransmitted and zero invalid UART bytes. Moonraker was active.
+
+This qualifies the coordinated Stock -> Fre3nder host leg, including the
+opt-in startup orchestration. The complete Stock -> Fre3nder -> Stock
+software-only roundtrip remains **REQUIRES QUALIFICATION** because the reverse
+warm-reboot handoff remains unresolved.
 
 ### Fre3nder -> Stock
 

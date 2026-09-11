@@ -11,7 +11,7 @@ diff --git a/klippy/serialhdl.py b/klippy/serialhdl.py
  import serial
 
  import msgproto, chelper, util
-@@ -204,6 +204,36 @@ class SerialReader:
+@@ -204,6 +204,47 @@ class SerialReader:
              ret = self._start_session(serial_dev)
              if ret:
                  break
@@ -20,31 +20,42 @@ diff --git a/klippy/serialhdl.py b/klippy/serialhdl.py
 +        if serialport != '/dev/ttyS1' or baud != 230400:
 +            self._error("Passive UART requires /dev/ttyS1 at 230400")
 +        logging.info("%sStarting passive serial connect", self.warn_prefix)
-+        flags = os.O_RDWR | os.O_NOCTTY | os.O_NONBLOCK
-+        if hasattr(os, 'O_CLOEXEC'):
-+            flags |= os.O_CLOEXEC
-+        fd = os.open(serialport, flags)
-+        try:
-+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-+            if hasattr(termios, 'TIOCEXCL'):
++        start_time = self.reactor.monotonic()
++        while 1:
++            if self.reactor.monotonic() > start_time + 90.:
++                self._error("Unable to connect")
++            flags = os.O_RDWR | os.O_NOCTTY | os.O_NONBLOCK
++            if hasattr(os, 'O_CLOEXEC'):
++                flags |= os.O_CLOEXEC
++            try:
++                fd = os.open(serialport, flags)
 +                try:
-+                    fcntl.ioctl(fd, termios.TIOCEXCL)
-+                except OSError as e:
-+                    if e.errno != errno.ENOTTY:
-+                        raise
-+            attrs = termios.tcgetattr(fd)
-+            attrs[0] = attrs[1] = attrs[3] = 0
-+            attrs[2] = termios.CS8 | termios.CREAD | termios.CLOCAL
-+            attrs[4] = attrs[5] = termios.B230400
-+            attrs[6][termios.VMIN] = 0
-+            attrs[6][termios.VTIME] = 0
-+            termios.tcsetattr(fd, termios.TCSANOW, attrs)
-+            serial_dev = os.fdopen(fd, 'rb+', 0)
-+        except:
-+            os.close(fd)
-+            raise
-+        if not self._start_session(serial_dev):
-+            self._error("Unable to start passive serial session")
++                    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
++                    if hasattr(termios, 'TIOCEXCL'):
++                        try:
++                            fcntl.ioctl(fd, termios.TIOCEXCL)
++                        except OSError as e:
++                            if e.errno != errno.ENOTTY:
++                                raise
++                    attrs = termios.tcgetattr(fd)
++                    attrs[0] = attrs[1] = attrs[3] = 0
++                    attrs[2] = termios.CS8 | termios.CREAD | termios.CLOCAL
++                    attrs[4] = attrs[5] = termios.B230400
++                    attrs[6][termios.VMIN] = 0
++                    attrs[6][termios.VTIME] = 0
++                    termios.tcsetattr(fd, termios.TCSANOW, attrs)
++                    serial_dev = os.fdopen(fd, 'rb+', 0)
++                except:
++                    os.close(fd)
++                    raise
++            except OSError as e:
++                logging.warning("%sUnable to open passive serial port: %s",
++                                self.warn_prefix, e)
++                self.reactor.pause(self.reactor.monotonic() + 5.)
++                continue
++            ret = self._start_session(serial_dev)
++            if ret:
++                break
      def connect_file(self, debugoutput, dictionary, pace=False):
          self.serial_dev = debugoutput
          self.msgparser.process_identify(dictionary, decompress=False)

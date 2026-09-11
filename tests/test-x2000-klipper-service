@@ -18,6 +18,9 @@ mkdir -p "$state_dir" "$tmp/home"
 printf '%s\n' active > "$state_dir/status"
 klippy=$tmp/klippy.py
 helper=$tmp/f005-mcu-state
+transition_helper=$tmp/f005-stock-to-fre3nder
+transition_calls=$tmp/transition-calls
+auto_transition_file=$tmp/f005-auto-transition.enabled
 python=$tmp/python3
 called=$tmp/python-called
 fail_fast=$tmp/fail-fast
@@ -26,6 +29,14 @@ cat > "$helper" <<'EOF'
 #!/bin/sh
 printf '%s\n' "${FIXTURE_MCU_STATE:-unknown}"
 [ "${FIXTURE_MCU_STATE:-unknown}" != unknown ]
+EOF
+
+cat > "$transition_helper" <<'EOF'
+#!/bin/sh
+printf '%s\n' "$*" >> "$FIXTURE_TRANSITION_CALLS"
+printf '%s\n' 'transition fixture stdout'
+printf '%s\n' 'transition fixture stderr' >&2
+exit "${FIXTURE_TRANSITION_RC:-0}"
 EOF
 
 cat > "$klippy" <<'EOF'
@@ -55,7 +66,7 @@ time.sleep(60)
 EOF
 
 ln -s "$(command -v python3)" "$python"
-chmod 0755 "$helper"
+chmod 0755 "$helper" "$transition_helper"
 
 run_service() {
 	FRE3NDER_KLIPPER_RUNTIME=$runtime \
@@ -65,8 +76,12 @@ run_service() {
 	FRE3NDER_ROOT_STATE=$state_dir \
 	FRE3NDER_HOME_DIR=$fre3nder_home \
 	FRE3NDER_KLIPPER_DEFAULT_CONFIG=$default_config \
+	FRE3NDER_F005_TRANSITION_HELPER=$transition_helper \
+	FRE3NDER_F005_AUTO_TRANSITION_FILE=$auto_transition_file \
 	FIXTURE_PYTHON_CALLED=$called \
 	FIXTURE_FAIL_FAST=$fail_fast \
+	FIXTURE_TRANSITION_CALLS=$transition_calls \
+	FIXTURE_TRANSITION_RC=${FIXTURE_TRANSITION_RC:-0} \
 	FIXTURE_SOCKET_DELAY=${FIXTURE_SOCKET_DELAY:-0} \
 	FIXTURE_NO_SOCKET=${FIXTURE_NO_SOCKET:-0} \
 	FIXTURE_MCU_STATE=$1 \
@@ -82,11 +97,70 @@ printf '%s\n' active > "$state_dir/status"
 run_service stock start
 [ "$(cat "$runtime/status")" = stock-mcu ]
 [ ! -e "$called" ]
+[ ! -e "$transition_calls" ]
 
 rm -rf -- "$runtime"
 run_service unknown start
 [ "$(cat "$runtime/status")" = unknown-mcu ]
 [ ! -e "$called" ]
+[ ! -e "$transition_calls" ]
+
+# The opt-in marker must be a regular non-symlink file containing exactly
+# "enabled", without even a trailing newline.
+printf '%s\n' enabled > "$auto_transition_file"
+rm -rf -- "$runtime"
+run_service stock start
+[ "$(cat "$runtime/status")" = stock-mcu ]
+[ ! -e "$called" ]
+[ ! -e "$transition_calls" ]
+
+printf '%s' enabled > "$tmp/marker-target"
+rm -f "$auto_transition_file"
+ln -s "$tmp/marker-target" "$auto_transition_file"
+rm -rf -- "$runtime"
+run_service stock start
+[ "$(cat "$runtime/status")" = stock-mcu ]
+[ ! -e "$called" ]
+[ ! -e "$transition_calls" ]
+
+# A valid opt-in invokes the transition exactly once and then reaches the
+# normal Klippy start path.
+rm -f "$auto_transition_file"
+printf '%s' enabled > "$auto_transition_file"
+rm -rf -- "$runtime"
+run_service stock start
+[ "$(cat "$runtime/status")" = active ]
+[ -e "$called" ]
+[ "$(wc -l < "$transition_calls")" -eq 1 ]
+[ "$(cat "$transition_calls")" = --write ]
+grep -Fxq 'transition fixture stdout' "$runtime/mcu-transition.log"
+grep -Fxq 'transition fixture stderr' "$runtime/mcu-transition.log"
+run_service fre3nder stop
+
+# A failed transition and an unavailable helper both fail closed.
+rm -rf -- "$runtime"
+rm -f "$called" "$transition_calls"
+if FIXTURE_TRANSITION_RC=1 run_service stock start; then
+	:
+else
+	echo 'failed transition unexpectedly made the service fail' >&2
+	exit 1
+fi
+[ "$(cat "$runtime/status")" = mcu-transition-failed ]
+[ ! -e "$called" ]
+[ "$(wc -l < "$transition_calls")" -eq 1 ]
+[ "$(cat "$transition_calls")" = --write ]
+
+rm -rf -- "$runtime"
+rm -f "$called" "$transition_calls"
+chmod 0644 "$transition_helper"
+run_service stock start
+[ "$(cat "$runtime/status")" = mcu-transition-unavailable ]
+[ ! -e "$called" ]
+[ ! -e "$transition_calls" ]
+chmod 0755 "$transition_helper"
+
+rm -f "$auto_transition_file"
 
 rm -rf -- "$runtime"
 mkdir -p "$runtime"
@@ -99,6 +173,7 @@ while [ ! -e "$called" ] && [ "$i" -lt 50 ]; do
 done
 [ -e "$called" ]
 [ "$(cat "$runtime/status")" = active ]
+[ ! -e "$transition_calls" ]
 [ -f "$config" ] && [ ! -L "$config" ]
 cmp -s "$default_config" "$config"
 [ "$(stat -c '%a' "$config")" = 644 ]
