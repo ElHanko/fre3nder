@@ -11,6 +11,11 @@ storage, network, and boot configuration is under
 [`configs/x2000`](../configs/x2000); its source and artifact invariants are
 listed in [`configs/x2000/sources.json`](../configs/x2000/sources.json).
 
+The OrcaSlicer user preset for the current 0.4 mm reference configuration is
+under [`configs/orcaslicer`](../configs/orcaslicer/). It inherits OrcaSlicer's
+built-in Ender-3 V3 KE profile and contains only the Fre3nder-specific G-code
+and motion-limit overrides.
+
 The host uses passive `/dev/ttyS1` at 230400 baud and starts normal Klippy only
 after exact Fre3nder MCU identity classification. Stock and unknown MCU
 identities leave the Fre3nder Klippy service stopped.
