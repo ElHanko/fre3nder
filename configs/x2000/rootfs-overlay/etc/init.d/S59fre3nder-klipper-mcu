@@ -1,0 +1,177 @@
+#!/bin/sh
+
+runtime=${FRE3NDER_KLIPPER_MCU_RUNTIME:-/run/fre3nder-klipper-mcu}
+pid_file=$runtime/klipper_mcu.pid
+status=$runtime/status
+log_file=$runtime/klipper_mcu.log
+binary=${FRE3NDER_KLIPPER_MCU:-/usr/bin/klipper_mcu}
+host_tty=${FRE3NDER_KLIPPER_HOST_MCU_TTY:-/tmp/klipper_host_mcu}
+spi_device=${FRE3NDER_ADXL_SPI_DEVICE:-/dev/spidev2.0}
+startup_timeout=${FRE3NDER_KLIPPER_MCU_START_TIMEOUT:-5}
+
+case "$startup_timeout" in
+''|*[!0-9]*) startup_timeout=5 ;;
+esac
+
+log() {
+	echo "fre3nder klipper mcu: $*"
+}
+
+set_status() {
+	mkdir -p "$runtime" 2>/dev/null || return 0
+	printf '%s\n' "$1" > "$status" 2>/dev/null || true
+}
+
+pid_has_arg() {
+	proc_pid=$1
+	expected_arg=$2
+	[ -r "/proc/$proc_pid/cmdline" ] || return 1
+	tr '\000' '\n' < "/proc/$proc_pid/cmdline" 2>/dev/null |
+		grep -F -x -q -- "$expected_arg"
+}
+
+pid_is_host_mcu() {
+	proc_pid=$1
+	case "$proc_pid" in
+	*[!0-9]*|'') return 1 ;;
+	esac
+
+	kill -0 "$proc_pid" 2>/dev/null || return 1
+	pid_has_arg "$proc_pid" "$binary" &&
+		pid_has_arg "$proc_pid" -r &&
+		pid_has_arg "$proc_pid" -I &&
+		pid_has_arg "$proc_pid" "$host_tty"
+}
+
+wait_for_host_tty() {
+	proc_pid=$1
+	remaining=$startup_timeout
+
+	while [ "$remaining" -gt 0 ]; do
+		pid_is_host_mcu "$proc_pid" || return 2
+		if [ -L "$host_tty" ] && [ -c "$host_tty" ]; then
+			return 0
+		fi
+		sleep 1
+		remaining=$((remaining - 1))
+	done
+
+	pid_is_host_mcu "$proc_pid" || return 2
+	[ -L "$host_tty" ] && [ -c "$host_tty" ]
+}
+
+stop_verified_pid() {
+	proc_pid=$1
+	pid_is_host_mcu "$proc_pid" || return 0
+	kill "$proc_pid" 2>/dev/null || true
+	remaining=$startup_timeout
+	while [ "$remaining" -gt 0 ]; do
+		kill -0 "$proc_pid" 2>/dev/null || return 0
+		pid_is_host_mcu "$proc_pid" || return 0
+		sleep 1
+		remaining=$((remaining - 1))
+	done
+	if pid_is_host_mcu "$proc_pid"; then
+		kill -KILL "$proc_pid" 2>/dev/null || true
+	fi
+}
+
+start() {
+	mkdir -p "$runtime" || {
+		log 'runtime setup failed'
+		return 1
+	}
+	if [ ! -x "$binary" ] || [ ! -f "$binary" ] || [ -L "$binary" ]; then
+		set_status runtime-invalid
+		log 'upstream Linux-process MCU binary is unavailable'
+		return 1
+	fi
+	if [ ! -c "$spi_device" ]; then
+		set_status spi-unavailable
+		log 'ADXL345 spidev endpoint is unavailable'
+		return 1
+	fi
+
+	if [ -r "$pid_file" ]; then
+		pid=$(cat "$pid_file")
+		if pid_is_host_mcu "$pid"; then
+			if [ -L "$host_tty" ] && [ -c "$host_tty" ]; then
+				set_status active
+				return 0
+			fi
+			stop_verified_pid "$pid"
+		else
+			case "$pid" in
+			*[!0-9]*|'') ;;
+			*)
+				if kill -0 "$pid" 2>/dev/null; then
+					log 'stale PID file refers to a non-klipper_mcu process; not killing it'
+				fi
+				;;
+			esac
+		fi
+		rm -f "$pid_file"
+	fi
+
+	rm -f "$host_tty"
+	set_status starting
+	"$binary" -r -I "$host_tty" >>"$log_file" 2>&1 &
+	pid=$!
+	printf '%s\n' "$pid" > "$pid_file" || {
+		stop_verified_pid "$pid"
+		rm -f "$host_tty"
+		set_status pid-write-failed
+		return 1
+	}
+
+	ready_rc=0
+	wait_for_host_tty "$pid" || ready_rc=$?
+	case "$ready_rc" in
+	0)
+		set_status active
+		log 'upstream Linux-process MCU started and host PTY is ready'
+		return 0
+		;;
+	1)
+		stop_verified_pid "$pid"
+		rm -f "$pid_file" "$host_tty"
+		set_status startup-timeout
+		log 'upstream Linux-process MCU did not create its host PTY'
+		return 1
+		;;
+	*)
+		rm -f "$pid_file" "$host_tty"
+		set_status startup-failed
+		log 'upstream Linux-process MCU exited during startup'
+		return 1
+		;;
+	esac
+}
+
+stop() {
+	if [ -r "$pid_file" ]; then
+		pid=$(cat "$pid_file")
+		if pid_is_host_mcu "$pid"; then
+			stop_verified_pid "$pid"
+		else
+			case "$pid" in
+			*[!0-9]*|'') ;;
+			*)
+				if kill -0 "$pid" 2>/dev/null; then
+					log 'stale PID file refers to a non-klipper_mcu process; not killing it'
+				fi
+				;;
+			esac
+		fi
+		rm -f "$pid_file"
+	fi
+	rm -f "$host_tty"
+	set_status stopped
+}
+
+case "${1:-}" in
+start) start ;;
+stop) stop ;;
+restart) stop; start ;;
+*) echo "usage: $0 {start|stop|restart}" >&2; exit 1 ;;
+esac

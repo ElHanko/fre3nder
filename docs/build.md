@@ -83,6 +83,24 @@ untracked files in those paths, and deployment requires both an explicit
 `--develop` and an exact match with the current input fingerprint. This option
 does not imply deployment `--write` or relax any hardware gate.
 
+Development builds may reuse the existing Buildroot output and internal
+toolchain when its dedicated toolchain fingerprint still matches. The current
+Buildroot configuration is reapplied before the incremental build. Release
+builds always remove the Buildroot output and start clean; development reuse is
+an iteration aid, not a reproducibility guarantee.
+
+On the first development run after introduction of the fingerprint, a legacy
+markerless output may be adopted only when its Buildroot version, effective
+toolchain configuration, compiler contract, sysroot, and completion stamps all
+match the current pinned toolchain. An unsafe or ambiguous legacy output is
+removed. Release builds never adopt existing output.
+
+The development reuse path is qualified on the reference build environment: a
+legacy output reported `ADOPTED` once and the following RootFS-only build
+reported the fingerprint-matched `HIT` path. The repeated build also qualified
+replacement of stale Moonraker Git metadata by the current overlay in the
+idempotent post-build hook. Release remains the clean build boundary.
+
 ### Buildroot host tools
 
 Buildroot installs host-side tools produced or required by the X2000 build

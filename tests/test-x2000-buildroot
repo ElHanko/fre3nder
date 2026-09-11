@@ -18,6 +18,9 @@ moonraker_source=${MOONRAKER_SOURCE:-$root/local/production/work/x2000/moonraker
 moonraker_wheel_cache=${MOONRAKER_WHEEL_CACHE:-$root/local/production/work/x2000/moonraker-python-wheels}
 klipper_source=${KLIPPER_SOURCE:-$root/local/production/work/x2000/klipper}
 post_build="$root/configs/x2000/rootfs-post-build.sh"
+sdk_source=${X2000_SDK_SOURCE:-$root/local/production/work/x2000/sdk}
+sdk_commit=a98c2e1f22e4263ddd4153a4eca4db4dcfd2777b
+wlan_patch=$root/configs/x2000/ke-wlan.patch
 
 python3 - "$sources" <<'PY'
 import json
@@ -25,6 +28,14 @@ import pathlib
 import sys
 
 data = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
+assert data["userspace"]["klipper"] == {
+    "repository": "https://github.com/Klipper3d/klipper.git",
+    "commit": "0499b30374315f2a9f49fc12808527fc7d0f5cfa",
+    "license": "GPL-3.0-only",
+    "role": (
+        "upstream host runtime and Linux-process MCU source with project "
+        "passive-UART patch"),
+}
 buildroot = data["buildroot"]
 assert buildroot == {
     "version": "2025.02.17",
@@ -155,6 +166,10 @@ grep -Fq 'BR2_BINUTILS_VERSION="2.43.1"' "$entrypoint"
 grep -Fq 'BR2_GCC_VERSION="13.4.0"' "$entrypoint"
 grep -Fq "! grep -Eq '^BR2_TOOLCHAIN_EXTERNAL(=|_)'" "$entrypoint"
 grep -Fq 'FP ABI: Hard float (32-bit CPU, Any FPU)' "$entrypoint"
+grep -Fq 'build_klipper_mcu()' "$entrypoint"
+grep -Fq 'build/x2000/klipper-linux.config' "$entrypoint"
+grep -Fq 'Requesting program interpreter: /lib/ld-linux-mipsn8.so.1' \
+	"$entrypoint"
 grep -Fq 'Shared library: [ld-linux-mipsn8.so.1]' "$entrypoint"
 ! grep -Fq '$sdk/buildroot' "$entrypoint"
 ! grep -Fq 'halley5_linux_minimal_defconfig' "$entrypoint"
@@ -163,11 +178,84 @@ grep -Fxq 'BR2_PACKAGE_GIT=y' "$fragment"
 grep -Fxq 'BR2_PACKAGE_LIBCURL=y' "$fragment"
 grep -Fxq 'BR2_PACKAGE_LIBCURL_FORCE_TLS=y' "$fragment"
 grep -Fxq 'BR2_PACKAGE_LIBCURL_OPENSSL=y' "$fragment"
+grep -Fxq 'BR2_PACKAGE_PYTHON_NUMPY=y' "$fragment"
+grep -Fq "grep -Fxq 'BR2_PACKAGE_PYTHON_NUMPY=y' \"\$brout/.config\"" \
+	"$entrypoint"
+grep -Fq 'numpy_dir="$target/usr/lib/python3.12/site-packages/numpy"' \
+	"$entrypoint"
+grep -Fq -- "-name '_multiarray_umath*.so'" "$entrypoint"
 
 # These packages remain intentionally disabled in the product configuration,
 # but Buildroot may omit invisible Kconfig symbols from the effective .config.
 grep -Fxq '# BR2_PACKAGE_I2C_TOOLS is not set' "$fragment"
 grep -Fxq '# BR2_PACKAGE_BASH is not set' "$fragment"
+
+for setting in CONFIG_SPI=y CONFIG_SPI_GPIO=y CONFIG_SPI_SPIDEV=y; do
+	grep -Fxq "$setting" "$root/configs/x2000/kernel.fragment"
+done
+grep -Fxq '# CONFIG_INGENIC_SPI is not set' \
+	"$root/configs/x2000/kernel.fragment"
+! grep -Fxq 'CONFIG_SPI_MASTER=y' "$root/configs/x2000/kernel.fragment"
+python3 - "$root/configs/x2000/ender3-v3-ke.dts" "$wlan_patch" <<'PY'
+import pathlib
+import re
+import sys
+
+text = pathlib.Path(sys.argv[1]).read_text(encoding="utf-8")
+for required in (
+        "wifi_bt_power: wifi-bt-power {",
+        'compatible = "regulator-fixed";',
+        'regulator-name = "wifi_bt_power";',
+        "regulator-min-microvolt = <3300000>;",
+        "regulator-max-microvolt = <3300000>;",
+        "gpio = <&gpa 1 GPIO_ACTIVE_LOW INGENIC_GPIO_NOBIAS>;",
+        "regulator-always-on;",
+        "regulator-boot-on;",
+        "vmmc-supply = <&wifi_bt_power>;",
+        "wlan-reg-on-gpios = <&gpd 4 GPIO_ACTIVE_HIGH INGENIC_GPIO_NOBIAS>;",
+        "&aliases {",
+        "spi2 = &adxl_spi;",
+        'compatible = "spi-gpio";',
+        "sck-gpios = <&gpe 16 GPIO_ACTIVE_HIGH INGENIC_GPIO_NOBIAS>;",
+        "mosi-gpios = <&gpe 17 GPIO_ACTIVE_HIGH INGENIC_GPIO_NOBIAS>;",
+        "miso-gpios = <&gpe 18 GPIO_ACTIVE_HIGH INGENIC_GPIO_NOBIAS>;",
+        "cs-gpios = <&gpe 21 GPIO_ACTIVE_LOW INGENIC_GPIO_NOBIAS>;",
+        "num-chipselects = <1>;",
+        'compatible = "rohm,dh2228fv";',
+        "spi-max-frequency = <2000000>;",
+):
+    assert required in text
+assert text.count("spi2 = &adxl_spi;") == 1
+assert text.count("spidev@0 {") == 1
+assert text.count("num-chipselects = <1>;") == 1
+assert "spidev@1" not in text
+for forbidden in ("bl24c16", "eeprom@", "plr"):
+    assert forbidden not in text.lower()
+
+patch = pathlib.Path(sys.argv[2]).read_text(encoding="utf-8")
+paths = re.findall(r"^diff --git a/(\S+) b/(\S+)$", patch, re.MULTILINE)
+assert paths == [
+    ("kernel/kernel-6.6/module_drivers/drivers/mmc/host/ingenic_sdio.c",) * 2,
+    ("kernel/kernel-6.6/module_drivers/drivers/mmc/host/sdhci-ingenic.c",) * 2,
+    ("kernel/kernel-6.6/module_drivers/drivers/mmc/host/sdhci-ingenic.h",) * 2,
+]
+assert "ender3-v3-ke.dts" not in patch
+PY
+
+python3 - \
+	"$root/configs/x2000/rootfs-overlay/etc/init.d/S59fre3nder-klipper-mcu" \
+	"$root/configs/x2000/rootfs-overlay/etc/init.d/S60fre3nder-klipper" <<'PY'
+import pathlib
+import sys
+
+host_mcu, klippy = map(pathlib.Path, sys.argv[1:])
+assert host_mcu.name == "S59fre3nder-klipper-mcu"
+assert klippy.name == "S60fre3nder-klipper"
+assert host_mcu.name < klippy.name
+assert "/usr/bin/klipper_mcu" in host_mcu.read_text(encoding="utf-8")
+assert "/tmp/klipper_host_mcu" in host_mcu.read_text(encoding="utf-8")
+assert "/dev/spidev2.0" in host_mcu.read_text(encoding="utf-8")
+PY
 
 # Validate the semantic checks used for the effective RootFS instead of relying
 # on invisible Kconfig symbols being materialized as "# ... is not set".
@@ -300,6 +388,310 @@ grep -Fq 'relative.suffix in (".pyc", ".pyo")' "$entrypoint"
 tmp=$(mktemp -d)
 trap 'rm -rf -- "$tmp"' EXIT HUP INT TERM
 
+# Exercise the Buildroot output reuse decision without invoking Buildroot.
+cache_project=$tmp/cache-project
+cache_output=$tmp/buildroot-output
+mkdir -p "$cache_project/configs/x2000" "$cache_project/patches/buildroot"
+cp "$base" "$cache_project/configs/x2000/buildroot.defconfig"
+cp "$fragment" "$cache_project/configs/x2000/buildroot.fragment"
+cp "$root/patches/buildroot/0001-mips-add-ingenic-xburst2-target.patch" \
+	"$cache_project/patches/buildroot/0001-mips-add-ingenic-xburst2-target.patch"
+mkdir -p "$cache_project/configs/x2000/rootfs-overlay/etc"
+printf '%s\n' 'rootfs fixture' > \
+	"$cache_project/configs/x2000/rootfs-overlay/etc/fixture"
+
+for function_name in \
+	buildroot_toolchain_fingerprint \
+	read_buildroot_toolchain_fingerprint \
+	buildroot_toolchain_ready \
+	buildroot_toolchain_contract_matches \
+	buildroot_legacy_toolchain_adoptable \
+	prepare_buildroot_output \
+	write_buildroot_toolchain_fingerprint; do
+	sed -n "/^$function_name() {\$/,/^}\$/p" "$entrypoint"
+done > "$tmp/buildroot-cache-functions.sh"
+. "$tmp/buildroot-cache-functions.sh"
+
+project=$cache_project
+buildroot_commit=d0820dd09916edcefc44e525355afbea30d5bee4
+buildroot_version=2025.02.17
+buildroot_patch=$cache_project/patches/buildroot/0001-mips-add-ingenic-xburst2-target.patch
+buildroot_toolchain_marker=.fre3nder-toolchain-fingerprint
+
+create_toolchain_fixture() {
+	prefix="$cache_output/host/bin/mipsel-buildroot-linux-gnu-"
+	sysroot="$cache_output/host/mipsel-buildroot-linux-gnu/sysroot"
+	mkdir -p "${prefix%/*}" "$sysroot/lib" "$sysroot/usr/include" \
+		"$sysroot/usr/lib" \
+		"$cache_output/build/toolchain" \
+		"$cache_output/build/toolchain-buildroot" \
+		"$cache_output/build/host-gcc-final-13.4.0" \
+		"$cache_output/build/host-binutils-2.43.1" \
+		"$cache_output/build/glibc-2.41-143-gfc7a48bc9e999c0f9a1f9fa1b209eac1d6a93363" \
+		"$cache_output/build/linux-headers-6.6.152"
+	printf '%s\n' '#!/bin/sh' 'exit 0' '-ffp-contract=off' > \
+		"$cache_output/host/bin/toolchain-wrapper"
+	chmod +x "$cache_output/host/bin/toolchain-wrapper"
+	ln -s toolchain-wrapper "${prefix}gcc"
+	ln -s toolchain-wrapper "${prefix}g++"
+	cat > "${prefix}gcc.br_real" <<'EOF'
+#!/bin/sh
+case "$1" in
+-dumpmachine) printf '%s\n' mipsel-buildroot-linux-gnu ;;
+-dumpfullversion) printf '%s\n' 13.4.0 ;;
+--version)
+	printf '%s\n' \
+		'mipsel-buildroot-linux-gnu-gcc.br_real (Buildroot 2025.02.17-dirty) 13.4.0'
+	;;
+-Q)
+	printf '%s\n' \
+		'  -mabi=ABI                    32' \
+		'  -march=ISA                   mips32r2' \
+		'  -mfp32                       [enabled]' \
+		'  -mhard-float                 [enabled]' \
+		'  -mnan=ENCODING               2008' \
+		'  -msoft-float                 [disabled]'
+	;;
+*) exit 2 ;;
+esac
+EOF
+	cat > "${prefix}ld" <<'EOF'
+#!/bin/sh
+printf '%s\n' 'GNU ld (GNU Binutils) 2.43.1'
+EOF
+	printf '%s\n' '#!/bin/sh' 'exit 0' > "${prefix}strip"
+	chmod +x "${prefix}gcc.br_real" "${prefix}ld" "${prefix}strip"
+	: > "$sysroot/lib/ld-linux-mipsn8.so.1"
+	printf '%s\n' 'GNU C Library (Buildroot) stable release version 2.41.' > \
+		"$sysroot/lib/libc.so.6"
+	: > "$sysroot/usr/include/stdio.h"
+	: > "$sysroot/usr/lib/libstdc++.so.6.0.32"
+	ln -s libstdc++.so.6.0.32 "$sysroot/usr/lib/libstdc++.so"
+	touch \
+		"$cache_output/build/toolchain/.stamp_target_installed" \
+		"$cache_output/build/toolchain-buildroot/.stamp_target_installed" \
+		"$cache_output/build/host-gcc-final-13.4.0/.stamp_host_installed" \
+		"$cache_output/build/host-binutils-2.43.1/.stamp_host_installed" \
+		"$cache_output/build/glibc-2.41-143-gfc7a48bc9e999c0f9a1f9fa1b209eac1d6a93363/.stamp_staging_installed" \
+		"$cache_output/build/linux-headers-6.6.152/.stamp_staging_installed"
+	cat > "$cache_output/.config" <<'EOF'
+# Buildroot 2025.02.17-dirty Configuration
+BR2_mipsel=y
+BR2_mips_xburst2=y
+BR2_MIPS_CPU_MIPS32R5=y
+# BR2_MIPS_SOFT_FLOAT is not set
+BR2_MIPS_FP32_MODE_XX=y
+BR2_MIPS_NAN_2008=y
+BR2_MIPS_OABI32=y
+BR2_GCC_TARGET_ARCH="mips32r2"
+BR2_GCC_TARGET_ABI="32"
+BR2_GCC_TARGET_FP32_MODE="xx"
+BR2_GCC_TARGET_NAN="2008"
+BR2_TOOLCHAIN_BUILDROOT=y
+BR2_TOOLCHAIN_BUILDROOT_GLIBC=y
+BR2_TOOLCHAIN_BUILDROOT_LIBC="glibc"
+BR2_KERNEL_HEADERS_6_6=y
+BR2_BINUTILS_VERSION="2.43.1"
+BR2_GCC_VERSION="13.4.0"
+BR2_TOOLCHAIN_BUILDROOT_CXX=y
+EOF
+}
+
+create_cached_toolchain() {
+	rm -rf -- "$cache_output"
+	create_toolchain_fixture
+	write_buildroot_toolchain_fingerprint "$cache_output"
+	: > "$cache_output/preserved"
+}
+
+# 1. Release always removes an existing output.
+mkdir -p "$cache_output"
+: > "$cache_output/preserved"
+artifact_mode=release
+cache_log=$(prepare_buildroot_output "$cache_output")
+[ "$cache_log" = 'Buildroot release build: CLEAN' ]
+[ ! -e "$cache_output" ]
+
+# 2. Development without an output takes the clean path.
+artifact_mode=development
+cache_log=$(prepare_buildroot_output "$cache_output")
+[ "$cache_log" = \
+	'Buildroot development cache: MISS (output missing)' ]
+[ ! -e "$cache_output" ]
+
+# A marker is recorded only for an intact toolchain and has exact SHA256 format.
+mkdir -p "$cache_output"
+if write_buildroot_toolchain_fingerprint "$cache_output" 2>/dev/null; then
+	exit 1
+fi
+[ ! -e "$cache_output/$buildroot_toolchain_marker" ]
+create_toolchain_fixture
+write_buildroot_toolchain_fingerprint "$cache_output"
+grep -Eq '^[0-9a-f]{64}$' "$cache_output/$buildroot_toolchain_marker"
+[ "$(wc -l < "$cache_output/$buildroot_toolchain_marker")" -eq 1 ]
+
+# 3. A matching Development output is preserved.
+: > "$cache_output/preserved"
+cache_log=$(prepare_buildroot_output "$cache_output")
+[ "$cache_log" = 'Buildroot development cache: HIT' ]
+[ -e "$cache_output/preserved" ]
+[ -f "$cache_output/$buildroot_toolchain_marker" ]
+
+# 4. A different valid fingerprint removes the output.
+create_cached_toolchain
+printf '%064d\n' 0 > "$cache_output/$buildroot_toolchain_marker"
+cache_log=$(prepare_buildroot_output "$cache_output")
+[ "$cache_log" = \
+	'Buildroot development cache: MISS (toolchain fingerprint changed)' ]
+[ ! -e "$cache_output" ]
+
+# 5. buildroot.fragment is deliberately outside the toolchain fingerprint.
+fingerprint_before=$(buildroot_toolchain_fingerprint)
+create_cached_toolchain
+printf '%s\n' 'BR2_PACKAGE_FRE3NDER_FIXTURE=y' >> \
+	"$cache_project/configs/x2000/buildroot.fragment"
+[ "$(buildroot_toolchain_fingerprint)" = "$fingerprint_before" ]
+cache_log=$(prepare_buildroot_output "$cache_output")
+[ "$cache_log" = 'Buildroot development cache: HIT' ]
+[ -e "$cache_output/preserved" ]
+
+# 6. A normal RootFS input is deliberately outside the fingerprint too.
+create_cached_toolchain
+printf '%s\n' 'changed RootFS fixture' >> \
+	"$cache_project/configs/x2000/rootfs-overlay/etc/fixture"
+[ "$(buildroot_toolchain_fingerprint)" = "$fingerprint_before" ]
+cache_log=$(prepare_buildroot_output "$cache_output")
+[ "$cache_log" = 'Buildroot development cache: HIT' ]
+[ -e "$cache_output/preserved" ]
+
+# 7. A buildroot.defconfig change produces a cache miss.
+create_cached_toolchain
+cp "$cache_project/configs/x2000/buildroot.defconfig" "$tmp/buildroot.defconfig"
+printf '%s\n' '# toolchain fixture change' >> \
+	"$cache_project/configs/x2000/buildroot.defconfig"
+cache_log=$(prepare_buildroot_output "$cache_output")
+[ "$cache_log" = \
+	'Buildroot development cache: MISS (toolchain fingerprint changed)' ]
+[ ! -e "$cache_output" ]
+cp "$tmp/buildroot.defconfig" "$cache_project/configs/x2000/buildroot.defconfig"
+
+# 8. An XBurst II patch change produces a cache miss.
+create_cached_toolchain
+cp "$buildroot_patch" "$tmp/xburst2.patch"
+printf '%s\n' '# toolchain fixture change' >> "$buildroot_patch"
+cache_log=$(prepare_buildroot_output "$cache_output")
+[ "$cache_log" = \
+	'Buildroot development cache: MISS (toolchain fingerprint changed)' ]
+[ ! -e "$cache_output" ]
+cp "$tmp/xburst2.patch" "$buildroot_patch"
+
+# 9. A valid marker cannot hide an incomplete or malformed toolchain cache.
+create_cached_toolchain
+rm -f -- "$cache_output/host/bin/mipsel-buildroot-linux-gnu-gcc.br_real"
+cache_log=$(prepare_buildroot_output "$cache_output")
+[ "$cache_log" = \
+	'Buildroot development cache: MISS (toolchain output incomplete)' ]
+[ ! -e "$cache_output" ]
+create_toolchain_fixture
+printf '%s' 'not-a-fingerprint' > \
+	"$cache_output/$buildroot_toolchain_marker"
+cache_log=$(prepare_buildroot_output "$cache_output")
+[ "$cache_log" = \
+	'Buildroot development cache: MISS (fingerprint marker missing or invalid)' ]
+[ ! -e "$cache_output" ]
+
+# 10. A valid Development marker can never make Release incremental.
+create_cached_toolchain
+artifact_mode=release
+cache_log=$(prepare_buildroot_output "$cache_output")
+[ "$cache_log" = 'Buildroot release build: CLEAN' ]
+[ ! -e "$cache_output" ]
+
+# Legacy Development outputs can be adopted only with a complete, matching
+# Buildroot/toolchain contract. No Buildroot make target is invoked here.
+
+# 11-12. A compatible markerless output is adopted and receives the fingerprint.
+artifact_mode=development
+create_toolchain_fixture
+cache_log=$(prepare_buildroot_output "$cache_output")
+[ "$cache_log" = \
+	'Buildroot development cache: ADOPTED (legacy output without fingerprint)' ]
+[ -f "$cache_output/$buildroot_toolchain_marker" ]
+[ "$(read_buildroot_toolchain_fingerprint "$cache_output")" = \
+	"$(buildroot_toolchain_fingerprint)" ]
+
+# 13. A markerless output without its compiler is cleaned.
+rm -rf -- "$cache_output"
+create_toolchain_fixture
+rm -f -- "$cache_output/host/bin/mipsel-buildroot-linux-gnu-gcc.br_real"
+cache_log=$(prepare_buildroot_output "$cache_output")
+[ "$cache_log" = \
+	'Buildroot development cache: MISS (legacy output not safely adoptable)' ]
+[ ! -e "$cache_output" ]
+
+# 14. An incompatible effective configuration is cleaned.
+create_toolchain_fixture
+sed -i '/^BR2_mipsel=y$/d' "$cache_output/.config"
+cache_log=$(prepare_buildroot_output "$cache_output")
+[ "$cache_log" = \
+	'Buildroot development cache: MISS (legacy output not safely adoptable)' ]
+[ ! -e "$cache_output" ]
+
+# 15. A wrong ABI/toolchain configuration is cleaned.
+create_toolchain_fixture
+sed -i 's/^BR2_GCC_TARGET_ABI="32"$/BR2_GCC_TARGET_ABI="64"/' \
+	"$cache_output/.config"
+cache_log=$(prepare_buildroot_output "$cache_output")
+[ "$cache_log" = \
+	'Buildroot development cache: MISS (legacy output not safely adoptable)' ]
+[ ! -e "$cache_output" ]
+
+# The compiler's reported target contract must also agree with .config.
+create_toolchain_fixture
+sed -i 's/mips32r2/mips64/' \
+	"$cache_output/host/bin/mipsel-buildroot-linux-gnu-gcc.br_real"
+cache_log=$(prepare_buildroot_output "$cache_output")
+[ "$cache_log" = \
+	'Buildroot development cache: MISS (legacy output not safely adoptable)' ]
+[ ! -e "$cache_output" ]
+
+# 16. Release never adopts a compatible markerless output.
+create_toolchain_fixture
+artifact_mode=release
+cache_log=$(prepare_buildroot_output "$cache_output")
+[ "$cache_log" = 'Buildroot release build: CLEAN' ]
+[ ! -e "$cache_output" ]
+
+# 17. Normal RootFS changes do not prevent toolchain adoption.
+create_toolchain_fixture
+artifact_mode=development
+printf '%s\n' 'another RootFS-only change' >> \
+	"$cache_project/configs/x2000/rootfs-overlay/etc/fixture"
+cache_log=$(prepare_buildroot_output "$cache_output")
+[ "$cache_log" = \
+	'Buildroot development cache: ADOPTED (legacy output without fingerprint)' ]
+[ -f "$cache_output/$buildroot_toolchain_marker" ]
+
+# Reproduce the prepare_kernel ordering against the exact pinned SDK sources:
+# stage the canonical board DTS first, then check only the driver patch.
+[ "$(git -C "$sdk_source" rev-parse HEAD)" = "$sdk_commit" ]
+sdk_stage=$tmp/sdk
+mkdir -p "$sdk_stage/kernel/kernel-6.6/module_drivers/dts/x2000"
+for path in \
+	kernel/kernel-6.6/module_drivers/drivers/mmc/host/ingenic_sdio.c \
+	kernel/kernel-6.6/module_drivers/drivers/mmc/host/sdhci-ingenic.c \
+	kernel/kernel-6.6/module_drivers/drivers/mmc/host/sdhci-ingenic.h; do
+	mkdir -p "$sdk_stage/${path%/*}"
+	GIT_NO_LAZY_FETCH=1 git -C "$sdk_source" show \
+		"$sdk_commit:$path" > "$sdk_stage/$path"
+done
+cp "$root/configs/x2000/ender3-v3-ke.dts" \
+	"$sdk_stage/kernel/kernel-6.6/module_drivers/dts/x2000/ender3-v3-ke.dts"
+(
+	cd "$sdk_stage"
+	git apply --check "$wlan_patch"
+)
+
 # The qualified F005 image is staged into the immutable RootFS overlay from the
 # release-manifest-validated local artifact.
 git clone -q "$klipper_source" "$tmp/klipper"
@@ -376,6 +768,7 @@ touch "$target/etc/init.d/fre3nder-root" \
 	"$target/etc/init.d/S20fre3nder-provision" \
 	"$target/etc/init.d/S40fre3nder-network" \
 	"$target/etc/init.d/S50dropbear" \
+	"$target/etc/init.d/S59fre3nder-klipper-mcu" \
 	"$target/etc/init.d/S60fre3nder-klipper" \
 	"$target/etc/init.d/S61fre3nder-moonraker" \
 	"$target/etc/init.d/S62fre3nder-web" \
@@ -386,6 +779,7 @@ touch "$target/etc/init.d/fre3nder-root" \
 cp -a "$moonraker_overlay/." "$target/"
 "$post_build" "$target"
 [ -x "$target/usr/bin/fre3nder" ]
+[ -x "$target/etc/init.d/S59fre3nder-klipper-mcu" ]
 [ -x "$target/etc/init.d/S62fre3nder-web" ]
 [ ! -e "$target/etc/init.d/S50lighttpd" ]
 moonraker_root="$target/opt/fre3nder/moonraker"
@@ -396,8 +790,30 @@ moonraker_root="$target/opt/fre3nder/moonraker"
 [ "$(git -C "$moonraker_root" remote get-url origin)" = \
 	https://github.com/Arksine/moonraker.git ]
 
+# Re-running the post-build hook replaces stale Git metadata in an incremental
+# target with the freshly transported metadata from the current overlay.
+printf '%s\n' old > "$moonraker_root/.git/old-post-build-marker"
+cp -a "$moonraker_root/.git" "$moonraker_root/.fre3nder-git"
+rm -f -- "$moonraker_root/.fre3nder-git/old-post-build-marker"
+printf '%s\n' current > \
+	"$moonraker_root/.fre3nder-git/current-overlay-marker"
+"$post_build" "$target"
+[ ! -e "$moonraker_root/.fre3nder-git" ]
+[ ! -e "$moonraker_root/.git/old-post-build-marker" ]
+grep -Fxq current "$moonraker_root/.git/current-overlay-marker"
+
+# A stale .git alone is not accepted when the current overlay transport is
+# missing.
+if "$post_build" "$target"; then
+	echo 'RootFS post-build accepted missing Moonraker transport metadata' >&2
+	exit 1
+fi
+grep -Fxq current "$moonraker_root/.git/current-overlay-marker"
+
 [ "$(grep -Fc 'make -C "$buildroot" O="$brout" -j"$jobs" toolchain' \
 	"$entrypoint")" -eq 2 ]
+[ "$(grep -Fc 'write_buildroot_toolchain_fingerprint "$brout"' \
+	"$entrypoint")" -eq 3 ]
 
 first_toolchain=$(grep -nF 'make -C "$buildroot" O="$brout" -j"$jobs" toolchain' \
 	"$entrypoint" | head -n 1 | cut -d: -f1)

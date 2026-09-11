@@ -14,6 +14,7 @@ config=$printer_data/config/printer.cfg
 log_dir=$printer_data/logs
 api_socket=$runtime/klippy.sock
 default_config=$tmp/default-printer.cfg
+host_mcu_tty=$tmp/klipper_host_mcu
 mkdir -p "$state_dir" "$tmp/home"
 printf '%s\n' active > "$state_dir/status"
 klippy=$tmp/klippy.py
@@ -76,6 +77,7 @@ run_service() {
 	FRE3NDER_ROOT_STATE=$state_dir \
 	FRE3NDER_HOME_DIR=$fre3nder_home \
 	FRE3NDER_KLIPPER_DEFAULT_CONFIG=$default_config \
+	FRE3NDER_KLIPPER_HOST_MCU_TTY=$host_mcu_tty \
 	FRE3NDER_F005_TRANSITION_HELPER=$transition_helper \
 	FRE3NDER_F005_AUTO_TRANSITION_FILE=$auto_transition_file \
 	FIXTURE_PYTHON_CALLED=$called \
@@ -93,6 +95,11 @@ run_service fre3nder start
 [ "$(cat "$runtime/status")" = degraded-root ]
 [ ! -e "$called" ]
 printf '%s\n' active > "$state_dir/status"
+
+run_service fre3nder start || true
+[ "$(cat "$runtime/status")" = host-mcu-unavailable ]
+[ ! -e "$called" ]
+ln -s /dev/null "$host_mcu_tty"
 
 run_service stock start
 [ "$(cat "$runtime/status")" = stock-mcu ]

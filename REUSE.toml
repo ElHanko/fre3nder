@@ -33,6 +33,12 @@ SPDX-FileCopyrightText = "NOASSERTION"
 SPDX-License-Identifier = "GPL-3.0-only"
 
 [[annotations]]
+path = "build/x2000/klipper-linux.config"
+precedence = "closest"
+SPDX-FileCopyrightText = "NOASSERTION"
+SPDX-License-Identifier = "GPL-3.0-only"
+
+[[annotations]]
 path = "research/configs/x2000-prototype/slot-b-network-smoke-kernel.patch"
 precedence = "closest"
 SPDX-FileCopyrightText = "NOASSERTION"

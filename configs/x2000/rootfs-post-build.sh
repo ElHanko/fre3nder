@@ -7,7 +7,7 @@ moonraker_root="$target/opt/fre3nder/moonraker"
 moonraker_transport_git="$moonraker_root/.fre3nder-git"
 moonraker_git="$moonraker_root/.git"
 [ -d "$moonraker_transport_git" ]
-[ ! -e "$moonraker_git" ]
+rm -rf -- "$moonraker_git"
 mv "$moonraker_transport_git" "$moonraker_git"
 [ -d "$moonraker_git" ]
 [ ! -e "$moonraker_transport_git" ]
@@ -29,6 +29,7 @@ chmod 0755 \
 	"$target/etc/init.d/S20fre3nder-provision" \
 	"$target/etc/init.d/S40fre3nder-network" \
 	"$target/etc/init.d/S50dropbear" \
+	"$target/etc/init.d/S59fre3nder-klipper-mcu" \
 	"$target/etc/init.d/S60fre3nder-klipper" \
 	"$target/etc/init.d/S61fre3nder-moonraker" \
 	"$target/etc/init.d/S62fre3nder-web" \

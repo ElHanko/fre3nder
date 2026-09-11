@@ -5,6 +5,7 @@ pid_file=$runtime/klippy.pid
 status=$runtime/status
 input_tty=$runtime/printer
 api_socket=${FRE3NDER_KLIPPER_API_SOCKET:-$runtime/klippy.sock}
+host_mcu_tty=${FRE3NDER_KLIPPER_HOST_MCU_TTY:-/tmp/klipper_host_mcu}
 startup_timeout=${FRE3NDER_KLIPPER_START_TIMEOUT:-10}
 state_helper=${FRE3NDER_MCU_STATE_HELPER:-/usr/libexec/fre3nder/f005-mcu-state}
 python=${FRE3NDER_PYTHON:-/usr/bin/python3}
@@ -68,7 +69,7 @@ pid_has_arg() {
 	expected_arg=$2
 	[ -r "/proc/$proc_pid/cmdline" ] || return 1
 	tr '\000' '\n' < "/proc/$proc_pid/cmdline" |
-		grep -F -x -q "$expected_arg"
+		grep -F -x -q -- "$expected_arg"
 }
 
 pid_is_klippy() {
@@ -123,6 +124,11 @@ start() {
 		set_status degraded-root
 		log 'persistent root is unavailable; normal Klippy remains stopped'
 		return 0
+	fi
+	if [ ! -L "$host_mcu_tty" ] || [ ! -c "$host_mcu_tty" ]; then
+		set_status host-mcu-unavailable
+		log 'Linux-process MCU host PTY is unavailable; normal Klippy remains stopped'
+		return 1
 	fi
 	if [ -r "$pid_file" ]; then
 		pid=$(cat "$pid_file")

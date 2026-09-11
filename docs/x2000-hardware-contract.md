@@ -2,8 +2,9 @@
 
 This contract defines the minimum X2000 host capabilities that an open
 replacement must provide for the investigated Ender-3 V3 KE reference system.
-It is a Phase 3.1 analysis result, not a kernel port, a Device Tree, or a
-deployment design.
+It began as a Phase 3.1 analysis result. Later sections also record selected
+source implementations and offline build results. A source implementation or
+offline build does not by itself imply a hardware result.
 
 Unless a source says otherwise, observations are scoped to the investigated
 F005 reference system running Creality firmware V1.1.0.15. They must not be
@@ -20,6 +21,12 @@ assumed to apply to every Ender-3 V3 KE revision.
 - `UNKNOWN`: a required technical property has not yet been established.
 - `NOT REQUIRED`: observed hardware/software is not required for the selected
   Phase-3 target at this stage.
+- `SOURCE IMPLEMENTED`: reproducible project inputs exist, but the resulting
+  artifact has not necessarily been built or qualified on hardware.
+- `BUILT`: the relevant artifacts were produced successfully from the recorded
+  project inputs.
+- `OFFLINE CHECKED`: generated artifacts passed the recorded build-time checks;
+  this does not imply execution or qualification on the reference device.
 
 The matrix deliberately records the stock interface rather than copying stock
 software. “Open target implementation” is a required interface, not an
@@ -37,8 +44,8 @@ implementation commitment.
 | Display | 480x272 panel, 60 Hz; `fb0` through `fb3` | X2000 display path | `jzfb` stock framebuffer/display stack | Display controller, panel, clocks, power/backlight, reserved memory | Open DRM/fb-capable display stack and touchscreen UI | LIKELY | The stock framebuffer stack is observed. The selected SDK and NebulaOS prior art provide an X2000 DPU/panel route; panel timings and full display acceptance remain open. The minimal GPC22 backlight-enable DT path is separately OFFLINE CONFIRMED, not a physical display or backlight result. [^phase32] |
 | Touch | NS2009 at I2C address `0x48` on bus 4 | I2C 4, input event 0 | Stock touchscreen driver | I2C controller, NS2009 node, IRQ/reset/pinctrl | Smallest maintainable open driver route for the selected LTS kernel | LIKELY | Controller, bus/address, and input event are observed. Current upstream Linux has no NS2009 touchscreen driver, but NebulaOS provides a GPL NS2009 driver and I2C4/`pendown-gpios` prior art for the selected SDK; exact reference-board properties still need acceptance. [^phase32] |
 | Camera | One active alias resolves to `video4`; nodes `video0` through `video4` exist | USB UVC endpoint | `uvcvideo`, `cam_app`, `mjpg_streamer`, MJPEG TCP 8080 | USB controller/PHY, UVC/V4L2 node, power/role wiring | Standard V4L2 node -> small open MJPEG/RTSP streamer -> Moonraker/Web UI | LIKELY | The active camera is an observed USB UVC endpoint on this reference. The selected SDK and NebulaOS prior art support this route; its exact board integration remains a later acceptance item. [^phase32] |
-| ADXL345 | ADXL345 accelerometer | `spidev2.0`, chip select 0 | Klipper Linux Host MCU | `spi-gpio` GPIO/pinmux/CS, `spidev` child node | Upstream Klipper Linux-process MCU using `/dev/spidev2.0` | LIKELY | The observed endpoint is a `spi-gpio` child, not demonstrated X2000 hardware SPI. Existing upstream Linux-MCU code opens normal spidev nodes; its GPIO/pin details still need feasibility proof. [^klipper-host-mcu] |
-| Linux Host MCU | X2000 Linux process | `/tmp/klipper_host_mcu` | `/usr/bin/klipper_mcu -r` | Linux process, Unix PTY, required SPI and I2C character devices | Upstream Klipper Linux-process MCU before Klippy | LIKELY | Stock path is observed; upstream supports a Linux-process MCU and standard SPI/I2C userspace interfaces. Hardware enablement is governed by the adjacent rows. [^klipper-host-mcu] |
+| ADXL345 | ADXL345 accelerometer | `spidev2.0`, chip select 0 | Klipper Linux Host MCU | `spi-gpio` GPIO/pinmux/CS, `spidev` child node | Upstream Klipper Linux-process MCU using `/dev/spidev2.0` | COMMUNICATION AND NOISE QUALIFIED ON DEVICE / INPUT SHAPING OPEN | On the investigated reference device, the generated DT path produced `/dev/spidev2.0`, and physical ADXL345 communication, `ACCELEROMETER_QUERY`, native NumPy import, and `MEASURE_AXES_NOISE` succeeded. Resonance testing and shaper calibration remain open. [^klipper-host-mcu] [^openke-adxl] |
+| Linux Host MCU | X2000 Linux process | `/tmp/klipper_host_mcu` | `/usr/bin/klipper_mcu -r` | Linux process, Unix PTY, required SPI character device | Upstream Klipper Linux-process MCU before Klippy | QUALIFIED ON DEVICE | On the investigated reference device, the built binary ran on the X2000, created the PTY, and exchanged real traffic with Klippy `[mcu rpi]`. This result is scoped to that reference device. [^klipper-host-mcu] |
 | BL24C16F | 2-KiB I2C EEPROM | I2C 2, addresses `0x50`--`0x57`, 400 kHz | Creality `bl24c16f` Klipper module | I2C 2 only if a retained function needs it | No target dependency currently identified | NOT REQUIRED | It is configured on the reference, but the Phase-2 complete print did not require it. The available module exposes generic EEPROM read/write commands; no evidence shows that normal open Host-MCU/ADXL operation needs its contents. |
 | Watchdog / reset | Boot/Reset controls and SoC recovery entry | board-specific | `ingenic-watchdog`; stock boot chain | Reset source and, if used, watchdog DT node/driver | A demonstrable non-destructive reset/watchdog path | LIKELY | Stock node `10002000.watchdog` uses `ingenic,watchdog`. The selected SDK has this path and NebulaOS supplies a bounded watchdog fix; reset policy and reference-board acceptance remain open. [^phase32] |
 
@@ -95,12 +102,84 @@ ADXL345 -> software SPI GPIO / CS 0 -> /dev/spidev2.0
         -> ACCELEROMETER_QUERY / SHAPER_CALIBRATE
 ```
 
-The locally retained upstream Klipper source confirms that its Linux-process
-MCU uses the ordinary `/dev/spidev<bus>.<cs>` and `/dev/i2c-<bus>` interfaces.
-Thus no Creality kernel ABI is inherent in the Host-MCU design. The selected
-SDK has a disabled `spi-gpio` template; the project must enable the generic
-driver deliberately and place the observed GPIOs and adapter numbering in its
-KE DTS before later reference-board acceptance.
+The pinned upstream Klipper source confirms that its Linux-process MCU uses the
+ordinary `/dev/spidev<bus>.<cs>` interface. Its `linuxprocess.config` seed is
+used without interactive menu configuration, and `klipper_mcu` is compiled
+with the same Buildroot-internal MIPS32r2/O32/hard-float/FPXX/NaN2008 compiler
+as the rest of userspace. The RootFS installs it as `/usr/bin/klipper_mcu`.
+This is an upstream implementation and introduces no Creality or NebulaOS
+runtime component.
+
+The project DTS implements the software bus as follows: SCK GPE16 active high,
+MOSI GPE17 active high, MISO GPE18 active high, and CS GPE21 active low. A
+single chip select and the `spi2` alias make the child appear as
+`/dev/spidev2.0`. These values and polarities come from externally
+hardware-qualified OpenKE/NebulaOS evidence at exact commit
+`95f770a858a1076f7ffdb6b4541181034862f57e`; Fre3nder independently confirmed
+their interpretation against the pinned Linux 6.6.18 `spi-gpio` and SPI-core
+sources. The child uses the pinned kernel's allowlisted `rohm,dh2228fv`
+compatible solely to obtain the generic spidev binding; it does not describe
+the fitted sensor identity. Generic SPI, `spi-gpio`, and spidev are built in,
+while the unrelated Ingenic hardware-SPI driver remains disabled. [^openke-adxl]
+
+At boot, `S59fre3nder-klipper-mcu` first requires `/dev/spidev2.0`, then starts
+`/usr/bin/klipper_mcu -r -I /tmp/klipper_host_mcu`, verifies that its PID
+belongs to that exact command, and waits a bounded interval for the PTY.
+`S60fre3nder-klipper` refuses to start if that PTY is unavailable. Pinned-source
+inspection establishes a more precise boundary: `klipper_mcu` creates the PTY
+during process setup; Klippy's MCU configuration then opens
+`/dev/spidev2.0`; the ADXL345 identity/register transaction begins only when a
+measurement command such as `ACCELEROMETER_QUERY` starts sampling. A missing
+host MCU or missing spidev node therefore prevents Klippy readiness; with a
+usable spidev node but an absent or wrong sensor, the ADXL identity failure is
+expected at measurement time.
+
+On 2026-09-11, a manual development build completed the kernel, DTB, Linux MCU,
+RootFS, and full-artifact path. Its build gates checked the effective SPI
+kernel configuration, decoded ADXL-related DTB properties, the stripped
+`klipper_mcu` ELF/ABI/interpreter/libc contract, and the binary, services,
+endpoints, and canonical configuration in the built RootFS. The resulting
+development manifest identifies a dirty worktree; all entries in the generated
+full-artifact `SHA256SUMS` passed verification. This established **SOURCE
+IMPLEMENTED / STATICALLY CHECKED / BUILT / OFFLINE CHECKED** status; the
+separate device result follows below.
+
+The development artifacts were subsequently deployed through the established
+full X2000 path. Kernel and RootFS readback passed, Stock p5 and p7 remained
+unchanged, the system booted from p8, and the selector was restored to
+`STOCK_A`. On the investigated reference device, `/dev/spidev2.0` was a
+character device, `klipper_mcu` ran with `-r -I`, its PTY resolved to
+`/dev/pts/0`, and Klippy reported real `[mcu rpi]` traffic. The physical ADXL345
+responded successfully to `ACCELEROMETER_QUERY`. These results qualify the
+Fre3nder Host-MCU and ADXL communication chain on that device.
+
+The RootFS default already contained the four Host-MCU/ADXL sections, but S60
+correctly preserved the existing persistent `printer.cfg` instead of replacing
+it. The sections were copied into that file for this controlled qualification;
+this is not a deployment or ADXL failure and does not establish an automatic
+configuration-migration policy.
+
+A subsequent RootFS-only development build included Buildroot-native NumPy and
+validated both the legacy-output `ADOPTED` and following fingerprint-matched
+`HIT` paths. Its idempotent Moonraker post-build step and final RootFS
+checks completed successfully. Deployment replaced and verified only p8; p6
+and the existing kernel were unchanged, the system booted from p8, and the
+selector ended at `STOCK_A`.
+
+On the investigated reference device, Python 3.12.14 imported NumPy 1.25.0
+from the system RootFS, a repeated `ACCELEROMETER_QUERY` returned
+`8580.269578, -296.082377, 592.164754`, and `MEASURE_AXES_NOISE` completed with
+159.113215 (x), 95.617217 (y), and 90.125327 (z). This qualifies the complete
+Host-MCU/ADXL/NumPy noise-measurement path on that device. It does not qualify
+`TEST_RESONANCES`, `SHAPER_CALIBRATE`, derived shaper frequencies/types, or
+input-shaping `SAVE_CONFIG`; all remain unperformed. The tracked configuration
+still provides `axes_map: z,y,x`, an empty `[input_shaper]` section, and no
+calibrated shaper values.
+
+OpenKE's hardware result remains external evidence for the board wiring. The
+Fre3nder qualification above is an independent result limited to the
+investigated reference device and is not a general claim for other hardware
+revisions.
 
 The BL24C16F is on the same host-MCU class of interface but is not part of the
 observed ADXL345 path. Its stock module stores/reads generic EEPROM data and
@@ -221,6 +300,7 @@ It also limits NebulaOS to attributable KE prior art; Phase 3.3 must create a
 project-authored KE DTS and only the smallest reviewed patch set.
 
 [^klipper-host-mcu]: [Upstream Klipper Linux-process MCU documentation](https://github.com/Klipper3d/klipper/blob/master/docs/RPi_microcontroller.md) and source paths `src/linux/spidev.c` / `src/linux/i2c.c`, inspected at the Phase-2 upstream comparison basis `0499b30374315f2a9f49fc12808527fc7d0f5cfa`.
+[^openke-adxl]: [OpenKE/NebulaOS hardware-qualified ADXL `spi-gpio` implementation at commit `95f770a858a1076f7ffdb6b4541181034862f57e`](https://github.com/coreflake1/NebulaOS-firmware/blob/95f770a858a1076f7ffdb6b4541181034862f57e/scripts/build/accelerometer-eeprom-bus-enable-variant.sh), plus its [later known-good configuration reconciliation at commit `40a9ff6161bad1363279cd3f516b2d48bb25dea1`](https://github.com/coreflake1/NebulaOS-firmware/blob/40a9ff6161bad1363279cd3f516b2d48bb25dea1/docs/adxl-known-good-reconciliation.md). These are external hardware evidence, not imported runtime code or Fre3nder qualification.
 [^linux-dwc2]: [Upstream Linux DWC2 parameters](https://github.com/torvalds/linux/blob/v6.12/drivers/usb/dwc2/params.c), Linux v6.12, inspected 2026-08-21.
 [^linux-dwmac]: [Upstream Linux Ingenic DWMAC implementation](https://github.com/torvalds/linux/blob/v6.12/drivers/net/ethernet/stmicro/stmmac/dwmac-ingenic.c), Linux v6.12, inspected 2026-08-21. It defines `ID_X2000` and the `ingenic,x2000-mac` compatible.
 [^ingenic-community]: [Ingenic-community Linux README at commit `91fe78280ac7dd0dae0f58cb271e821bd39ba97e`](https://github.com/Ingenic-community/linux/tree/91fe78280ac7dd0dae0f58cb271e821bd39ba97e), inspected 2026-08-21. Its X2000 status matrix is dated 2023-08-03; its separate current note says Ingenic later ported Linux 6.6 LTS to XBurst2 processors. This is community-maintained historical feasibility evidence, not an upstream-Linux support claim or a definitive assessment of later X2000 kernel trees.

@@ -5,6 +5,8 @@ root=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
 source_tree=${KLIPPER_SOURCE:-$root/local/production/work/x2000/klipper}
 commit=0499b30374315f2a9f49fc12808527fc7d0f5cfa
 patch=$root/patches/klipper/0004-x2000-passive-uart-opt-in.patch
+linux_config=$root/build/x2000/klipper-linux.config
+printer_config=$root/configs/klipper-f005/printer-f005-mainline.cfg
 tmp=$(mktemp -d)
 trap 'rm -rf -- "$tmp"' EXIT HUP INT TERM
 
@@ -60,11 +62,70 @@ python3 -m py_compile "$tmp/klipper/klippy/serialhdl.py" \
 python3 "$tmp/klipper/scripts/check_whitespace.py" \
 	"$tmp/klipper/klippy/serialhdl.py" "$tmp/klipper/klippy/mcu.py"
 
+cmp -s "$linux_config" "$tmp/klipper/test/configs/linuxprocess.config"
+grep -Fxq 'CONFIG_MACH_LINUX=y' "$linux_config"
+python3 - "$tmp/klipper/src/linux/main.c" \
+	"$tmp/klipper/src/linux/spidev.c" "$tmp/klipper/Makefile" <<'PY'
+import pathlib
+import sys
+
+main, spidev, makefile = (
+    pathlib.Path(path).read_text(encoding="utf-8") for path in sys.argv[1:])
+assert 'char *serial = "/tmp/klipper_host_mcu";' in main
+assert 'console_setup(serial);' in main
+assert 'open(fname, O_RDWR|O_CLOEXEC)' in spidev
+assert 'snprintf(fname, sizeof(fname), "/dev/spidev%d.%d"' in spidev
+assert 'CC=$(CROSS_PREFIX)gcc' in makefile
+assert 'target-y := $(OUT)klipper.elf' in makefile
+PY
+
+python3 - "$printer_config" "$tmp/klipper/klippy/extras/bus.py" \
+	"$tmp/klipper/klippy/extras/adxl345.py" \
+	"$tmp/klipper/klippy/extras/resonance_tester.py" <<'PY'
+import configparser
+import pathlib
+import sys
+
+path = pathlib.Path(sys.argv[1])
+bus = pathlib.Path(sys.argv[2]).read_text(encoding="utf-8")
+adxl = pathlib.Path(sys.argv[3]).read_text(encoding="utf-8")
+resonance = pathlib.Path(sys.argv[4]).read_text(encoding="utf-8")
+parser = configparser.RawConfigParser(strict=True)
+parser.read_string(path.read_text(encoding="utf-8"))
+assert dict(parser["mcu rpi"]) == {"serial": "/tmp/klipper_host_mcu"}
+assert dict(parser["adxl345"]) == {
+    "cs_pin": "rpi:None",
+    "spi_speed": "2000000",
+    "spi_bus": "spidev2.0",
+    "axes_map": "z,y,x",
+}
+assert dict(parser["resonance_tester"]) == {
+    "accel_chip": "adxl345",
+    "accel_per_hz": "50",
+    "probe_points": "117.5,117.5,100",
+    "max_freq": "80",
+}
+assert dict(parser["input_shaper"]) == {}
+lower = path.read_text(encoding="utf-8").lower()
+for forbidden in ("bl24c16", "eeprom", "plr", "nebulaos"):
+    assert forbidden not in lower
+for required in ("config.get(pin_option)", "config.getint('spi_speed'",
+                 "config.get('spi_bus', None)"):
+    assert required in bus
+assert "config.getlist('axes_map'" in adxl
+assert "def _start_measurements(self):" in adxl
+assert "self.read_reg(REG_DEVID)" in adxl
+for required in ("config.getfloat('max_freq'",
+                 "config.getfloat('accel_per_hz'",
+                 "config.getlists('probe_points'"):
+    assert required in resonance
+PY
+
 fragment=$root/configs/x2000/buildroot.fragment
 for symbol in BR2_PACKAGE_PYTHON3 BR2_PACKAGE_PYTHON3_ZLIB \
 	BR2_PACKAGE_PYTHON_CFFI BR2_PACKAGE_PYTHON_GREENLET \
 	BR2_PACKAGE_PYTHON_JINJA2 BR2_PACKAGE_PYTHON_MARKUPSAFE \
-	BR2_PACKAGE_PYTHON_SERIAL; do
+	BR2_PACKAGE_PYTHON_SERIAL BR2_PACKAGE_PYTHON_NUMPY; do
 	grep -Fxq "$symbol=y" "$fragment"
 done
 grep -Fxq '# BR2_PACKAGE_PYTHON_CAN is not set' "$fragment"
@@ -72,6 +133,9 @@ grep -Fq 'host/bin/mipsel-buildroot-linux-gnu-gcc' \
 	"$root/build/x2000/entrypoint.sh"
 grep -Fq 'SOURCE_FILES' "$root/build/x2000/entrypoint.sh"
 grep -Fq 'usr/share/klipper/klippy/chelper' "$root/build/x2000/entrypoint.sh"
+grep -Fq 'build_klipper_mcu "$brout"' "$root/build/x2000/entrypoint.sh"
+grep -Fq 'CROSS_PREFIX="$cross_prefix"' "$root/build/x2000/entrypoint.sh"
+grep -Fq 'usr/bin/klipper_mcu' "$root/build/x2000/entrypoint.sh"
 grep -Fxq 'BR2_mips_xburst2=y' "$root/configs/x2000/buildroot.defconfig"
 grep -Fxq 'BR2_MIPS_FP32_MODE_XX=y' \
 	"$root/configs/x2000/buildroot.defconfig"
@@ -87,6 +151,13 @@ if find "$root/configs/x2000/rootfs-overlay" -type f \
 	echo 'immutable overlay contains mcu_util' >&2
 	exit 1
 fi
+if grep -E -i -q 'nebula(os)?|openke|bl24c16|eeprom|power.loss|\bplr\b' \
+	"$root/build/x2000/entrypoint.sh" \
+	"$root/configs/x2000/rootfs-overlay/etc/init.d/S59fre3nder-klipper-mcu" \
+	"$printer_config"; then
+	echo 'Host-MCU runtime path gained an excluded dependency' >&2
+	exit 1
+fi
 
 python3 "$root/tests/test_x2000_klipper.py"
 python3 "$root/tests/test_f005_bootloader.py"
@@ -97,4 +168,5 @@ if find "$root/configs/x2000/rootfs-overlay/usr/libexec/fre3nder" \
 	exit 1
 fi
 "$root/tests/test-x2000-klipper-service"
+"$root/tests/test-x2000-klipper-mcu-service"
 echo 'fre3nder-x2000 Klipper integration checks: PASS'

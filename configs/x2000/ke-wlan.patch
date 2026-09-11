@@ -83,36 +83,3 @@ index 2f9d611..0f96dea 100644
  };
  
  int ingenic_sdio_wlan_init(struct device *dev, int index);
-diff --git a/kernel/kernel-6.6/module_drivers/dts/x2000/ender3-v3-ke.dts b/kernel/kernel-6.6/module_drivers/dts/x2000/ender3-v3-ke.dts
-index 5dbfc21..1fbf361 100644
---- a/kernel/kernel-6.6/module_drivers/dts/x2000/ender3-v3-ke.dts
-+++ b/kernel/kernel-6.6/module_drivers/dts/x2000/ender3-v3-ke.dts
-@@ -15,6 +15,16 @@
- 		device_type = "memory";
- 		reg = <0x0 0x10000000>;
- 	};
-+
-+	wifi_bt_power: wifi-bt-power {
-+		compatible = "regulator-fixed";
-+		regulator-name = "wifi_bt_power";
-+		regulator-min-microvolt = <3300000>;
-+		regulator-max-microvolt = <3300000>;
-+		gpio = <&gpa 1 GPIO_ACTIVE_LOW INGENIC_GPIO_NOBIAS>;
-+		regulator-always-on;
-+		regulator-boot-on;
-+	};
- };
- 
- &uart1_pin {
-@@ -60,9 +70,11 @@
- 	bus-width = <4>;
- 	voltage-ranges = <1800 3300>;
- 	non-removable;
-+	vmmc-supply = <&wifi_bt_power>;
- 	keep-power-in-suspend;
- 	ingenic,sdio_clk = <1>;
- 	ingenic,removal-manual;
-+	wlan-reg-on-gpios = <&gpd 4 GPIO_ACTIVE_HIGH INGENIC_GPIO_NOBIAS>;
- };
- 
- &otg {

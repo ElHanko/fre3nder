@@ -31,6 +31,7 @@ buildroot="$work/buildroot"
 buildroot_dl="$work/buildroot-dl"
 buildroot_external="$project/configs/x2000/buildroot-external"
 klipper="$work/klipper"
+klipper_linux_config="$project/build/x2000/klipper-linux.config"
 moonraker="$work/moonraker-source"
 moonraker_wheel_manifest="$project/configs/x2000/moonraker-python-wheels.json"
 moonraker_wheel_cache="$work/moonraker-python-wheels"
@@ -48,6 +49,7 @@ buildroot_url=https://gitlab.com/buildroot.org/buildroot.git
 buildroot_version=2025.02.17
 buildroot_commit=d0820dd09916edcefc44e525355afbea30d5bee4
 buildroot_patch="$project/patches/buildroot/0001-mips-add-ingenic-xburst2-target.patch"
+buildroot_toolchain_marker=.fre3nder-toolchain-fingerprint
 klipper_url=https://github.com/Klipper3d/klipper.git
 klipper_commit=0499b30374315f2a9f49fc12808527fc7d0f5cfa
 moonraker_url=https://github.com/Arksine/moonraker.git
@@ -192,12 +194,193 @@ if candidate_manifest.exists():
 PY
 }
 
+buildroot_toolchain_fingerprint() {
+	defconfig="$project/configs/x2000/buildroot.defconfig"
+	defconfig_record=$(sha256sum "$defconfig")
+	patch_record=$(sha256sum "$buildroot_patch")
+	defconfig_sha256=${defconfig_record%% *}
+	patch_sha256=${patch_record%% *}
+	{
+		printf '%s\n' \
+			'fre3nder-buildroot-toolchain-fingerprint-v1' \
+			"buildroot_commit=$buildroot_commit"
+		printf 'buildroot.defconfig=%s\n' "$defconfig_sha256"
+		printf 'xburst2.patch=%s\n' "$patch_sha256"
+	} | sha256sum | awk '{print $1}'
+}
+
+read_buildroot_toolchain_fingerprint() {
+	marker=$1/$buildroot_toolchain_marker
+	[ -f "$marker" ] && [ ! -L "$marker" ] || return 1
+	value=$(cat "$marker")
+	[ "$(wc -l < "$marker")" -eq 1 ] || return 1
+	printf '%s\n' "$value" | cmp -s - "$marker" || return 1
+	printf '%s\n' "$value" | grep -Eq '^[0-9a-f]{64}$' || return 1
+	printf '%s\n' "$value"
+}
+
+buildroot_toolchain_ready() {
+	buildroot_output=$1
+	prefix="$buildroot_output/host/bin/mipsel-buildroot-linux-gnu-"
+	sysroot="$buildroot_output/host/mipsel-buildroot-linux-gnu/sysroot"
+	wrapper="$buildroot_output/host/bin/toolchain-wrapper"
+	[ -f "$wrapper" ] && [ ! -L "$wrapper" ] && [ -x "$wrapper" ] &&
+		[ -L "${prefix}gcc" ] &&
+		[ "$(readlink "${prefix}gcc")" = toolchain-wrapper ] &&
+		[ -L "${prefix}g++" ] &&
+		[ "$(readlink "${prefix}g++")" = toolchain-wrapper ] &&
+		[ -f "${prefix}gcc.br_real" ] &&
+		[ ! -L "${prefix}gcc.br_real" ] && [ -x "${prefix}gcc.br_real" ] &&
+		[ -f "${prefix}ld" ] && [ -x "${prefix}ld" ] &&
+		[ -f "${prefix}strip" ] && [ -x "${prefix}strip" ] &&
+		[ -f "$sysroot/lib/ld-linux-mipsn8.so.1" ] &&
+		[ -f "$sysroot/lib/libc.so.6" ] &&
+		[ -f "$sysroot/usr/include/stdio.h" ] &&
+		[ -L "$sysroot/usr/lib/libstdc++.so" ] &&
+		[ "$(readlink "$sysroot/usr/lib/libstdc++.so")" = \
+			libstdc++.so.6.0.32 ] &&
+		[ -f "$sysroot/usr/lib/libstdc++.so.6.0.32" ] &&
+		[ -f "$buildroot_output/build/toolchain/.stamp_target_installed" ] &&
+		[ -f "$buildroot_output/build/toolchain-buildroot/.stamp_target_installed" ] &&
+		[ -f "$buildroot_output/build/host-gcc-final-13.4.0/.stamp_host_installed" ] &&
+		[ -f "$buildroot_output/build/host-binutils-2.43.1/.stamp_host_installed" ] &&
+		[ -f "$buildroot_output/build/glibc-2.41-143-gfc7a48bc9e999c0f9a1f9fa1b209eac1d6a93363/.stamp_staging_installed" ] &&
+		[ -f "$buildroot_output/build/linux-headers-6.6.152/.stamp_staging_installed" ]
+}
+
+buildroot_toolchain_contract_matches() {
+	buildroot_output=$1
+	prefix="$buildroot_output/host/bin/mipsel-buildroot-linux-gnu-"
+	compiler="${prefix}gcc.br_real"
+	wrapper="$buildroot_output/host/bin/toolchain-wrapper"
+	sysroot="$buildroot_output/host/mipsel-buildroot-linux-gnu/sysroot"
+
+	[ "$("$compiler" -dumpmachine)" = mipsel-buildroot-linux-gnu ] || return 1
+	[ "$("$compiler" -dumpfullversion)" = 13.4.0 ] || return 1
+	compiler_version=$("$compiler" --version) || return 1
+	expected_compiler_version="mipsel-buildroot-linux-gnu-gcc.br_real (Buildroot ${buildroot_version}-dirty) 13.4.0"
+	printf '%s\n' "$compiler_version" |
+		grep -Fx "$expected_compiler_version" >/dev/null ||
+		return 1
+	linker_version=$("${prefix}ld" --version) || return 1
+	printf '%s\n' "$linker_version" |
+		grep -Fx 'GNU ld (GNU Binutils) 2.43.1' >/dev/null || return 1
+	target_options=$("$compiler" -Q --help=target 2>/dev/null) || return 1
+	for option in \
+		'-mabi=ABI[[:space:]]+32' \
+		'-march=ISA[[:space:]]+mips32r2' \
+		'-mfp32[[:space:]]+\[enabled\]' \
+		'-mhard-float[[:space:]]+\[enabled\]' \
+		'-mnan=ENCODING[[:space:]]+2008' \
+		'-msoft-float[[:space:]]+\[disabled\]'; do
+		printf '%s\n' "$target_options" |
+			grep -E "^[[:space:]]*${option}[[:space:]]*$" >/dev/null ||
+			return 1
+	done
+	strings "$wrapper" | grep -Fx -- '-ffp-contract=off' >/dev/null ||
+		return 1
+	strings "$sysroot/lib/libc.so.6" |
+		grep -Fx 'GNU C Library (Buildroot) stable release version 2.41.' \
+		>/dev/null ||
+		return 1
+}
+
+buildroot_legacy_toolchain_adoptable() {
+	buildroot_output=$1
+	config="$buildroot_output/.config"
+	# Markerless adoption is intentionally limited to the currently pinned
+	# upstream 2025.02.17 tag; a later pin must start clean.
+	[ "$buildroot_commit" = d0820dd09916edcefc44e525355afbea30d5bee4 ] ||
+		return 1
+	[ -f "$config" ] && [ ! -L "$config" ] || return 1
+	grep -Fxq "# Buildroot ${buildroot_version}-dirty Configuration" "$config" ||
+		return 1
+	for setting in \
+		'BR2_mipsel=y' \
+		'BR2_mips_xburst2=y' \
+		'BR2_MIPS_CPU_MIPS32R5=y' \
+		'# BR2_MIPS_SOFT_FLOAT is not set' \
+		'BR2_MIPS_FP32_MODE_XX=y' \
+		'BR2_MIPS_NAN_2008=y' \
+		'BR2_MIPS_OABI32=y' \
+		'BR2_GCC_TARGET_ARCH="mips32r2"' \
+		'BR2_GCC_TARGET_ABI="32"' \
+		'BR2_GCC_TARGET_FP32_MODE="xx"' \
+		'BR2_GCC_TARGET_NAN="2008"' \
+		'BR2_TOOLCHAIN_BUILDROOT=y' \
+		'BR2_TOOLCHAIN_BUILDROOT_GLIBC=y' \
+		'BR2_TOOLCHAIN_BUILDROOT_LIBC="glibc"' \
+		'BR2_KERNEL_HEADERS_6_6=y' \
+		'BR2_BINUTILS_VERSION="2.43.1"' \
+		'BR2_GCC_VERSION="13.4.0"' \
+		'BR2_TOOLCHAIN_BUILDROOT_CXX=y'; do
+		grep -Fxq "$setting" "$config" || return 1
+	done
+	! grep -Eq '^BR2_TOOLCHAIN_EXTERNAL(=|_)' "$config" || return 1
+	! grep -Fxq 'BR2_MIPS_SOFT_FLOAT=y' "$config" || return 1
+	! grep -Fxq 'BR2_MIPS_NAN_LEGACY=y' "$config" || return 1
+	buildroot_toolchain_ready "$buildroot_output" || return 1
+	buildroot_toolchain_contract_matches "$buildroot_output"
+}
+
+prepare_buildroot_output() {
+	buildroot_output=$1
+	marker="$buildroot_output/$buildroot_toolchain_marker"
+
+	if [ "$artifact_mode" = release ]; then
+		echo 'Buildroot release build: CLEAN'
+		rm -rf -- "$buildroot_output"
+		return
+	fi
+
+	if [ ! -d "$buildroot_output" ]; then
+		reason='output missing'
+	elif [ ! -e "$marker" ] && [ ! -L "$marker" ]; then
+		if buildroot_legacy_toolchain_adoptable "$buildroot_output"; then
+			write_buildroot_toolchain_fingerprint "$buildroot_output"
+			echo 'Buildroot development cache: ADOPTED (legacy output without fingerprint)'
+			return
+		fi
+		reason='legacy output not safely adoptable'
+	elif ! stored_fingerprint=$(
+		read_buildroot_toolchain_fingerprint "$buildroot_output"
+	); then
+		reason='fingerprint marker missing or invalid'
+	elif [ "$stored_fingerprint" != "$(buildroot_toolchain_fingerprint)" ]; then
+		reason='toolchain fingerprint changed'
+	elif ! buildroot_toolchain_ready "$buildroot_output"; then
+		reason='toolchain output incomplete'
+	elif ! buildroot_toolchain_contract_matches "$buildroot_output"; then
+		reason='toolchain output incompatible'
+	else
+		echo 'Buildroot development cache: HIT'
+		return
+	fi
+
+	echo "Buildroot development cache: MISS ($reason)"
+	rm -rf -- "$buildroot_output"
+}
+
+write_buildroot_toolchain_fingerprint() {
+	buildroot_output=$1
+	marker="$buildroot_output/$buildroot_toolchain_marker"
+	temporary_marker="$marker.tmp.$$"
+	if ! buildroot_toolchain_ready "$buildroot_output" ||
+		! buildroot_toolchain_contract_matches "$buildroot_output"; then
+		echo 'Buildroot toolchain is incomplete; fingerprint not recorded' >&2
+		return 1
+	fi
+	printf '%s\n' "$(buildroot_toolchain_fingerprint)" > "$temporary_marker"
+	mv -f -- "$temporary_marker" "$marker"
+}
+
 configure_buildroot() {
 	buildroot_output=$1
 	extra_overlay=${2:-}
 	rootfs_overlay="$project/configs/x2000/rootfs-overlay"
 	[ -z "$extra_overlay" ] || rootfs_overlay="$rootfs_overlay $extra_overlay"
-	rm -rf -- "$buildroot_output"
+	prepare_buildroot_output "$buildroot_output"
+	rm -f -- "$buildroot_output/$buildroot_toolchain_marker"
 	make -C "$buildroot" O="$buildroot_output" \
 		BR2_EXTERNAL="$buildroot_external" \
 		BR2_DEFCONFIG="$project/configs/x2000/buildroot.defconfig" defconfig
@@ -701,6 +884,35 @@ PY
 		grep -Fq 'Shared library: [ld-linux-mipsn8.so.1]'
 }
 
+build_klipper_mcu() {
+	buildroot_output=$1
+	cross_prefix="$buildroot_output/host/bin/mipsel-buildroot-linux-gnu-"
+	strip="${cross_prefix}strip"
+	mcu="$klipper_overlay/usr/bin/klipper_mcu"
+	[ -x "${cross_prefix}gcc" ]
+	[ -x "$strip" ]
+	cmp -s "$klipper_linux_config" "$klipper/test/configs/linuxprocess.config"
+
+	make -C "$klipper" distclean
+	cp "$klipper_linux_config" "$klipper/.config"
+	make -C "$klipper" CROSS_PREFIX="$cross_prefix" olddefconfig
+	grep -Fxq 'CONFIG_MACH_LINUX=y' "$klipper/.config"
+	make -C "$klipper" -j"${JOBS:-4}" CROSS_PREFIX="$cross_prefix"
+	install -D -m 0755 "$klipper/out/klipper.elf" "$mcu"
+	"$strip" --strip-unneeded "$mcu"
+
+	file "$mcu" | grep -q 'ELF 32-bit LSB.*MIPS, MIPS32 rel2'
+	! readelf -S "$mcu" | grep -qE '\.debug(_|$)'
+	readelf -h "$mcu" | grep -Eq 'Flags:.*o32, mips32r2'
+	readelf -h "$mcu" | grep -Fq 'nan2008'
+	readelf -A "$mcu" | grep -Fq 'ISA: MIPS32r2'
+	readelf -A "$mcu" |
+		grep -Fq 'FP ABI: Hard float (32-bit CPU, Any FPU)'
+	readelf -l "$mcu" |
+		grep -Fq 'Requesting program interpreter: /lib/ld-linux-mipsn8.so.1'
+	readelf -d "$mcu" | grep -Fq 'Shared library: [libc.so.6]'
+}
+
 stage_byof_firmware() {
 	input_dir="$local_root/inputs/wifi"
 	firmware="$input_dir/brcmfmac43430-sdio.bin"
@@ -773,6 +985,11 @@ EOF
 	grep -Fxq '# CONFIG_SND_ASOC_INGENIC is not set' "$k/.config"
 	grep -Fxq '# CONFIG_VIDEOBUF2_DMA_CONTIG_INGENIC is not set' "$k/.config"
 	grep -Fxq '# CONFIG_INGENIC_SPI is not set' "$k/.config"
+	grep -Fxq 'CONFIG_SPI=y' "$k/.config"
+	grep -Fxq 'CONFIG_SPI_MASTER=y' "$k/.config"
+	grep -Fxq 'CONFIG_SPI_BITBANG=y' "$k/.config"
+	grep -Fxq 'CONFIG_SPI_GPIO=y' "$k/.config"
+	grep -Fxq 'CONFIG_SPI_SPIDEV=y' "$k/.config"
 	grep -Fxq '# CONFIG_INGENIC_SFC is not set' "$k/.config"
 	grep -Fxq '# CONFIG_INGENIC_RSA is not set' "$k/.config"
 	grep -Fxq '# CONFIG_SPINLOCK_TEST is not set' "$k/.config"
@@ -824,6 +1041,10 @@ check_kernel_dtb() {
 	grep -Fq 'wlan-reg-on-gpios' "$decoded"
 	grep -Fq 'ingenic,drvvbus-gpio' "$decoded"
 	grep -Fq 'ingenic,vbus-dete-gpio' "$decoded"
+	grep -Fq 'spi2 = "/spi-gpio-adxl345";' "$decoded"
+	grep -Fq 'compatible = "spi-gpio";' "$decoded"
+	grep -Fq 'compatible = "rohm,dh2228fv";' "$decoded"
+	grep -Fq 'spi-max-frequency = <0x1e8480>;' "$decoded"
 	rm -f -- "$decoded"
 }
 
@@ -873,6 +1094,7 @@ check_rootfs() {
 	grep -Fxq 'BR2_PACKAGE_PYTHON_SETUPTOOLS=y' "$brout/.config"
 	grep -Fxq 'BR2_PACKAGE_PYTHON3_SSL=y' "$brout/.config"
 	grep -Fxq 'BR2_PACKAGE_CA_CERTIFICATES=y' "$brout/.config"
+	grep -Fxq 'BR2_PACKAGE_PYTHON_NUMPY=y' "$brout/.config"
 	grep -Fxq 'BR2_PACKAGE_LIGHTTPD=y' "$brout/.config"
 	grep -Fxq 'BR2_PACKAGE_LIGHTTPD_PCRE=y' "$brout/.config"
 	[ "$(grep -Ec '^BR2_PACKAGE_LIGHTTPD.*=y$' "$brout/.config")" -eq 2 ]
@@ -938,7 +1160,8 @@ check_rootfs() {
 	grep -Fxq 'BR2_TARGET_ROOTFS_SQUASHFS4_XZ=y' "$brout/.config"
 	[ -x "$target/etc/init.d/fre3nder-root" ]
 	for init_script in S10mdev S20fre3nder-provision \
-		S40fre3nder-network S50dropbear S60fre3nder-klipper \
+		S40fre3nder-network S50dropbear S59fre3nder-klipper-mcu \
+		S60fre3nder-klipper \
 		S61fre3nder-moonraker; do
 		[ -x "$target/etc/init.d/$init_script" ]
 	done
@@ -948,6 +1171,7 @@ check_rootfs() {
 		S20fre3nder-provision \
 		S40fre3nder-network \
 		S50dropbear \
+		S59fre3nder-klipper-mcu \
 		S60fre3nder-klipper \
 		S61fre3nder-moonraker | sort -C
 	[ -n "$busybox_config" ]
@@ -1001,6 +1225,13 @@ check_rootfs() {
 	[ -x "$target/usr/sbin/dropbear" ]
 	[ -x "$target/usr/bin/dropbearkey" ]
 	[ -x "$target/usr/bin/python3" ]
+	numpy_dir="$target/usr/lib/python3.12/site-packages/numpy"
+	[ -d "$numpy_dir" ]
+	find "$numpy_dir" -maxdepth 2 -type f \
+		\( -name '__init__.py' -o -name '__init__*.pyc' \) \
+		-print -quit | grep -q .
+	find "$numpy_dir/core" -type f -name '_multiarray_umath*.so' \
+		-print -quit | grep -q .
 	[ -x "$target/usr/bin/fre3nder" ]
 	[ -x "$target/usr/sbin/lighttpd" ]
 	[ -f "$target/usr/lib/lighttpd/mod_proxy.so" ]
@@ -1018,6 +1249,7 @@ check_rootfs() {
 	[ -f "$target/usr/share/klipper/COPYING" ]
 	[ -f "$target/usr/share/klipper/klippy/klippy.py" ]
 	[ -f "$target/usr/share/klipper/klippy/chelper/c_helper.so" ]
+	[ -x "$target/usr/bin/klipper_mcu" ]
 	[ -f "$target/usr/share/fre3nder/f005-mcu-release.json" ]
 	validate_f005_firmware "$target$f005_target_path"
 	[ "$(stat -c '%a' "$target$f005_target_path")" = 644 ]
@@ -1033,12 +1265,34 @@ check_rootfs() {
 	fi
 	[ -f "$target/usr/share/fre3nder/defaults/printer.cfg" ]
 	[ -f "$target/usr/share/fre3nder/defaults/moonraker.conf" ]
+	cmp -s "$project/configs/klipper-f005/printer-f005-mainline.cfg" \
+		"$target/usr/share/fre3nder/defaults/printer.cfg"
 	cmp -s \
 		"$project/configs/x2000/rootfs-overlay/usr/share/fre3nder/defaults/moonraker.conf" \
 		"$target/usr/share/fre3nder/defaults/moonraker.conf"
 	grep -Fxq 'x2000_passive_uart: True' \
 		"$target/usr/share/fre3nder/defaults/printer.cfg"
+	file "$target/usr/bin/klipper_mcu" |
+		grep -q 'ELF 32-bit LSB.*MIPS, MIPS32 rel2'
+	readelf -h "$target/usr/bin/klipper_mcu" |
+		grep -Eq 'Flags:.*o32, mips32r2'
+	readelf -h "$target/usr/bin/klipper_mcu" | grep -Fq 'nan2008'
+	readelf -A "$target/usr/bin/klipper_mcu" |
+		grep -Fq 'FP ABI: Hard float (32-bit CPU, Any FPU)'
+	readelf -l "$target/usr/bin/klipper_mcu" |
+		grep -Fq 'Requesting program interpreter: /lib/ld-linux-mipsn8.so.1'
+	[ "$(stat -c '%a' "$target/usr/bin/klipper_mcu")" = 755 ]
 	[ ! -e "$target/etc/klipper/printer.cfg" ]
+	host_mcu_service="$target/etc/init.d/S59fre3nder-klipper-mcu"
+	grep -Fq 'binary=${FRE3NDER_KLIPPER_MCU:-/usr/bin/klipper_mcu}' \
+		"$host_mcu_service"
+	grep -Fq 'host_tty=${FRE3NDER_KLIPPER_HOST_MCU_TTY:-/tmp/klipper_host_mcu}' \
+		"$host_mcu_service"
+	grep -Fq 'spi_device=${FRE3NDER_ADXL_SPI_DEVICE:-/dev/spidev2.0}' \
+		"$host_mcu_service"
+	grep -Fq '"$binary" -r -I "$host_tty"' "$host_mcu_service"
+	grep -Fq 'set_status spi-unavailable' "$host_mcu_service"
+	grep -Fq 'set_status startup-failed' "$host_mcu_service"
 	service="$target/etc/init.d/S60fre3nder-klipper"
 	grep -Fq 'input_tty=$runtime/printer' "$service"
 	grep -Fq 'api_socket=${FRE3NDER_KLIPPER_API_SOCKET:-$runtime/klippy.sock}' \
@@ -1046,6 +1300,7 @@ check_rootfs() {
 	grep -Fq 'set_status starting' "$service"
 	grep -Fq -- '-a "$api_socket"' "$service"
 	grep -Fq 'set_status startup-failed' "$service"
+	grep -Fq 'set_status host-mcu-unavailable' "$service"
 	grep -Fq 'rm -f "$pid_file" "$input_tty" "$api_socket"' "$service"
 	if grep -Fq '"$python" "$klippy" "$config" -l "$log_file"' "$service"; then
 		echo 'Fre3nder RootFS contains obsolete Klippy /tmp input-TTY launch' >&2
@@ -1227,6 +1482,7 @@ build() {
 	extra_overlay="$wifi_overlay $klipper_overlay $moonraker_overlay"
 	configure_buildroot "$brout" "$extra_overlay"
 	make -C "$buildroot" O="$brout" -j"$jobs" toolchain
+	write_buildroot_toolchain_fingerprint "$brout"
 	kernel_cross_compile="$brout/host/bin/mipsel-buildroot-linux-gnu-"
 	kernel_cc="${kernel_cross_compile}gcc.br_real"
 	[ -x "$kernel_cc" ]
@@ -1236,11 +1492,13 @@ build() {
 		CROSS_COMPILE="$kernel_cross_compile" CC="$kernel_cc" \
 		HOSTCFLAGS='-Wno-error=incompatible-pointer-types' xImage dtbs
 	check_default_initramfs "$k"
+	check_kernel_dtb "$k"
 	[ "$(make -s -C "$k" ARCH=mips CROSS_COMPILE="$kernel_cross_compile" \
 		CC="$kernel_cc" kernelrelease)" = 6.6.18-rt23 ]
 
 	out="$full_out"
 	build_klipper_chelper "$brout"
+	build_klipper_mcu "$brout"
 	make -C "$buildroot" O="$brout" -j"$jobs"
 	check_rootfs "$brout"
 
@@ -1282,6 +1540,7 @@ build_kernel_only() {
 	brout="$work/buildroot-output-fre3nder"
 	configure_buildroot "$brout"
 	make -C "$buildroot" O="$brout" -j"$jobs" toolchain
+	write_buildroot_toolchain_fingerprint "$brout"
 	kernel_cross_compile="$brout/host/bin/mipsel-buildroot-linux-gnu-"
 	kernel_cc="${kernel_cross_compile}gcc.br_real"
 	[ -x "$kernel_cc" ]
@@ -1327,7 +1586,9 @@ build_rootfs_only() {
 	configure_buildroot "$brout" \
 		"$wifi_overlay $klipper_overlay $moonraker_overlay"
 	make -C "$buildroot" O="$brout" -j"${JOBS:-4}" toolchain
+	write_buildroot_toolchain_fingerprint "$brout"
 	build_klipper_chelper "$brout"
+	build_klipper_mcu "$brout"
 	make -C "$buildroot" O="$brout" rootfs-squashfs
 	check_rootfs "$brout"
 

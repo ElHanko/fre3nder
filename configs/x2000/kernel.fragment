@@ -29,6 +29,11 @@ CONFIG_USB_NET_CDC_NCM=y
 CONFIG_FAT_FS=y
 CONFIG_VFAT_FS=y
 
+# The onboard ADXL345 is exposed through the generic GPIO SPI/spidev path.
+CONFIG_SPI=y
+CONFIG_SPI_GPIO=y
+CONFIG_SPI_SPIDEV=y
+
 # Disable reference-board or deferred peripherals outside Develop-v0.
 # CONFIG_BCMDHD is not set
 # CONFIG_SND_ASOC_INGENIC is not set
@@ -41,7 +46,6 @@ CONFIG_VFAT_FS=y
 # CONFIG_SOUND is not set
 # CONFIG_FB is not set
 # CONFIG_MTD is not set
-# CONFIG_SPI is not set
 # CONFIG_INGENIC_MAC is not set
 # CONFIG_USB_LIBCOMPOSITE is not set
 # CONFIG_USB_CONFIGFS is not set

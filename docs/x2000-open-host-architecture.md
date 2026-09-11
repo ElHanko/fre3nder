@@ -51,7 +51,7 @@ needed printer-facing functions to have open replacements.
 | Moonraker | OFFLINE IMPLEMENTED / RUNTIME PARTIALLY PROVEN | The RootFS build stages the pinned stable Git checkout under `/opt/fre3nder/moonraker` and a system-site-packages-enabled environment under `/opt/fre3nder/moonraker-env`. Persistent state remains in `/home`; PID/status/socket remain in `/run`. The pinned runtime and Klippy/API behavior are hardware-qualified, while the newly built-in baseline, self-update dependency lifecycle, S61 post-update restart, and OverlayFS recovery remain unqualified. |
 | Display/touch | LIKELY / PARTIAL OFFLINE CONFIRMATION | The NS2009/I2C endpoint and stock framebuffers are observed. The project DTS now has a minimal GPC22 active-high `gpio-backlight` node without `default-on`, **OFFLINE IMPLEMENTED** and **OFFLINE CONFIRMED** in the generated DTB. Physical backlight-off, framebuffer clearing, panel output, and touch acceptance remain open. |
 | Camera | LIKELY | The reference camera is USB UVC using `uvcvideo`; standard V4L2 plus an open streamer remains the target, with later reference-board acceptance of the selected SDK USB path. |
-| Linux Host MCU / ADXL345 | LIKELY | Standard upstream Linux-MCU + spidev is the target; the observed endpoint is `spi-gpio`, whose GPIO/pinmux/CS details must be proved. |
+| Linux Host MCU / ADXL345 | COMMUNICATION AND NOISE QUALIFIED ON DEVICE / INPUT SHAPING OPEN | On the investigated reference device, `/dev/spidev2.0`, the Linux-process MCU, PTY, Klippy `[mcu rpi]`, physical ADXL communication, `ACCELEROMETER_QUERY`, native NumPy import, and `MEASURE_AXES_NOISE` succeeded. `TEST_RESONANCES`, shaper calibration, derived values, and `SAVE_CONFIG` remain open. |
 | BL24C16F | DEFERRED | It is not evidenced as necessary for the required open-host/ADXL path. Preserve rather than modify its data. |
 | Update/rollback model | PROVEN / HARDWARE VALIDATED | The automatic p1 one-shot model proved bounded Slot-B boot and Stock-A return for `2026.1.a`; it remains the safety/regression path. The separate host-side operator tool is hardware-validated for explicit p1 A -> B and B -> A selector changes and has no automatic B -> A fallback. Normal Develop-B -> Develop-B reboot persistence is qualified on the investigated reference system. An unreachable Develop system relies on the qualified external Ingenic USB / RAM-U-Boot p1 rollback. Persistent updates remain unqualified. |
 | Stock return | QUALIFIED PARTIAL / SOFTWARE-ONLY HANDOFF OPEN | Gate 1 is satisfied by the current evidence review. The documented full-device vendor recovery process remains execution-unverified and is not a guaranteed restore on the reference device. Fre3nder `FIRMWARE_RESTART` -> UART release -> exact bootloader identity is **QUALIFIED ON DEVICE**. The 2026-08-29 software-only handoff reached Stock A but ended with `Lost communication with MCU 'mcu'` and timeouts before ready, so it **REQUIRES QUALIFICATION**. Manual power-cycle recovery to Stock `Printer is ready` is **QUALIFIED ON DEVICE (2/2)** on the reference device. |
@@ -92,6 +92,12 @@ is not overwritten. Fre3nder-owned device-management metadata is kept separate
 under `/home/fre3nder/.fre3nder`, currently including the persistent Dropbear
 host identity under `.fre3nder/ssh`. Moonraker code and its Python environment
 are system state under `/opt`; only `printer_data` belongs in userdata.
+
+During the 2026-09-11 Host-MCU/ADXL qualification, the persistent
+`printer.cfg` already existed, so the new RootFS-default sections were copied
+into it for the controlled test. This is expected seed-once behavior, not an
+ADXL or deployment failure. Automatic configuration migration remains a
+separate product decision.
 
 The previously observed `S13mcu_update` whiteout, disabled copy, and one-shot
 marker were historical bring-up residue, not the intended persistence design.
@@ -194,9 +200,10 @@ a separate update strategy, but Phase 3.1 does not select storage ownership.
 8. **3.7 Complete dual-mode roundtrip validation.** Qualify the Stock <->
    Fre3nder roundtrip with Stock A unchanged.
 9. **3.8 Remaining peripheral and product integration.** Integrate display/touch,
-   camera, ADXL345/Input Shaper, the open Web UI, touchscreen UI, and camera
-   streamer. Moonraker self-update, post-update S61 restart, overlay recovery,
-   and LAN-facing product configuration remain part of product integration.
+   camera, ADXL345 resonance/Input Shaper completion, the open Web UI,
+   touchscreen UI, and camera streamer. Moonraker self-update, post-update S61
+   restart, overlay recovery, and LAN-facing product configuration remain part
+   of product integration.
    SDIO WLAN itself is
    already proven by `2026.1.a`; production network lifecycle work belongs to
    the appliance/network path above rather than to remaining peripheral
@@ -205,7 +212,7 @@ a separate update strategy, but Phase 3.1 does not select storage ownership.
    image activation, rollback, and configuration migration only after the
    preceding non-persistent result.
 
-Display/touch, camera, ADXL345/Input Shaper, Moonraker update completion, and
-the user-facing UI stack remain later feature/product-integration work and are
-not prerequisites for the functionally achieved printable networked open-host
-release `2026.1`.
+Display/touch, camera, ADXL345 resonance/Input Shaper completion, Moonraker
+update completion, and the user-facing UI stack remain later feature/product-
+integration work and are not prerequisites for the functionally achieved
+printable networked open-host release `2026.1`.

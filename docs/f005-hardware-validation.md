@@ -148,11 +148,116 @@ reference: the upstream MCU port, the primary UART, thermistors, TMC2208
 software UART, endstops, motion, BLTouch/probe, homing, mesh, heaters, fans,
 filament sensing, extrusion, and a complete print.
 
-The following remain outside this milestone: Host-MCU/ADXL and input shaping,
-Creality PR-Touch and `z_compensate`, automatic nozzle/pressure calibration,
-vendor UI/cloud integration, and any persistent recovery or rollback claim.
+The following remained outside this historical milestone: Host-MCU/ADXL and
+input shaping, Creality PR-Touch and `z_compensate`, automatic nozzle/pressure
+calibration, vendor UI/cloud integration, and any persistent recovery or
+rollback claim.
 PR-Touch/Z compensation are optional future open reimplementation work, not
 required for the validated first print.
+
+## 2026-09-11 Host-MCU/ADXL source integration
+
+After the hardware-validation milestones above, Fre3nder added a reproducible
+upstream Linux-process MCU and onboard-ADXL345 source path. The project DTS
+models software SPI as SCK GPE16 active high, MOSI GPE17 active high, MISO
+GPE18 active high, and CS GPE21 active low, with one chip select and a stable
+`spi2` alias for `/dev/spidev2.0`. The values are attributable to OpenKE/
+NebulaOS commit `95f770a858a1076f7ffdb6b4541181034862f57e`, where this wiring and
+polarity were hardware-qualified. Fre3nder verified the binding, GPIO polarity,
+bus-alias, and spidev behavior statically against its exactly pinned Linux
+6.6.18 SDK source.
+
+On 2026-09-11, the manual development build
+`scripts/build-x2000 --develop --kernel-build` completed successfully. Its
+manifest records version `2026.2.a`, development artifact mode, a dirty project
+worktree, Linux `6.6.18-rt23`, Buildroot `2025.02.17`, and pinned upstream
+Klipper commit `0499b30374315f2a9f49fc12808527fc7d0f5cfa`. This is development
+evidence, not a clean release qualification.
+
+The build gates confirmed the effective SPI kernel configuration and decoded
+the generated DTB to check the `spi2` alias, `spi-gpio`, the spidev-compatible
+child, and 2 MHz maximum frequency. The pipeline built and stripped the
+Linux-process `klipper_mcu` with the Buildroot userspace toolchain and checked
+its 32-bit little-endian MIPS32r2/O32/NaN2008/hard-float ABI, interpreter, and
+`libc.so.6` dependency. RootFS checks confirmed the executable at
+`/usr/bin/klipper_mcu`, mode `0755`, the S59-before-S60 service path,
+`/dev/spidev2.0`, `/tmp/klipper_host_mcu`, the `-r -I` launch, and the canonical
+configuration containing `[mcu rpi]` and the ADXL/resonance sections. Kernel,
+DTB, RootFS, and full artifacts were produced, and every entry in the generated
+full-artifact `SHA256SUMS` passed `sha256sum -c`.
+
+The source and build state is therefore **SOURCE IMPLEMENTED / STATICALLY
+CHECKED / BUILT / OFFLINE CHECKED**. No printer was accessed for that build
+qualification.
+
+The resulting development kernel and RootFS were subsequently installed on the
+investigated reference system through the established `scripts/deploy-x2000`
+path. It reported `KERNEL_P6=PASS`, `ROOTFS_P8=PASS`,
+`SYSTEM_PERSISTENCE_RESET=PASS`, and `DEPLOY_X2000=PASS`. Complete readback and
+SHA-256 verification passed for p6 and p8, and Stock p5 and p7 remained
+unchanged. After boot, `/run/fre3nder-root/status` was `active`, the active root
+was `/dev/mmcblk0p8`, and the final selector was `STOCK_A`.
+
+On that system, `/dev/spidev2.0` existed as a character device,
+`/usr/bin/klipper_mcu -r -I /tmp/klipper_host_mcu` was running, and
+`/tmp/klipper_host_mcu` linked to `/dev/pts/0`. After the new `[mcu rpi]`,
+`[adxl345]`, `[resonance_tester]`, and `[input_shaper]` sections were copied
+from the built-in default into the already-existing persistent `printer.cfg`,
+Klippy reported real Host-MCU traffic. `ACCELEROMETER_QUERY` then returned:
+
+```text
+accelerometer values (x, y, z):
+8886.707777, 0.000000, 740.205942
+```
+
+This qualifies the Fre3nder `spi-gpio` path, `/dev/spidev2.0`, Linux-process
+MCU, host PTY, Klippy `[mcu rpi]` connection, physical ADXL345 SPI
+communication, and `ACCELEROMETER_QUERY` **ON THE INVESTIGATED REFERENCE
+DEVICE**. It is not a result for other hardware revisions.
+
+A subsequent RootFS-only development build included Buildroot's native
+`python-numpy` package. The first incremental run adopted the compatible
+markerless Buildroot output (`ADOPTED`), the next reported a fingerprint-matched
+cache hit (`HIT`), and the idempotent Moonraker post-build path completed
+successfully. The final
+artifact checks reported `build-manifest.json: OK`, `buildroot.config: OK`, and
+`rootfs.squashfs: OK`.
+
+The RootFS-only deployment kept the existing kernel (`KERNEL_P6=SKIPPED`),
+wrote and verified p8 (`ROOTFS_P8=PASS`), reset system persistence while
+retaining the qualified userdata boundary (`SYSTEM_PERSISTENCE_RESET=PASS`),
+booted from `/dev/mmcblk0p8`, restored `STOCK_A`, and ended with
+`DEPLOY_X2000=PASS`. On the investigated reference device, Python 3.12.14 then
+imported NumPy 1.25.0 from
+`/usr/lib/python3.12/site-packages/numpy/__init__.pyc`.
+
+The subsequent sensor query returned:
+
+```text
+accelerometer values (x, y, z):
+8580.269578, -296.082377, 592.164754
+```
+
+`MEASURE_AXES_NOISE` also completed successfully:
+
+```text
+Axes noise for xy-axis accelerometer:
+159.113215 (x), 95.617217 (y), 90.125327 (z)
+```
+
+This qualifies native RootFS NumPy import and `MEASURE_AXES_NOISE` **ON THE
+INVESTIGATED REFERENCE DEVICE**. `TEST_RESONANCES`, `SHAPER_CALIBRATE`, derived
+input-shaper frequencies and types, and input-shaping `SAVE_CONFIG` remain
+unperformed and unqualified. The tracked `[input_shaper]` section remains empty;
+no shaper result has been determined or saved.
+
+The prior isolated `Timer too close` event belongs to the historical
+primary-MCU startup described above; there is no evidence connecting it to the
+now-qualified Host-MCU communication path.
+
+Exact external-source links and the inspected upstream startup semantics are
+recorded in
+[`x2000-hardware-contract.md`](x2000-hardware-contract.md#adxl345-and-host-mcu-contract).
 
 Gate 1 / Point of Return is **SATISFIED** by the current evidence review. The
 vendor recovery path is documented and the Boot-ROM entry is known, but

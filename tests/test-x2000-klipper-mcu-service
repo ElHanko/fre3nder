@@ -1,0 +1,133 @@
+#!/bin/sh
+set -eu
+
+root=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+service=$root/configs/x2000/rootfs-overlay/etc/init.d/S59fre3nder-klipper-mcu
+tmp=$(mktemp -d)
+runtime=$tmp/runtime
+host_tty=$tmp/klipper_host_mcu
+binary=$tmp/klipper_mcu
+spi_device=$tmp/spidev2.0
+
+cleanup() {
+	FRE3NDER_KLIPPER_MCU_RUNTIME=$runtime \
+	FRE3NDER_KLIPPER_MCU=$binary \
+	FRE3NDER_KLIPPER_HOST_MCU_TTY=$host_tty \
+	FRE3NDER_ADXL_SPI_DEVICE=$spi_device \
+		"$service" stop >/dev/null 2>&1 || true
+	rm -rf -- "$tmp"
+}
+trap cleanup EXIT HUP INT TERM
+
+cat > "$binary" <<'EOF'
+#!/bin/sh
+
+host_tty=
+while [ "$#" -gt 0 ]; do
+	case "$1" in
+	-I) host_tty=$2; shift 2 ;;
+	-r) shift ;;
+	*) exit 2 ;;
+	esac
+done
+
+[ "${FIXTURE_FAIL_FAST:-0}" != 1 ] || exit 1
+if [ "${FIXTURE_NO_TTY:-0}" != 1 ]; then
+	rm -f "$host_tty"
+	ln -s /dev/null "$host_tty"
+fi
+trap 'exit 0' TERM INT
+while :; do
+	sleep 1
+done
+EOF
+chmod 0755 "$binary"
+
+run_service() {
+	FRE3NDER_KLIPPER_MCU_RUNTIME=$runtime \
+	FRE3NDER_KLIPPER_MCU=$binary \
+	FRE3NDER_KLIPPER_HOST_MCU_TTY=$host_tty \
+	FRE3NDER_ADXL_SPI_DEVICE=$spi_device \
+	FRE3NDER_KLIPPER_MCU_START_TIMEOUT=${FRE3NDER_KLIPPER_MCU_START_TIMEOUT:-2} \
+	FIXTURE_FAIL_FAST=${FIXTURE_FAIL_FAST:-0} \
+	FIXTURE_NO_TTY=${FIXTURE_NO_TTY:-0} \
+		"$service" "$1"
+}
+
+if run_service start; then
+	echo 'klipper_mcu unexpectedly started without spidev2.0' >&2
+	exit 1
+fi
+[ "$(cat "$runtime/status")" = spi-unavailable ]
+ln -s /dev/null "$spi_device"
+
+run_service start
+[ "$(cat "$runtime/status")" = active ]
+[ -L "$host_tty" ] && [ -c "$host_tty" ]
+pid=$(cat "$runtime/klipper_mcu.pid")
+kill -0 "$pid"
+
+# Starting an already-active instance must keep the same verified process.
+run_service start
+[ "$(cat "$runtime/klipper_mcu.pid")" = "$pid" ]
+
+run_service restart
+new_pid=$(cat "$runtime/klipper_mcu.pid")
+[ "$new_pid" != "$pid" ]
+kill -0 "$new_pid"
+
+run_service stop
+[ "$(cat "$runtime/status")" = stopped ]
+[ ! -e "$runtime/klipper_mcu.pid" ]
+[ ! -e "$host_tty" ]
+
+# A stale PID file must never make stop kill an unrelated process.
+mkdir -p "$runtime"
+sleep 60 &
+foreign_pid=$!
+printf '%s\n' "$foreign_pid" > "$runtime/klipper_mcu.pid"
+run_service stop
+kill -0 "$foreign_pid"
+kill "$foreign_pid"
+wait "$foreign_pid" 2>/dev/null || true
+
+# A stale live PID is ignored on start and replaced with a real host MCU PID.
+sleep 60 &
+foreign_pid=$!
+printf '%s\n' "$foreign_pid" > "$runtime/klipper_mcu.pid"
+run_service start
+new_pid=$(cat "$runtime/klipper_mcu.pid")
+[ "$new_pid" != "$foreign_pid" ]
+kill -0 "$foreign_pid"
+run_service stop
+kill "$foreign_pid"
+wait "$foreign_pid" 2>/dev/null || true
+
+if FRE3NDER_KLIPPER_MCU_RUNTIME=$runtime \
+	FRE3NDER_KLIPPER_MCU=$tmp/missing \
+	FRE3NDER_KLIPPER_HOST_MCU_TTY=$host_tty \
+	FRE3NDER_ADXL_SPI_DEVICE=$spi_device \
+	"$service" start; then
+	echo 'missing klipper_mcu binary unexpectedly started' >&2
+	exit 1
+fi
+[ "$(cat "$runtime/status")" = runtime-invalid ]
+
+rm -rf -- "$runtime"
+if FIXTURE_FAIL_FAST=1 run_service start; then
+	echo 'fail-fast klipper_mcu unexpectedly started' >&2
+	exit 1
+fi
+[ "$(cat "$runtime/status")" = startup-failed ]
+[ ! -e "$runtime/klipper_mcu.pid" ]
+
+rm -rf -- "$runtime"
+if FIXTURE_NO_TTY=1 FRE3NDER_KLIPPER_MCU_START_TIMEOUT=1 run_service start; then
+	echo 'klipper_mcu without host PTY unexpectedly started' >&2
+	exit 1
+fi
+[ "$(cat "$runtime/status")" = startup-timeout ]
+[ ! -e "$runtime/klipper_mcu.pid" ]
+[ ! -e "$host_tty" ]
+
+echo 'fre3nder-x2000 Klipper MCU service fixtures: PASS'

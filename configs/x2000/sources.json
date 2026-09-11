@@ -25,7 +25,7 @@
       "repository": "https://github.com/Klipper3d/klipper.git",
       "commit": "0499b30374315f2a9f49fc12808527fc7d0f5cfa",
       "license": "GPL-3.0-only",
-      "role": "upstream host runtime source with project passive-UART patch"
+      "role": "upstream host runtime and Linux-process MCU source with project passive-UART patch"
     },
     "moonraker": {
       "repository": "https://github.com/Arksine/moonraker.git",
