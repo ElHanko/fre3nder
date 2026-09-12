@@ -76,9 +76,9 @@ The release-level requirements and acceptance criteria are defined in
    first reference frontend while keeping alternative frontends such as
    Mainsail installable without rebuilding the RootFS.
 
-8. Bring up the local display, touch input, backlight control, and local UI
-   presentation so that the selected frontend can be operated directly on the
-   printer.
+8. Complete the local display stack. Display output, touch input, and
+   backlight control are hardware-qualified on the reference system; the local
+   UI/presentation layer remains to be integrated and qualified.
 
 9. Perform integrated `2026.2` qualification across normal boot, persistence,
    Klipper, Moonraker, application management, network UI, OctoApp, local
@@ -111,7 +111,11 @@ requirement:
   QUALIFICATION BEFORE PROMOTION**;
 - product hostname `fre3nder`: **QUALIFIED ON DEVICE**;
 - power-cycle Stock recovery: **QUALIFIED ON DEVICE (2/2)**;
-- physical PC22 backlight effect: **REQUIRES QUALIFICATION**;
+- physical PC22 backlight effect: **QUALIFIED ON DEVICE**;
+- integrated display/backlight/touch hardware path:
+  **QUALIFIED ON DEVICE**; framebuffer output, panel colors, NS2009 I2C
+  enumeration, PC15 pendown, and X/Y input events are demonstrated on the
+  reference system; local UI/presentation remains unqualified;
 - Moonraker Python/runtime dependency bring-up: **QUALIFIED ON DEVICE**;
   the exact pinned source/dependency mix, local HTTP/API behavior, network
   discovery, and ready Klippy UDS connection have been demonstrated on the
@@ -126,7 +130,7 @@ requirement:
   lifecycle, post-update restart, normal-reboot update persistence, and
   overlay-reset recovery remain to be qualified;
 - frontend-neutral UI layer: **NOT IMPLEMENTED**;
-- complete display/touch stack: **NOT IMPLEMENTED**.
+- local display UI/presentation layer: **NOT IMPLEMENTED**.
 
 ## Mandatory gates
 

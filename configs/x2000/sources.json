@@ -135,5 +135,31 @@
     }
   ],
   "credential_free": true,
-  "selector_write": false
+  "selector_write": false,
+  "display_patch_set": {
+    "identity": "fre3nder-x2000-ender3-v3-ke-display-v1",
+    "file": "configs/x2000/ke-display.patch",
+    "source_commit": "a98c2e1f22e4263ddd4153a4eca4db4dcfd2777b",
+    "license": "GPL-2.0-only",
+    "derived_from": {
+      "repository": "https://github.com/coreflake1/NebulaOS-kernel",
+      "commit": "88a0e1ecc6ace7c9e4ad99d6fa49e272180fd5a9",
+      "file": "kernel/kernel-6.6/module_drivers/drivers/video/fbdev/ingenic/displays/panel-openke-general-480x272.c",
+      "license": "GPL-2.0-only"
+    },
+    "role": "Ender 3 V3 KE 480x272 parallel-RGB panel support for Ingenic fb_stage"
+  },
+  "touch_patch_set": {
+    "identity": "fre3nder-x2000-ender3-v3-ke-touch-v1",
+    "file": "configs/x2000/ke-touch.patch",
+    "source_commit": "a98c2e1f22e4263ddd4153a4eca4db4dcfd2777b",
+    "license": "GPL-2.0-or-later",
+    "derived_from": {
+      "repository": "https://github.com/coreflake1/NebulaOS-kernel",
+      "commit": "88a0e1ecc6ace7c9e4ad99d6fa49e272180fd5a9",
+      "file": "kernel/kernel-6.6/drivers/input/touchscreen/ns2009.c",
+      "license": "GPL-2.0-or-later"
+    },
+    "role": "Ender 3 V3 KE NS2009 touchscreen support on I2C4 with PC15 pendown detection"
+  }
 }

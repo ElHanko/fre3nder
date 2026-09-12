@@ -16,6 +16,11 @@
 		gpios = <&gpc 22 GPIO_ACTIVE_HIGH INGENIC_GPIO_NOBIAS>;
 	};
 
+	fre3nder_panel: fre3nder-panel {
+		compatible = "fre3nder,ender3-v3-ke-480x272";
+		ingenic,rst-gpio = <&gpb 16 GPIO_ACTIVE_HIGH INGENIC_GPIO_NOBIAS>;
+	};
+
 	memory@0 {
 		device_type = "memory";
 		reg = <0x0 0x10000000>;
@@ -128,6 +133,31 @@
 	ingenic,drvvbus-gpio = <&gpc 9 GPIO_ACTIVE_HIGH INGENIC_GPIO_NOBIAS>;
 };
 
+&uart3 {
+	/*
+	 * UART3 and I2C4 share GPC25/GPC26 on the Ender-3 V3 KE.
+	 * Touch owns the static pinmux; Bluetooth would require a separate
+	 * runtime pin hand-off if implemented later.
+	 */
+	status = "disabled";
+};
+
+&i2c4 {
+	status = "okay";
+	pinctrl-names = "default";
+	pinctrl-0 = <&i2c4_pc>;
+
+	touchscreen@48 {
+		compatible = "nsiway,ns2009";
+		reg = <0x48>;
+		pendown-gpios = <&gpc 15 GPIO_ACTIVE_LOW INGENIC_GPIO_NOBIAS>;
+	};
+};
+
 &watchdog {
+	status = "okay";
+};
+
+&dpu {
 	status = "okay";
 };

@@ -288,7 +288,7 @@ without RootFS deployment are not yet qualified.
 
 ## REQ-2026.2-008 - Display, touch, and local presentation
 
-Status: **PLANNED**
+Status: **PARTIALLY HARDWARE QUALIFIED**
 
 Fre3nder shall provide an open local display path for the printer's integrated
 display.
@@ -308,6 +308,34 @@ internals. Printer control shall continue through Moonraker and Klipper.
 
 The system shall remain administratively reachable if the local UI cannot
 start.
+
+### Hardware qualification status
+
+The hardware portion of this requirement is qualified on the investigated
+reference system.
+
+Demonstrated on real hardware:
+
+- PC22 backlight control with physical backlight response;
+- Ingenic fbdev/fb_stage operation through `/dev/fb0`;
+- stable 480x272 framebuffer output with correct colors;
+- PB16 panel reset integration verified through successful panel bring-up;
+- NS2009 enumeration on I2C4 at address `0x48`;
+- static I2C4 ownership of GPC25/GPC26 with UART3 disabled;
+- PC15 active-low pendown detection;
+- Linux `BTN_TOUCH`, `ABS_X`, and `ABS_Y` input events through
+  `/dev/input/event0`.
+
+The native display coordinate system is 480x272 landscape while the integrated
+panel is mechanically mounted in portrait orientation. Final rotation,
+coordinate transformation, calibration, and local presentation remain
+application-layer work and are not part of this hardware qualification.
+
+Detailed evidence is recorded in
+[`x2000-display-touch.md`](x2000-display-touch.md).
+
+REQ-2026.2-008 remains incomplete until the local presentation layer is
+integrated and qualified.
 
 ## REQ-2026.2-009 - Integrated usable-system qualification
 

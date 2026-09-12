@@ -951,6 +951,12 @@ prepare_kernel() {
 	git -C "$sdk" apply --check "$project/configs/x2000/ke-wlan.patch"
 	git -C "$sdk" apply "$project/configs/x2000/ke-wlan.patch"
 	git -C "$sdk" apply --reverse --check "$project/configs/x2000/ke-wlan.patch"
+	git -C "$sdk" apply --check "$project/configs/x2000/ke-display.patch"
+	git -C "$sdk" apply "$project/configs/x2000/ke-display.patch"
+	git -C "$sdk" apply --reverse --check "$project/configs/x2000/ke-display.patch"
+	git -C "$sdk" apply --check "$project/configs/x2000/ke-touch.patch"
+	git -C "$sdk" apply "$project/configs/x2000/ke-touch.patch"
+	git -C "$sdk" apply --reverse --check "$project/configs/x2000/ke-touch.patch"
 
 	if ! grep -q '^dtb-$(CONFIG_DT_ENDER3_V3_KE)' "$k/module_drivers/dts/Makefile"; then
 		sed -i '/^obj-$(CONFIG_BUILTIN_DTB)/i dtb-$(CONFIG_DT_ENDER3_V3_KE) += x2000/ender3-v3-ke.dtb' "$k/module_drivers/dts/Makefile"
@@ -1023,9 +1029,13 @@ EOF
 	! grep -Eq '^CONFIG_(MEDIA_PLATFORM_DRIVERS|V4L_PLATFORM_DRIVERS|V4L_MEM2MEM_DRIVERS|VIDEOBUF2_DMA_CONTIG|VIDEOBUF2_DMA_SG|V4L2_MEM2MEM_DEV|V4L2_FWNODE|V4L2_ASYNC)=' \
 		"$k/.config"
 	grep -Fxq '# CONFIG_SOUND is not set' "$k/.config"
-	grep -Fxq '# CONFIG_FB is not set' "$k/.config"
+	grep -Fxq 'CONFIG_FB=y' "$k/.config"
+	grep -Fxq 'CONFIG_FB_INGENIC=y' "$k/.config"
+	grep -Fxq 'CONFIG_FB_INGENIC_STAGE=y' "$k/.config"
+	grep -Fxq 'CONFIG_STAGE_ENDER3_V3_KE_480X272=y' "$k/.config"
 	grep -Fxq '# CONFIG_IIO is not set' "$k/.config"
-	grep -Fxq '# CONFIG_INPUT_TOUCHSCREEN is not set' "$k/.config"
+	grep -Fxq 'CONFIG_INPUT_TOUCHSCREEN=y' "$k/.config"
+	grep -Fxq 'CONFIG_TOUCHSCREEN_NS2009=y' "$k/.config"
 	grep -Fxq 'CONFIG_USB_STORAGE=y' "$k/.config"
 	grep -Fxq 'CONFIG_MII=y' "$k/.config"
 	grep -Fxq 'CONFIG_USB_NET_DRIVERS=y' "$k/.config"

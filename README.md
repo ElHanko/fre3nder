@@ -20,8 +20,9 @@ The important boundaries remain:
 
 - software-only Fre3nder -> Stock: **REQUIRES QUALIFICATION**;
 - power-cycle Stock recovery: **QUALIFIED ON DEVICE (2/2)**;
-- physical PC22 backlight effect: **REQUIRES QUALIFICATION**;
-- complete display/touch stack: **NOT IMPLEMENTED**.
+- physical PC22 backlight effect: **QUALIFIED ON DEVICE**;
+- integrated display/backlight/touch hardware path: **QUALIFIED ON DEVICE**;
+- local display UI/presentation layer: **NOT IMPLEMENTED**.
 
 Observations marked as qualified apply to the investigated reference system
 unless explicitly stated otherwise. Do not treat its calibration, hardware
@@ -31,6 +32,7 @@ revision, or recovery behavior as universal.
 
 - [What Fre3nder builds and how to build it](docs/build.md)
 - [Current configuration and hardware contract](docs/configuration.md)
+- [Integrated display and touch hardware](docs/x2000-display-touch.md)
 - [Installation and deployment boundary](docs/installation.md)
 - [Recovery and return to Stock](docs/recovery.md)
 - [Development and tests](docs/development.md)
