@@ -16,6 +16,8 @@ config=${FRE3NDER_MOONRAKER_CONFIG:-$config_dir/moonraker.conf}
 default_config=${FRE3NDER_MOONRAKER_DEFAULT_CONFIG:-/usr/share/fre3nder/defaults/moonraker.conf}
 fre3nder_config_dir=$config_dir/fre3nder
 fre3nder_base_config=$fre3nder_config_dir/00-base.conf
+camera_config=$fre3nder_config_dir/camera.conf
+default_camera_config=${FRE3NDER_MOONRAKER_CAMERA_DEFAULT_CONFIG:-/usr/share/fre3nder/defaults/camera.conf}
 persistent_logs=${FRE3NDER_MOONRAKER_LOG_DIR:-$printer_data/logs}
 moonraker_root=${FRE3NDER_MOONRAKER_ROOT:-/opt/fre3nder/moonraker}
 moonraker=${FRE3NDER_MOONRAKER_ENTRYPOINT:-$moonraker_root/moonraker/moonraker.py}
@@ -50,6 +52,17 @@ ensure_directory() {
 	[ -d "$1" ] && [ ! -L "$1" ]
 }
 
+seed_regular_file() {
+	destination=$1
+	source=$2
+	if [ -e "$destination" ] || [ -L "$destination" ]; then
+		[ -f "$destination" ] && [ ! -L "$destination" ]
+		return
+	fi
+	[ -f "$source" ] && [ ! -L "$source" ] || return 1
+	install -m 0644 "$source" "$destination"
+}
+
 prepare_printer_data() {
 	[ -d "$home_root" ] && [ ! -L "$home_root" ] || return 1
 	ensure_directory "$fre3nder_home" || return 1
@@ -67,6 +80,7 @@ prepare_printer_data() {
 			> "$fre3nder_base_config" || return 1
 		chmod 0644 "$fre3nder_base_config" || return 1
 	fi
+	seed_regular_file "$camera_config" "$default_camera_config" || return 1
 
 	if [ -e "$config" ] || [ -L "$config" ]; then
 		[ -f "$config" ] && [ ! -L "$config" ]

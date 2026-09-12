@@ -1,0 +1,183 @@
+#!/bin/sh
+set -eu
+
+root=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+service=$root/configs/x2000/rootfs-overlay/etc/init.d/S63fre3nder-camera
+fragment=$root/configs/x2000/kernel.fragment
+buildroot_fragment=$root/configs/x2000/buildroot.fragment
+sources=$root/configs/x2000/sources.json
+entrypoint=$root/build/x2000/entrypoint.sh
+post_build=$root/configs/x2000/rootfs-post-build.sh
+tmp=$(mktemp -d)
+runtime=$tmp/run/camera
+sys_class=$tmp/sys/class/video4linux
+drivers=$tmp/sys/drivers
+dev_root=$tmp/dev
+streamer=$tmp/bin/mjpg_streamer
+input_plugin=$tmp/lib/input_uvc.so
+output_plugin=$tmp/lib/output_http.so
+calls=$tmp/calls
+
+cleanup() {
+	FRE3NDER_CAMERA_RUNTIME=$runtime \
+	FRE3NDER_VIDEO_SYS_CLASS=$sys_class \
+	FRE3NDER_DEV_ROOT=$dev_root \
+	FRE3NDER_MJPG_STREAMER=$streamer \
+	FRE3NDER_MJPG_INPUT_UVC=$input_plugin \
+	FRE3NDER_MJPG_OUTPUT_HTTP=$output_plugin \
+		"$service" stop >/dev/null 2>&1 || true
+	rm -rf -- "$tmp"
+}
+trap cleanup EXIT HUP INT TERM
+
+mkdir -p "$tmp/bin" "$tmp/lib" "$drivers/uvcvideo" "$drivers/other" \
+	"$sys_class" "$dev_root"
+: > "$input_plugin"
+: > "$output_plugin"
+
+cat > "$streamer" <<'EOF'
+#!/bin/sh
+printf '%s\n' "$@" > "$FIXTURE_CAMERA_CALLS"
+trap 'exit 0' TERM INT
+while :; do
+	sleep 1
+done
+EOF
+chmod 0755 "$streamer"
+
+run_service() {
+	FRE3NDER_CAMERA_RUNTIME=$runtime \
+	FRE3NDER_VIDEO_SYS_CLASS=$sys_class \
+	FRE3NDER_DEV_ROOT=$dev_root \
+	FRE3NDER_MJPG_STREAMER=$streamer \
+	FRE3NDER_MJPG_INPUT_UVC=$input_plugin \
+	FRE3NDER_MJPG_OUTPUT_HTTP=$output_plugin \
+	FIXTURE_CAMERA_CALLS=$calls \
+		"$service" "$1"
+}
+
+make_video_node() {
+	name=$1
+	driver=$2
+	index=$3
+	mkdir -p "$sys_class/$name/device"
+	ln -s "$drivers/$driver" "$sys_class/$name/device/driver"
+	printf '%s\n' "$index" > "$sys_class/$name/index"
+	ln -s /dev/null "$dev_root/$name"
+}
+
+sh -n "$service"
+if grep -Fq '/dev/video4' "$service"; then
+	echo 'camera service hard-codes the Stock video4 index' >&2
+	exit 1
+fi
+grep -Fq '/sys/class/video4linux' "$service"
+# shellcheck disable=SC2016 # Check the literal service expression.
+grep -Fq '"${driver##*/}" = uvcvideo' "$service"
+# shellcheck disable=SC2016 # Check the literal sysfs expression.
+grep -Fq '"$class_node/index"' "$service"
+grep -Fq 'listen_address=127.0.0.1' "$service"
+grep -Fq 'port=8080' "$service"
+
+for setting in \
+	CONFIG_MEDIA_SUPPORT=y \
+	CONFIG_MEDIA_SUPPORT_FILTER=y \
+	CONFIG_MEDIA_CAMERA_SUPPORT=y \
+	CONFIG_VIDEO_DEV=y \
+	CONFIG_MEDIA_USB_SUPPORT=y \
+	CONFIG_USB_VIDEO_CLASS=y; do
+	grep -Fxq "$setting" "$fragment"
+done
+for setting in \
+	CONFIG_MEDIA_ANALOG_TV_SUPPORT \
+	CONFIG_MEDIA_DIGITAL_TV_SUPPORT \
+	CONFIG_MEDIA_RADIO_SUPPORT \
+	CONFIG_MEDIA_SDR_SUPPORT \
+	CONFIG_MEDIA_PLATFORM_SUPPORT \
+	CONFIG_MEDIA_TEST_SUPPORT \
+	CONFIG_USB_VIDEO_CLASS_INPUT_EVDEV \
+	CONFIG_MEDIA_PLATFORM_DRIVERS \
+	CONFIG_V4L_PLATFORM_DRIVERS \
+	CONFIG_V4L_MEM2MEM_DRIVERS \
+	CONFIG_VIDEOBUF2_DMA_CONTIG \
+	CONFIG_VIDEOBUF2_DMA_SG \
+	CONFIG_VIDEOBUF2_DMA_CONTIG_INGENIC \
+	CONFIG_VIDEO_INGENIC_ISP \
+	CONFIG_VIDEO_INGENIC_ROTATE \
+	CONFIG_VIDEO_INGENIC_VCODEC \
+	CONFIG_HALLEY5_CAMERA_BOARD \
+	CONFIG_RD_X2000_HALLEY5_CAMERA_4V3 \
+	CONFIG_INGENIC_ISP_CAMERA_OV2735A; do
+	grep -Fxq "# $setting is not set" "$fragment"
+done
+grep -Fxq 'CONFIG_MEDIA_CONTROLLER=y' "$fragment"
+grep -Fxq 'BR2_PACKAGE_MJPG_STREAMER=y' "$buildroot_fragment"
+python3 - "$sources" <<'PY'
+import json
+import pathlib
+import sys
+
+package = json.loads(pathlib.Path(sys.argv[1]).read_text())["userspace"]["mjpg_streamer"]
+assert package == {
+    "repository": "https://github.com/jacksonliam/mjpg-streamer.git",
+    "commit": "5a6e0a2db163e6ae9461552b59079870d0959340",
+    "license": "GPL-2.0-or-later",
+    "source": "upstream Buildroot 2025.02.17 package",
+    "role": "USB-UVC V4L2 to localhost MJPEG streamer",
+}
+PY
+grep -Fq 'BR2_PACKAGE_MJPG_STREAMER=y' "$entrypoint"
+grep -Fq 'CONFIG_VIDEOBUF2_VMALLOC=y' "$entrypoint"
+# shellcheck disable=SC2016 # Check literal build-gate paths.
+grep -Fq '"$target/usr/bin/mjpg_streamer"' "$entrypoint"
+# shellcheck disable=SC2016 # Check literal build-gate paths.
+grep -Fq '"$target/usr/lib/mjpg-streamer/input_uvc.so"' "$entrypoint"
+# shellcheck disable=SC2016 # Check literal build-gate paths.
+grep -Fq '"$target/usr/lib/mjpg-streamer/output_http.so"' "$entrypoint"
+# shellcheck disable=SC2016 # Check literal post-build path.
+grep -Fq '"$target/etc/init.d/S63fre3nder-camera"' "$post_build"
+
+# Absence of a camera is a normal boot-time condition.
+run_service start
+[ "$(cat "$runtime/status")" = camera-unavailable ]
+[ ! -e "$runtime/mjpg_streamer.pid" ]
+[ ! -e "$calls" ]
+
+# Non-UVC and UVC metadata nodes are skipped in favor of the capture node.
+make_video_node video0 other 0
+make_video_node video1 uvcvideo 1
+make_video_node video2 uvcvideo 0
+run_service start
+[ "$(cat "$runtime/status")" = active ]
+pid=$(cat "$runtime/mjpg_streamer.pid")
+kill -0 "$pid"
+grep -Fxq "$input_plugin -d $dev_root/video2" "$calls"
+grep -Fxq "$output_plugin -p 8080 -l 127.0.0.1" "$calls"
+run_service status
+
+# An already-running instance is retained; restart replaces it cleanly.
+run_service start
+[ "$(cat "$runtime/mjpg_streamer.pid")" = "$pid" ]
+run_service restart
+new_pid=$(cat "$runtime/mjpg_streamer.pid")
+[ "$new_pid" != "$pid" ]
+kill -0 "$new_pid"
+run_service stop
+[ "$(cat "$runtime/status")" = stopped ]
+[ ! -e "$runtime/mjpg_streamer.pid" ]
+if run_service status; then
+	echo 'stopped camera service unexpectedly reported active' >&2
+	exit 1
+fi
+
+# A stale PID file must not allow stop to signal an unrelated process.
+sleep 60 &
+foreign_pid=$!
+mkdir -p "$runtime"
+printf '%s\n' "$foreign_pid" > "$runtime/mjpg_streamer.pid"
+run_service stop
+kill -0 "$foreign_pid"
+kill "$foreign_pid"
+wait "$foreign_pid" 2>/dev/null || true
+
+echo 'fre3nder-x2000 camera service and static gates: PASS'

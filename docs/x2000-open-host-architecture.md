@@ -21,7 +21,8 @@ minimal Buildroot root filesystem
         +-- upstream Klipper -> /dev/ttyS1 -> Mainline F005
         +-- upstream Moonraker -> open Web UI
         +-- touchscreen UI
-        +-- V4L2 camera -> open streamer
+        +-- USB UVC -> V4L2 /dev/videoX -> localhost MJPEG streamer
+        |              -> Lighttpd /webcam/ -> Moonraker webcam -> Fluidd
         +-- upstream Linux Host MCU -> ADXL345 / Input Shaper
         `-- controlled image-based updates
 ```
@@ -50,7 +51,7 @@ needed printer-facing functions to have open replacements.
 | Network/SSH | PROVEN | The Production S20 -> S40 -> S50 path is hardware-validated on the investigated reference system: USB provisioning, CDC-NCM Ethernet-first operation, WLAN fallback, public-key login, and interactive SSH PTY allocation and shell operation all succeeded. The image embeds no user credentials. A persistent Dropbear host key was reused over a normal Develop-B -> Develop-B reboot and verified as both Dropbear's configured key and the key presented over SSH; SSH became available again afterward. This qualification is limited to the Development USB-adapter path; runtime/hotplug failover remains open. |
 | Moonraker | OFFLINE IMPLEMENTED / RUNTIME PARTIALLY PROVEN | The RootFS build stages the pinned stable Git checkout under `/opt/fre3nder/moonraker` and a system-site-packages-enabled environment under `/opt/fre3nder/moonraker-env`. Persistent state remains in `/home`; PID/status/socket remain in `/run`. The pinned runtime and Klippy/API behavior are hardware-qualified, while the newly built-in baseline, self-update dependency lifecycle, S61 post-update restart, and OverlayFS recovery remain unqualified. |
 | Display/touch | LIKELY / PARTIAL OFFLINE CONFIRMATION | The NS2009/I2C endpoint and stock framebuffers are observed. The project DTS now has a minimal GPC22 active-high `gpio-backlight` node without `default-on`, **OFFLINE IMPLEMENTED** and **OFFLINE CONFIRMED** in the generated DTB. Physical backlight-off, framebuffer clearing, panel output, and touch acceptance remain open. |
-| Camera | LIKELY | The reference camera is USB UVC using `uvcvideo`; standard V4L2 plus an open streamer remains the target, with later reference-board acceptance of the selected SDK USB path. |
+| Camera | QUALIFIED ON DEVICE | On the investigated reference system, S63 selected the index-0 `uvcvideo` capture node, `mjpg_streamer` served JPEG only at `127.0.0.1:8080`, Lighttpd proxied `/webcam/`, Moonraker published the platform-owned webcam configuration, and Fluidd displayed the real camera image. The kernel and RootFS inputs were built and deployed. Automatic restart after inserting a camera that was absent during boot remains a separate QoL item. |
 | Linux Host MCU / ADXL345 | INPUT SHAPING QUALIFIED ON DEVICE | On the investigated reference device, the complete chain through `/dev/spidev2.0`, Linux-process MCU, NumPy, `SHAPER_CALIBRATE` X/Y, the extended 100-Hz X sweep, and `SAVE_CONFIG` succeeded. The reference baseline is MZV at 62.4 Hz for X and MZV at 39.8 Hz for Y, with conservative `max_accel: 4500`; other printers require independent calibration. |
 | BL24C16F | DEFERRED | It is not evidenced as necessary for the required open-host/ADXL path. Preserve rather than modify its data. |
 | Update/rollback model | PROVEN / HARDWARE VALIDATED | The automatic p1 one-shot model proved bounded Slot-B boot and Stock-A return for `2026.1.a`; it remains the safety/regression path. The separate host-side operator tool is hardware-validated for explicit p1 A -> B and B -> A selector changes and has no automatic B -> A fallback. Normal Develop-B -> Develop-B reboot persistence is qualified on the investigated reference system. An unreachable Develop system relies on the qualified external Ingenic USB / RAM-U-Boot p1 rollback. Persistent updates remain unqualified. |
@@ -199,8 +200,10 @@ a separate update strategy, but Phase 3.1 does not select storage ownership.
    as does user-facing UI work.
 8. **3.7 Complete dual-mode roundtrip validation.** Qualify the Stock <->
    Fre3nder roundtrip with Stock A unchanged.
-9. **3.8 Remaining peripheral and product integration.** Integrate display/touch,
-   camera, the open Web UI, touchscreen UI, and camera streamer. Moonraker
+9. **3.8 Remaining peripheral and product integration.** Integrate display/touch
+   and the touchscreen UI. The open camera path through Fluidd is **QUALIFIED ON
+   DEVICE**; automatic camera restart after a camera-absent boot remains a later
+   QoL item. Moonraker
    self-update, post-update S61 restart, overlay recovery, and LAN-facing
    product configuration remain part of product integration.
    SDIO WLAN itself is
@@ -211,6 +214,6 @@ a separate update strategy, but Phase 3.1 does not select storage ownership.
    image activation, rollback, and configuration migration only after the
    preceding non-persistent result.
 
-Display/touch, camera, Moonraker update completion, and the user-facing UI stack
+Display/touch, Moonraker update completion, and the remaining user-facing UI stack
 remain later feature/product-integration work and are not prerequisites for the
 functionally achieved printable networked open-host release `2026.1`.

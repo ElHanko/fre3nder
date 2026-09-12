@@ -58,6 +58,7 @@ runtime handler.
 | Web payload | `/opt/fre3nder/web/fluidd` | Reconstructible system OverlayFS |
 | Desired state | `/home/fre3nder/.fre3nder/services/fluidd/installed` | Upgrade-persistent userdata |
 | Owned Moonraker fragment | `/home/fre3nder/printer_data/config/fre3nder/fluidd.conf` | Upgrade-persistent userdata |
+| Platform camera fragment | `/home/fre3nder/printer_data/config/fre3nder/camera.conf` | Upgrade-persistent userdata, not Fluidd-owned |
 | Selected frontend | `/home/fre3nder/.fre3nder/frontend/active` | Upgrade-persistent frontend name |
 | Built-in webserver disabled | `/home/fre3nder/.fre3nder/web/disabled` | Upgrade-persistent opt-out |
 
@@ -221,8 +222,9 @@ if it is exactly `fluidd`, then the desired marker. Other valid frontend names
 remain unchanged. It is idempotent. The cached handler is retained, subject to
 the same provenance checks on subsequent calls. It does not modify
 the main Moonraker configuration, databases, update metadata, other apps,
-other printer data, or platform components. Unsafe symlink paths are refused;
-they are not followed for deletion.
+other printer data, or platform components. In particular, the platform-owned
+`fre3nder/camera.conf` and S63 camera service survive `fre3nder uninstall
+fluidd`. Unsafe symlink paths are refused; they are not followed for deletion.
 
 Status is read-only within the handler and emits:
 
@@ -259,9 +261,14 @@ The required exact entry is:
 
 New installations receive the include through the existing RootFS default.
 The current S61 preparation already creates the fragment directory and an
-app-neutral `00-base.conf`. Neither S61 nor the Fluidd handler migrates existing
-user configuration. An absent include aborts install/desired restore with the
-file path, required line, and explanation.
+app-neutral `00-base.conf`. S61 also seeds the RootFS default as
+`fre3nder/camera.conf` only when that path is absent. It accepts an existing
+regular camera fragment unchanged and refuses a symlink or non-file object.
+This makes the webcam definition platform-owned and independent of Fluidd's
+lifecycle. Neither S61 nor the Fluidd handler edits an existing main user
+configuration. An absent include aborts Fluidd install/desired restore with the
+file path, required line, and explanation; it also means an already seeded
+camera fragment is not loaded until the operator adds the include.
 
 This ownership boundary was observed on the reference system: an older
 persistent `moonraker.conf` containing only loopback in `trusted_clients` was
@@ -343,6 +350,31 @@ debug endpoints. Other paths remain static frontend requests. Lighttpd
 `proxy.header = ( "upgrade" => "enable" )` enables WebSocket proxying through
 `mod_proxy`; no separate WebSocket backend/module is used. Request and response
 streaming avoids buffering complete G-code transfers in the proxy.
+
+A separate `^/webcam/` condition forwards camera requests to the loopback-only
+`mjpg_streamer` backend at `127.0.0.1:8080`. Lighttpd 1.4.81's existing
+`mod_proxy` `map-urlpath` option maps `/webcam/` to `/`, so
+`/webcam/?action=snapshot` reaches the backend as `/?action=snapshot` and the
+query remains intact. Port 8080 receives no LAN listener or separate service;
+clients use the existing Lighttpd port 80 surface. The Moonraker API and exact
+WebSocket rules above are unchanged.
+
+S61 seeds this platform-owned fragment under the existing wildcard include:
+
+```ini
+[webcam fre3nder_camera]
+location: printer
+service: mjpegstreamer
+stream_url: /webcam/?action=stream
+snapshot_url: /webcam/?action=snapshot
+```
+
+Fluidd consumes Moonraker's webcam model and does not create a parallel browser
+configuration or database record. On the investigated reference system, the
+built and deployed integration is **QUALIFIED ON DEVICE**: Moonraker reported
+`fre3nder_camera` with `source: config`, the external snapshot path returned a
+valid JPEG through Lighttpd, and Fluidd displayed the live camera image without
+manual Fluidd webcam configuration.
 
 The baseline stays loopback-only. `mod_setenv` discards client-provided
 `X-Real-IP`, `X-Forwarded-For`, `X-Forwarded-Proto` and `X-Scheme`; `mod_proxy`
@@ -435,12 +467,21 @@ TLS, Lua, databases, compression and WebDAV features remain disabled.
 
 The hash-checked upstream `1.4.81` source and Buildroot Meson definition were
 inspected without building. `mod_proxy` is an unconditional dynamic module
-with Buildroot's `-Dbuild_static=false`; `mod_setenv`, `mod_indexfile` and
-`mod_staticfile` are built into the executable. There is no Buildroot
+with Buildroot's `-Dbuild_static=false`; `mod_setenv`, `mod_indexfile`,
+`mod_staticfile`, and `mod_rewrite` are built into the executable. There is no Buildroot
 `LIGHTTPD_PROXY` switch and no separate `mod_setenv.so` to require. Upstream
 also compiles other standard modules, including CGI/FastCGI facilities; this
 configuration does not activate them. No extra package patch is introduced
 solely to remove unused upstream module code.
+
+The pinned `src/mod_proxy.c` also implements `proxy.header` `map-urlpath` as a
+prefix replacement on the request target. Although `mod_rewrite` is one of the
+standard built-ins, the webcam route does not activate it; the already active
+`mod_proxy` handles both routing and prefix stripping, with no new Buildroot
+option. Host-side tests check the condition, loopback backend, prefix mapping,
+unchanged Moonraker route/WebSocket block, and absence of a direct port-8080
+listener declaration. A host-native Lighttpd binary was not available for an
+additional `-tt` run.
 
 The development RootFS was subsequently validated on the reference X2000 with
 the persistent root active. It contained Lighttpd 1.4.81 as a 32-bit
@@ -464,6 +505,12 @@ including `notify_proc_stat_update`. When Moonraker was restarted, Lighttpd
 temporarily reported the unavailable backend and automatically re-enabled it
 after Moonraker returned.
 
+The subsequently rebuilt and deployed camera integration was also qualified on
+the investigated reference system. S61 seeded `fre3nder/camera.conf`, Moonraker
+published the configured `fre3nder_camera`, and both
+`/webcam/?action=snapshot` and the Fluidd live view traversed Lighttpd while
+`mjpg_streamer` remained bound only to `127.0.0.1:8080`.
+
 ## References and remaining qualification
 
 The bootstrap contract uses the official
@@ -485,8 +532,8 @@ Lighttpd package provenance: pinned Buildroot
 and [upstream 1.4.81 source](https://download.lighttpd.net/lighttpd/releases-1.4.x/lighttpd-1.4.81.tar.xz),
 SHA256 `d7d42c3fd2fd94b63c915aa7d18f4da3cac5937ddba33e909f81cf50842a5840`
 from Buildroot's package hash file. `src/meson.build` defines builtin/dynamic
-modules; `src/mod_proxy.c` implements the verified `upgrade` option and
-forwarding headers. No upstream code was imported into this repository.
+modules; `src/mod_proxy.c` implements the verified `upgrade`, `map-urlpath`, and
+forwarding-header options. No upstream code was imported into this repository.
 See also [mod_proxy](https://redmine.lighttpd.net/projects/lighttpd/wiki/mod_proxy)
 and [mod_setenv](https://redmine.lighttpd.net/projects/lighttpd/wiki/Mod_setenv).
 
@@ -500,10 +547,14 @@ describe static hosting and `/server/info`. The inspected
 uses Vue Router's default hash mode; no history-path fallback is introduced.
 This is reference evidence, not a Fluidd version pin.
 
-Still open: Fluidd reboot persistence, system-overlay reset and restore,
+Still open: automatic camera hotplug recovery after a boot without the camera,
+Fluidd reboot persistence, system-overlay reset and restore,
 Moonraker-driven Fluidd update, uninstall and the built-in-webserver disable
 marker on real hardware, an external-webserver scenario, and printer control
 through the UI. HTTPS/TLS and alternative frontend implementations are outside
 this step. The demonstrated initial Fluidd bootstrap, active selection, static
-LAN delivery, HTTP/WebSocket proxying, loopback-only Moonraker binding, and LAN
-authorization are qualified only on the investigated reference system.
+LAN delivery, HTTP/WebSocket and webcam proxying, loopback-only Moonraker and
+camera backends, LAN authorization, and Fluidd camera display are qualified only
+on the investigated reference system. If the camera is connected only after S63
+has already run at boot, `/etc/init.d/S63fre3nder-camera start` is currently
+required; automatic retry is a separate QoL item.

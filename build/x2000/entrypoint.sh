@@ -993,7 +993,35 @@ EOF
 	grep -Fxq '# CONFIG_INGENIC_SFC is not set' "$k/.config"
 	grep -Fxq '# CONFIG_INGENIC_RSA is not set' "$k/.config"
 	grep -Fxq '# CONFIG_SPINLOCK_TEST is not set' "$k/.config"
-	grep -Fxq '# CONFIG_MEDIA_SUPPORT is not set' "$k/.config"
+	grep -Fxq 'CONFIG_MEDIA_SUPPORT=y' "$k/.config"
+	grep -Fxq 'CONFIG_MEDIA_SUPPORT_FILTER=y' "$k/.config"
+	grep -Fxq 'CONFIG_MEDIA_CAMERA_SUPPORT=y' "$k/.config"
+	grep -Fxq 'CONFIG_VIDEO_DEV=y' "$k/.config"
+	grep -Fxq 'CONFIG_MEDIA_CONTROLLER=y' "$k/.config"
+	grep -Fxq 'CONFIG_MEDIA_USB_SUPPORT=y' "$k/.config"
+	grep -Fxq 'CONFIG_USB_VIDEO_CLASS=y' "$k/.config"
+	grep -Fxq 'CONFIG_UVC_COMMON=y' "$k/.config"
+	grep -Fxq 'CONFIG_VIDEOBUF2_CORE=y' "$k/.config"
+	grep -Fxq 'CONFIG_VIDEOBUF2_V4L2=y' "$k/.config"
+	grep -Fxq 'CONFIG_VIDEOBUF2_MEMOPS=y' "$k/.config"
+	grep -Fxq 'CONFIG_VIDEOBUF2_VMALLOC=y' "$k/.config"
+	for setting in \
+		CONFIG_MEDIA_ANALOG_TV_SUPPORT \
+		CONFIG_MEDIA_DIGITAL_TV_SUPPORT \
+		CONFIG_MEDIA_RADIO_SUPPORT \
+		CONFIG_MEDIA_SDR_SUPPORT \
+		CONFIG_MEDIA_PLATFORM_SUPPORT \
+		CONFIG_MEDIA_TEST_SUPPORT \
+		CONFIG_USB_VIDEO_CLASS_INPUT_EVDEV \
+		CONFIG_VIDEO_INGENIC_ISP \
+		CONFIG_VIDEO_INGENIC_ROTATE \
+		CONFIG_VIDEO_INGENIC_VCODEC; do
+		grep -Fxq "# $setting is not set" "$k/.config"
+	done
+	! grep -Eq '^CONFIG_(VIDEO_INGENIC|INGENIC_ISP_CAMERA|HALLEY5_CAMERA|RD_X2000_HALLEY5_CAMERA).*=' \
+		"$k/.config"
+	! grep -Eq '^CONFIG_(MEDIA_PLATFORM_DRIVERS|V4L_PLATFORM_DRIVERS|V4L_MEM2MEM_DRIVERS|VIDEOBUF2_DMA_CONTIG|VIDEOBUF2_DMA_SG|V4L2_MEM2MEM_DEV|V4L2_FWNODE|V4L2_ASYNC)=' \
+		"$k/.config"
 	grep -Fxq '# CONFIG_SOUND is not set' "$k/.config"
 	grep -Fxq '# CONFIG_FB is not set' "$k/.config"
 	grep -Fxq '# CONFIG_IIO is not set' "$k/.config"
@@ -1124,7 +1152,8 @@ check_rootfs() {
 	grep -Fxq '# BR2_PACKAGE_ALSA_LIB is not set' "$brout/.config"
 	grep -Fxq '# BR2_PACKAGE_ALSA_UTILS is not set' "$brout/.config"
 	grep -Fxq 'BR2_PACKAGE_OPENSSL=y' "$brout/.config"
-	grep -Fxq '# BR2_PACKAGE_JPEG is not set' "$brout/.config"
+	grep -Fxq 'BR2_PACKAGE_MJPG_STREAMER=y' "$brout/.config"
+	grep -Fxq 'BR2_PACKAGE_JPEG=y' "$brout/.config"
 	grep -Fxq 'BR2_PACKAGE_EXPAT=y' "$brout/.config"
 	grep -Fxq 'BR2_PACKAGE_SQLITE=y' "$brout/.config"
 	grep -Fxq '# BR2_PACKAGE_NCURSES is not set' "$brout/.config"
@@ -1236,6 +1265,10 @@ check_rootfs() {
 	[ -x "$target/usr/sbin/lighttpd" ]
 	[ -f "$target/usr/lib/lighttpd/mod_proxy.so" ]
 	[ -x "$target/etc/init.d/S62fre3nder-web" ]
+	[ -x "$target/usr/bin/mjpg_streamer" ]
+	[ -f "$target/usr/lib/mjpg-streamer/input_uvc.so" ]
+	[ -f "$target/usr/lib/mjpg-streamer/output_http.so" ]
+	[ -x "$target/etc/init.d/S63fre3nder-camera" ]
 	[ ! -e "$target/etc/init.d/S50lighttpd" ]
 	cmp -s "$project/configs/x2000/rootfs-overlay/etc/lighttpd/fre3nder.conf" \
 		"$target/etc/lighttpd/fre3nder.conf"
@@ -1265,11 +1298,15 @@ check_rootfs() {
 	fi
 	[ -f "$target/usr/share/fre3nder/defaults/printer.cfg" ]
 	[ -f "$target/usr/share/fre3nder/defaults/moonraker.conf" ]
+	[ -f "$target/usr/share/fre3nder/defaults/camera.conf" ]
 	cmp -s "$project/configs/klipper-f005/printer-f005-mainline.cfg" \
 		"$target/usr/share/fre3nder/defaults/printer.cfg"
 	cmp -s \
 		"$project/configs/x2000/rootfs-overlay/usr/share/fre3nder/defaults/moonraker.conf" \
 		"$target/usr/share/fre3nder/defaults/moonraker.conf"
+	cmp -s \
+		"$project/configs/x2000/rootfs-overlay/usr/share/fre3nder/defaults/camera.conf" \
+		"$target/usr/share/fre3nder/defaults/camera.conf"
 	grep -Fxq 'x2000_passive_uart: True' \
 		"$target/usr/share/fre3nder/defaults/printer.cfg"
 	file "$target/usr/bin/klipper_mcu" |
@@ -1319,6 +1356,12 @@ check_rootfs() {
 		"$moonraker_service"
 	grep -Fxq '[include fre3nder/*.conf]' \
 		"$target/usr/share/fre3nder/defaults/moonraker.conf"
+	grep -Fxq '[webcam fre3nder_camera]' \
+		"$target/usr/share/fre3nder/defaults/camera.conf"
+	grep -Fxq 'stream_url: /webcam/?action=stream' \
+		"$target/usr/share/fre3nder/defaults/camera.conf"
+	grep -Fxq 'snapshot_url: /webcam/?action=snapshot' \
+		"$target/usr/share/fre3nder/defaults/camera.conf"
 	grep -Fq 'PIP_ONLY_BINARY=:all:' "$moonraker_service"
 	grep -Fq -- '-d "$printer_data"' "$moonraker_service"
 	grep -Fq -- '-u "$uds"' "$moonraker_service"

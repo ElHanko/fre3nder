@@ -22,6 +22,8 @@ fre3nder_home=$home_root/fre3nder
 printer_data=$fre3nder_home/printer_data
 config=$printer_data/config/moonraker.conf
 default_config=$tmp/default-moonraker.conf
+default_camera_config=$tmp/default-camera.conf
+camera_config=$printer_data/config/fre3nder/camera.conf
 moonraker_root=$tmp/opt/fre3nder/moonraker
 moonraker=$moonraker_root/moonraker/moonraker.py
 python=$tmp/opt/fre3nder/moonraker-env/bin/python
@@ -34,7 +36,14 @@ mkdir -p "$state_dir" "$klipper_runtime" "$home_root" \
 	"$moonraker_root/.git" "$(dirname "$moonraker")" "$(dirname "$python")"
 printf '%s\n' active > "$state_dir/status"
 printf '%s\n' active > "$klipper_runtime/status"
-printf '%s\n' '[server]' > "$default_config"
+printf '%s\n' '[server]' '[include fre3nder/*.conf]' > "$default_config"
+cat > "$default_camera_config" <<'EOF'
+[webcam fre3nder_camera]
+location: printer
+service: mjpegstreamer
+stream_url: /webcam/?action=stream
+snapshot_url: /webcam/?action=snapshot
+EOF
 
 python3 - "$klippy_uds" <<'PY_SOCKET'
 import socket
@@ -81,6 +90,7 @@ run_service() {
 	FRE3NDER_HOME_ROOT=$home_root \
 	FRE3NDER_HOME_DIR=$fre3nder_home \
 	FRE3NDER_MOONRAKER_DEFAULT_CONFIG=$default_config \
+	FRE3NDER_MOONRAKER_CAMERA_DEFAULT_CONFIG=$default_camera_config \
 	FRE3NDER_MOONRAKER_ROOT=$moonraker_root \
 	FRE3NDER_MOONRAKER_ENTRYPOINT=$moonraker \
 	FRE3NDER_PYTHON=$python \
@@ -132,6 +142,9 @@ kill -0 "$service_pid" 2>/dev/null
 [ -f "$config" ] && [ ! -L "$config" ]
 cmp -s "$default_config" "$config"
 [ "$(stat -c '%a' "$config")" = 644 ]
+[ -f "$camera_config" ] && [ ! -L "$camera_config" ]
+cmp -s "$default_camera_config" "$camera_config"
+[ "$(stat -c '%a' "$camera_config")" = 644 ]
 sed -n '1p' "$called" | grep -Fxq ':all:'
 grep -Fxq -- '-d' "$called"
 grep -Fxq -- "$printer_data" "$called"
@@ -157,12 +170,24 @@ run_service stop
 [ ! -e "$runtime/moonraker.pid" ]
 [ ! -e "$runtime/moonraker.sock" ]
 
-# Existing Moonraker configuration is persistent userdata and is never seeded.
+# An existing main configuration still receives a missing platform fragment.
 printf '%s\n' '# retained-user-config' > "$config"
+rm -f "$camera_config"
 rm -f "$called"
 : > "$ready_file"
 run_service start
 [ "$(cat "$config")" = '# retained-user-config' ]
+cmp -s "$default_camera_config" "$camera_config"
+run_service stop
+
+# Existing Moonraker and camera configuration are persistent userdata and are
+# never overwritten.
+printf '%s\n' '# retained-camera-config' > "$camera_config"
+rm -f "$called"
+: > "$ready_file"
+run_service start
+[ "$(cat "$config")" = '# retained-user-config' ]
+[ "$(cat "$camera_config")" = '# retained-camera-config' ]
 run_service stop
 
 # An early Moonraker exit never becomes an active service.

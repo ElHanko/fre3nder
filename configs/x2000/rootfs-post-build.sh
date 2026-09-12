@@ -33,6 +33,7 @@ chmod 0755 \
 	"$target/etc/init.d/S60fre3nder-klipper" \
 	"$target/etc/init.d/S61fre3nder-moonraker" \
 	"$target/etc/init.d/S62fre3nder-web" \
+	"$target/etc/init.d/S63fre3nder-camera" \
 	"$target/usr/libexec/fre3nder/f005-mcu-state" \
 	"$target/usr/libexec/fre3nder/f005-stock-to-fre3nder" \
 	"$target/usr/libexec/fre3nder-udhcpc"

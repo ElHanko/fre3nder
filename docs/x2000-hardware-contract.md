@@ -43,7 +43,7 @@ implementation commitment.
 | UART -> F005 | Main MCU F005/GD32F303 | `/dev/ttyS1`, 230400 baud | `ingenic-uart`; Stock Klipper; Phase-2 Mainline Klippy | UART controller, pinmux, clock, stable tty node | Upstream Klipper owns the same UART exclusively at 230400, 8N1 | PROVEN | `ttyS1` is stock node `10031000.serial` with compatible `ingenic,8250-uart`. The Mainline F005 first print passed on this reference; an LTS X2000 UART/clock board route remains unproven. |
 | Display | 480x272 panel, 60 Hz; `fb0` through `fb3` | X2000 display path | `jzfb` stock framebuffer/display stack | Display controller, panel, clocks, power/backlight, reserved memory | Open DRM/fb-capable display stack and touchscreen UI | LIKELY | The stock framebuffer stack is observed. The selected SDK and NebulaOS prior art provide an X2000 DPU/panel route; panel timings and full display acceptance remain open. The minimal GPC22 backlight-enable DT path is separately OFFLINE CONFIRMED, not a physical display or backlight result. [^phase32] |
 | Touch | NS2009 at I2C address `0x48` on bus 4 | I2C 4, input event 0 | Stock touchscreen driver | I2C controller, NS2009 node, IRQ/reset/pinctrl | Smallest maintainable open driver route for the selected LTS kernel | LIKELY | Controller, bus/address, and input event are observed. Current upstream Linux has no NS2009 touchscreen driver, but NebulaOS provides a GPL NS2009 driver and I2C4/`pendown-gpios` prior art for the selected SDK; exact reference-board properties still need acceptance. [^phase32] |
-| Camera | One active alias resolves to `video4`; nodes `video0` through `video4` exist | USB UVC endpoint | `uvcvideo`, `cam_app`, `mjpg_streamer`, MJPEG TCP 8080 | USB controller/PHY, UVC/V4L2 node, power/role wiring | Standard V4L2 node -> small open MJPEG/RTSP streamer -> Moonraker/Web UI | LIKELY | The active camera is an observed USB UVC endpoint on this reference. The selected SDK and NebulaOS prior art support this route; its exact board integration remains a later acceptance item. [^phase32] |
+| Camera | One active Stock alias resolves to `video4`; nodes `video0` through `video4` exist | USB UVC endpoint | `uvcvideo`, `cam_app`, `mjpg_streamer`, MJPEG TCP 8080 | Qualified USB host path plus UVC/V4L2 | USB UVC -> `uvcvideo` -> V4L2 capture node -> `mjpg-streamer` on localhost -> Lighttpd `/webcam/` -> Moonraker -> Fluidd | QUALIFIED ON DEVICE | On the investigated reference system, Fre3nder selected the index-0 `uvcvideo` capture node, served JPEG snapshot and multipart MJPEG data only on loopback, proxied the external `/webcam/` path through Lighttpd, published the config-sourced webcam through Moonraker, and displayed the real image in Fluidd. Camera insertion after a camera-absent boot still requires a manual S63 start. [^phase32] |
 | ADXL345 | ADXL345 accelerometer | `spidev2.0`, chip select 0 | Klipper Linux Host MCU | `spi-gpio` GPIO/pinmux/CS, `spidev` child node | Upstream Klipper Linux-process MCU using `/dev/spidev2.0` | INPUT SHAPING QUALIFIED ON DEVICE | On the investigated reference device, the complete path through NumPy, `SHAPER_CALIBRATE` X/Y, the extended 100-Hz X sweep, and `SAVE_CONFIG` succeeded. The measured reference baseline is MZV at 62.4 Hz for X and MZV at 39.8 Hz for Y; it is not universal across printers. [^klipper-host-mcu] [^openke-adxl] |
 | Linux Host MCU | X2000 Linux process | `/tmp/klipper_host_mcu` | `/usr/bin/klipper_mcu -r` | Linux process, Unix PTY, required SPI character device | Upstream Klipper Linux-process MCU before Klippy | QUALIFIED ON DEVICE | On the investigated reference device, the built binary ran on the X2000, created the PTY, and exchanged real traffic with Klippy `[mcu rpi]`. This result is scoped to that reference device. [^klipper-host-mcu] |
 | BL24C16F | 2-KiB I2C EEPROM | I2C 2, addresses `0x50`--`0x57`, 400 kHz | Creality `bl24c16f` Klipper module | I2C 2 only if a retained function needs it | No target dependency currently identified | NOT REQUIRED | It is configured on the reference, but the Phase-2 complete print did not require it. The available module exposes generic EEPROM read/write commands; no evidence shows that normal open Host-MCU/ADXL operation needs its contents. |
@@ -80,7 +80,8 @@ X2000 SPI -> /dev/spidev2.0 -> ADXL345 -> Linux Host MCU
 display + touch input
 SDIO WLAN with its required firmware and board data
 USB CDC-NCM Ethernet with boot-time WLAN fallback
-camera -> V4L2-compatible userspace path -> open streamer
+USB UVC camera -> uvcvideo -> V4L2 /dev/videoX -> localhost MJPEG streamer
+               -> Lighttpd /webcam/ -> Moonraker webcam -> Fluidd
 Linux USB role(s) where required by the selected appliance
 reset/watchdog behavior appropriate to an unattended appliance
 ```
@@ -205,23 +206,70 @@ function requires it.
 The reference system exposes five V4L2 nodes and maps the active Creality camera
 alias to `video4`. `cam_app` and `mjpg_streamer` provide an MJPEG service on TCP
 8080. The active camera endpoint is an observed USB UVC device using
-`uvcvideo`; this proves a standard V4L2 transport on the reference, but not the
-X2000 USB board path needed to recreate it.
+`uvcvideo`; this proves a standard V4L2 transport on the reference. The Linux
+USB host path has since been qualified independently on the investigated
+reference system. Stock's `video4` index is not a stable Fre3nder interface.
 
 The required replacement contract is therefore deliberately narrow:
 
 ```text
-actual camera hardware -> Linux driver -> V4L2 capture node
-                       -> open lightweight streamer -> Moonraker / Web UI
+USB UVC -> uvcvideo -> V4L2 /dev/videoX -> mjpg-streamer
+        -> 127.0.0.1:8080 -> Lighttpd /webcam/
+        -> Moonraker [webcam fre3nder_camera] -> Fluidd
 ```
 
+The camera/runtime leg is **QUALIFIED ON DEVICE** on the investigated reference
+system. Fre3nder exposed the UVC capture endpoint as `/dev/video0` with
+`index=0` and the companion metadata endpoint as `/dev/video1` with `index=1`.
+S63 selected `/dev/video0` from sysfs, and `mjpg_streamer` served a valid JPEG
+snapshot plus a multipart MJPEG stream at `127.0.0.1:8080`; a bounded run did
+not produce new kernel USB/UVC errors. The corresponding kernel and RootFS
+inputs were built, deployed, and checked on that system. This result remains
+scoped to the investigated reference device and camera revision.
+
+The repository kernel fragment retains only the standard UVC/V4L2 capture path
+and excludes the Ingenic ISP, Halley5 camera-board, and OV2735A paths. S63 scans
+`/sys/class/video4linux/video*`, follows each node's real driver link, and uses
+an index-0 character device bound to `uvcvideo`; it does not assume `video4` or
+select an accompanying UVC metadata node. Buildroot supplies
+`/usr/bin/mjpg_streamer` and the required plugins under
+`/usr/lib/mjpg-streamer/`. S63 supplies no resolution or frame-rate override and
+keeps port 8080 loopback-only.
+
+The Lighttpd/Moonraker/Fluidd leg is also **QUALIFIED ON DEVICE**. Lighttpd
+exposes `/webcam/` on its existing port 80 listener, proxies only that prefix to
+`127.0.0.1:8080`, and strips `/webcam/` before forwarding.
+Moonraker's platform-owned
+`/home/fre3nder/printer_data/config/fre3nder/camera.conf` advertises
+`/webcam/?action=stream` and `/webcam/?action=snapshot`; the existing
+`[include fre3nder/*.conf]` loads it. On the investigated reference system,
+Moonraker returned the enabled `fre3nder_camera` with `source: config`, the
+external snapshot returned a valid JPEG, and Fluidd displayed the real camera
+image without separate frontend configuration. Port 8080 remained loopback-only.
+
+The resulting qualification is:
+
+| Camera leg | Status |
+| --- | --- |
+| USB UVC | QUALIFIED ON DEVICE |
+| `uvcvideo` / V4L2 | QUALIFIED ON DEVICE |
+| Dynamic index-0 `/dev/videoX` selection | QUALIFIED ON DEVICE |
+| `mjpg-streamer` | QUALIFIED ON DEVICE |
+| Localhost HTTP/JPEG | QUALIFIED ON DEVICE |
+| Lighttpd `/webcam/` | QUALIFIED ON DEVICE |
+| Moonraker webcam configuration/API | QUALIFIED ON DEVICE |
+| Fluidd camera display | QUALIFIED ON DEVICE |
+
+Automatic hotplug restart remains open: when S63 runs at boot without a camera,
+later insertion does not trigger another start. A manual
+`/etc/init.d/S63fre3nder-camera start` works; automatic retry is a separate QoL
+item and is not a blocker for the qualified normal path.
 Reimplementing `cam_app`, Creality WebRTC, or AI middleware is outside scope.
 The 2023-08-03 X2000 community-kernel status matrix recorded display and camera
 as unsupported. It is historical community feasibility evidence only, not a
 definitive assessment of later X2000 kernel trees; the same README separately
-states that Ingenic later ported Linux 6.6 LTS to XBurst2 processors. Display
-and camera therefore remain vendor-dependent until Phase 3.2 proves a concrete
-kernel/DT route. [^ingenic-community]
+states that Ingenic later ported Linux 6.6 LTS to XBurst2 processors.
+[^ingenic-community]
 
 ## Boot contract
 

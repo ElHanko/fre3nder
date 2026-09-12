@@ -190,21 +190,39 @@ class WebConfigurationTests(unittest.TestCase):
         self.assertIn('server.bind = "0.0.0.0"', config)
         self.assertIn('"host" => "127.0.0.1", "port" => 17126', config)
         self.assertIn('proxy.header = ( "upgrade" => "enable" )', config)
+        self.assertIn('"host" => "127.0.0.1", "port" => 8080', config)
+        self.assertIn('proxy.header = ( "map-urlpath" => ( "/webcam/" => "/" ) )', config)
         self.assertNotIn('fluidd', config.lower())
         self.assertNotIn('server.document-root', config)
         self.assertIn('server.username = "nobody"', config)
         self.assertIn('server.groupname = "nobody"', config)
         modules = re.search(r'server.modules = \( (.+) \)', config).group(1)
         self.assertEqual(re.findall(r'"([^"]+)"', modules), ["mod_indexfile", "mod_setenv", "mod_proxy", "mod_staticfile"])
-        route = re.search(r'\$HTTP\["url"\] =~ "([^"]+)"', config).group(1)
+        routes = re.findall(r'\$HTTP\["url"\] =~ "([^"]+)"', config)
+        self.assertEqual(len(routes), 2)
+        route, webcam_route = routes
         for path in ("/websocket", "/printer/info", "/api/version", "/access/login", "/machine/system_info", "/server/info", "/server/files/gcodes/example.gcode"):
             self.assertRegex(path, route)
         for path in ("/", "/index.html", "/assets/app.js", "/serverevil", "/websocket/other", "/debug"):
             self.assertNotRegex(path, route)
+        self.assertRegex("/webcam/?action=snapshot", webcam_route)
+        self.assertRegex("/webcam/?action=stream", webcam_route)
+        for path in ("/webcam", "/webcamevil/", "/"):
+            self.assertNotRegex(path, webcam_route)
+        self.assertNotIn('mod_rewrite', config)
+        self.assertNotRegex(config, r'server\.(?:bind|port)\s*=\s*(?:"[^"]*"\s*)?8080')
         for header in ("X-Real-IP", "X-Forwarded-For", "X-Forwarded-Proto", "X-Scheme"):
             self.assertIn(f'"{header}" => ""', config)
         moonraker = (OVERLAY / "usr/share/fre3nder/defaults/moonraker.conf").read_text()
         self.assertIn("host: 127.0.0.1\nport: 17126\n", moonraker)
+        self.assertIn("[include fre3nder/*.conf]\n", moonraker)
+        camera = (OVERLAY / "usr/share/fre3nder/defaults/camera.conf").read_text()
+        self.assertEqual(camera, """[webcam fre3nder_camera]
+location: printer
+service: mjpegstreamer
+stream_url: /webcam/?action=stream
+snapshot_url: /webcam/?action=snapshot
+""")
 
     def test_build_inputs_and_single_start_path(self):
         fragment = (ROOT / "configs/x2000/buildroot.fragment").read_text()
@@ -215,7 +233,10 @@ class WebConfigurationTests(unittest.TestCase):
         self.assertFalse((OVERLAY / "etc/init.d/S50lighttpd").exists())
         entrypoint = (ROOT / "build/x2000/entrypoint.sh").read_text()
         self.assertIn('[ -f "$target/usr/lib/lighttpd/mod_proxy.so" ]', entrypoint)
-        self.assertNotIn("lighttpd", (ROOT / "apps/fluidd/service").read_text().lower())
+        fluidd = (ROOT / "apps/fluidd/service").read_text().lower()
+        self.assertNotIn("lighttpd", fluidd)
+        self.assertNotIn("webcam", fluidd)
+        self.assertNotIn("camera.conf", fluidd)
 
 
 if __name__ == "__main__":

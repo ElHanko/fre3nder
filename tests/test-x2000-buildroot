@@ -772,6 +772,7 @@ touch "$target/etc/init.d/fre3nder-root" \
 	"$target/etc/init.d/S60fre3nder-klipper" \
 	"$target/etc/init.d/S61fre3nder-moonraker" \
 	"$target/etc/init.d/S62fre3nder-web" \
+	"$target/etc/init.d/S63fre3nder-camera" \
 	"$target/etc/init.d/S50lighttpd" \
 	"$target/usr/libexec/fre3nder/f005-mcu-state" \
 	"$target/usr/libexec/fre3nder/f005-stock-to-fre3nder" \
@@ -781,6 +782,7 @@ cp -a "$moonraker_overlay/." "$target/"
 [ -x "$target/usr/bin/fre3nder" ]
 [ -x "$target/etc/init.d/S59fre3nder-klipper-mcu" ]
 [ -x "$target/etc/init.d/S62fre3nder-web" ]
+[ -x "$target/etc/init.d/S63fre3nder-camera" ]
 [ ! -e "$target/etc/init.d/S50lighttpd" ]
 moonraker_root="$target/opt/fre3nder/moonraker"
 [ -d "$moonraker_root/.git" ]

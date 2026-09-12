@@ -43,6 +43,13 @@
       "license": "MIT, BSD-2-Clause, Public domain, Unlicense, WTFPL",
       "source": "upstream Buildroot 2025.02.17 package"
     },
+    "mjpg_streamer": {
+      "repository": "https://github.com/jacksonliam/mjpg-streamer.git",
+      "commit": "5a6e0a2db163e6ae9461552b59079870d0959340",
+      "license": "GPL-2.0-or-later",
+      "source": "upstream Buildroot 2025.02.17 package",
+      "role": "USB-UVC V4L2 to localhost MJPEG streamer"
+    },
     "busybox": {
       "version": "1.37.0",
       "license": "GPL-2.0, bzip2-1.0.6",

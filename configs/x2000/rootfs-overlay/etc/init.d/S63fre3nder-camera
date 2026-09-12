@@ -1,0 +1,177 @@
+#!/bin/sh
+
+LC_ALL=C
+export LC_ALL
+
+runtime=${FRE3NDER_CAMERA_RUNTIME:-/run/fre3nder-camera}
+video_sys_class=${FRE3NDER_VIDEO_SYS_CLASS:-/sys/class/video4linux}
+dev_root=${FRE3NDER_DEV_ROOT:-/dev}
+streamer=${FRE3NDER_MJPG_STREAMER:-/usr/bin/mjpg_streamer}
+input_plugin=${FRE3NDER_MJPG_INPUT_UVC:-/usr/lib/mjpg-streamer/input_uvc.so}
+output_plugin=${FRE3NDER_MJPG_OUTPUT_HTTP:-/usr/lib/mjpg-streamer/output_http.so}
+pid_file=$runtime/mjpg_streamer.pid
+status_file=$runtime/status
+log_file=$runtime/mjpg_streamer.log
+port=8080
+listen_address=127.0.0.1
+
+log() {
+	echo "fre3nder camera: $*"
+}
+
+set_status() {
+	mkdir -p "$runtime" 2>/dev/null || return 0
+	printf '%s\n' "$1" > "$status_file" 2>/dev/null || true
+}
+
+find_uvc_video() {
+	[ -d "$video_sys_class" ] || return 1
+	for class_node in "$video_sys_class"/video*; do
+		[ -e "$class_node" ] || continue
+		node_name=${class_node##*/}
+		node_index=${node_name#video}
+		case "$node_index" in
+		''|*[!0-9]*) continue ;;
+		esac
+		driver=$(readlink -f "$class_node/device/driver" 2>/dev/null) || continue
+		[ "${driver##*/}" = uvcvideo ] || continue
+		[ "$(cat "$class_node/index" 2>/dev/null)" = 0 ] || continue
+		[ -c "$dev_root/$node_name" ] || continue
+		printf '%s\n' "$dev_root/$node_name"
+		return 0
+	done
+	return 1
+}
+
+pid_has_arg() {
+	[ -r "/proc/$1/cmdline" ] || return 1
+	tr '\000' '\n' < "/proc/$1/cmdline" 2>/dev/null |
+		grep -F -x -q -- "$2"
+}
+
+pid_has_uvc_input() {
+	[ -r "/proc/$1/cmdline" ] || return 1
+	tr '\000' '\n' < "/proc/$1/cmdline" 2>/dev/null |
+		grep -F -q -- "$input_plugin -d $dev_root/video"
+}
+
+pid_is_streamer() {
+	proc_pid=$1
+	case "$proc_pid" in
+	''|*[!0-9]*) return 1 ;;
+	esac
+	[ "$proc_pid" -gt 1 ] || return 1
+	kill -0 "$proc_pid" 2>/dev/null || return 1
+	pid_has_arg "$proc_pid" "$streamer" &&
+		pid_has_uvc_input "$proc_pid" &&
+		pid_has_arg "$proc_pid" "$output_plugin -p $port -l $listen_address"
+}
+
+stop_verified_pid() {
+	proc_pid=$1
+	pid_is_streamer "$proc_pid" || return 0
+	kill "$proc_pid" 2>/dev/null || true
+	seconds=0
+	while pid_is_streamer "$proc_pid"; do
+		if [ "$seconds" -ge 10 ]; then
+			kill -KILL "$proc_pid" 2>/dev/null || true
+			break
+		fi
+		sleep 1
+		seconds=$((seconds + 1))
+	done
+}
+
+start() {
+	mkdir -p "$runtime" || {
+		log 'runtime setup failed; camera remains stopped'
+		return 0
+	}
+	if [ -r "$pid_file" ]; then
+		pid=$(cat "$pid_file")
+		if pid_is_streamer "$pid"; then
+			set_status active
+			return 0
+		fi
+		case "$pid" in
+		''|*[!0-9]*) ;;
+		*)
+			if kill -0 "$pid" 2>/dev/null; then
+				log 'stale PID file refers to another process; not killing it'
+			fi
+			;;
+		esac
+		rm -f "$pid_file"
+	fi
+	if [ ! -x "$streamer" ] || [ ! -f "$input_plugin" ] ||
+		[ ! -f "$output_plugin" ]; then
+		set_status baseline-invalid
+		log 'mjpg-streamer binary or required plugins are unavailable'
+		return 0
+	fi
+	if ! video_device=$(find_uvc_video); then
+		set_status camera-unavailable
+		log 'no uvcvideo V4L2 capture node found; camera remains stopped'
+		return 0
+	fi
+
+	input_spec="$input_plugin -d $video_device"
+	output_spec="$output_plugin -p $port -l $listen_address"
+	set_status starting
+	"$streamer" -i "$input_spec" -o "$output_spec" >> "$log_file" 2>&1 &
+	pid=$!
+	printf '%s\n' "$pid" > "$pid_file" || {
+		stop_verified_pid "$pid"
+		set_status pid-write-failed
+		return 0
+	}
+	sleep 1
+	if pid_is_streamer "$pid"; then
+		set_status active
+		log "MJPEG stream started on $listen_address:$port using $video_device"
+	else
+		rm -f "$pid_file"
+		set_status startup-failed
+		log 'mjpg-streamer exited during startup'
+	fi
+	return 0
+}
+
+stop() {
+	if [ -r "$pid_file" ]; then
+		pid=$(cat "$pid_file")
+		if pid_is_streamer "$pid"; then
+			stop_verified_pid "$pid"
+		else
+			case "$pid" in
+			''|*[!0-9]*) ;;
+			*)
+				if kill -0 "$pid" 2>/dev/null; then
+					log 'stale PID file refers to another process; not killing it'
+				fi
+				;;
+			esac
+		fi
+		rm -f "$pid_file"
+	fi
+	set_status stopped
+}
+
+show_status() {
+	if [ -r "$pid_file" ] && pid_is_streamer "$(cat "$pid_file")"; then
+		log 'active'
+		return 0
+	fi
+	log "$(cat "$status_file" 2>/dev/null || echo stopped)"
+	return 1
+}
+
+case "${1:-}" in
+start) start ;;
+stop) stop ;;
+restart) stop; start ;;
+status) show_status ;;
+*) echo "usage: $0 {start|stop|restart|status}" >&2; exit 1 ;;
+esac
+
+exit $?
