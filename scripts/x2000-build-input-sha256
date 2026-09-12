@@ -14,10 +14,13 @@ BUILD_INPUTS = (
     "configs/x2000",
     "configs/klipper-f005",
     "patches/buildroot",
+    "patches/guppyscreen",
     "patches/klipper",
     "scripts/build-x2000",
+    "scripts/build-x2000-buildroot",
+    "scripts/build-x2000-guppyscreen",
     "scripts/build-x2000-kernel",
-    "scripts/build-x2000-rootfs",
+    "scripts/build-x2000-moonraker",
     "scripts/x2000-build-input-sha256",
 )
 

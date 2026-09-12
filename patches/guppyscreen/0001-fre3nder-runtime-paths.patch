@@ -1,0 +1,67 @@
+From: Fre3nder contributors
+Subject: [PATCH] support Fre3nder runtime paths
+
+Keep upstream's adjacent-file defaults, but allow Fre3nder to place mutable
+configuration under /home, immutable themes under /usr/share, and the selected
+evdev node under /run.
+
+--- a/src/guppyscreen.cpp
++++ b/src/guppyscreen.cpp
+@@ -14,6 +14,8 @@
+ 
+ #include "printer_select_panel.h"
+ #include "spdlog/spdlog.h"
++
++#include <cstdlib>
+ #include "state.h"
+ #include "theme.h"
+ 
+@@ -62,7 +64,11 @@ GuppyScreen *GuppyScreen::init(std::function<void(lv_color_t, lv_color_t)> hal_i
+   auto selected_theme = conf->get_json("/theme").empty()
+           ? "blue.json"
+           : conf->get<std::string>("/theme") + ".json";
+-  auto theme_config = fs::canonical(conf->get_path()).parent_path() / "themes" / selected_theme;
++  const char *theme_dir_env = std::getenv("GUPPYSCREEN_THEME_DIR");
++  auto theme_dir = theme_dir_env != NULL
++          ? fs::path(theme_dir_env)
++          : fs::canonical(conf->get_path()).parent_path() / "themes";
++  auto theme_config = theme_dir / selected_theme;
+ 
+   ThemeConfig *theme_conf = ThemeConfig::get_instance();
+   theme_conf->init(theme_config);
+--- a/src/main.cpp
++++ b/src/main.cpp
+@@ -8,6 +8,7 @@
+ #include <pthread.h>
+ #include <time.h>
+ #include <sys/time.h>
++#include <cstdlib>
+ #include <experimental/filesystem>
+ 
+ namespace fs = std::experimental::filesystem;
+@@ -40,7 +41,10 @@ int main(void)
+     spdlog::debug("current path {}", std::string(fs::canonical("/proc/self/exe").parent_path()));
+ 
+     Config *conf = Config::get_instance();
+-    auto config_path = fs::canonical("/proc/self/exe").parent_path() / "guppyconfig.json";
++    const char *config_env = std::getenv("GUPPYSCREEN_CONFIG");
++    auto config_path = config_env != NULL
++      ? fs::path(config_env)
++      : fs::canonical("/proc/self/exe").parent_path() / "guppyconfig.json";
+     conf->init(config_path.string(), "/usr/data/printer_data/thumbnails");
+ 
+     GuppyScreen::init(hal_init);
+@@ -89,7 +93,12 @@ static void hal_init(lv_color_t primary, lv_color_t secondary) {
+       : lv_theme_default_init(NULL, primary, secondary, true, &lv_font_montserrat_20);
+     lv_disp_set_theme(disp, th);
+ 
+-    evdev_init();
++    const char *input_env = std::getenv("GUPPYSCREEN_INPUT");
++    if (input_env != NULL) {
++      evdev_set_file(const_cast<char *>(input_env));
++    } else {
++      evdev_init();
++    }
+     static lv_indev_drv_t indev_drv_1;
+     lv_indev_drv_init(&indev_drv_1);
+     indev_drv_1.read_cb = evdev_read; // no calibration

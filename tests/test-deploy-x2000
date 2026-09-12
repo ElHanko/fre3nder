@@ -24,8 +24,10 @@ cp -a \
 	"$root/"
 cp -a \
 	"$source_root/scripts/build-x2000" \
+	"$source_root/scripts/build-x2000-buildroot" \
+	"$source_root/scripts/build-x2000-guppyscreen" \
 	"$source_root/scripts/build-x2000-kernel" \
-	"$source_root/scripts/build-x2000-rootfs" \
+	"$source_root/scripts/build-x2000-moonraker" \
 	"$source_root/scripts/deploy-x2000" \
 	"$source_root/scripts/x2000-build-input-sha256" \
 	"$root/scripts/"

@@ -62,17 +62,25 @@ local/production/
 │   └── brcmfmac43430-sdio.txt
 ├── work/x2000/
 └── artifacts/x2000/
+    ├── moonraker/
+    ├── guppyscreen/
     ├── full/
     ├── kernel-only/
     └── rootfs-only/
 ```
 
-`scripts/build-x2000` always builds the RootFS. `--kernel-build` adds a Kernel
-build before it, and `--f005-build` reproduces the F005 candidate before the
-RootFS build; both component artifacts are then assembled into `full/` only
-when the Kernel was built in that same run. Use `scripts/build-x2000-kernel` or
-`scripts/build-x2000-rootfs` for an individual component. The two WLAN files
-are BYOF inputs and are checked against the hashes recorded in
+`scripts/build-x2000` always builds the Moonraker and GuppyScreen components and
+then the RootFS. `--kernel-build` adds a Kernel build before them, and
+`--f005-build` reproduces the F005 candidate before RootFS assembly; the Kernel
+and RootFS artifacts are composed into `full/` only when the Kernel was built
+in that same run. The individual builders are
+`scripts/build-x2000-moonraker`, `scripts/build-x2000-guppyscreen`,
+`scripts/build-x2000-buildroot`, and `scripts/build-x2000-kernel`. The
+Buildroot builder's `--toolchain` phase precedes GuppyScreen compilation and its
+`--assemble` phase consumes the two validated component archives. The removed
+`build-x2000-rootfs` name has no compatibility alias, so there is only one
+RootFS assembly path. The two WLAN files are BYOF inputs and are checked against
+the hashes recorded in
 [`configs/x2000/sources.json`](../configs/x2000/sources.json).
 
 Normal builds are marked as `release` artifacts and retain the strict clean-tree
@@ -86,7 +94,9 @@ does not imply deployment `--write` or relax any hardware gate.
 Development builds may reuse the existing Buildroot output and internal
 toolchain when its dedicated toolchain fingerprint still matches. The current
 Buildroot configuration is reapplied before the incremental build. Release
-builds always remove the Buildroot output and start clean; development reuse is
+builds remove the Buildroot output before their toolchain phase and reuse
+exactly that fingerprint-validated prepared toolchain for subsequent component
+compilation and RootFS assembly in the same orchestration. Development reuse is
 an iteration aid, not a reproducibility guarantee.
 
 On the first development run after introduction of the fingerprint, a legacy
@@ -124,8 +134,10 @@ A RootFS artifact can therefore be inspected with:
 
 ### Moonraker RootFS baseline
 
-RootFS builds fetch the pinned Moonraker source and hash-pinned
-pure-Python wheels before the network-disabled build phase. The RootFS contains
+`build-x2000-moonraker` fetches the pinned Moonraker source and hash-pinned
+pure-Python wheels before its network-disabled component phase. It produces a
+deterministic, manifested RootFS-overlay archive which `build-x2000-buildroot`
+validates before consumption. The RootFS contains
 the upstream Git checkout at `/opt/fre3nder/moonraker` and a PEP 405 environment
 at `/opt/fre3nder/moonraker-env`. Native Python dependencies come from
 Buildroot; pure-Python wheel contents are staged in the environment. No target
@@ -135,6 +147,16 @@ The checkout retains its upstream origin and exact pinned HEAD so Moonraker can
 recognize its own source for later stable-channel updates. Fre3nder Klipper is
 still installed without Git metadata and remains outside Moonraker's update
 ownership.
+
+### GuppyScreen RootFS baseline
+
+`build-x2000-guppyscreen` fetches the exact published source and submodule pins
+before its network-disabled component phase, applies the upstream-carried
+patches and Fre3nder's runtime-path patch, and cross-compiles with the prepared
+Buildroot toolchain. Its deterministic component archive supplies the native
+binary, immutable themes, and license texts. The service/default configuration
+remain generic RootFS overlay inputs. See [`guppyscreen.md`](guppyscreen.md)
+for the full runtime and build-gate contract.
 
 ## F005 MCU
 

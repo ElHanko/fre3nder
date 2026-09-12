@@ -11,17 +11,45 @@ release_manifest="$root/configs/x2000/f005-mcu-release.json"
 f005_firmware=${FRE3NDER_F005_FIRMWARE:-"$local_root/artifacts/x2000/f005/klipper-f005-mainline.bin"}
 docker_cmd=${X2000_BUILD_DOCKER:-docker}
 artifact_mode=release
+phase=
 
 usage() {
-	echo "usage: $0 [--develop]" >&2
+	echo "usage: $0 {--toolchain|--assemble} [--develop]" >&2
 	exit 2
 }
 
-case "${1:-}" in
-'') ;;
---develop) artifact_mode=development ;;
-*) usage ;;
-esac
+while [ "$#" -gt 0 ]; do
+	case "$1" in
+	--toolchain|--assemble)
+		[ -z "$phase" ] || usage
+		phase=$1
+		;;
+	--develop)
+		[ "$artifact_mode" = release ] || usage
+		artifact_mode=development
+		;;
+	*) usage ;;
+	esac
+	shift
+done
+[ -n "$phase" ] || usage
+
+git -C "$root" check-ignore -q local/production
+"$docker_cmd" build -t "$image" "$root/build/x2000"
+mkdir -p "$work_root"
+
+if [ "$phase" = --toolchain ]; then
+	"$docker_cmd" run --rm --user "$runtime_user" \
+		-v "$root:/project" \
+		-v "$work_root:/work" \
+		"$image" fetch-buildroot
+	"$docker_cmd" run --rm --network none --user "$runtime_user" \
+		-e "FRE3NDER_ARTIFACT_MODE=$artifact_mode" \
+		-v "$root:/project" \
+		-v "$work_root:/work" \
+		"$image" prepare-buildroot-toolchain
+	exit 0
+fi
 
 python3 - "$release_manifest" "$f005_firmware" <<'PY'
 import hashlib
@@ -31,7 +59,6 @@ import sys
 
 manifest_path, firmware_path = map(pathlib.Path, sys.argv[1:])
 release = json.loads(manifest_path.read_text(encoding="utf-8"))["fre3nder_release"]["firmware"]
-
 if release["path"] != "/var/lib/fre3nder/firmware/f005/klipper-f005-mainline.bin":
     raise SystemExit("F005 release manifest has an unexpected firmware path")
 if firmware_path.is_symlink() or not firmware_path.is_file():
@@ -40,16 +67,13 @@ if firmware_path.stat().st_size != release["size"]:
     raise SystemExit("F005 firmware size does not match the release manifest")
 if hashlib.sha256(firmware_path.read_bytes()).hexdigest() != release["sha256"]:
     raise SystemExit("F005 firmware SHA256 does not match the release manifest")
-
 candidate_manifest = firmware_path.parent / "build-manifest.json"
 if candidate_manifest.exists():
     candidate = json.loads(candidate_manifest.read_text(encoding="utf-8"))
-    if ("qualified_release_match" in candidate
-            and candidate["qualified_release_match"] is not True):
+    if candidate.get("qualified_release_match") is False:
         raise SystemExit("F005 candidate does not match the qualified release")
 PY
 
-firmware_in_container=/f005-firmware
 firmware="$local_root/inputs/wifi/brcmfmac43430-sdio.bin"
 nvram="$local_root/inputs/wifi/brcmfmac43430-sdio.txt"
 [ -r "$firmware" ] && [ -r "$nvram" ]
@@ -58,17 +82,15 @@ nvram="$local_root/inputs/wifi/brcmfmac43430-sdio.txt"
 [ "$(sha256sum "$nvram" | awk '{print $1}')" = \
 	78fee458ab69c0a66ea462f6d6769e15b36f73582693f4dbb5a0e8e8be3cfb0a ]
 
-git -C "$root" check-ignore -q local/production
-"$docker_cmd" build -t "$image" "$root/build/x2000"
-mkdir -p "$work_root"
 "$docker_cmd" run --rm --user "$runtime_user" \
 	-v "$root:/project" \
 	-v "$work_root:/work" \
 	"$image" fetch-rootfs
 "$docker_cmd" run --rm --network none --user "$runtime_user" \
 	-e "FRE3NDER_ARTIFACT_MODE=$artifact_mode" \
-	-e "FRE3NDER_F005_FIRMWARE=$firmware_in_container" \
-	-v "$f005_firmware:$firmware_in_container:ro" \
+	-e FRE3NDER_REUSE_PREPARED_TOOLCHAIN=1 \
+	-e FRE3NDER_F005_FIRMWARE=/f005-firmware \
+	-v "$f005_firmware:/f005-firmware:ro" \
 	-v "$root:/project" \
 	-v "$work_root:/work" \
 	"$image" build-rootfs-only

@@ -23,7 +23,7 @@ A final `2026.2` must provide:
 - OctoApp integration;
 - a frontend-neutral web-UI mechanism;
 - Fluidd as the first qualified reference frontend;
-- local display and touch operation of the selected frontend;
+- local display and touch operation through the native GuppyScreen Core-UI;
 - preservation of the established Fre3nder printing and recovery boundaries.
 
 Camera support, ADXL/Input Shaping, seamless Stock handoff, and qualification
@@ -237,11 +237,11 @@ The OctoApp integration shall:
 OctoApp is the second reference application and shall demonstrate that the
 managed application model is not specific to Moonraker itself.
 
-## REQ-2026.2-006 - Frontend-neutral UI layer
+## REQ-2026.2-006 - Frontend-neutral web-UI layer
 
 Status: **PLANNED**
 
-Fre3nder shall provide a persistent frontend-neutral UI layer.
+Fre3nder shall provide a persistent frontend-neutral web-UI layer.
 
 The immutable RootFS shall not hard-code Fluidd as the Fre3nder user
 interface.
@@ -252,14 +252,14 @@ a compatible frontend to be replaced without rebuilding the kernel or RootFS.
 Frontend application files and user-specific frontend state shall remain
 outside the immutable RootFS.
 
-The local display integration shall consume the selected active frontend rather
-than containing Fluidd-specific control logic.
+The selected active frontend is a LAN web-UI concern. The native local display
+is independently provided by GuppyScreen and does not consume this selection.
 
 Partial reference-hardware evidence now demonstrates the frontend-neutral
 selection file driving the generic S62 document root, a selected Fluidd payload
 served over the LAN, and HTTP/WebSocket forwarding to loopback-only Moonraker.
-The status remains `PLANNED`: replacement with another compatible frontend and
-consumption of the selection by the local display stack are not yet qualified.
+The status remains `PLANNED`: replacement with another compatible web frontend
+is not yet qualified.
 
 ## REQ-2026.2-007 - Fluidd reference frontend
 
@@ -288,7 +288,7 @@ without RootFS deployment are not yet qualified.
 
 ## REQ-2026.2-008 - Display, touch, and local presentation
 
-Status: **PARTIALLY HARDWARE QUALIFIED**
+Status: **SOURCE INTEGRATED / BUILD PENDING / PARTIALLY HARDWARE QUALIFIED**
 
 Fre3nder shall provide an open local display path for the printer's integrated
 display.
@@ -300,11 +300,11 @@ normal local operation, including:
 - touch input;
 - backlight control;
 - required kernel and Device Tree integration;
-- a local presentation or kiosk layer capable of opening the selected active
-  frontend.
+- the native GuppyScreen Core-UI using Moonraker's API.
 
-The display stack shall not couple printer control directly to Fluidd-specific
-internals. Printer control shall continue through Moonraker and Klipper.
+The local display stack shall not depend on Fluidd, a browser, or a display
+server. GuppyScreen shall communicate with Moonraker; printer control shall
+continue through Moonraker and Klipper.
 
 The system shall remain administratively reachable if the local UI cannot
 start.
@@ -334,8 +334,11 @@ application-layer work and are not part of this hardware qualification.
 Detailed evidence is recorded in
 [`x2000-display-touch.md`](x2000-display-touch.md).
 
-REQ-2026.2-008 remains incomplete until the local presentation layer is
-integrated and qualified.
+The pinned GuppyScreen source, component builder, RootFS payload contract,
+persistent configuration default, and non-blocking S64 service are integrated
+in the repository. REQ-2026.2-008 remains incomplete until that integration is
+built and the local UI, rotation, calibration, and normal control paths are
+qualified on hardware.
 
 ## REQ-2026.2-009 - Integrated usable-system qualification
 
@@ -354,7 +357,8 @@ The qualification shall demonstrate at minimum:
 - successful operation through the reference web frontend from the LAN;
 - successful OctoApp integration;
 - successful local display and touch operation;
-- successful operation of the selected active frontend on the local display;
+- successful local operation through GuppyScreen while the selected web
+  frontend remains independently available over the LAN;
 - one real print initiated and monitored through the `2026.2` user-facing
   stack;
 - normal reboot followed by restoration of the usable state;
@@ -367,12 +371,12 @@ release action under `docs/versioning.md`.
 
 ## REQ-2026.2-010 - Componentized X2000 build architecture
 
-Status: **PLANNED**
+Status: **OFFLINE IMPLEMENTED / BUILD PENDING**
 
 The X2000 build shall be further separated into independently maintainable
 component builders.
 
-The current `build-x2000-rootfs` responsibility shall be split so that
+The former `build-x2000-rootfs` responsibility was split so that
 Buildroot/root-filesystem assembly and independently maintained applications
 are no longer built by one monolithic component.
 
@@ -383,15 +387,12 @@ scripts/build-x2000
 scripts/build-x2000-buildroot
 scripts/build-x2000-kernel
 scripts/build-x2000-moonraker
+scripts/build-x2000-guppyscreen
 scripts/build-f005
 ```
 
 Future independently maintained X2000 components shall follow the same model
-where useful, for example:
-
-```text
-scripts/build-x2000-display
-```
+where useful.
 
 ### Responsibilities
 
@@ -408,13 +409,17 @@ component artifacts rather than implementing their build logic itself.
 artifact creation, including the pinned upstream source, Python dependencies,
 environment, RootFS payload, hashes, licenses, and component provenance.
 
+`build-x2000-guppyscreen` shall own the GuppyScreen-specific build inputs,
+cross-compilation, patches, immutable runtime payload, licenses, and component
+provenance.
+
 `build-x2000-kernel` shall continue to own only the X2000 kernel and DTB build.
 
 `build-f005` shall continue to own only the F005 firmware build. Building the
 firmware shall remain separate from flashing or otherwise modifying printer
 hardware.
 
-Future builders such as `build-x2000-display` shall produce independently
+Builders such as `build-x2000-guppyscreen` shall produce independently
 maintainable component artifacts that can be consumed by the RootFS assembly
 without moving their implementation into the Buildroot builder.
 
@@ -481,9 +486,14 @@ The implementation shall follow these constraints:
 * full release builds remain final validation gates rather than an iterative
   development feedback loop.
 
-This work is intentionally deferred until the current build state is preserved
-and shall be implemented before additional large RootFS-integrated components
-such as the display/UI stack are added.
+The implementation audit found that the former `build-x2000-rootfs` performed
+both generic assembly and Moonraker staging. That interface has been removed.
+`build-x2000-moonraker` and `build-x2000-guppyscreen` now produce deterministic
+RootFS-overlay archives with minimal component manifests; the Buildroot builder
+validates their source identity, build-input identity, mode, and artifact hash
+before extraction. `build-x2000-buildroot` owns toolchain preparation and final
+RootFS assembly, and the final RootFS manifest records both components. The
+component and RootFS builds remain pending at the explicit build gate.
 
 
 ## Requirement discipline

@@ -33,6 +33,36 @@
       "license": "GPL-3.0-only",
       "role": "qualified RootFS application baseline"
     },
+    "guppyscreen": {
+      "repository": "https://github.com/ballaswag/guppyscreen.git",
+      "release": "0.0.26-beta",
+      "commit": "cf5c6d7539a2dca090ca71c177f57a2d96df443a",
+      "license": "GPL-3.0-only",
+      "role": "native framebuffer and evdev local UI baseline",
+      "submodules": {
+        "libhv": {
+          "commit": "a1d81857131fe7ea499a23e333513bfb279df6b0",
+          "license": "BSD-3-Clause"
+        },
+        "lv_drivers": {
+          "commit": "71830257710f430b6d8d1c324f89f2eab52488f1",
+          "license": "MIT"
+        },
+        "lvgl": {
+          "commit": "74d0a816a440eea53e030c4f1af842a94f7ce3d3",
+          "license": "MIT",
+          "version": "8.3.11"
+        },
+        "spdlog": {
+          "commit": "ddce42155e67589a8b1534c4935242f759c07646",
+          "license": "MIT"
+        }
+      },
+      "vendored_dependency": {
+        "name": "wpa_supplicant control client",
+        "license": "BSD-3-Clause"
+      }
+    },
     "wpa_supplicant": {
       "version": "2.12",
       "license": "BSD-3-Clause",

@@ -58,6 +58,9 @@ kernel_firmware_dir="$work/fre3nder-kernel-firmware"
 wifi_overlay="$work/fre3nder-wifi-overlay"
 klipper_overlay="$work/fre3nder-klipper-overlay"
 moonraker_overlay="$work/fre3nder-moonraker-overlay"
+guppyscreen_overlay="$work/fre3nder-guppyscreen-overlay"
+moonraker_component="$artifact_root/moonraker"
+guppyscreen_component="$artifact_root/guppyscreen"
 development_marker="$klipper_overlay/usr/share/fre3nder/DEVELOPMENT"
 firmware_names='brcm/brcmfmac43430-sdio.bin brcm/brcmfmac43430-sdio.txt'
 artifact_mode=${FRE3NDER_ARTIFACT_MODE:-release}
@@ -328,6 +331,20 @@ prepare_buildroot_output() {
 	marker="$buildroot_output/$buildroot_toolchain_marker"
 
 	if [ "$artifact_mode" = release ]; then
+		if [ "${FRE3NDER_REUSE_PREPARED_TOOLCHAIN:-0}" = 1 ]; then
+			stored_fingerprint=$(read_buildroot_toolchain_fingerprint "$buildroot_output") || {
+				echo 'prepared Buildroot toolchain fingerprint is missing or invalid' >&2
+				exit 1
+			}
+			[ "$stored_fingerprint" = "$(buildroot_toolchain_fingerprint)" ] &&
+				buildroot_toolchain_ready "$buildroot_output" &&
+				buildroot_toolchain_contract_matches "$buildroot_output" || {
+				echo 'prepared Buildroot toolchain is incompatible' >&2
+				exit 1
+			}
+			echo 'Buildroot release toolchain: REUSED'
+			return
+		fi
 		echo 'Buildroot release build: CLEAN'
 		rm -rf -- "$buildroot_output"
 		return
@@ -671,7 +688,96 @@ fetch_rootfs_inputs() {
 	git -C "$klipper" checkout --detach "$klipper_commit"
 	[ "$(git -C "$klipper" rev-parse HEAD)" = "$klipper_commit" ]
 
-	fetch_moonraker_inputs
+}
+
+prepare_rootfs_component() {
+	component=$1
+	artifact_dir=$2
+	overlay=$3
+	manifest=$artifact_dir/component-manifest.json
+	archive=$artifact_dir/rootfs-overlay.tar
+	current_build_input_sha256=$(
+		"$project/scripts/x2000-build-input-sha256" --root "$project"
+	)
+	export artifact_mode component current_build_input_sha256
+	export project_commit project_worktree_status
+	if ! python3 - "$manifest" "$archive" \
+		"$project/configs/x2000/sources.json" <<'PY'
+import hashlib
+import json
+import os
+import pathlib
+import sys
+import tarfile
+
+manifest_path, archive, sources_path = map(pathlib.Path, sys.argv[1:])
+if manifest_path.is_symlink() or not manifest_path.is_file():
+    raise SystemExit(f"missing component manifest: {manifest_path}")
+if archive.is_symlink() or not archive.is_file():
+    raise SystemExit(f"missing component artifact: {archive}")
+manifest = json.loads(manifest_path.read_text())
+if manifest.get("schema") != 1:
+    raise SystemExit("unsupported component manifest schema")
+component = os.environ["component"]
+if manifest.get("component") != component:
+    raise SystemExit(f"component identity mismatch: {component}")
+for field in ("artifact_mode", "project_commit", "project_worktree_status"):
+    if manifest.get(field) != os.environ[field]:
+        raise SystemExit(f"component {component} disagrees on {field}")
+if manifest.get("build_input_sha256") != os.environ["current_build_input_sha256"]:
+    raise SystemExit(f"component {component} has stale build inputs")
+artifact = manifest.get("artifact", {})
+if artifact.get("name") != archive.name:
+    raise SystemExit(f"component {component} artifact name mismatch")
+actual = hashlib.sha256(archive.read_bytes()).hexdigest()
+if artifact.get("sha256") != actual:
+    raise SystemExit(f"component {component} artifact SHA256 mismatch")
+with tarfile.open(archive) as tar:
+    for member in tar:
+        relative = pathlib.PurePosixPath(member.name)
+        if relative.is_absolute() or ".." in relative.parts:
+            raise SystemExit(f"unsafe component archive path: {member.name}")
+        if not (member.isfile() or member.isdir() or member.issym()):
+            raise SystemExit(f"unsupported component archive member: {member.name}")
+sources = json.loads(sources_path.read_text())
+expected = sources["userspace"][component]
+source = manifest.get("source", {})
+for field in ("repository", "commit", "license"):
+    if source.get(field) != expected[field]:
+        raise SystemExit(f"component {component} source {field} mismatch")
+if "release" in expected and source.get("release") != expected["release"]:
+    raise SystemExit(f"component {component} source release mismatch")
+PY
+	then
+		return 1
+	fi
+	rm -rf -- "$overlay"
+	mkdir -p "$overlay"
+	tar -xf "$archive" -C "$overlay"
+}
+
+record_rootfs_components() {
+	manifest=$1/build-manifest.json
+	python3 - "$manifest" \
+		"$moonraker_component/component-manifest.json" \
+		"$guppyscreen_component/component-manifest.json" <<'PY'
+import json
+import pathlib
+import sys
+
+output = pathlib.Path(sys.argv[1])
+manifest = json.loads(output.read_text())
+components = {}
+for path_text in sys.argv[2:]:
+    component = json.loads(pathlib.Path(path_text).read_text())
+    components[component["component"]] = {
+        "source": component["source"],
+        "build_input_sha256": component["build_input_sha256"],
+        "artifact_sha256": component["artifact"]["sha256"],
+    }
+manifest["rootfs_components"] = components
+output.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n")
+PY
 }
 
 prepare_moonraker_source() {
@@ -838,6 +944,51 @@ PYSTAGE
 	[ "$(readlink "$moonraker_env/bin/python")" = /usr/bin/python3 ]
 	[ "$(readlink "$moonraker_env/bin/pip")" = /usr/bin/pip3 ]
 	[ -n "$(find "$site_packages" -mindepth 1 -print -quit)" ]
+}
+
+build_moonraker_component() {
+	prepare_artifact_provenance
+	prepare_moonraker_overlay
+	build_input=$(
+		"$project/scripts/x2000-build-input-sha256" --root "$project"
+	)
+	tmp=$moonraker_component.tmp
+	rm -rf -- "$tmp"
+	mkdir -p "$tmp"
+	tar --sort=name --format=ustar --mtime='@0' --owner=0 --group=0 \
+		--numeric-owner -C "$moonraker_overlay" -cf "$tmp/rootfs-overlay.tar" .
+	export artifact_mode build_input moonraker_commit moonraker_url project_commit project_worktree_status
+	python3 - "$tmp/rootfs-overlay.tar" "$tmp/component-manifest.json" <<'PY'
+import hashlib
+import json
+import os
+import pathlib
+import sys
+
+artifact, output = map(pathlib.Path, sys.argv[1:])
+manifest = {
+    "schema": 1,
+    "component": "moonraker",
+    "source": {
+        "repository": os.environ["moonraker_url"],
+        "commit": os.environ["moonraker_commit"],
+        "license": "GPL-3.0-only",
+    },
+    "artifact_mode": os.environ["artifact_mode"],
+    "project_commit": os.environ["project_commit"],
+    "project_worktree_status": os.environ["project_worktree_status"],
+    "build_input_sha256": os.environ["build_input"],
+    "artifact": {
+        "name": artifact.name,
+        "sha256": hashlib.sha256(artifact.read_bytes()).hexdigest(),
+    },
+}
+output.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n")
+PY
+	(cd "$tmp" && sha256sum component-manifest.json rootfs-overlay.tar > SHA256SUMS)
+	(cd "$tmp" && sha256sum -c SHA256SUMS)
+	rm -rf -- "$moonraker_component"
+	mv "$tmp" "$moonraker_component"
 }
 build_klipper_chelper() {
 	buildroot_output=$1
@@ -1201,7 +1352,7 @@ check_rootfs() {
 	for init_script in S10mdev S20fre3nder-provision \
 		S40fre3nder-network S50dropbear S59fre3nder-klipper-mcu \
 		S60fre3nder-klipper \
-		S61fre3nder-moonraker; do
+		S61fre3nder-moonraker S64fre3nder-guppyscreen; do
 		[ -x "$target/etc/init.d/$init_script" ]
 	done
 	[ ! -e "$target/etc/init.d/S51fre3nder-ssh-recovery-test" ]
@@ -1212,7 +1363,8 @@ check_rootfs() {
 		S50dropbear \
 		S59fre3nder-klipper-mcu \
 		S60fre3nder-klipper \
-		S61fre3nder-moonraker | sort -C
+		S61fre3nder-moonraker \
+		S64fre3nder-guppyscreen | sort -C
 	[ -n "$busybox_config" ]
 	[ -n "$dropbear_options" ]
 	[ "$(readlink "$target/sbin/init")" = ../bin/busybox ]
@@ -1309,6 +1461,7 @@ check_rootfs() {
 	[ -f "$target/usr/share/fre3nder/defaults/printer.cfg" ]
 	[ -f "$target/usr/share/fre3nder/defaults/moonraker.conf" ]
 	[ -f "$target/usr/share/fre3nder/defaults/camera.conf" ]
+	[ -f "$target/usr/share/fre3nder/defaults/guppyconfig.json" ]
 	cmp -s "$project/configs/klipper-f005/printer-f005-mainline.cfg" \
 		"$target/usr/share/fre3nder/defaults/printer.cfg"
 	cmp -s \
@@ -1317,6 +1470,9 @@ check_rootfs() {
 	cmp -s \
 		"$project/configs/x2000/rootfs-overlay/usr/share/fre3nder/defaults/camera.conf" \
 		"$target/usr/share/fre3nder/defaults/camera.conf"
+	cmp -s \
+		"$project/configs/x2000/rootfs-overlay/usr/share/fre3nder/defaults/guppyconfig.json" \
+		"$target/usr/share/fre3nder/defaults/guppyconfig.json"
 	grep -Fxq 'x2000_passive_uart: True' \
 		"$target/usr/share/fre3nder/defaults/printer.cfg"
 	file "$target/usr/bin/klipper_mcu" |
@@ -1392,6 +1548,23 @@ check_rootfs() {
 	[ "$(readlink "$moonraker_env/bin/python")" = /usr/bin/python3 ]
 	[ "$(readlink "$moonraker_env/bin/pip")" = /usr/bin/pip3 ]
 	[ -d "$moonraker_env/lib/python3.12/site-packages" ]
+	guppyscreen="$target/opt/fre3nder/guppyscreen/guppyscreen"
+	[ -x "$guppyscreen" ] && [ ! -L "$guppyscreen" ]
+	file "$guppyscreen" | grep -q 'ELF 32-bit LSB.*MIPS, MIPS32 rel2'
+	readelf -h "$guppyscreen" | grep -Eq 'Flags:.*nan2008, o32, mips32r2'
+	readelf -A "$guppyscreen" |
+		grep -Fq 'FP ABI: Hard float (32-bit CPU, Any FPU)'
+	readelf -l "$guppyscreen" |
+		grep -Fq 'Requesting program interpreter: /lib/ld-linux-mipsn8.so.1'
+	[ -f "$target/usr/share/guppyscreen/themes/blue.json" ]
+	[ -f "$target/usr/share/licenses/guppyscreen/COPYING" ]
+	guppy_service="$target/etc/init.d/S64fre3nder-guppyscreen"
+	grep -Fq 'input_name=${FRE3NDER_GUPPYSCREEN_INPUT_NAME:-ns2009_ts}' \
+		"$guppy_service"
+	grep -Fq 'GUPPYSCREEN_CONFIG="$config"' "$guppy_service"
+	grep -Fq 'GUPPYSCREEN_THEME_DIR="$theme_dir"' "$guppy_service"
+	grep -Fq 'GUPPYSCREEN_INPUT="$input_link"' "$guppy_service"
+	! grep -Fq '/dev/input/event0' "$guppy_service"
 	[ ! -e "$target/usr/share/klipper/.git" ]
 	grep -Fxq '[update_manager]' \
 		"$target/usr/share/fre3nder/defaults/moonraker.conf"
@@ -1530,9 +1703,10 @@ build() {
 	stage_byof_firmware
 	prepare_buildroot
 	prepare_klipper_overlay
-	prepare_moonraker_overlay
+	prepare_rootfs_component moonraker "$moonraker_component" "$moonraker_overlay"
+	prepare_rootfs_component guppyscreen "$guppyscreen_component" "$guppyscreen_overlay"
 	brout="$work/buildroot-output-fre3nder"
-	extra_overlay="$wifi_overlay $klipper_overlay $moonraker_overlay"
+	extra_overlay="$wifi_overlay $klipper_overlay $moonraker_overlay $guppyscreen_overlay"
 	configure_buildroot "$brout" "$extra_overlay"
 	make -C "$buildroot" O="$brout" -j"$jobs" toolchain
 	write_buildroot_toolchain_fingerprint "$brout"
@@ -1569,6 +1743,7 @@ build() {
 		ender3-v3-ke.dtb \
 		kernel.uImage \
 		rootfs.squashfs
+	record_rootfs_components "$out"
 	(cd "$out" && sha256sum build-manifest.json buildroot.config \
 		effective-kernel-config ender3-v3-ke.dtb kernel.uImage rootfs.squashfs) \
 		> "$out/SHA256SUMS"
@@ -1634,10 +1809,11 @@ build_rootfs_only() {
 	stage_byof_firmware
 	prepare_buildroot
 	prepare_klipper_overlay
-	prepare_moonraker_overlay
+	prepare_rootfs_component moonraker "$moonraker_component" "$moonraker_overlay"
+	prepare_rootfs_component guppyscreen "$guppyscreen_component" "$guppyscreen_overlay"
 	brout="$work/buildroot-output-fre3nder"
 	configure_buildroot "$brout" \
-		"$wifi_overlay $klipper_overlay $moonraker_overlay"
+		"$wifi_overlay $klipper_overlay $moonraker_overlay $guppyscreen_overlay"
 	make -C "$buildroot" O="$brout" -j"${JOBS:-4}" toolchain
 	write_buildroot_toolchain_fingerprint "$brout"
 	build_klipper_chelper "$brout"
@@ -1651,6 +1827,7 @@ build_rootfs_only() {
 	cp "$brout/images/rootfs.squashfs" "$out/rootfs.squashfs"
 	cp "$brout/.config" "$out/buildroot.config"
 	write_build_manifest "$out" buildroot.config rootfs.squashfs
+	record_rootfs_components "$out"
 	(cd "$out" && sha256sum build-manifest.json buildroot.config \
 		rootfs.squashfs) > "$out/SHA256SUMS"
 	(cd "$out" && sha256sum -c SHA256SUMS)
@@ -1660,11 +1837,26 @@ build_rootfs_only() {
 	[ "$(stat -c '%s' "$out/rootfs.squashfs")" -lt 524288000 ]
 }
 
+prepare_buildroot_toolchain() {
+	prepare_artifact_provenance
+	prepare_buildroot
+	brout="$work/buildroot-output-fre3nder"
+	configure_buildroot "$brout"
+	make -C "$buildroot" O="$brout" -j"${JOBS:-4}" toolchain
+	write_buildroot_toolchain_fingerprint "$brout"
+}
+
 case "${1:-build}" in
 	fetch-kernel) fetch_kernel_inputs ;;
 	fetch-rootfs) fetch_rootfs_inputs ;;
+	fetch-buildroot) fetch_buildroot_inputs ;;
+	fetch-moonraker) fetch_moonraker_inputs ;;
+	fetch-guppyscreen) "$project/build/x2000/guppyscreen-component.sh" fetch ;;
 	build) prepare_artifact_provenance; build ;;
 	build-kernel-only) prepare_artifact_provenance; build_kernel_only ;;
 	build-rootfs-only) prepare_artifact_provenance; build_rootfs_only ;;
-	*) echo 'usage: fre3nder-x2000 {fetch-kernel|fetch-rootfs|build|build-kernel-only|build-rootfs-only}' >&2; exit 2 ;;
+	build-moonraker-component) build_moonraker_component ;;
+	build-guppyscreen-component) "$project/build/x2000/guppyscreen-component.sh" build ;;
+	prepare-buildroot-toolchain) prepare_buildroot_toolchain ;;
+	*) echo 'usage: fre3nder-x2000 {fetch-kernel|fetch-rootfs|fetch-buildroot|fetch-moonraker|fetch-guppyscreen|build|build-kernel-only|build-rootfs-only|build-moonraker-component|build-guppyscreen-component|prepare-buildroot-toolchain}' >&2; exit 2 ;;
 esac

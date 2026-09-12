@@ -3,7 +3,9 @@ set -eu
 
 root=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
 kernel_builder="$root/scripts/build-x2000-kernel"
-rootfs_builder="$root/scripts/build-x2000-rootfs"
+buildroot_builder="$root/scripts/build-x2000-buildroot"
+moonraker_builder="$root/scripts/build-x2000-moonraker"
+guppyscreen_builder="$root/scripts/build-x2000-guppyscreen"
 f005_builder="$root/scripts/build-f005"
 artifact_root="$root/local/production/artifacts/x2000"
 kernel_build=false
@@ -49,10 +51,14 @@ if [ "$f005_build" = true ]; then
 	f005_firmware="$root/local/production/artifacts/f005/candidate/klipper-f005-mainline.bin"
 fi
 
+"$moonraker_builder" $component_args
+"$buildroot_builder" --toolchain $component_args
+"$guppyscreen_builder" $component_args
 if [ -n "$f005_firmware" ]; then
-	FRE3NDER_F005_FIRMWARE="$f005_firmware" "$rootfs_builder" $component_args
+	FRE3NDER_F005_FIRMWARE="$f005_firmware" \
+		"$buildroot_builder" --assemble $component_args
 else
-	"$rootfs_builder" $component_args
+	"$buildroot_builder" --assemble $component_args
 fi
 
 if [ "$kernel_build" = true ]; then

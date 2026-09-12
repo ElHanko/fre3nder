@@ -8,7 +8,9 @@ fragment="$root/configs/x2000/buildroot.fragment"
 sources="$root/configs/x2000/sources.json"
 build_script="$root/scripts/build-x2000"
 kernel_build_script="$root/scripts/build-x2000-kernel"
-rootfs_build_script="$root/scripts/build-x2000-rootfs"
+rootfs_build_script="$root/scripts/build-x2000-buildroot"
+moonraker_build_script="$root/scripts/build-x2000-moonraker"
+guppyscreen_build_script="$root/scripts/build-x2000-guppyscreen"
 fingerprint="$root/scripts/x2000-build-input-sha256"
 moonraker_service="$root/configs/x2000/rootfs-overlay/etc/init.d/S61fre3nder-moonraker"
 moonraker_default="$root/configs/x2000/rootfs-overlay/usr/share/fre3nder/defaults/moonraker.conf"
@@ -305,9 +307,14 @@ grep -Fq 'git -C "$sdk" sparse-checkout set kernel/kernel-6.6' "$entrypoint"
 "$fingerprint" --list-inputs |
 	grep -Fxq 'scripts/x2000-build-input-sha256'
 "$fingerprint" --list-inputs | grep -Fxq 'scripts/build-x2000-kernel'
-"$fingerprint" --list-inputs | grep -Fxq 'scripts/build-x2000-rootfs'
+"$fingerprint" --list-inputs | grep -Fxq 'scripts/build-x2000-buildroot'
+"$fingerprint" --list-inputs | grep -Fxq 'scripts/build-x2000-moonraker'
+"$fingerprint" --list-inputs | grep -Fxq 'scripts/build-x2000-guppyscreen'
+"$fingerprint" --list-inputs | grep -Fxq 'patches/guppyscreen'
 grep -Fq '[--develop] [--kernel-build] [--f005-build]' "$build_script"
-grep -Fq 'build-x2000-rootfs' "$build_script"
+grep -Fq 'build-x2000-buildroot' "$build_script"
+grep -Fq 'build-x2000-moonraker' "$build_script"
+grep -Fq 'build-x2000-guppyscreen' "$build_script"
 grep -Fq 'build-x2000-kernel' "$build_script"
 grep -Fq 'build-f005' "$build_script"
 ! grep -Fq -- '--rootfs-only' "$build_script"
@@ -319,7 +326,7 @@ grep -Fq 'fetch-rootfs' "$rootfs_build_script"
 ! grep -Eq '"\$image" fetch($|[[:space:]])' "$rootfs_build_script"
 grep -Fq 'build-rootfs-only' "$rootfs_build_script"
 grep -Fq 'FRE3NDER_F005_FIRMWARE' "$rootfs_build_script"
-grep -Fq '$firmware_in_container:ro' "$rootfs_build_script"
+grep -Fq '$f005_firmware:/f005-firmware:ro' "$rootfs_build_script"
 ! grep -Fq -- '--moonraker-app-only' "$build_script"
 grep -Fq 'FRE3NDER_ARTIFACT_MODE=$artifact_mode' "$rootfs_build_script"
 sed -n '/^fetch_rootfs_inputs() {$/,/^}$/p' "$entrypoint" |
@@ -337,8 +344,10 @@ grep -Fq '[ ! -e "$target/usr/share/fre3nder/DEVELOPMENT" ]' "$entrypoint"
 grep -Fq 'moonraker_commit=985c1d0bbeb90bc057d34a232c9dc3b05e0c6c8d' \
 	"$entrypoint"
 grep -Fq 'prepare_moonraker_overlay()' "$entrypoint"
-[ "$(grep -Fc 'prepare_moonraker_overlay' "$entrypoint")" -eq 3 ]
-grep -Fq '"$wifi_overlay $klipper_overlay $moonraker_overlay"' "$entrypoint"
+[ "$(grep -Fc 'prepare_moonraker_overlay' "$entrypoint")" -eq 2 ]
+grep -Fq '"$wifi_overlay $klipper_overlay $moonraker_overlay $guppyscreen_overlay"' "$entrypoint"
+grep -Fq 'prepare_rootfs_component moonraker' "$entrypoint"
+grep -Fq 'prepare_rootfs_component guppyscreen' "$entrypoint"
 grep -Fq 'moonraker_root="$moonraker_overlay/opt/fre3nder/moonraker"' \
 	"$entrypoint"
 grep -Fq 'moonraker_env="$moonraker_overlay/opt/fre3nder/moonraker-env"' \
@@ -387,6 +396,81 @@ grep -Fq 'relative.suffix in (".pyc", ".pyo")' "$entrypoint"
 
 tmp=$(mktemp -d)
 trap 'rm -rf -- "$tmp"' EXIT HUP INT TERM
+
+# Component payloads are consumed only after their identity and archive hash
+# match the current RootFS inputs.
+sed -n '/^prepare_rootfs_component() {$/,/^}$/p' "$entrypoint" > \
+	"$tmp/component-function.sh"
+. "$tmp/component-function.sh"
+component_project=$tmp/component-project
+component_artifact=$tmp/component-artifact
+component_overlay=$tmp/component-overlay
+component_stage=$tmp/component-stage
+mkdir -p "$component_project/configs/x2000" "$component_project/scripts" \
+	"$component_artifact" "$component_stage/opt/fixture"
+cp "$sources" "$component_project/configs/x2000/sources.json"
+printf '%s\n' '#!/bin/sh' 'printf "%s\\n" fixture-input' > \
+	"$component_project/scripts/x2000-build-input-sha256"
+chmod 0755 "$component_project/scripts/x2000-build-input-sha256"
+printf '%s\n' payload > "$component_stage/opt/fixture/file"
+tar -C "$component_stage" -cf "$component_artifact/rootfs-overlay.tar" .
+python3 - "$sources" "$component_artifact" <<'PY'
+import hashlib
+import json
+import pathlib
+import sys
+
+sources = json.loads(pathlib.Path(sys.argv[1]).read_text())
+directory = pathlib.Path(sys.argv[2])
+archive = directory / "rootfs-overlay.tar"
+manifest = {
+    "schema": 1,
+    "component": "guppyscreen",
+    "source": {
+        key: sources["userspace"]["guppyscreen"][key]
+        for key in ("repository", "release", "commit", "license")
+    },
+    "artifact_mode": "development",
+    "project_commit": "fixture-commit",
+    "project_worktree_status": "dirty",
+    "build_input_sha256": "fixture-input",
+    "artifact": {
+        "name": archive.name,
+        "sha256": hashlib.sha256(archive.read_bytes()).hexdigest(),
+    },
+}
+(directory / "component-manifest.json").write_text(json.dumps(manifest) + "\n")
+PY
+project=$component_project
+artifact_mode=development
+project_commit=fixture-commit
+project_worktree_status=dirty
+prepare_rootfs_component guppyscreen "$component_artifact" "$component_overlay"
+grep -Fxq payload "$component_overlay/opt/fixture/file"
+cp "$component_artifact/component-manifest.json" "$tmp/component-manifest.valid"
+python3 - "$component_artifact/component-manifest.json" <<'PY'
+import json
+import pathlib
+import sys
+
+path = pathlib.Path(sys.argv[1])
+manifest = json.loads(path.read_text())
+manifest["source"]["commit"] = "0" * 40
+path.write_text(json.dumps(manifest) + "\n")
+PY
+if prepare_rootfs_component guppyscreen "$component_artifact" \
+	"$component_overlay.invalid" 2>/dev/null; then
+	echo 'RootFS accepted a component with the wrong source identity' >&2
+	exit 1
+fi
+cp "$tmp/component-manifest.valid" \
+	"$component_artifact/component-manifest.json"
+printf x >> "$component_artifact/rootfs-overlay.tar"
+if prepare_rootfs_component guppyscreen "$component_artifact" \
+	"$component_overlay.invalid" 2>/dev/null; then
+	echo 'RootFS accepted a component with the wrong artifact hash' >&2
+	exit 1
+fi
 
 # Exercise the Buildroot output reuse decision without invoking Buildroot.
 cache_project=$tmp/cache-project
@@ -773,6 +857,7 @@ touch "$target/etc/init.d/fre3nder-root" \
 	"$target/etc/init.d/S61fre3nder-moonraker" \
 	"$target/etc/init.d/S62fre3nder-web" \
 	"$target/etc/init.d/S63fre3nder-camera" \
+	"$target/etc/init.d/S64fre3nder-guppyscreen" \
 	"$target/etc/init.d/S50lighttpd" \
 	"$target/usr/libexec/fre3nder/f005-mcu-state" \
 	"$target/usr/libexec/fre3nder/f005-stock-to-fre3nder" \
@@ -783,6 +868,7 @@ cp -a "$moonraker_overlay/." "$target/"
 [ -x "$target/etc/init.d/S59fre3nder-klipper-mcu" ]
 [ -x "$target/etc/init.d/S62fre3nder-web" ]
 [ -x "$target/etc/init.d/S63fre3nder-camera" ]
+[ -x "$target/etc/init.d/S64fre3nder-guppyscreen" ]
 [ ! -e "$target/etc/init.d/S50lighttpd" ]
 moonraker_root="$target/opt/fre3nder/moonraker"
 [ -d "$moonraker_root/.git" ]
@@ -815,7 +901,7 @@ grep -Fxq current "$moonraker_root/.git/current-overlay-marker"
 [ "$(grep -Fc 'make -C "$buildroot" O="$brout" -j"$jobs" toolchain' \
 	"$entrypoint")" -eq 2 ]
 [ "$(grep -Fc 'write_buildroot_toolchain_fingerprint "$brout"' \
-	"$entrypoint")" -eq 3 ]
+	"$entrypoint")" -eq 4 ]
 
 first_toolchain=$(grep -nF 'make -C "$buildroot" O="$brout" -j"$jobs" toolchain' \
 	"$entrypoint" | head -n 1 | cut -d: -f1)

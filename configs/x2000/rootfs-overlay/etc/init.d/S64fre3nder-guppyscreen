@@ -1,0 +1,218 @@
+#!/bin/sh
+
+runtime=${FRE3NDER_GUPPYSCREEN_RUNTIME:-/run/fre3nder-guppyscreen}
+pid_file=$runtime/guppyscreen.pid
+status=$runtime/status
+stdout_log=$runtime/guppyscreen.log
+input_link=$runtime/input
+root_state=${FRE3NDER_ROOT_STATE:-/run/fre3nder-root}
+home_root=${FRE3NDER_HOME_ROOT:-/home}
+fre3nder_home=${FRE3NDER_HOME_DIR:-$home_root/fre3nder}
+printer_data=${FRE3NDER_PRINTER_DATA:-$fre3nder_home/printer_data}
+persistent_logs=${FRE3NDER_GUPPYSCREEN_LOG_DIR:-$printer_data/logs}
+config_dir=$fre3nder_home/.fre3nder/guppyscreen
+config=${FRE3NDER_GUPPYSCREEN_CONFIG:-$config_dir/guppyconfig.json}
+default_config=${FRE3NDER_GUPPYSCREEN_DEFAULT_CONFIG:-/usr/share/fre3nder/defaults/guppyconfig.json}
+binary=${FRE3NDER_GUPPYSCREEN_BINARY:-/opt/fre3nder/guppyscreen/guppyscreen}
+theme_dir=${FRE3NDER_GUPPYSCREEN_THEME_DIR:-/usr/share/guppyscreen/themes}
+framebuffer=${FRE3NDER_GUPPYSCREEN_FRAMEBUFFER:-/dev/fb0}
+input_sys=${FRE3NDER_GUPPYSCREEN_INPUT_SYS:-/sys/class/input}
+input_dev=${FRE3NDER_GUPPYSCREEN_INPUT_DEV:-/dev/input}
+input_name=${FRE3NDER_GUPPYSCREEN_INPUT_NAME:-ns2009_ts}
+
+log() {
+	echo "fre3nder guppyscreen: $*"
+}
+
+set_status() {
+	mkdir -p "$runtime" 2>/dev/null || return 0
+	printf '%s\n' "$1" > "$status" 2>/dev/null || true
+}
+
+regular_file_equals() {
+	[ -f "$1" ] && [ ! -L "$1" ] && [ "$(cat "$1")" = "$2" ]
+}
+
+root_active() {
+	regular_file_equals "$root_state/status" active
+}
+
+ensure_directory() {
+	if [ ! -e "$1" ] && [ ! -L "$1" ]; then
+		mkdir -m 0700 "$1" || return 1
+	fi
+	[ -d "$1" ] && [ ! -L "$1" ]
+}
+
+prepare_config() {
+	[ -d "$home_root" ] && [ ! -L "$home_root" ] || return 1
+	ensure_directory "$fre3nder_home" || return 1
+	ensure_directory "$fre3nder_home/.fre3nder" || return 1
+	ensure_directory "$config_dir" || return 1
+	ensure_directory "$printer_data" || return 1
+	ensure_directory "$persistent_logs" || return 1
+
+	if [ -e "$config" ] || [ -L "$config" ]; then
+		[ -f "$config" ] && [ ! -L "$config" ]
+		return
+	fi
+
+	[ "${FRE3NDER_GUPPYSCREEN_CONFIG+x}" != x ] || return 1
+	[ -f "$default_config" ] && [ ! -L "$default_config" ] || return 1
+	install -m 0600 "$default_config" "$config"
+}
+
+find_touch_device() {
+	if [ "${FRE3NDER_GUPPYSCREEN_INPUT_DEVICE+x}" = x ]; then
+		[ -e "$FRE3NDER_GUPPYSCREEN_INPUT_DEVICE" ] &&
+			[ ! -L "$FRE3NDER_GUPPYSCREEN_INPUT_DEVICE" ] || return 1
+		printf '%s\n' "$FRE3NDER_GUPPYSCREEN_INPUT_DEVICE"
+		return
+	fi
+
+	found=
+	for name_file in "$input_sys"/event*/device/name; do
+		[ -f "$name_file" ] && [ ! -L "$name_file" ] || continue
+		[ "$(cat "$name_file")" = "$input_name" ] || continue
+		event_dir=${name_file%/device/name}
+		event=${event_dir##*/}
+		device=$input_dev/$event
+		[ -c "$device" ] || continue
+		[ -z "$found" ] || return 1
+		found=$device
+	done
+	[ -n "$found" ] || return 1
+	printf '%s\n' "$found"
+}
+
+pid_has_arg() {
+	proc_pid=$1
+	expected_arg=$2
+	[ -r "/proc/$proc_pid/cmdline" ] || return 1
+	tr '\000' '\n' 2>/dev/null < "/proc/$proc_pid/cmdline" |
+		grep -F -x -q "$expected_arg"
+}
+
+pid_is_guppyscreen() {
+	proc_pid=$1
+	case "$proc_pid" in
+	*[!0-9]*|'') return 1 ;;
+	esac
+	kill -0 "$proc_pid" 2>/dev/null && pid_has_arg "$proc_pid" "$binary"
+}
+
+terminate_guppyscreen() {
+	proc_pid=$1
+	pid_is_guppyscreen "$proc_pid" || return 0
+	kill "$proc_pid" 2>/dev/null || true
+	seconds=0
+	while pid_is_guppyscreen "$proc_pid"; do
+		if [ "$seconds" -ge 10 ]; then
+			kill -KILL "$proc_pid" 2>/dev/null || true
+			break
+		fi
+		sleep 1
+		seconds=$((seconds + 1))
+	done
+	wait "$proc_pid" 2>/dev/null || true
+}
+
+validate_baseline() {
+	[ -x "$binary" ] && [ ! -L "$binary" ] &&
+		[ -d "$theme_dir" ] && [ ! -L "$theme_dir" ] &&
+		[ -f "$theme_dir/blue.json" ] && [ ! -L "$theme_dir/blue.json" ]
+}
+
+start() {
+	mkdir -p "$runtime" || {
+		log 'runtime setup failed'
+		return 0
+	}
+	chmod 0700 "$runtime" || {
+		set_status runtime-invalid
+		return 0
+	}
+	if ! root_active; then
+		set_status degraded-root
+		log 'persistent root is unavailable; local UI remains stopped'
+		return 0
+	fi
+	if [ -r "$pid_file" ]; then
+		pid=$(cat "$pid_file")
+		if validate_baseline && pid_is_guppyscreen "$pid"; then
+			set_status active
+			return 0
+		fi
+		rm -f "$pid_file"
+	fi
+	if ! validate_baseline; then
+		set_status baseline-invalid
+		log 'GuppyScreen RootFS baseline is missing or invalid'
+		return 0
+	fi
+	if [ ! -c "$framebuffer" ]; then
+		set_status framebuffer-unavailable
+		log 'framebuffer is unavailable; local UI remains stopped'
+		return 0
+	fi
+	if ! touch_device=$(find_touch_device); then
+		set_status touch-unavailable
+		log "unique $input_name input device is unavailable; local UI remains stopped"
+		return 0
+	fi
+	if ! prepare_config; then
+		set_status config-invalid
+		log 'persistent GuppyScreen configuration is unavailable or invalid'
+		return 0
+	fi
+	rm -f "$input_link"
+	ln -s "$touch_device" "$input_link" || {
+		set_status input-link-failed
+		return 0
+	}
+	set_status starting
+	GUPPYSCREEN_CONFIG="$config" \
+	GUPPYSCREEN_THEME_DIR="$theme_dir" \
+	GUPPYSCREEN_INPUT="$input_link" \
+		"$binary" >"$stdout_log" 2>&1 &
+	pid=$!
+	printf '%s\n' "$pid" > "$pid_file" || {
+		terminate_guppyscreen "$pid"
+		set_status pid-write-failed
+		return 0
+	}
+	sleep 1
+	if pid_is_guppyscreen "$pid"; then
+		set_status active
+		log 'GuppyScreen started from the RootFS baseline'
+	else
+		wait "$pid" 2>/dev/null || true
+		rm -f "$pid_file" "$input_link"
+		set_status startup-failed
+		log 'GuppyScreen exited during startup'
+	fi
+}
+
+stop() {
+	if [ -r "$pid_file" ]; then
+		pid=$(cat "$pid_file")
+		terminate_guppyscreen "$pid"
+	fi
+	rm -f "$pid_file" "$input_link"
+	set_status stopped
+}
+
+case "${1:-}" in
+start) start ;;
+stop) stop ;;
+restart)
+	stop
+	start
+	;;
+*)
+	echo "usage: $0 {start|stop|restart}" >&2
+	exit 2
+	;;
+esac
+
+exit 0

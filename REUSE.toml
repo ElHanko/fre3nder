@@ -33,6 +33,12 @@ SPDX-FileCopyrightText = "NOASSERTION"
 SPDX-License-Identifier = "GPL-3.0-only"
 
 [[annotations]]
+path = "patches/guppyscreen/**"
+precedence = "closest"
+SPDX-FileCopyrightText = "NOASSERTION"
+SPDX-License-Identifier = "GPL-3.0-only"
+
+[[annotations]]
 path = "build/x2000/klipper-linux.config"
 precedence = "closest"
 SPDX-FileCopyrightText = "NOASSERTION"

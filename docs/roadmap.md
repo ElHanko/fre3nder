@@ -72,13 +72,14 @@ The release-level requirements and acceptance criteria are defined in
 6. Integrate OctoApp as an independently managed application and
    external-client reference without forcing Moonraker's lifecycle model on it.
 
-7. Establish a frontend-neutral persistent UI layer. Qualify Fluidd as the
+7. Establish a frontend-neutral persistent web-UI layer. Qualify Fluidd as the
    first reference frontend while keeping alternative frontends such as
    Mainsail installable without rebuilding the RootFS.
 
-8. Complete the local display stack. Display output, touch input, and
-   backlight control are hardware-qualified on the reference system; the local
-   UI/presentation layer remains to be integrated and qualified.
+8. Complete the local display stack with GuppyScreen as the native Core-UI.
+   Display output, touch input, and backlight control are hardware-qualified on
+   the reference system; the reproducible GuppyScreen source integration is at
+   its build gate and remains to be built and qualified.
 
 9. Perform integrated `2026.2` qualification across normal boot, persistence,
    Klipper, Moonraker, application management, network UI, OctoApp, local
@@ -129,8 +130,10 @@ requirement:
   reference system. The newly built-in baseline, self-update dependency
   lifecycle, post-update restart, normal-reboot update persistence, and
   overlay-reset recovery remain to be qualified;
-- frontend-neutral UI layer: **NOT IMPLEMENTED**;
-- local display UI/presentation layer: **NOT IMPLEMENTED**.
+- frontend-neutral web-UI layer: **OFFLINE IMPLEMENTED / PARTIALLY HARDWARE
+  QUALIFIED**;
+- GuppyScreen local Core-UI: **SOURCE INTEGRATED / BUILD PENDING**; no local-UI
+  hardware qualification has started.
 
 ## Mandatory gates
 

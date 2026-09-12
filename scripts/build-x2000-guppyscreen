@@ -14,8 +14,6 @@ usage() {
 	exit 2
 }
 
-[ "$#" -le 1 ] || usage
-
 case "${1:-}" in
 '') ;;
 --develop) artifact_mode=development ;;
@@ -28,9 +26,9 @@ mkdir -p "$work_root"
 "$docker_cmd" run --rm --user "$runtime_user" \
 	-v "$root:/project" \
 	-v "$work_root:/work" \
-	"$image" fetch-kernel
+	"$image" fetch-guppyscreen
 "$docker_cmd" run --rm --network none --user "$runtime_user" \
 	-e "FRE3NDER_ARTIFACT_MODE=$artifact_mode" \
 	-v "$root:/project" \
 	-v "$work_root:/work" \
-	"$image" build-kernel-only
+	"$image" build-guppyscreen-component

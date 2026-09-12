@@ -4,7 +4,9 @@ set -eu
 root=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
 orchestrator="$root/scripts/build-x2000"
 kernel_builder="$root/scripts/build-x2000-kernel"
-rootfs_builder="$root/scripts/build-x2000-rootfs"
+buildroot_builder="$root/scripts/build-x2000-buildroot"
+moonraker_builder="$root/scripts/build-x2000-moonraker"
+guppyscreen_builder="$root/scripts/build-x2000-guppyscreen"
 tmp=$(mktemp -d)
 
 cleanup() {
@@ -20,8 +22,8 @@ printf '%s\n' "$*" >> "$X2000_TEST_DOCKER_LOG"
 EOF
 chmod 0755 "$fake_docker"
 
-# Component builders accept only --develop. The Kernel path never consults
-# RootFS-specific inputs, while the RootFS path validates F005 before Docker.
+# Component builders accept only their documented modes. The Kernel path never
+# consults RootFS-specific inputs.
 X2000_BUILD_DOCKER="$fake_docker" X2000_TEST_DOCKER_LOG="$docker_log" \
 	"$kernel_builder"
 grep -Fq 'fetch-kernel' "$docker_log"
@@ -36,10 +38,32 @@ grep -Fq 'FRE3NDER_ARTIFACT_MODE=development' "$docker_log"
 
 : > "$docker_log"
 X2000_BUILD_DOCKER="$fake_docker" X2000_TEST_DOCKER_LOG="$docker_log" \
-	"$rootfs_builder" --develop
+	"$moonraker_builder" --develop
+grep -Fq 'fetch-moonraker' "$docker_log"
+grep -Fq 'build-moonraker-component' "$docker_log"
+grep -Fq 'FRE3NDER_ARTIFACT_MODE=development' "$docker_log"
+
+: > "$docker_log"
+X2000_BUILD_DOCKER="$fake_docker" X2000_TEST_DOCKER_LOG="$docker_log" \
+	"$guppyscreen_builder" --develop
+grep -Fq 'fetch-guppyscreen' "$docker_log"
+grep -Fq 'build-guppyscreen-component' "$docker_log"
+grep -Fq 'FRE3NDER_ARTIFACT_MODE=development' "$docker_log"
+
+: > "$docker_log"
+X2000_BUILD_DOCKER="$fake_docker" X2000_TEST_DOCKER_LOG="$docker_log" \
+	"$buildroot_builder" --toolchain --develop
+grep -Fq 'fetch-buildroot' "$docker_log"
+grep -Fq 'prepare-buildroot-toolchain' "$docker_log"
+grep -Fq 'FRE3NDER_ARTIFACT_MODE=development' "$docker_log"
+
+: > "$docker_log"
+X2000_BUILD_DOCKER="$fake_docker" X2000_TEST_DOCKER_LOG="$docker_log" \
+	"$buildroot_builder" --assemble --develop
 grep -Fq 'fetch-rootfs' "$docker_log"
 grep -Fq 'build-rootfs-only' "$docker_log"
 grep -Fq 'FRE3NDER_ARTIFACT_MODE=development' "$docker_log"
+grep -Fq 'FRE3NDER_REUSE_PREPARED_TOOLCHAIN=1' "$docker_log"
 ! grep -Fq 'fetch-kernel' "$docker_log"
 
 for invalid in --kernel-build --f005-build --rootfs-only --kernel-only --unknown; do
@@ -54,22 +78,22 @@ if "$kernel_builder" --develop --develop >/dev/null 2>&1; then
 fi
 
 for invalid in --kernel-build --f005-build --rootfs-only --kernel-only --unknown; do
-	if "$rootfs_builder" "$invalid" >/dev/null 2>&1; then
-		echo "RootFS builder accepted $invalid" >&2
+	if "$buildroot_builder" "$invalid" >/dev/null 2>&1; then
+		echo "Buildroot builder accepted $invalid" >&2
 		exit 1
 	fi
 done
 
 missing="$tmp/missing.bin"
 if FRE3NDER_F005_FIRMWARE="$missing" X2000_BUILD_DOCKER="$fake_docker" \
-	X2000_TEST_DOCKER_LOG="$docker_log" "$rootfs_builder" >/dev/null 2>&1; then
+	X2000_TEST_DOCKER_LOG="$docker_log" "$buildroot_builder" --assemble >/dev/null 2>&1; then
 	echo 'RootFS builder accepted a missing F005 artifact' >&2
 	exit 1
 fi
 
 printf x > "$tmp/wrong.bin"
 if FRE3NDER_F005_FIRMWARE="$tmp/wrong.bin" X2000_BUILD_DOCKER="$fake_docker" \
-	X2000_TEST_DOCKER_LOG="$docker_log" "$rootfs_builder" >/dev/null 2>&1; then
+	X2000_TEST_DOCKER_LOG="$docker_log" "$buildroot_builder" --assemble >/dev/null 2>&1; then
 	echo 'RootFS builder accepted an invalid F005 artifact' >&2
 	exit 1
 fi
@@ -78,7 +102,7 @@ cp "$root/local/production/artifacts/x2000/f005/klipper-f005-mainline.bin" \
 	"$tmp/wrong-sha.bin"
 printf x | dd of="$tmp/wrong-sha.bin" bs=1 count=1 conv=notrunc status=none
 if FRE3NDER_F005_FIRMWARE="$tmp/wrong-sha.bin" X2000_BUILD_DOCKER="$fake_docker" \
-	X2000_TEST_DOCKER_LOG="$docker_log" "$rootfs_builder" >/dev/null 2>&1; then
+	X2000_TEST_DOCKER_LOG="$docker_log" "$buildroot_builder" --assemble >/dev/null 2>&1; then
 	echo 'RootFS builder accepted an F005 artifact with the wrong SHA256' >&2
 	exit 1
 fi
@@ -86,7 +110,7 @@ fi
 ln -s "$root/local/production/artifacts/x2000/f005/klipper-f005-mainline.bin" \
 	"$tmp/f005-link.bin"
 if FRE3NDER_F005_FIRMWARE="$tmp/f005-link.bin" X2000_BUILD_DOCKER="$fake_docker" \
-	X2000_TEST_DOCKER_LOG="$docker_log" "$rootfs_builder" >/dev/null 2>&1; then
+	X2000_TEST_DOCKER_LOG="$docker_log" "$buildroot_builder" --assemble >/dev/null 2>&1; then
 	echo 'RootFS builder accepted a symlinked F005 artifact' >&2
 	exit 1
 fi
@@ -97,13 +121,13 @@ printf '%s\n' '{"qualified_release_match": true}' > "$tmp/build-manifest.json"
 : > "$docker_log"
 FRE3NDER_F005_FIRMWARE="$tmp/klipper-f005-mainline.bin" \
 	X2000_BUILD_DOCKER="$fake_docker" X2000_TEST_DOCKER_LOG="$docker_log" \
-	"$rootfs_builder"
+	"$buildroot_builder" --assemble
 grep -Fq -- "-v $tmp/klipper-f005-mainline.bin:/f005-firmware:ro" "$docker_log"
 
 printf '%s\n' '{"qualified_release_match": false}' > "$tmp/build-manifest.json"
 if FRE3NDER_F005_FIRMWARE="$tmp/klipper-f005-mainline.bin" \
 	X2000_BUILD_DOCKER="$fake_docker" X2000_TEST_DOCKER_LOG="$docker_log" \
-	"$rootfs_builder" >/dev/null 2>&1; then
+	"$buildroot_builder" --assemble >/dev/null 2>&1; then
 	echo 'RootFS builder accepted a non-qualified F005 candidate' >&2
 	exit 1
 fi
@@ -127,10 +151,14 @@ config_hash=$(sha256sum "$dir/effective-kernel-config" | awk '{print $1}')
 printf '{"artifact_mode":"release","project_commit":"fixture","project_worktree_status":"clean","build_input_sha256":"","artifacts":{"kernel.uImage":"%s","ender3-v3-ke.dtb":"%s","effective-kernel-config":"%s"}}\n' \
 	"$kernel_hash" "$dtb_hash" "$config_hash" > "$dir/build-manifest.json"
 EOF
-cat > "$fixture/scripts/build-x2000-rootfs" <<'EOF'
+cat > "$fixture/scripts/build-x2000-buildroot" <<'EOF'
 #!/bin/sh
 set -eu
-printf 'rootfs %s %s\n' "$*" "${FRE3NDER_F005_FIRMWARE:-default}" >> "$X2000_WRAPPER_LOG"
+printf 'buildroot %s %s\n' "$*" "${FRE3NDER_F005_FIRMWARE:-default}" >> "$X2000_WRAPPER_LOG"
+case " $* " in
+*' --assemble '*) ;;
+*) exit 0 ;;
+esac
 root=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
 dir=$root/local/production/artifacts/x2000/rootfs-only
 mkdir -p "$dir"
@@ -141,6 +169,14 @@ config_hash=$(sha256sum "$dir/buildroot.config" | awk '{print $1}')
 printf '{"artifact_mode":"release","project_commit":"fixture","project_worktree_status":"clean","build_input_sha256":"","artifacts":{"rootfs.squashfs":"%s","buildroot.config":"%s"}}\n' \
 	"$rootfs_hash" "$config_hash" > "$dir/build-manifest.json"
 EOF
+cat > "$fixture/scripts/build-x2000-moonraker" <<'EOF'
+#!/bin/sh
+printf 'moonraker %s\n' "$*" >> "$X2000_WRAPPER_LOG"
+EOF
+cat > "$fixture/scripts/build-x2000-guppyscreen" <<'EOF'
+#!/bin/sh
+printf 'guppyscreen %s\n' "$*" >> "$X2000_WRAPPER_LOG"
+EOF
 cat > "$fixture/scripts/build-f005" <<'EOF'
 #!/bin/sh
 set -eu
@@ -148,7 +184,9 @@ printf 'f005\n' >> "$X2000_WRAPPER_LOG"
 EOF
 chmod 0755 "$fixture/scripts/build-x2000" \
 	"$fixture/scripts/build-x2000-kernel" \
-	"$fixture/scripts/build-x2000-rootfs" \
+	"$fixture/scripts/build-x2000-buildroot" \
+	"$fixture/scripts/build-x2000-moonraker" \
+	"$fixture/scripts/build-x2000-guppyscreen" \
 	"$fixture/scripts/build-f005"
 
 run_orchestrator() {
@@ -159,14 +197,27 @@ run_orchestrator() {
 }
 
 run_orchestrator
-grep -Fxq 'rootfs  default' "$tmp/wrapper.log"
+printf '%s\n' \
+	'moonraker ' \
+	'buildroot --toolchain default' \
+	'guppyscreen ' \
+	'buildroot --assemble default' | cmp -s - "$tmp/wrapper.log"
 [ ! -e "$fixture/local/production/artifacts/x2000/full" ]
 
 run_orchestrator --develop
-grep -Fxq 'rootfs --develop default' "$tmp/wrapper.log"
+printf '%s\n' \
+	'moonraker --develop' \
+	'buildroot --toolchain --develop default' \
+	'guppyscreen --develop' \
+	'buildroot --assemble --develop default' | cmp -s - "$tmp/wrapper.log"
 
 run_orchestrator --kernel-build
-printf '%s\n' 'kernel ' 'rootfs  default' | cmp -s - "$tmp/wrapper.log"
+printf '%s\n' \
+	'kernel ' \
+	'moonraker ' \
+	'buildroot --toolchain default' \
+	'guppyscreen ' \
+	'buildroot --assemble default' | cmp -s - "$tmp/wrapper.log"
 full="$fixture/local/production/artifacts/x2000/full"
 [ -f "$full/rootfs.squashfs" ]
 python3 - "$full" <<'PY'
@@ -192,19 +243,30 @@ assert checksums == {
 PY
 
 run_orchestrator --kernel-build --develop
-printf '%s\n' 'kernel --develop' 'rootfs --develop default' | cmp -s - "$tmp/wrapper.log"
+printf '%s\n' \
+	'kernel --develop' \
+	'moonraker --develop' \
+	'buildroot --toolchain --develop default' \
+	'guppyscreen --develop' \
+	'buildroot --assemble --develop default' | cmp -s - "$tmp/wrapper.log"
 
 run_orchestrator --f005-build
 printf '%s\n' \
 	'f005' \
-	"rootfs  $fixture/local/production/artifacts/f005/candidate/klipper-f005-mainline.bin" | \
+	'moonraker ' \
+	'buildroot --toolchain default' \
+	'guppyscreen ' \
+	"buildroot --assemble $fixture/local/production/artifacts/f005/candidate/klipper-f005-mainline.bin" | \
 	cmp -s - "$tmp/wrapper.log"
 
 run_orchestrator --kernel-build --f005-build
 printf '%s\n' \
 	'kernel ' \
 	'f005' \
-	"rootfs  $fixture/local/production/artifacts/f005/candidate/klipper-f005-mainline.bin" | \
+	'moonraker ' \
+	'buildroot --toolchain default' \
+	'guppyscreen ' \
+	"buildroot --assemble $fixture/local/production/artifacts/f005/candidate/klipper-f005-mainline.bin" | \
 	cmp -s - "$tmp/wrapper.log"
 
 for invalid in --rootfs-only --kernel-only --unknown; do

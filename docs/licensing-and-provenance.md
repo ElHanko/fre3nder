@@ -83,6 +83,24 @@ The pure-Python wheel contents are staged into the RootFS Moonraker environment;
 the wheels themselves remain build inputs outside Git. Source, dependency, and
 license provenance remains explicit in the source and wheel manifests.
 
+## GuppyScreen RootFS baseline
+
+GuppyScreen is consumed from `https://github.com/ballaswag/guppyscreen.git` at
+the published `0.0.26-beta` tag, commit
+`cf5c6d7539a2dca090ca71c177f57a2d96df443a`, under `GPL-3.0-only`. The exact
+source and submodule identities are recorded in `configs/x2000/sources.json`.
+The component builder fetches that source and its pinned submodules before the
+network-disabled build phase and builds it with Fre3nder's Buildroot GCC 13.4.0
+MIPS userspace toolchain.
+
+The pinned submodules are LVGL 8.3.11 and lv_drivers under MIT, libhv under
+BSD-3-Clause, and spdlog under MIT. The vendored wpa_supplicant control-client
+source is under BSD-3-Clause. Their license texts are copied alongside the
+GuppyScreen GPL text into the component RootFS payload. Fre3nder applies the
+three patches shipped by the pinned upstream tree and the narrow
+`patches/guppyscreen/0001-fre3nder-runtime-paths.patch`; it does not execute or
+redistribute GuppyScreen's installer or Creality-specific binary payloads.
+
 ## Public Creality Klipper source
 
 Creality publishes Ender-3 V3 KE Klipper source under the GPL.

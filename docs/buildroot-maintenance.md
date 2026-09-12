@@ -35,9 +35,10 @@ For every patch release update:
    NaN2008, internal glibc toolchain, Linux 6.6 headers, and C++.
 7. Confirm the effective GCC and binutils versions and that no external
    toolchain is selected.
-8. Run `scripts/build-x2000-rootfs` from clean output and execute the
+8. Run `scripts/build-x2000` from clean output and execute the
    package-version, Python, ELF, and ABI checks.
-9. Run exactly one complete X2000 build after the RootFS-only validation.
+9. Run exactly one `scripts/build-x2000 --kernel-build` after the RootFS-only
+   validation.
 10. Record the change as build-validated only after those builds pass.
     Hardware validation remains a separate status and must not be inferred
     from build success.
