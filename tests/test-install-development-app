@@ -48,6 +48,12 @@ case "$command" in
 "FRE3NDER_APP_SOURCE_DIR=/tmp/fre3nder-app-source /usr/bin/fre3nder install 'sample'")
 	exit "${TEST_INSTALL_RC:-0}"
 	;;
+"/etc/init.d/S61fre3nder-moonraker restart")
+	exit "${TEST_S61_RC:-0}"
+	;;
+"/etc/init.d/S62fre3nder-web restart")
+	exit "${TEST_S62_RC:-0}"
+	;;
 *)
 	echo "unexpected SSH command: $command" >&2
 	exit 1
@@ -68,10 +74,20 @@ run_helper() {
 	TEST_PREPARE_FAIL=${TEST_PREPARE_FAIL:-0} \
 	TEST_SHA_MISMATCH=${TEST_SHA_MISMATCH:-0} \
 	TEST_INSTALL_RC=${TEST_INSTALL_RC:-0} \
+	TEST_S61_RC=${TEST_S61_RC:-0} \
+	TEST_S62_RC=${TEST_S62_RC:-0} \
 		"$fixture/scripts/install-development-app" "$@"
 }
 
-for args in '' 'host' 'host sample extra'; do
+for args in \
+	'' \
+	'host' \
+	'host sample extra' \
+	'--apply' \
+	'--apply host' \
+	'--apply host sample extra' \
+	'--unknown host sample'
+do
 	if run_helper $args >/dev/null 2>&1; then
 		echo "invalid argument count unexpectedly accepted: $args" >&2
 		exit 1
@@ -136,5 +152,65 @@ TEST_INSTALL_RC=23 run_helper host sample >/dev/null 2>&1
 rc=$?
 set -e
 [ "$rc" -eq 23 ]
+! grep -Fq ' restart' "$log"
+
+rm -f "$log" "$transferred"
+run_helper --apply host sample
+cmp -s "$fixture/apps/sample/service" "$transferred"
+[ "$(sed -n '1p' "$log")" = prepare:host ]
+[ "$(grep -Fc 'ssh-host:host' "$log")" -eq 5 ]
+grep -Fxq \
+	"ssh-command:FRE3NDER_APP_SOURCE_DIR=/tmp/fre3nder-app-source /usr/bin/fre3nder install 'sample'" \
+	"$log"
+grep -Fxq \
+	'ssh-command:/etc/init.d/S61fre3nder-moonraker restart' \
+	"$log"
+grep -Fxq \
+	'ssh-command:/etc/init.d/S62fre3nder-web restart' \
+	"$log"
+install_line=$(grep -nFx \
+	"ssh-command:FRE3NDER_APP_SOURCE_DIR=/tmp/fre3nder-app-source /usr/bin/fre3nder install 'sample'" \
+	"$log" | cut -d: -f1)
+s61_line=$(grep -nFx \
+	'ssh-command:/etc/init.d/S61fre3nder-moonraker restart' \
+	"$log" | cut -d: -f1)
+s62_line=$(grep -nFx \
+	'ssh-command:/etc/init.d/S62fre3nder-web restart' \
+	"$log" | cut -d: -f1)
+[ "$install_line" -lt "$s61_line" ]
+[ "$s61_line" -lt "$s62_line" ]
+[ "$(grep -Fc ' restart' "$log")" -eq 2 ]
+! grep -Fq 'S60fre3nder-klipper' "$log"
+
+rm -f "$log" "$transferred"
+set +e
+TEST_INSTALL_RC=23 run_helper --apply host sample >/dev/null 2>&1
+rc=$?
+set -e
+[ "$rc" -eq 23 ]
+grep -Fq '/usr/bin/fre3nder install' "$log"
+! grep -Fq 'S61fre3nder-moonraker' "$log"
+! grep -Fq 'S62fre3nder-web' "$log"
+
+rm -f "$log" "$transferred"
+set +e
+TEST_S61_RC=24 run_helper --apply host sample >/dev/null 2>&1
+rc=$?
+set -e
+[ "$rc" -eq 24 ]
+grep -Fq '/usr/bin/fre3nder install' "$log"
+grep -Fq 'S61fre3nder-moonraker' "$log"
+! grep -Fq 'S62fre3nder-web' "$log"
+
+rm -f "$log" "$transferred"
+set +e
+TEST_S62_RC=25 run_helper --apply host sample >/dev/null 2>&1
+rc=$?
+set -e
+[ "$rc" -eq 25 ]
+grep -Fq '/usr/bin/fre3nder install' "$log"
+grep -Fq 'S61fre3nder-moonraker' "$log"
+grep -Fq 'S62fre3nder-web' "$log"
+! grep -Fq 'S60fre3nder-klipper' "$log"
 
 echo 'fre3nder development app installer fixtures: PASS'

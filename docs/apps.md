@@ -137,8 +137,18 @@ The helper validates the repository app definition, runs the required
 `prepare-x2000-development` safety preparation, transfers only that definition
 through SSH/stdin, verifies its SHA256 on the target, and invokes
 `fre3nder install <app>` with `/tmp/fre3nder-app-source` as the explicit local
-source. It does not restart services; handler restart notices remain
-instructions for the operator.
+source. This default form installs the app without restarting running services.
+
+The explicit apply form is:
+
+```sh
+scripts/install-development-app --apply <printer-host> <app>
+```
+
+After a successful install, it restarts Moonraker and then the web server. It
+does not restart Klipper. Both forms are development workflows; they do not
+replace the separately required automatic app restore after boot or an overlay
+reset.
 
 In summary, a clean build whose `APP_REF` names a published commit uses:
 

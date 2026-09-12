@@ -7,11 +7,17 @@ die() {
 }
 
 usage() {
-	echo "usage: $0 <printer-host> <app>" >&2
+	echo "usage: $0 [--apply] <printer-host> <app>" >&2
 	exit 2
 }
 
-[[ $# == 2 ]] || usage
+apply=0
+if [[ $# == 3 && $1 == --apply ]]; then
+	apply=1
+	shift
+elif [[ $# != 2 ]]; then
+	usage
+fi
 
 host=$1
 app=$2
@@ -60,5 +66,23 @@ remote_sha=$(
 [[ $remote_sha == "$local_sha" ]] ||
 	die "transferred app definition SHA256 mismatch"
 
+if ssh -o BatchMode=yes "$host" \
+	"FRE3NDER_APP_SOURCE_DIR=$remote_root /usr/bin/fre3nder install '$app'"; then
+	:
+else
+	rc=$?
+	exit "$rc"
+fi
+
+[[ $apply == 1 ]] || exit 0
+
+if ssh -o BatchMode=yes "$host" \
+	'/etc/init.d/S61fre3nder-moonraker restart'; then
+	:
+else
+	rc=$?
+	exit "$rc"
+fi
+
 exec ssh -o BatchMode=yes "$host" \
-	"FRE3NDER_APP_SOURCE_DIR=$remote_root /usr/bin/fre3nder install '$app'"
+	'/etc/init.d/S62fre3nder-web restart'
