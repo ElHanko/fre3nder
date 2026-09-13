@@ -350,10 +350,29 @@ UART3 disabled            VERIFIED
 The integrated display/backlight/touch hardware path is therefore
 **HARDWARE QUALIFIED ON DEVICE**.
 
+## Stage-D GuppyScreen follow-up
+
+The first GuppyScreen RootFS was subsequently built, deployed to Fre3nder p8,
+and booted on the investigated reference system. GuppyScreen reached `active`,
+used `/dev/fb0` through `ingenicfb`, found NS2009 as `/dev/input/event0` through
+its dynamic evdev discovery, produced physical output, and started its touch
+calibration. `display_rotate: 1` was confirmed as the correct physical
+orientation; `display_rotate: 3` was upside down.
+
+Automatic backlight enable was not present in that image: `bl_power` remained
+`4` after UI startup, while the already-qualified manual write of `0` made the
+display visible. The S64 source now performs that write after successful UI
+startup, but the changed service has not yet been rebuilt or retested on
+hardware.
+
+Raw input remains functional, but calibrated touch is not yet usable with the
+correct display rotation. The historical GuppyScreen calibration code's shared
+90-degree/270-degree transformation path is the likely next investigation
+point; this is a hypothesis rather than a confirmed kernel or hardware defect.
+No kernel, DTS, or touch-driver change follows from this result.
+
 The following remain outside this qualification:
 
-- local printer UI
-- display/UI rotation
 - touch calibration and coordinate transformation for the final UI
-- application startup and recovery behavior
+- normal local printer-control flows and UI recovery behavior
 - broader qualification across other hardware revisions

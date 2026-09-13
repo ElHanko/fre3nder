@@ -34,9 +34,9 @@
       "role": "qualified RootFS application baseline"
     },
     "guppyscreen": {
-      "repository": "https://github.com/ballaswag/guppyscreen.git",
-      "release": "0.0.26-beta",
-      "commit": "cf5c6d7539a2dca090ca71c177f57a2d96df443a",
+      "repository": "https://github.com/ElHanko/guppyscreen.git",
+      "release": "0.0.26-beta+fre3nder.b89154d",
+      "commit": "b89154d178a45cf65ab50dc085a4df85fc7da896",
       "license": "GPL-3.0-only",
       "role": "native framebuffer and evdev local UI baseline",
       "submodules": {

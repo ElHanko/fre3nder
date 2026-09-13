@@ -1187,6 +1187,8 @@ EOF
 	grep -Fxq '# CONFIG_IIO is not set' "$k/.config"
 	grep -Fxq 'CONFIG_INPUT_TOUCHSCREEN=y' "$k/.config"
 	grep -Fxq 'CONFIG_TOUCHSCREEN_NS2009=y' "$k/.config"
+	grep -Fxq 'CONFIG_INPUT_MISC=y' "$k/.config"
+	grep -Fxq 'CONFIG_INPUT_PWM_BEEPER=y' "$k/.config"
 	grep -Fxq 'CONFIG_USB_STORAGE=y' "$k/.config"
 	grep -Fxq 'CONFIG_MII=y' "$k/.config"
 	grep -Fxq 'CONFIG_USB_NET_DRIVERS=y' "$k/.config"
@@ -1210,6 +1212,9 @@ check_kernel_dtb() {
 	grep -Fq 'bootargs = "console=ttyS4,115200 root=/dev/mmcblk0p8 rootwait rootfstype=squashfs ro";' "$dts"
 	grep -Fq 'ingenic,drvvbus-gpio = <&gpc 9 GPIO_ACTIVE_HIGH INGENIC_GPIO_NOBIAS>;' "$dts"
 	grep -Fq 'ingenic,vbus-dete-gpio = <&gpd 17 GPIO_ACTIVE_LOW INGENIC_GPIO_NOBIAS>;' "$dts"
+	grep -Fq 'compatible = "pwm-beeper";' "$dts"
+	grep -Fq 'pwms = <&pwm 3 1000000>;' "$dts"
+	grep -Fq 'pinctrl-0 = <&pwm3_pc>;' "$dts"
 	awk '
 		$0 == "&otg {" { in_node = 1; next }
 		in_node && $0 == "};" { exit !okay }
@@ -1224,6 +1229,7 @@ check_kernel_dtb() {
 	' "$dts"
 	dtc -I dtb -O dts -o "$decoded" "$dtb"
 	grep -Fq 'creality,ender-3-v3-ke' "$decoded"
+	grep -Fq 'compatible = "pwm-beeper";' "$decoded"
 	grep -Fq 'root=/dev/mmcblk0p8' "$decoded"
 	grep -Fq 'wifi-bt-power' "$decoded"
 	grep -Fq 'vmmc-supply' "$decoded"
@@ -1551,11 +1557,14 @@ check_rootfs() {
 	guppyscreen="$target/opt/fre3nder/guppyscreen/guppyscreen"
 	[ -x "$guppyscreen" ] && [ ! -L "$guppyscreen" ]
 	file "$guppyscreen" | grep -q 'ELF 32-bit LSB.*MIPS, MIPS32 rel2'
+	file "$guppyscreen" | grep -Fq 'statically linked'
 	readelf -h "$guppyscreen" | grep -Eq 'Flags:.*nan2008, o32, mips32r2'
 	readelf -A "$guppyscreen" |
 		grep -Fq 'FP ABI: Hard float (32-bit CPU, Any FPU)'
-	readelf -l "$guppyscreen" |
-		grep -Fq 'Requesting program interpreter: /lib/ld-linux-mipsn8.so.1'
+	if readelf -l "$guppyscreen" | grep -Eq '^[[:space:]]*INTERP[[:space:]]'; then
+		echo 'RootFS GuppyScreen binary unexpectedly contains a PT_INTERP segment' >&2
+		exit 1
+	fi
 	[ -f "$target/usr/share/guppyscreen/themes/blue.json" ]
 	[ -f "$target/usr/share/licenses/guppyscreen/COPYING" ]
 	guppy_service="$target/etc/init.d/S64fre3nder-guppyscreen"

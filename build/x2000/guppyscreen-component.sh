@@ -6,7 +6,6 @@ work=/work
 source_dir=$work/guppyscreen-source
 artifact_dir=$project/local/production/artifacts/x2000/guppyscreen
 buildroot_output=$work/buildroot-output-fre3nder
-patch=$project/patches/guppyscreen/0001-fre3nder-runtime-paths.patch
 artifact_mode=${FRE3NDER_ARTIFACT_MODE:-release}
 
 case "$artifact_mode" in
@@ -32,8 +31,15 @@ release=$(source_field userspace.guppyscreen.release)
 commit=$(source_field userspace.guppyscreen.commit)
 
 fetch() {
-	[ -d "$source_dir/.git" ] ||
+	if [ -d "$source_dir/.git" ]; then
+		git -C "$source_dir" reset --hard
+		git -C "$source_dir" clean -fdx
+		git -C "$source_dir" submodule foreach --recursive \
+			'git reset --hard && git clean -fdx'
+		git -C "$source_dir" remote set-url origin "$repository"
+	else
 		git clone --filter=blob:none --no-checkout "$repository" "$source_dir"
+	fi
 	[ "$(git -C "$source_dir" remote get-url origin)" = "$repository" ]
 	git -C "$source_dir" fetch origin "$commit"
 	git -C "$source_dir" checkout --detach "$commit"
@@ -91,9 +97,6 @@ PY
 		"$source_dir/patches/0003-lvgl-dpi-text-scale.patch"
 	git -C "$source_dir/lvgl" apply \
 		"$source_dir/patches/0003-lvgl-dpi-text-scale.patch"
-	git -C "$source_dir" apply --check "$patch"
-	git -C "$source_dir" apply "$patch"
-	git -C "$source_dir" apply --reverse --check "$patch"
 }
 
 build_component() {
@@ -119,10 +122,13 @@ build_component() {
 	[ -f "$binary" ] && [ ! -L "$binary" ] && [ -x "$binary" ]
 	"${prefix}strip" "$binary"
 	file "$binary" | grep -q 'ELF 32-bit LSB.*MIPS, MIPS32 rel2'
+	file "$binary" | grep -Fq 'statically linked'
 	readelf -h "$binary" | grep -Eq 'Flags:.*nan2008, o32, mips32r2'
 	readelf -A "$binary" | grep -Fq 'FP ABI: Hard float (32-bit CPU, Any FPU)'
-	readelf -l "$binary" |
-		grep -Fq 'Requesting program interpreter: /lib/ld-linux-mipsn8.so.1'
+	if readelf -l "$binary" | grep -Eq '^[[:space:]]*INTERP[[:space:]]'; then
+		echo 'GuppyScreen binary unexpectedly contains a PT_INTERP segment' >&2
+		exit 1
+	fi
 
 	stage=$work/guppyscreen-component-overlay
 	rm -rf -- "$stage"

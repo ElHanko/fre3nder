@@ -288,7 +288,7 @@ without RootFS deployment are not yet qualified.
 
 ## REQ-2026.2-008 - Display, touch, and local presentation
 
-Status: **SOURCE INTEGRATED / BUILD PENDING / PARTIALLY HARDWARE QUALIFIED**
+Status: **BUILD/DEPLOYMENT PASSED / RUNTIME PARTIALLY HARDWARE QUALIFIED**
 
 Fre3nder shall provide an open local display path for the printer's integrated
 display.
@@ -327,18 +327,22 @@ Demonstrated on real hardware:
   `/dev/input/event0`.
 
 The native display coordinate system is 480x272 landscape while the integrated
-panel is mechanically mounted in portrait orientation. Final rotation,
-coordinate transformation, calibration, and local presentation remain
-application-layer work and are not part of this hardware qualification.
+panel is mechanically mounted in portrait orientation. The first GuppyScreen
+hardware test confirmed `display_rotate: 1` as the correct physical
+orientation. Input discovery and raw events work, but the GuppyScreen touch
+calibration is not usable with that rotation. Coordinate transformation and
+calibrated touch remain application-layer work.
 
 Detailed evidence is recorded in
 [`x2000-display-touch.md`](x2000-display-touch.md).
 
-The pinned GuppyScreen source, component builder, RootFS payload contract,
-persistent configuration default, and non-blocking S64 service are integrated
-in the repository. REQ-2026.2-008 remains incomplete until that integration is
-built and the local UI, rotation, calibration, and normal control paths are
-qualified on hardware.
+The pinned GuppyScreen integration was built, deployed to Fre3nder p8, and
+started successfully on the investigated reference system. Physical fbdev
+output, NS2009 evdev discovery/raw input, calibration startup, and the
+Moonraker connection attempt are demonstrated. S64 now corrects the observed
+backlight-autostart defect in source; that correction awaits build/deployment
+retest. REQ-2026.2-008 remains incomplete until calibrated touch and the normal
+control paths are qualified.
 
 ## REQ-2026.2-009 - Integrated usable-system qualification
 
@@ -371,7 +375,7 @@ release action under `docs/versioning.md`.
 
 ## REQ-2026.2-010 - Componentized X2000 build architecture
 
-Status: **OFFLINE IMPLEMENTED / BUILD PENDING**
+Status: **OFFLINE IMPLEMENTED / BUILD CONFIRMED**
 
 The X2000 build shall be further separated into independently maintainable
 component builders.
@@ -493,7 +497,8 @@ RootFS-overlay archives with minimal component manifests; the Buildroot builder
 validates their source identity, build-input identity, mode, and artifact hash
 before extraction. `build-x2000-buildroot` owns toolchain preparation and final
 RootFS assembly, and the final RootFS manifest records both components. The
-component and RootFS builds remain pending at the explicit build gate.
+component and RootFS build completed successfully for the first Stage-D
+hardware test.
 
 
 ## Requirement discipline

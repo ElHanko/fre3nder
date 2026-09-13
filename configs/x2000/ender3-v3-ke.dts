@@ -16,6 +16,17 @@
 		gpios = <&gpc 22 GPIO_ACTIVE_HIGH INGENIC_GPIO_NOBIAS>;
 	};
 
+	/*
+	 * Ender-3 V3 KE onboard passive piezo on PC03 / X2000 PWM3.
+	 * The X2000 pinctrl include already provides pwm3_pc for this pin.
+	 */
+	beeper {
+		compatible = "pwm-beeper";
+		pwms = <&pwm 3 1000000>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&pwm3_pc>;
+	};
+
 	fre3nder_panel: fre3nder-panel {
 		compatible = "fre3nder,ender3-v3-ke-480x272";
 		ingenic,rst-gpio = <&gpb 16 GPIO_ACTIVE_HIGH INGENIC_GPIO_NOBIAS>;

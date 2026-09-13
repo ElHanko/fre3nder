@@ -16,9 +16,12 @@ default_config=${FRE3NDER_GUPPYSCREEN_DEFAULT_CONFIG:-/usr/share/fre3nder/defaul
 binary=${FRE3NDER_GUPPYSCREEN_BINARY:-/opt/fre3nder/guppyscreen/guppyscreen}
 theme_dir=${FRE3NDER_GUPPYSCREEN_THEME_DIR:-/usr/share/guppyscreen/themes}
 framebuffer=${FRE3NDER_GUPPYSCREEN_FRAMEBUFFER:-/dev/fb0}
+backlight_power=${FRE3NDER_GUPPYSCREEN_BACKLIGHT_POWER:-/sys/class/backlight/backlight/bl_power}
 input_sys=${FRE3NDER_GUPPYSCREEN_INPUT_SYS:-/sys/class/input}
 input_dev=${FRE3NDER_GUPPYSCREEN_INPUT_DEV:-/dev/input}
 input_name=${FRE3NDER_GUPPYSCREEN_INPUT_NAME:-ns2009_ts}
+beeper_input_name=${FRE3NDER_GUPPYSCREEN_BEEPER_INPUT_NAME:-pwm-beeper}
+display_sleep_sec=${FRE3NDER_GUPPYSCREEN_DISPLAY_SLEEP_SEC:-60}
 
 log() {
 	echo "fre3nder guppyscreen: $*"
@@ -85,6 +88,30 @@ find_touch_device() {
 	printf '%s\n' "$found"
 }
 
+
+find_beeper_device() {
+	if [ "${FRE3NDER_GUPPYSCREEN_BEEPER_DEVICE+x}" = x ]; then
+		[ -c "$FRE3NDER_GUPPYSCREEN_BEEPER_DEVICE" ] || return 1
+		printf '%s\n' "$FRE3NDER_GUPPYSCREEN_BEEPER_DEVICE"
+		return
+	fi
+
+	found=
+	for name_file in "$input_sys"/event*/device/name; do
+		[ -f "$name_file" ] && [ ! -L "$name_file" ] || continue
+		[ "$(cat "$name_file")" = "$beeper_input_name" ] || continue
+		event_dir=${name_file%/device/name}
+		event=${event_dir##*/}
+		device=$input_dev/$event
+		[ -c "$device" ] || continue
+		[ -z "$found" ] || return 1
+		found=$device
+	done
+
+	[ -n "$found" ] || return 1
+	printf '%s\n' "$found"
+}
+
 pid_has_arg() {
 	proc_pid=$1
 	expected_arg=$2
@@ -123,6 +150,11 @@ validate_baseline() {
 		[ -f "$theme_dir/blue.json" ] && [ ! -L "$theme_dir/blue.json" ]
 }
 
+enable_backlight() {
+	[ -f "$backlight_power" ] && [ ! -L "$backlight_power" ] || return 1
+	printf '%s\n' 0 2>/dev/null > "$backlight_power"
+}
+
 start() {
 	mkdir -p "$runtime" || {
 		log 'runtime setup failed'
@@ -140,6 +172,9 @@ start() {
 	if [ -r "$pid_file" ]; then
 		pid=$(cat "$pid_file")
 		if validate_baseline && pid_is_guppyscreen "$pid"; then
+			if ! enable_backlight; then
+				log 'backlight control is unavailable; local UI remains running'
+			fi
 			set_status active
 			return 0
 		fi
@@ -160,6 +195,14 @@ start() {
 		log "unique $input_name input device is unavailable; local UI remains stopped"
 		return 0
 	fi
+	beeper_device=
+	if beeper_device=$(find_beeper_device); then
+		:
+	else
+		beeper_device=
+		log "optional $beeper_input_name input device is unavailable; touch beep disabled"
+	fi
+
 	if ! prepare_config; then
 		set_status config-invalid
 		log 'persistent GuppyScreen configuration is unavailable or invalid'
@@ -174,6 +217,9 @@ start() {
 	GUPPYSCREEN_CONFIG="$config" \
 	GUPPYSCREEN_THEME_DIR="$theme_dir" \
 	GUPPYSCREEN_INPUT="$input_link" \
+	GUPPYSCREEN_BACKLIGHT_POWER="$backlight_power" \
+	GUPPYSCREEN_BEEPER_INPUT="$beeper_device" \
+	GUPPYSCREEN_DISPLAY_SLEEP_SEC="$display_sleep_sec" \
 		"$binary" >"$stdout_log" 2>&1 &
 	pid=$!
 	printf '%s\n' "$pid" > "$pid_file" || {
@@ -183,6 +229,9 @@ start() {
 	}
 	sleep 1
 	if pid_is_guppyscreen "$pid"; then
+		if ! enable_backlight; then
+			log 'backlight control is unavailable; local UI remains running'
+		fi
 		set_status active
 		log 'GuppyScreen started from the RootFS baseline'
 	else

@@ -22,7 +22,9 @@ The important boundaries remain:
 - power-cycle Stock recovery: **QUALIFIED ON DEVICE (2/2)**;
 - physical PC22 backlight effect: **QUALIFIED ON DEVICE**;
 - integrated display/backlight/touch hardware path: **QUALIFIED ON DEVICE**;
-- GuppyScreen local Core-UI: **SOURCE INTEGRATED / BUILD PENDING**.
+- GuppyScreen local Core-UI: **BUILD/DEPLOYMENT PASSED / RUNTIME PARTIALLY
+  HARDWARE QUALIFIED**; the S64 backlight correction awaits retest and
+  calibrated touch remains open.
 
 Observations marked as qualified apply to the investigated reference system
 unless explicitly stated otherwise. Do not treat its calibration, hardware

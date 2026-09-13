@@ -310,7 +310,6 @@ grep -Fq 'git -C "$sdk" sparse-checkout set kernel/kernel-6.6' "$entrypoint"
 "$fingerprint" --list-inputs | grep -Fxq 'scripts/build-x2000-buildroot'
 "$fingerprint" --list-inputs | grep -Fxq 'scripts/build-x2000-moonraker'
 "$fingerprint" --list-inputs | grep -Fxq 'scripts/build-x2000-guppyscreen'
-"$fingerprint" --list-inputs | grep -Fxq 'patches/guppyscreen'
 grep -Fq '[--develop] [--kernel-build] [--f005-build]' "$build_script"
 grep -Fq 'build-x2000-buildroot' "$build_script"
 grep -Fq 'build-x2000-moonraker' "$build_script"

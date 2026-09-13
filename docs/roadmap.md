@@ -78,8 +78,9 @@ The release-level requirements and acceptance criteria are defined in
 
 8. Complete the local display stack with GuppyScreen as the native Core-UI.
    Display output, touch input, and backlight control are hardware-qualified on
-   the reference system; the reproducible GuppyScreen source integration is at
-   its build gate and remains to be built and qualified.
+   the reference system. The GuppyScreen build, RootFS deployment, startup,
+   fbdev output, evdev discovery, and physical rotation are demonstrated;
+   automatic backlight enable awaits retest and calibrated touch remains open.
 
 9. Perform integrated `2026.2` qualification across normal boot, persistence,
    Klipper, Moonraker, application management, network UI, OctoApp, local
@@ -132,8 +133,11 @@ requirement:
   overlay-reset recovery remain to be qualified;
 - frontend-neutral web-UI layer: **OFFLINE IMPLEMENTED / PARTIALLY HARDWARE
   QUALIFIED**;
-- GuppyScreen local Core-UI: **SOURCE INTEGRATED / BUILD PENDING**; no local-UI
-  hardware qualification has started.
+- GuppyScreen local Core-UI: **BUILD/DEPLOYMENT PASSED / RUNTIME PARTIALLY
+  HARDWARE QUALIFIED**; startup, fbdev output, NS2009 evdev input, Moonraker
+  connection attempt, calibration startup, and `display_rotate: 1` are
+  demonstrated. Automatic backlight enable awaits retest; calibrated touch is
+  still open.
 
 ## Mandatory gates
 
