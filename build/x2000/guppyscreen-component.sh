@@ -111,6 +111,12 @@ build_component() {
 	}
 	prepare_source
 
+	# libhv embeds __DATE__/__TIME__. Derive SOURCE_DATE_EPOCH from the
+	# pinned GuppyScreen commit so repeated builds remain byte-reproducible.
+	source_date_epoch=$(git -C "$source_dir" show -s --format=%ct "$commit")
+	printf '%s\n' "$source_date_epoch" | grep -Eq '^[0-9]+$'
+
+	SOURCE_DATE_EPOCH="$source_date_epoch" \
 	CROSS_COMPILE="$prefix" \
 	GUPPY_SMALL_SCREEN=1 \
 	GUPPY_ROTATE=1 \

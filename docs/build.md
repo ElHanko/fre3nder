@@ -155,9 +155,12 @@ before its network-disabled component phase, applies the source-carried
 dependency patches, and cross-compiles with the prepared Buildroot toolchain.
 Fre3nder's runtime-path overrides are carried directly by the pinned
 GuppyScreen fork. Its deterministic component archive supplies the native
-binary, immutable themes, and license texts. The service/default configuration
-remain generic RootFS overlay inputs. See [`guppyscreen.md`](guppyscreen.md)
-for the full runtime and build-gate contract.
+binary, immutable themes, and license texts. Because libhv embeds
+`__DATE__`/`__TIME__`, the component builder derives `SOURCE_DATE_EPOCH` from
+the pinned GuppyScreen commit before compilation. Together with the normalized
+archive metadata this makes repeated component builds byte-reproducible. The
+service/default configuration remain generic RootFS overlay inputs. See
+[`guppyscreen.md`](guppyscreen.md) for the full runtime and build-gate contract.
 
 ## F005 MCU
 

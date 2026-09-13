@@ -7,6 +7,7 @@ kernel_builder="$root/scripts/build-x2000-kernel"
 buildroot_builder="$root/scripts/build-x2000-buildroot"
 moonraker_builder="$root/scripts/build-x2000-moonraker"
 guppyscreen_builder="$root/scripts/build-x2000-guppyscreen"
+guppyscreen_component="$root/build/x2000/guppyscreen-component.sh"
 tmp=$(mktemp -d)
 
 cleanup() {
@@ -49,6 +50,14 @@ X2000_BUILD_DOCKER="$fake_docker" X2000_TEST_DOCKER_LOG="$docker_log" \
 grep -Fq 'fetch-guppyscreen' "$docker_log"
 grep -Fq 'build-guppyscreen-component' "$docker_log"
 grep -Fq 'FRE3NDER_ARTIFACT_MODE=development' "$docker_log"
+
+# GuppyScreen's libhv dependency embeds __DATE__/__TIME__. The component
+# builder must bind those macros to the pinned source commit rather than wall
+# clock time so repeated builds remain byte-reproducible.
+grep -Fq 'source_date_epoch=$(git -C "$source_dir" show -s --format=%ct "$commit")' \
+	"$guppyscreen_component"
+grep -Fq 'SOURCE_DATE_EPOCH="$source_date_epoch" \' \
+	"$guppyscreen_component"
 
 : > "$docker_log"
 X2000_BUILD_DOCKER="$fake_docker" X2000_TEST_DOCKER_LOG="$docker_log" \
