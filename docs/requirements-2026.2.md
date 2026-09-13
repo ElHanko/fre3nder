@@ -18,17 +18,20 @@ A final `2026.2` must provide:
 
 - reliable persistent user and application state;
 - clean volatile runtime storage;
-- a persistent application layer with defined update and recovery ownership;
+- a generic persistent managed-application layer with defined lifecycle and
+  recovery ownership;
 - Moonraker as the supported API layer;
-- OctoApp integration;
 - a frontend-neutral web-UI mechanism;
-- Fluidd as the first qualified reference frontend;
+- Fluidd as the qualified reference managed application and web frontend;
 - local display and touch operation through the native GuppyScreen Core-UI;
 - preservation of the established Fre3nder printing and recovery boundaries.
 
-Camera support, ADXL/Input Shaping, seamless Stock handoff, and qualification
-of every possible web frontend are not release requirements unless later
-evidence makes one of them necessary for the usable-system goal.
+Application self-updates, automatic application reconciliation after a system-
+overlay reset, OctoApp, camera support, ADXL/Input Shaping, seamless Stock
+handoff, and qualification of every possible web frontend are not release
+requirements unless later evidence makes one of them necessary for the
+usable-system goal. The update-ownership boundary remains a release requirement
+even though application self-update does not.
 
 ## REQ-2026.2-001 - Filesystem and persistence contract
 
@@ -117,21 +120,25 @@ complete.
 
 ## REQ-2026.2-002 - Application software and persistence
 
-Status: **PARTIALLY IMPLEMENTED / PARTIALLY HARDWARE QUALIFIED**
+Status: **OFFLINE IMPLEMENTED / PARTIALLY HARDWARE QUALIFIED**
 
 Fre3nder shall clearly separate reconstructible application software from
 upgrade-persistent configuration and user state. A platform RootFS may contain
-a qualified application baseline. Normal application updates may be written to
-the system OverlayFS, while state that must survive a platform replacement or
-system-overlay reset belongs under `/home`.
+a qualified application baseline. Separately installed application software
+belongs in the system OverlayFS, while desired state and other data that must
+survive a platform replacement or system-overlay reset belong under `/home`.
 
 The application lifecycle shall provide:
 
 - deterministic startup through a Fre3nder-controlled service interface;
-- normal-reboot persistence for application updates in the system OverlayFS;
-- recovery to the qualified immutable baseline when the system overlay is
-  reset;
-- retention of the application's `/home` state across that reset; and
+- the generic `fre3nder {install|uninstall|status|restore} <app>` management
+  interface for separately installed applications;
+- normal-reboot persistence for application software in the system OverlayFS;
+- recovery of any qualified immutable application baseline when the system
+  overlay is reset;
+- retention of the application's `/home` state across that reset;
+- an explicit install or restore path for a separately installed application
+  after its reconstructible system-overlay payload has been reset; and
 - defined failure behavior when required application software or state is
   unavailable.
 
@@ -139,23 +146,27 @@ Additional applications may be independently installable when their lifecycle
 requires it. This requirement does not mandate one universal package manager,
 version resolver, or multi-version activation mechanism for every application.
 
-The OverlayFS and separate `/home` roles, marker-authorized system reset, and
-service gating are implemented, with the persistence/reset behavior partially
-qualified on the reference system. The Moonraker baseline is now integrated
-into the RootFS build inputs. Normal-reboot persistence and recovery of a real
-application update remain to be qualified before this requirement is complete.
+The OverlayFS and separate `/home` roles, marker-authorized system reset,
+service gating, generic application dispatcher, and explicit Fluidd
+install/restore/remove lifecycle are implemented. The persistence/reset
+behavior is partially qualified on the reference system, and the Moonraker
+baseline is integrated into the built and deployed RootFS path. Normal-reboot
+persistence and explicit restore of the separately installed Fluidd payload
+remain to be qualified before this requirement is complete.
+
+Automatic desired-state reconciliation after an overlay reset and application
+self-update are later lifecycle improvements, not `2026.2` acceptance criteria.
 
 ## REQ-2026.2-003 - Moonraker integration
 
-Status: **PARTIALLY IMPLEMENTED / PARTIALLY HARDWARE QUALIFIED**
+Status: **OFFLINE IMPLEMENTED / RUNTIME PARTIALLY HARDWARE QUALIFIED**
 
 Moonraker shall be the supported API and application-management boundary above
 Klipper.
 
 Each Fre3nder platform release shall carry a qualified stable Moonraker
 baseline, its Python environment, runtime dependencies, and service integration
-in the immutable RootFS. Later Moonraker source and environment updates may be
-stored by OverlayFS in the writable system upper.
+in the immutable RootFS.
 
 Moonraker shall have persistent configuration and state independent of its
 application code and Python environment.
@@ -165,10 +176,9 @@ Qualification shall demonstrate:
 - clean service start and stop;
 - expected dependency and readiness behavior relative to Klipper;
 - API availability over the qualified network path;
-- persistence of an application update across reboot;
-- recovery of the RootFS baseline through a system-overlay reset;
-- Moonraker self-update without taking ownership of Fre3nder platform
-  components; and
+- persistent configuration and state across a normal reboot;
+- recovery of the RootFS baseline through a system-overlay reset while
+  retaining `/home`; and
 - defined behavior when the Moonraker baseline, environment, or persistent
   state is missing or invalid.
 
@@ -180,20 +190,25 @@ real startup, local HTTP API, network discovery, volatile Moonraker UDS,
 persistent configuration, ready Klippy connection, and S60 readiness through a
 natural boot. It now also qualifies LAN access to `/server/info` and real
 Moonraker JSON-RPC WebSocket traffic through Lighttpd while Moonraker remains
-loopback-only. The complete fixed RootFS source/Python-environment update and
-recovery lifecycle is not yet hardware-qualified. Self-update remains
-incomplete until its dependency behavior and automatic post-update S61 restart
-are integrated and qualified.
+loopback-only. The fixed RootFS source and Python environment were subsequently
+built and deployed as part of the Stage-D RootFS path. Qualification of the
+final `2026.2` candidate, its normal-reboot state retention, and its baseline
+recovery after a system-overlay reset remain open.
+
+Moonraker self-update, dependency transitions, and automatic post-update S61
+restart are not implemented as a complete lifecycle and are deferred beyond
+`2026.2`.
 
 ## REQ-2026.2-004 - Update ownership boundary
 
-Status: **PARTIALLY IMPLEMENTED / PARTIALLY HARDWARE QUALIFIED**
+Status: **OFFLINE IMPLEMENTED / PARTIALLY HARDWARE QUALIFIED**
 
 Fre3nder shall distinguish platform updates from managed-application updates.
 
-The application/update layer may manage approved persistent applications and
-web frontends, including Moonraker, OctoApp, Fluidd, and compatible
-alternatives.
+The application layer may manage approved persistent applications and web
+frontends, including Fluidd and compatible alternatives. A future
+application-level updater may manage those applications within the same
+ownership boundary.
 
 It shall not independently replace or modify:
 
@@ -207,39 +222,41 @@ It shall not independently replace or modify:
 Those components remain under explicit Fre3nder build, deployment, and
 qualification control.
 
-A generic user-facing application update action must therefore not imply a
-platform, boot-slot, or MCU update.
+A generic user-facing application install, restore, removal, or future update
+action must therefore not imply a platform, boot-slot, or MCU update.
 
 The default Moonraker configuration disables system updates. Its RootFS source
 tree is a Git repository, while Fre3nder Klipper intentionally is not; the
 pinned updater therefore does not create a Git deployer for Klipper. S61 has no
-platform, boot-slot, MCU, or system-package update operation. Moonraker's own
-source/environment self-update and restart lifecycle remains only partially
-implemented and is not yet qualified.
+platform, boot-slot, MCU, or system-package update operation. The dispatcher and
+Fluidd handler likewise operate only on their owned application payload,
+configuration, desired state, and frontend selection. A working Moonraker or
+managed-application self-update lifecycle is not required for `2026.2`.
 
-## REQ-2026.2-005 - OctoApp integration
+## REQ-2026.2-005 - OctoApp integration (deferred)
 
-Status: **PLANNED**
+Status: **DEFERRED / POST-2026.2**
 
-Fre3nder shall support OctoApp through the local Moonraker API as a managed
-application/integration.
+This identifier is retained so historical references and requirement numbering
+remain stable. OctoApp is not a `2026.2` release requirement. Fluidd is the
+`2026.2` reference application that demonstrates the generic managed-
+application mechanism independently of the kernel and RootFS build.
 
-The OctoApp integration shall:
+A later OctoApp integration should use the local Moonraker API and the generic
+managed-application interface. Its future lifecycle should:
 
 - install without rebuilding the RootFS;
 - persist across normal reboot;
 - start through the managed application/service model;
 - communicate with the local Moonraker instance;
-- be disableable or removable without changing the Fre3nder base platform;
-- support an application-level update path consistent with the update ownership
-  boundary.
+- be disableable or removable without changing the Fre3nder base platform.
 
-OctoApp is the second reference application and shall demonstrate that the
-managed application model is not specific to Moonraker itself.
+No OctoApp implementation or qualification is required by REQ-2026.2-009 or the
+final `2026.2` release.
 
 ## REQ-2026.2-006 - Frontend-neutral web-UI layer
 
-Status: **PLANNED**
+Status: **OFFLINE IMPLEMENTED / PARTIALLY HARDWARE QUALIFIED**
 
 Fre3nder shall provide a persistent frontend-neutral web-UI layer.
 
@@ -258,12 +275,13 @@ is independently provided by GuppyScreen and does not consume this selection.
 Partial reference-hardware evidence now demonstrates the frontend-neutral
 selection file driving the generic S62 document root, a selected Fluidd payload
 served over the LAN, and HTTP/WebSocket forwarding to loopback-only Moonraker.
-The status remains `PLANNED`: replacement with another compatible web frontend
-is not yet qualified.
+Replacement with another compatible web frontend has not been qualified on the
+reference system; hardware qualification of multiple frontends is not required
+for `2026.2`.
 
 ## REQ-2026.2-007 - Fluidd reference frontend
 
-Status: **PLANNED**
+Status: **OFFLINE IMPLEMENTED / PARTIALLY HARDWARE QUALIFIED**
 
 Fluidd shall be the first web frontend qualified for `2026.2`.
 
@@ -274,7 +292,8 @@ Qualification shall demonstrate:
 - successful connection to the local Moonraker API;
 - printer status and control through Moonraker;
 - persistence across reboot;
-- independent frontend update or replacement without a RootFS deployment.
+- explicit restore or removal through the managed-application interface; and
+- independent frontend replacement without a RootFS deployment.
 
 Support for alternative compatible frontends is an architectural requirement;
 hardware qualification of multiple frontends is not required for `2026.2`.
@@ -282,9 +301,9 @@ hardware qualification of multiple frontends is not required for `2026.2`.
 Partial reference-hardware evidence now demonstrates initial Fluidd bootstrap,
 installation into the persistent application/UI layout, active frontend
 selection, static LAN access, and real Moonraker HTTP and WebSocket connectivity.
-The status remains `PLANNED`: printer control through Fluidd, reboot
-persistence, Moonraker-driven frontend update, and independent replacement
-without RootFS deployment are not yet qualified.
+Printer control through Fluidd, reboot persistence, explicit restore/removal,
+and independent replacement without RootFS deployment are not yet qualified.
+Moonraker-driven Fluidd self-update is deferred beyond `2026.2`.
 
 ## REQ-2026.2-008 - Display, touch, and local presentation
 
@@ -331,10 +350,17 @@ Demonstrated on real hardware:
 - first-touch wake without activating the underlying UI control; and
 - audible touch feedback through Linux `pwm-beeper`.
 
-The pinned GuppyScreen integration was built, deployed to Fre3nder p8, and
-started successfully on the investigated reference system. The touch-rotation
-correction, backlight startup correction, 60-second standby/wake behavior, and
-touch-beep path are physically qualified.
+The persistent GuppyScreen integration preceding the current pin was built,
+deployed to Fre3nder p8, and started successfully on the investigated reference
+system. The touch-rotation correction, backlight startup correction, 60-second
+standby/wake behavior, and touch-beep path are physically qualified.
+
+The current pin `baa4f6689ac7334d240107529f6d3c42a1297319` adds the compact
+272x480 portrait layouts and was cross-compiled through the normal component
+path. Its Home temperatures and chart, Settings, Printer Tune, Console, Macros,
+and left navigation were physically exercised in a volatile on-device test.
+Persistent RootFS deployment of that exact pin remains part of qualification of
+the final `2026.2` candidate.
 
 Detailed evidence is recorded in
 [`x2000-display-touch.md`](x2000-display-touch.md) and
@@ -359,16 +385,18 @@ The qualification shall demonstrate at minimum:
 - retained persistent configuration across reboot;
 - healthy Klipper startup and expected F005 communication;
 - healthy Moonraker startup and API availability;
-- successful operation through the reference web frontend from the LAN;
-- successful OctoApp integration;
+- successful Fluidd operation through the managed-application and frontend-
+  neutral web layers from the LAN;
 - successful local display and touch operation;
 - successful local operation through GuppyScreen while the selected web
   frontend remains independently available over the LAN;
+- normal printer status and control through the user-facing stack;
 - one real print initiated and monitored through the `2026.2` user-facing
   stack;
 - normal reboot followed by restoration of the usable state;
 - no unintended modification of Stock A, the immutable RootFS, or
-  Fre3nder-controlled MCU/platform components by the application update layer.
+  Fre3nder-controlled MCU/platform components by managed-application
+  operations.
 
 Completion of this requirement establishes the `2026.2 Usable System`
 functional milestone. Creation of the final release tag remains a separate

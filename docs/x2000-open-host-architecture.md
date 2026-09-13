@@ -49,8 +49,8 @@ needed printer-facing functions to have open replacements.
 | LTS kernel + DT | PROVEN | The pinned Ingenic Linux 6.6.18 X2000 SDK mirror, project KE DTS, and minimal patch series boot the bounded `2026.1.a` Slot-B baseline. Long-term maintenance and peripheral completion remain separate work. |
 | Minimal Buildroot root filesystem | PROVEN BASE / PARTIALLY HARDWARE QUALIFIED PERSISTENCE | The bounded `2026.1.a` system runs its immutable Buildroot SquashFS RootFS from p8. The former single-volume `/persist` Development adapter was qualified through a normal Develop-B -> Develop-B reboot and is now superseded. The `2026.2` implementation resolves separate external ext4 filesystems labelled `FRE3NDERSYS` and `FRE3NDERHOME`, builds a writable root OverlayFS, exposes the immutable lower at `/rom`, and mounts userdata at `/home`. Normal persistence and the marker-authorized system reset with retained `/home` are qualified on the reference system; explicit missing or invalid backend cases remain open. |
 | Network/SSH | PROVEN | The Production S20 -> S40 -> S50 path is hardware-validated on the investigated reference system: USB provisioning, CDC-NCM Ethernet-first operation, WLAN fallback, public-key login, and interactive SSH PTY allocation and shell operation all succeeded. The image embeds no user credentials. A persistent Dropbear host key was reused over a normal Develop-B -> Develop-B reboot and verified as both Dropbear's configured key and the key presented over SSH; SSH became available again afterward. This qualification is limited to the Development USB-adapter path; runtime/hotplug failover remains open. |
-| Moonraker | OFFLINE IMPLEMENTED / RUNTIME PARTIALLY PROVEN | The RootFS build stages the pinned stable Git checkout under `/opt/fre3nder/moonraker` and a system-site-packages-enabled environment under `/opt/fre3nder/moonraker-env`. Persistent state remains in `/home`; PID/status/socket remain in `/run`. The pinned runtime and Klippy/API behavior are hardware-qualified, while the newly built-in baseline, self-update dependency lifecycle, S61 post-update restart, and OverlayFS recovery remain unqualified. |
-| Display/touch | LIKELY / PARTIAL OFFLINE CONFIRMATION | The NS2009/I2C endpoint and stock framebuffers are observed. The project DTS now has a minimal GPC22 active-high `gpio-backlight` node without `default-on`, **OFFLINE IMPLEMENTED** and **OFFLINE CONFIRMED** in the generated DTB. Physical backlight-off, framebuffer clearing, panel output, and touch acceptance remain open. |
+| Moonraker | OFFLINE IMPLEMENTED / RUNTIME PARTIALLY PROVEN | The RootFS build stages the pinned stable Git checkout under `/opt/fre3nder/moonraker` and a system-site-packages-enabled environment under `/opt/fre3nder/moonraker-env`. Persistent state remains in `/home`; PID/status/socket remain in `/run`. The pinned baseline was built and deployed through the Stage-D RootFS path, and its runtime, Klippy/API, LAN-proxied HTTP, and real WebSocket behavior are hardware-qualified. Final-candidate normal-reboot state retention and OverlayFS baseline recovery remain open. Self-update and automatic post-update restart are deferred beyond `2026.2`. |
+| Display/touch | QUALIFIED ON DEVICE | The project DTS and RootFS provide the X2000 framebuffer/panel path, GPC22 active-high backlight, NS2009 I2C/evdev input, calibrated rotated touch mapping, 60-second standby/wake, and touch feedback. Physical framebuffer output, panel colors, automatic backlight startup, touch acceptance, and the GuppyScreen Core-UI are demonstrated on the investigated reference system. The compact portrait UI changes in the current GuppyScreen pin were exercised through a volatile on-device test; persistent RootFS deployment of that exact pin and broader normal printer-control flows remain open. |
 | Camera | QUALIFIED ON DEVICE | On the investigated reference system, S63 selected the index-0 `uvcvideo` capture node, `mjpg_streamer` served JPEG only at `127.0.0.1:8080`, Lighttpd proxied `/webcam/`, Moonraker published the platform-owned webcam configuration, and Fluidd displayed the real camera image. The kernel and RootFS inputs were built and deployed. Automatic restart after inserting a camera that was absent during boot remains a separate QoL item. |
 | Linux Host MCU / ADXL345 | INPUT SHAPING QUALIFIED ON DEVICE | On the investigated reference device, the complete chain through `/dev/spidev2.0`, Linux-process MCU, NumPy, `SHAPER_CALIBRATE` X/Y, the extended 100-Hz X sweep, and `SAVE_CONFIG` succeeded. The reference baseline is MZV at 62.4 Hz for X and MZV at 39.8 Hz for Y, with conservative `max_accel: 4500`; other printers require independent calibration. |
 | BL24C16F | DEFERRED | It is not evidenced as necessary for the required open-host/ADXL path. Preserve rather than modify its data. |
@@ -195,17 +195,20 @@ a separate update strategy, but Phase 3.1 does not select storage ownership.
    configuration, ClockSync, target-zero heater/ADC telemetry, S60 gate, and
    writable input PTY are qualified on device. The 2026-08-29 complete
    Fre3nder-B print is also **QUALIFIED ON DEVICE**, making `2026.1`
-   **FUNCTIONALLY ACHIEVED**. The loopback Moonraker runtime/service chain is
-   partially qualified; its RootFS baseline and update lifecycle remain open,
-   as does user-facing UI work.
+   **FUNCTIONALLY ACHIEVED**. The loopback Moonraker runtime/service chain and
+   its built-in Stage-D RootFS baseline are partially qualified; final-candidate
+   reboot/reset qualification remains open.
 8. **3.7 Complete dual-mode roundtrip validation.** Qualify the Stock <->
    Fre3nder roundtrip with Stock A unchanged.
-9. **3.8 Remaining peripheral and product integration.** Integrate display/touch
-   and the touchscreen UI. The open camera path through Fluidd is **QUALIFIED ON
-   DEVICE**; automatic camera restart after a camera-absent boot remains a later
-   QoL item. Moonraker
-   self-update, post-update S61 restart, overlay recovery, and LAN-facing
-   product configuration remain part of product integration.
+9. **3.8 Remaining peripheral and product integration.** Display/touch and the
+   GuppyScreen Core-UI are **QUALIFIED ON DEVICE** for the documented core path;
+   persistent deployment of the current compact-layout pin and broader normal
+   printer-control flows remain open. The open camera path through Fluidd is
+   **QUALIFIED ON DEVICE**; automatic camera restart after a camera-absent boot
+   remains a later QoL item. Final-candidate Moonraker overlay recovery and the
+   remaining LAN-facing product qualification remain part of product
+   integration. Moonraker self-update and automatic post-update restart are
+   deferred beyond `2026.2`.
    SDIO WLAN itself is
    already proven by `2026.1.a`; production network lifecycle work belongs to
    the appliance/network path above rather than to remaining peripheral
@@ -214,6 +217,7 @@ a separate update strategy, but Phase 3.1 does not select storage ownership.
    image activation, rollback, and configuration migration only after the
    preceding non-persistent result.
 
-Display/touch, Moonraker update completion, and the remaining user-facing UI stack
-remain later feature/product-integration work and are not prerequisites for the
+The remaining final-candidate display/UI qualification, Moonraker recovery, and
+the integrated user-facing stack are `2026.2` product work; application
+self-update automation is later work. None is a prerequisite for the
 functionally achieved printable networked open-host release `2026.1`.

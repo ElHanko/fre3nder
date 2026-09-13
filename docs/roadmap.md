@@ -34,8 +34,9 @@ work under `AGENTS.md`.
 ## Next release target - 2026.2 Usable System
 
 The goal of `2026.2` is to turn the proven open printing platform into a system
-that can be configured, operated, updated at the application level, and used
-locally without requiring SSH as the normal user interface.
+that can be configured, operated, and used locally without requiring SSH as
+the normal user interface. Application update automation may follow after this
+release; the ownership boundary for such updates remains part of `2026.2`.
 
 The release-level requirements and acceptance criteria are defined in
 [`requirements-2026.2.md`](requirements-2026.2.md).
@@ -47,19 +48,21 @@ The release-level requirements and acceptance criteria are defined in
    at `/`, persistent userdata at `/home`, and tmpfs-backed `/run` and `/tmp`.
 
 2. Establish the application persistence contract: qualified baselines may
-   reside in the immutable RootFS, application updates may persist in the
-   writable system overlay, `/home` owns upgrade-persistent state, and a
-   system-overlay reset restores the RootFS baseline.
+   reside in the immutable RootFS, separately installed application payloads
+   may persist in the writable system overlay, `/home` owns upgrade-persistent
+   desired state and user state, and a system-overlay reset restores the RootFS
+   baseline while an explicit install/restore action reconstructs a separately
+   installed application.
 
 3. Integrate the qualified stable Moonraker baseline and Python environment in
    the RootFS, with persistent configuration/state and a stable API boundary
-   above Klipper. Complete the remaining self-update dependency and S61 restart
-   contract.
+   above Klipper. Qualify that baseline and state across normal reboot and the
+   defined system-overlay reset path.
 
-4. Define and enforce update ownership: Moonraker and application tooling may
-   manage applications and user interfaces, but must not replace
-   Fre3nder-controlled kernel, RootFS, base Klipper, A/B state, or F005
-   firmware and must not manage system packages.
+4. Define and enforce update ownership: current lifecycle actions and future
+   application-level updaters may manage applications and user interfaces, but
+   must not replace Fre3nder-controlled kernel, RootFS, base Klipper, A/B state,
+   or F005 firmware and must not manage system packages.
 
 5. Refactor the X2000 build into independently maintainable component builders
    before adding further product components. Separate the current RootFS build
@@ -69,8 +72,9 @@ The release-level requirements and acceptance criteria are defined in
    provenance and fail-closed artifact validation so later components such as
    the local display stack can follow the same model.
 
-6. Integrate OctoApp as an independently managed application and
-   external-client reference without forcing Moonraker's lifecycle model on it.
+6. Establish the generic managed-application interface and qualify Fluidd as
+   its `2026.2` reference application. Installation, status, explicit restore,
+   and removal must remain independent of the kernel and RootFS build.
 
 7. Establish a frontend-neutral persistent web-UI layer. Qualify Fluidd as the
    first reference frontend while keeping alternative frontends such as
@@ -84,8 +88,9 @@ The release-level requirements and acceptance criteria are defined in
    printer-control flows remain part of integrated usable-system qualification.
 
 9. Perform integrated `2026.2` qualification across normal boot, persistence,
-   Klipper, Moonraker, application management, network UI, OctoApp, local
-   display/touch operation, reboot, and a real print.
+   Klipper, Moonraker, managed-application lifecycle, Fluidd through the
+   frontend-neutral network-UI layer, local display/touch operation, reboot,
+   and a real print.
 
 ## Later product work
 
@@ -100,7 +105,12 @@ requirement:
 - uninterrupted software-only Fre3nder-to-Stock handoff;
 - remaining coordinated F005/Stock host-handoff qualification;
 - broader hardware and firmware-revision qualification;
-- qualification of multiple alternative web frontends.
+- qualification of multiple alternative web frontends;
+- OctoApp integration;
+- Moonraker, Fluidd, and generic managed-application self-update automation,
+  including any required post-update service restart; and
+- automatic reconstruction of separately installed applications after a
+  system-overlay reset.
 
 ## Current qualification boundaries
 
@@ -129,16 +139,24 @@ requirement:
   launch, and strict update-ownership configuration are implemented. The same
   pinned runtime, HTTP/API behavior, Klippy UDS connection, persistent config,
   volatile Moonraker UDS, and S60/S61 boot ordering are qualified on the
-  reference system. The newly built-in baseline, self-update dependency
-  lifecycle, post-update restart, normal-reboot update persistence, and
-  overlay-reset recovery remain to be qualified;
+  reference system. The built-in baseline was subsequently built and deployed
+  through the Stage-D RootFS path. Final-candidate normal-reboot state
+  retention and overlay-reset baseline recovery remain to be qualified;
 - frontend-neutral web-UI layer: **OFFLINE IMPLEMENTED / PARTIALLY HARDWARE
-  QUALIFIED**;
-- GuppyScreen local Core-UI: **BUILD/DEPLOYMENT/RUNTIME HARDWARE QUALIFIED**
-  for the core local UI; startup, fbdev output, NS2009 evdev input,
+  QUALIFIED**; the selected Fluidd payload, LAN HTTP delivery, Moonraker HTTP
+  API, and real WebSocket forwarding are demonstrated on the reference system;
+- managed-application interface and Fluidd lifecycle: **OFFLINE IMPLEMENTED /
+  PARTIALLY HARDWARE QUALIFIED**; initial install, selection, service
+  integration, and network use are demonstrated; normal-reboot persistence,
+  explicit restore/removal, and ordinary printer control through Fluidd remain
+  to be qualified;
+- GuppyScreen local Core-UI: **PARTIALLY HARDWARE QUALIFIED**; the preceding
+  persistent integration and its startup, fbdev output, NS2009 evdev input,
   `display_rotate: 1`, calibrated touch mapping, automatic backlight startup,
-  60-second standby/wake, and `pwm-beeper` touch feedback are demonstrated.
-  Broader normal printer-control flows remain outside this qualification.
+  60-second standby/wake, and `pwm-beeper` touch feedback are demonstrated. The
+  current pin's compact Home, Settings, Printer Tune, Console, Macros, and left
+  navigation were exercised in a volatile on-device test; persistent deployment
+  of that exact pin and broader normal printer-control flows remain open.
 
 ## Mandatory gates
 

@@ -1,7 +1,7 @@
 # GuppyScreen local Core-UI
 
-Status: **BUILD/DEPLOYMENT/RUNTIME HARDWARE QUALIFIED FOR THE CORE LOCAL UI**
-on the investigated reference system.
+Status: **CORE INTEGRATION HARDWARE QUALIFIED / CURRENT PIN PERSISTENT
+DEPLOYMENT OPEN** on the investigated reference system.
 
 GuppyScreen is Fre3nder's native local Core-UI. It is built from source into
 the immutable RootFS baseline and is neither a managed application nor a web
@@ -186,41 +186,45 @@ No `update.sh` is installed beside the binary, so upstream's UI update action
 does not mutate the immutable baseline. GuppyScreen updates remain owned by the
 reproducible RootFS build and deployment process.
 
-The built RootFS deployed and booted successfully on Fre3nder p8. GuppyScreen
-reached `active`, produced physical fbdev output, found NS2009 through evdev,
-and used the corrected calibrated touch path. Automatic backlight startup,
-60-second physical backlight standby, first-touch wake, and audible touch-click
-feedback through Linux `pwm-beeper` are physically qualified.
+The preceding persistent integration was built into a RootFS, deployed to
+Fre3nder p8, and booted successfully. GuppyScreen reached `active`, produced
+physical fbdev output, found NS2009 through evdev, and used the corrected
+calibrated touch path. Automatic backlight startup, 60-second physical
+backlight standby, first-touch wake, and audible touch-click feedback through
+Linux `pwm-beeper` are physically qualified.
 
-The compact portrait UI path is also physically qualified on the reference
-272x480 logical display. Home temperatures and chart, Settings, Printer Tune,
-Console, Macros, and the left navigation were exercised on-device. Narrow
-portrait layouts use the shared display-size detection in the pinned fork while
-the existing landscape layouts remain unchanged.
+The current pin's compact portrait UI path is physically qualified through a
+volatile on-device test on the reference 272x480 logical display. Home
+temperatures and chart, Settings, Printer Tune, Console, Macros, and the left
+navigation were exercised. Narrow portrait layouts use the shared display-size
+detection in the pinned fork while the existing landscape layouts remain
+unchanged. Persistent RootFS deployment of this exact pin remains open.
 
 The wider set of normal printer-control flows remains outside this
 qualification.
 
-## First Stage-D hardware result
+## Persistent core integration and current-pin UI result
 
 On the investigated reference system:
 
 ```text
-Component and RootFS build       PASS
-RootFS deployment to p8         PASS
-Fre3nder B boot                  PASS
-Persistent root                 PASS
-GuppyScreen service/process     PASS
-ingenicfb physical output       PASS
-NS2009 evdev discovery/raw data PASS
-Display rotation value 1        PASS
-Backlight automatic start       PASS
-Touch calibration/rotation      PASS
-60-second standby / wake        PASS
-Touch-beep / pwm-beeper         PASS
-272x480 compact portrait layout PASS
+Pre-current-pin component/RootFS build       PASS
+Pre-current-pin RootFS deployment to p8      PASS
+Fre3nder B boot and persistent root          PASS
+GuppyScreen service/process                  PASS
+ingenicfb physical output                    PASS
+NS2009 evdev discovery/raw data              PASS
+Display rotation value 1                     PASS
+Backlight automatic start                    PASS
+Touch calibration/rotation                   PASS
+60-second standby / wake                     PASS
+Touch-beep / pwm-beeper                      PASS
+Current-pin cross-compilation/package        PASS
+Current-pin volatile compact portrait test   PASS
+Current-pin persistent RootFS deployment     OPEN
 ```
 
-Stage D is therefore hardware-qualified for the core local UI on the
-investigated reference system. Broader normal printer-control flows and
-qualification across other hardware revisions remain separate work.
+The core local integration is therefore hardware-qualified on the investigated
+reference system. Persistent deployment of the current pin, broader normal
+printer-control flows, and qualification across other hardware revisions remain
+separate work.

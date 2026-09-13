@@ -135,19 +135,18 @@ after a controlled Moonraker restart. See the app documentation for the
 detailed evidence, routes, authorization ownership, opt-out, and remaining
 qualification.
 
-Self-update is not yet a qualified complete lifecycle. With `provider: none`,
-the pinned machine component's base provider raises `Service Actions Not
+Self-update is not a `2026.2` acceptance criterion. With `provider: none`, the
+pinned machine component's base provider raises `Service Actions Not
 Available`. After a successful Git update, `GitDeploy.update()` asks
 `restart_service()` to restart Moonraker; that schedules
 `machine.restart_moonraker_service()`, whose asynchronous wrapper catches and
-suppresses the provider failure. Source and Python-package changes may therefore
-be written to the system OverlayFS without the required automatic S61 restart.
+suppresses the provider failure. Source and Python-package changes could
+therefore be written to the system OverlayFS without an automatic S61 restart.
 
-The smallest remaining contract is a Moonraker-compatible way for the existing
-BusyBox/S61 service to perform its own post-update restart. This work does not
-justify introducing systemd, supervisord, a fake service command, or an
-upstream Moonraker patch. Dependency-change behavior also needs target
-qualification before self-update can be called complete.
+A future self-update implementation must solve the dependency transition and
+BusyBox/S61 post-update restart within the existing ownership boundary. It
+must not gain ownership of the Fre3nder platform, boot slots, base Klipper, or
+MCU firmware. This lifecycle is deferred beyond `2026.2`.
 
 ## Recovery contract
 
@@ -155,16 +154,18 @@ The platform recovery behavior is:
 
 ```text
 SquashFS:             qualified Moonraker stable X
-normal update:        source/environment changes copy up into system OverlayFS
-normal reboot:        OverlayFS changes remain visible
+normal operation:     code/environment remain at the qualified baseline
+normal reboot:        persistent config/state under /home remain visible
 system-overlay reset: upper/work are recreated; RootFS stable X is visible again
 /home reset effect:   none; printer_data remains retained
 ```
 
 This replaces the discarded multi-version/`active-version` mechanism. The
 system-overlay reset itself and retention of `/home` are hardware-qualified;
-the new RootFS-integrated Moonraker baseline still requires a build and hardware
-qualification before its complete update/recovery lifecycle is proven.
+the RootFS-integrated Moonraker baseline was subsequently built and deployed
+through the Stage-D RootFS path. Normal-reboot state retention and recovery of
+that baseline after a system-overlay reset still require qualification with the
+final `2026.2` candidate.
 
 ## Preserved hardware evidence
 
@@ -179,6 +180,8 @@ results for the same pinned Moonraker version and dependency set:
 - working local HTTP API and network discovery; and
 - S60 readiness plus natural boot without the observed startup race.
 
-These results qualify the runtime and service behavior. They do not yet qualify
-the newly constructed RootFS Git checkout, virtual environment, self-update,
-post-update restart, or OverlayFS recovery of that new baseline.
+These results qualify the runtime and service behavior. The same pinned source
+and dependency baseline was subsequently built and deployed through the Stage-D
+RootFS path. Final-candidate normal-reboot state retention and OverlayFS
+recovery remain open; self-update and post-update restart are deferred beyond
+`2026.2`.
