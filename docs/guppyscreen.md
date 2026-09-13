@@ -21,14 +21,14 @@ The productive source is the Fre3nder-maintained fork
 [`ElHanko/guppyscreen`](https://github.com/ElHanko/guppyscreen), pinned to:
 
 ```text
-source label: 0.0.26-beta+fre3nder.b89154d
-commit:       b89154d178a45cf65ab50dc085a4df85fc7da896
+source label: 0.0.26-beta+fre3nder.baa4f66
+commit:       baa4f6689ac7334d240107529f6d3c42a1297319
 license:      GPL-3.0-only
 ```
 
 The fork descends from the published `ballaswag/guppyscreen` `0.0.26-beta`
 baseline at commit `cf5c6d7539a2dca090ca71c177f57a2d96df443a`.
-The selected fork commit is 24 commits ahead of that baseline. The pinned
+The selected fork commit is 25 commits ahead of that baseline. The pinned
 native dependency submodules remain unchanged.
 
 The source uses Make, C++17, and upstream documents GCC/G++ 7.2 or newer. Its
@@ -36,9 +36,13 @@ Makefile has a real `CROSS_COMPILE` path used by upstream's MIPS release job;
 Fre3nder uses the already established Buildroot GCC 13.4.0/binutils 2.43.1
 MIPS32r2/O32/hard-float/FPXX/NaN2008 toolchain instead of upstream's downloadable
 toolchain. The currently pinned fork commit was successfully cross-compiled with the
-Fre3nder Buildroot toolchain, packaged as a development component, assembled
-into the RootFS, deployed to p8, and booted on the investigated reference
-system.
+Fre3nder Buildroot toolchain and packaged through the normal development
+component build path. The underlying GuppyScreen display, touch, backlight,
+standby, and touch-feedback integration had previously been assembled into the
+RootFS, deployed to p8, and booted on the investigated reference system. The
+compact portrait changes in the current pin were physically qualified there
+through a volatile on-device test; persistent RootFS deployment of this exact
+commit remains a separate step.
 
 Pinned native/vendored dependencies are:
 
@@ -61,7 +65,8 @@ The builder applies the pinned tree's `0001-lv_driver_fb_ioctls.patch`,
 `0003-lvgl-dpi-text-scale.patch`. The generic runtime-path overrides
 `GUPPYSCREEN_CONFIG`, `GUPPYSCREEN_THEME_DIR`, and `GUPPYSCREEN_INPUT` are now
 carried directly by the pinned Fre3nder GuppyScreen fork. The fork also carries
-the touch-rotation correction derived from the first hardware test.
+the touch-rotation correction derived from the first hardware test and the
+hardware-qualified compact portrait layouts for narrow displays.
 
 ## Build and RootFS contract
 
@@ -185,8 +190,16 @@ The built RootFS deployed and booted successfully on Fre3nder p8. GuppyScreen
 reached `active`, produced physical fbdev output, found NS2009 through evdev,
 and used the corrected calibrated touch path. Automatic backlight startup,
 60-second physical backlight standby, first-touch wake, and audible touch-click
-feedback through Linux `pwm-beeper` are physically qualified. The wider set of
-normal printer-control flows remains outside this qualification.
+feedback through Linux `pwm-beeper` are physically qualified.
+
+The compact portrait UI path is also physically qualified on the reference
+272x480 logical display. Home temperatures and chart, Settings, Printer Tune,
+Console, Macros, and the left navigation were exercised on-device. Narrow
+portrait layouts use the shared display-size detection in the pinned fork while
+the existing landscape layouts remain unchanged.
+
+The wider set of normal printer-control flows remains outside this
+qualification.
 
 ## First Stage-D hardware result
 
@@ -205,6 +218,7 @@ Backlight automatic start       PASS
 Touch calibration/rotation      PASS
 60-second standby / wake        PASS
 Touch-beep / pwm-beeper         PASS
+272x480 compact portrait layout PASS
 ```
 
 Stage D is therefore hardware-qualified for the core local UI on the

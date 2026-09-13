@@ -151,9 +151,10 @@ ownership.
 ### GuppyScreen RootFS baseline
 
 `build-x2000-guppyscreen` fetches the exact published source and submodule pins
-before its network-disabled component phase, applies the upstream-carried
-patches and Fre3nder's runtime-path patch, and cross-compiles with the prepared
-Buildroot toolchain. Its deterministic component archive supplies the native
+before its network-disabled component phase, applies the source-carried
+dependency patches, and cross-compiles with the prepared Buildroot toolchain.
+Fre3nder's runtime-path overrides are carried directly by the pinned
+GuppyScreen fork. Its deterministic component archive supplies the native
 binary, immutable themes, and license texts. The service/default configuration
 remain generic RootFS overlay inputs. See [`guppyscreen.md`](guppyscreen.md)
 for the full runtime and build-gate contract.

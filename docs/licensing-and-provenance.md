@@ -87,8 +87,8 @@ license provenance remains explicit in the source and wheel manifests.
 
 GuppyScreen is consumed from the Fre3nder-maintained fork
 `https://github.com/ElHanko/guppyscreen.git` at commit
-`b89154d178a45cf65ab50dc085a4df85fc7da896`, under `GPL-3.0-only`. The
-Fre3nder source label is `0.0.26-beta+fre3nder.b89154d`. The fork descends
+`baa4f6689ac7334d240107529f6d3c42a1297319`, under `GPL-3.0-only`. The
+Fre3nder source label is `0.0.26-beta+fre3nder.baa4f66`. The fork descends
 from the published `ballaswag/guppyscreen` `0.0.26-beta` baseline at commit
 `cf5c6d7539a2dca090ca71c177f57a2d96df443a`. The exact source and submodule
 identities are recorded in `configs/x2000/sources.json`. The component builder

@@ -35,8 +35,8 @@
     },
     "guppyscreen": {
       "repository": "https://github.com/ElHanko/guppyscreen.git",
-      "release": "0.0.26-beta+fre3nder.b89154d",
-      "commit": "b89154d178a45cf65ab50dc085a4df85fc7da896",
+      "release": "0.0.26-beta+fre3nder.baa4f66",
+      "commit": "baa4f6689ac7334d240107529f6d3c42a1297319",
       "license": "GPL-3.0-only",
       "role": "native framebuffer and evdev local UI baseline",
       "submodules": {

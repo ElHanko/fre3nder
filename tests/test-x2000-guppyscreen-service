@@ -114,8 +114,8 @@ import sys
 sources = json.loads(pathlib.Path(sys.argv[1]).read_text())
 guppy = sources["userspace"]["guppyscreen"]
 assert guppy["repository"] == "https://github.com/ElHanko/guppyscreen.git"
-assert guppy["release"] == "0.0.26-beta+fre3nder.b89154d"
-assert guppy["commit"] == "b89154d178a45cf65ab50dc085a4df85fc7da896"
+assert guppy["release"] == "0.0.26-beta+fre3nder.baa4f66"
+assert guppy["commit"] == "baa4f6689ac7334d240107529f6d3c42a1297319"
 assert guppy["license"] == "GPL-3.0-only"
 assert guppy["submodules"]["lvgl"]["version"] == "8.3.11"
 config = json.loads(pathlib.Path(sys.argv[2]).read_text())
