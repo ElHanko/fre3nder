@@ -288,7 +288,7 @@ without RootFS deployment are not yet qualified.
 
 ## REQ-2026.2-008 - Display, touch, and local presentation
 
-Status: **BUILD/DEPLOYMENT PASSED / RUNTIME PARTIALLY HARDWARE QUALIFIED**
+Status: **CORE LOCAL UI HARDWARE QUALIFIED / NORMAL CONTROL FLOWS OPEN**
 
 Fre3nder shall provide an open local display path for the printer's integrated
 display.
@@ -311,8 +311,8 @@ start.
 
 ### Hardware qualification status
 
-The hardware portion of this requirement is qualified on the investigated
-reference system.
+The hardware and core local-UI portions of this requirement are qualified on
+the investigated reference system.
 
 Demonstrated on real hardware:
 
@@ -323,26 +323,27 @@ Demonstrated on real hardware:
 - NS2009 enumeration on I2C4 at address `0x48`;
 - static I2C4 ownership of GPC25/GPC26 with UART3 disabled;
 - PC15 active-low pendown detection;
-- Linux `BTN_TOUCH`, `ABS_X`, and `ABS_Y` input events through
-  `/dev/input/event0`.
-
-The native display coordinate system is 480x272 landscape while the integrated
-panel is mechanically mounted in portrait orientation. The first GuppyScreen
-hardware test confirmed `display_rotate: 1` as the correct physical
-orientation. Input discovery and raw events work, but the GuppyScreen touch
-calibration is not usable with that rotation. Coordinate transformation and
-calibrated touch remain application-layer work.
-
-Detailed evidence is recorded in
-[`x2000-display-touch.md`](x2000-display-touch.md).
+- Linux `BTN_TOUCH`, `ABS_X`, and `ABS_Y` input events;
+- GuppyScreen `display_rotate: 1` with correct physical orientation;
+- calibrated end-to-end touch mapping after the GuppyScreen rotation fix;
+- automatic backlight enable at GuppyScreen startup;
+- physical display standby after 60 seconds of inactivity;
+- first-touch wake without activating the underlying UI control; and
+- audible touch feedback through Linux `pwm-beeper`.
 
 The pinned GuppyScreen integration was built, deployed to Fre3nder p8, and
-started successfully on the investigated reference system. Physical fbdev
-output, NS2009 evdev discovery/raw input, calibration startup, and the
-Moonraker connection attempt are demonstrated. S64 now corrects the observed
-backlight-autostart defect in source; that correction awaits build/deployment
-retest. REQ-2026.2-008 remains incomplete until calibrated touch and the normal
-control paths are qualified.
+started successfully on the investigated reference system. The touch-rotation
+correction, backlight startup correction, 60-second standby/wake behavior, and
+touch-beep path are physically qualified.
+
+Detailed evidence is recorded in
+[`x2000-display-touch.md`](x2000-display-touch.md) and
+[`guppyscreen.md`](guppyscreen.md).
+
+REQ-2026.2-008 remains incomplete only with respect to the broader set of
+normal local printer-control flows and their integrated behavior with
+Moonraker/Klipper. Those flows remain part of the final usable-system
+qualification rather than a display/touch hardware blocker.
 
 ## REQ-2026.2-009 - Integrated usable-system qualification
 

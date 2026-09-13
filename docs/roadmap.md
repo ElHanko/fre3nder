@@ -77,10 +77,11 @@ The release-level requirements and acceptance criteria are defined in
    Mainsail installable without rebuilding the RootFS.
 
 8. Complete the local display stack with GuppyScreen as the native Core-UI.
-   Display output, touch input, and backlight control are hardware-qualified on
-   the reference system. The GuppyScreen build, RootFS deployment, startup,
-   fbdev output, evdev discovery, and physical rotation are demonstrated;
-   automatic backlight enable awaits retest and calibrated touch remains open.
+   The core local UI is hardware-qualified on the reference system: build,
+   RootFS deployment, startup, fbdev output, dynamic evdev discovery, physical
+   rotation, calibrated touch mapping, automatic backlight startup, 60-second
+   standby/wake, and touch-beep feedback are demonstrated. Broader normal
+   printer-control flows remain part of integrated usable-system qualification.
 
 9. Perform integrated `2026.2` qualification across normal boot, persistence,
    Klipper, Moonraker, application management, network UI, OctoApp, local
@@ -116,8 +117,8 @@ requirement:
 - physical PC22 backlight effect: **QUALIFIED ON DEVICE**;
 - integrated display/backlight/touch hardware path:
   **QUALIFIED ON DEVICE**; framebuffer output, panel colors, NS2009 I2C
-  enumeration, PC15 pendown, and X/Y input events are demonstrated on the
-  reference system; local UI/presentation remains unqualified;
+  enumeration, PC15 pendown, X/Y input events, and the GuppyScreen core local
+  presentation path are demonstrated on the reference system;
 - Moonraker Python/runtime dependency bring-up: **QUALIFIED ON DEVICE**;
   the exact pinned source/dependency mix, local HTTP/API behavior, network
   discovery, and ready Klippy UDS connection have been demonstrated on the
@@ -133,11 +134,11 @@ requirement:
   overlay-reset recovery remain to be qualified;
 - frontend-neutral web-UI layer: **OFFLINE IMPLEMENTED / PARTIALLY HARDWARE
   QUALIFIED**;
-- GuppyScreen local Core-UI: **BUILD/DEPLOYMENT PASSED / RUNTIME PARTIALLY
-  HARDWARE QUALIFIED**; startup, fbdev output, NS2009 evdev input, Moonraker
-  connection attempt, calibration startup, and `display_rotate: 1` are
-  demonstrated. Automatic backlight enable awaits retest; calibrated touch is
-  still open.
+- GuppyScreen local Core-UI: **BUILD/DEPLOYMENT/RUNTIME HARDWARE QUALIFIED**
+  for the core local UI; startup, fbdev output, NS2009 evdev input,
+  `display_rotate: 1`, calibrated touch mapping, automatic backlight startup,
+  60-second standby/wake, and `pwm-beeper` touch feedback are demonstrated.
+  Broader normal printer-control flows remain outside this qualification.
 
 ## Mandatory gates
 

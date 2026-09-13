@@ -1,7 +1,7 @@
 # GuppyScreen local Core-UI
 
-Status: **FORK SOURCE INTEGRATED / FORK BUILD PENDING / STAGE-D RUNTIME
-PARTIALLY HARDWARE QUALIFIED**.
+Status: **BUILD/DEPLOYMENT/RUNTIME HARDWARE QUALIFIED FOR THE CORE LOCAL UI**
+on the investigated reference system.
 
 GuppyScreen is Fre3nder's native local Core-UI. It is built from source into
 the immutable RootFS baseline and is neither a managed application nor a web
@@ -28,16 +28,17 @@ license:      GPL-3.0-only
 
 The fork descends from the published `ballaswag/guppyscreen` `0.0.26-beta`
 baseline at commit `cf5c6d7539a2dca090ca71c177f57a2d96df443a`.
-The selected fork commit is 23 commits ahead of that baseline. The pinned
+The selected fork commit is 24 commits ahead of that baseline. The pinned
 native dependency submodules remain unchanged.
 
 The source uses Make, C++17, and upstream documents GCC/G++ 7.2 or newer. Its
 Makefile has a real `CROSS_COMPILE` path used by upstream's MIPS release job;
 Fre3nder uses the already established Buildroot GCC 13.4.0/binutils 2.43.1
 MIPS32r2/O32/hard-float/FPXX/NaN2008 toolchain instead of upstream's downloadable
-toolchain. The component and RootFS build completed successfully for the first
-Stage-D hardware test using the previous pre-fork source pin. The currently
-pinned fork commit still requires a new authorized component build.
+toolchain. The currently pinned fork commit was successfully cross-compiled with the
+Fre3nder Buildroot toolchain, packaged as a development component, assembled
+into the RootFS, deployed to p8, and booted on the investigated reference
+system.
 
 Pinned native/vendored dependencies are:
 
@@ -132,9 +133,9 @@ The upstream fbdev/evdev patch removes the initial fixed 0..4096 mapping so the
 bundled affine calibration receives raw coordinates. Input discovery and raw
 touch data are confirmed on the investigated reference system: physical
 left-to-right movement maps mainly to decreasing raw Y, while physical
-top-to-bottom movement maps mainly to increasing raw X. GuppyScreen starts its
-interactive calibration with `display_rotate: 1`, but that calibration is not
-currently usable.
+top-to-bottom movement maps mainly to increasing raw X. GuppyScreen uses
+`display_rotate: 1`, and the corrected affine-calibration/rotation path is now
+physically qualified with correct left/right and up/down pointer mapping.
 
 The observed endpoint samples were:
 
@@ -147,12 +148,11 @@ The first hardware test exposed an error in the historical GuppyScreen
 calibration handling for rotated displays. Analysis against the pinned LVGL
 pointer transformation showed that the old 90-degree path effectively used
 the inverse transformation for 270 degrees, producing the observed mirrored
-axes. The pinned `ElHanko/guppyscreen` fork now contains the corresponding
+axes. The pinned `ElHanko/guppyscreen` fork contains the corresponding
 90/270-degree correction and the 180-degree off-by-one correction together
-with a regression test. This source fix has not yet been rebuilt or qualified
-on the reference printer. No kernel, DTS, `ke-touch.patch`, or service-side
-coordinate workaround is introduced. End-to-end calibrated touch therefore
-remains open until the next hardware test.
+with a regression test. That fix has now been built, deployed, and physically
+qualified on the reference printer. No kernel, DTS, `ke-touch.patch`, or
+service-side coordinate workaround is required.
 
 ## Moonraker and failure behavior
 
@@ -174,8 +174,8 @@ PC22/gpio-backlight path works, its `bl_power` remained `4` after GuppyScreen
 started, leaving the physical display dark. S64 now writes `0` to
 `/sys/class/backlight/backlight/bl_power` after confirming that the UI process
 is running. A missing or unwritable attribute is logged but does not stop the
-UI or block boot. The manual `bl_power=0` hardware effect is confirmed; this
-S64 source correction still awaits its next build and deployment.
+UI or block boot. The correction has now been built, deployed, and physically
+qualified: the display illuminates automatically after boot.
 
 No `update.sh` is installed beside the binary, so upstream's UI update action
 does not mutate the immutable baseline. GuppyScreen updates remain owned by the
@@ -183,9 +183,10 @@ reproducible RootFS build and deployment process.
 
 The built RootFS deployed and booted successfully on Fre3nder p8. GuppyScreen
 reached `active`, produced physical fbdev output, found NS2009 through evdev,
-started touch calibration, and attempted its Moonraker WebSocket connection at
-`ws://127.0.0.1:17126/websocket`. Calibrated touch and the wider set of normal
-printer-control flows remain unqualified.
+and used the corrected calibrated touch path. Automatic backlight startup,
+60-second physical backlight standby, first-touch wake, and audible touch-click
+feedback through Linux `pwm-beeper` are physically qualified. The wider set of
+normal printer-control flows remains outside this qualification.
 
 ## First Stage-D hardware result
 
@@ -200,12 +201,12 @@ GuppyScreen service/process     PASS
 ingenicfb physical output       PASS
 NS2009 evdev discovery/raw data PASS
 Display rotation value 1        PASS
-Backlight automatic start       SOURCE FIXED / RETEST REQUIRED
-Touch calibration/rotation      OPEN
+Backlight automatic start       PASS
+Touch calibration/rotation      PASS
+60-second standby / wake        PASS
+Touch-beep / pwm-beeper         PASS
 ```
 
-Stage D is therefore not fully hardware-qualified. The next qualification step
-is to build the updated S64/default configuration together with the pinned
-GuppyScreen fork under the normal build gate. After an authorized RootFS
-deployment, verify automatic backlight enable, display orientation, touch
-calibration, and end-to-end pointer mapping on the reference printer.
+Stage D is therefore hardware-qualified for the core local UI on the
+investigated reference system. Broader normal printer-control flows and
+qualification across other hardware revisions remain separate work.

@@ -352,27 +352,42 @@ The integrated display/backlight/touch hardware path is therefore
 
 ## Stage-D GuppyScreen follow-up
 
-The first GuppyScreen RootFS was subsequently built, deployed to Fre3nder p8,
-and booted on the investigated reference system. GuppyScreen reached `active`,
-used `/dev/fb0` through `ingenicfb`, found NS2009 as `/dev/input/event0` through
-its dynamic evdev discovery, produced physical output, and started its touch
-calibration. `display_rotate: 1` was confirmed as the correct physical
-orientation; `display_rotate: 3` was upside down.
+GuppyScreen was subsequently built from the pinned Fre3nder fork, assembled
+into the RootFS, deployed to Fre3nder p8, and booted on the investigated
+reference system. GuppyScreen reached `active`, used `/dev/fb0` through
+`ingenicfb`, and found NS2009 through dynamic evdev discovery.
 
-Automatic backlight enable was not present in that image: `bl_power` remained
-`4` after UI startup, while the already-qualified manual write of `0` made the
-display visible. The S64 source now performs that write after successful UI
-startup, but the changed service has not yet been rebuilt or retested on
-hardware.
+`display_rotate: 1` is physically correct. The historical rotated-touch
+transformation defect was corrected in the pinned GuppyScreen fork; the fixed
+90/270-degree handling and 180-degree off-by-one correction were rebuilt and
+deployed. End-to-end physical testing confirmed correct calibrated left/right
+and up/down pointer mapping.
 
-Raw input remains functional, but calibrated touch is not yet usable with the
-correct display rotation. The historical GuppyScreen calibration code's shared
-90-degree/270-degree transformation path is the likely next investigation
-point; this is a hypothesis rather than a confirmed kernel or hardware defect.
-No kernel, DTS, or touch-driver change follows from this result.
+The initial Stage-D image left `bl_power=4` after GuppyScreen startup. The S64
+service correction now enables the PC22 gpio-backlight after successful UI
+startup, and that behavior is physically qualified.
+
+The current GuppyScreen fork also controls physical standby through the same
+Linux backlight interface. On the investigated reference printer:
+
+~~~text
+automatic backlight startup     PASS
+display_rotate: 1               PASS
+calibrated touch mapping        PASS
+60-second physical standby      PASS
+first-touch wake                PASS
+touch-beep via pwm-beeper       PASS
+~~~
+
+The touch-beep uses the generic Linux `pwm-beeper` input interface backed by
+X2000 PWM3 / PC03. The physically accepted click parameters are 260 Hz for
+4 ms with a 120 ms debounce. GuppyScreen emits `EV_SND` / `SND_TONE`; it does
+not require a `/dev/mem` PWM helper.
+
+Stage D is therefore hardware-qualified for the core local UI on the
+investigated reference system.
 
 The following remain outside this qualification:
 
-- touch calibration and coordinate transformation for the final UI
-- normal local printer-control flows and UI recovery behavior
+- broader normal local printer-control flows and UI recovery behavior
 - broader qualification across other hardware revisions

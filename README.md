@@ -22,9 +22,11 @@ The important boundaries remain:
 - power-cycle Stock recovery: **QUALIFIED ON DEVICE (2/2)**;
 - physical PC22 backlight effect: **QUALIFIED ON DEVICE**;
 - integrated display/backlight/touch hardware path: **QUALIFIED ON DEVICE**;
-- GuppyScreen local Core-UI: **BUILD/DEPLOYMENT PASSED / RUNTIME PARTIALLY
-  HARDWARE QUALIFIED**; the S64 backlight correction awaits retest and
-  calibrated touch remains open.
+- GuppyScreen local Core-UI: **BUILD/DEPLOYMENT/RUNTIME HARDWARE QUALIFIED**
+  for the core local UI on the reference system; correct physical rotation,
+  calibrated touch, automatic backlight start, 60-second standby/wake, and
+  touch-beep feedback are demonstrated. Broader normal printer-control flows
+  remain outside this qualification.
 
 Observations marked as qualified apply to the investigated reference system
 unless explicitly stated otherwise. Do not treat its calibration, hardware
