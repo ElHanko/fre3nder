@@ -145,7 +145,7 @@
     "ssh_authentication": "public-key-only",
     "ssh_enable_marker": "enable_ssh",
     "ssh_host_key": "persistent under /home/fre3nder/.fre3nder/ssh when the persistent root is active; volatile fallback host key in degraded mode",
-    "hardware_validated": false
+    "hardware_validated": true
   },
   "root_cmdline": "root=/dev/mmcblk0p8 rootwait rootfstype=squashfs ro",
   "deployment_compatibility": {
