@@ -30,10 +30,12 @@ additional boot-control object is the optional `.fre3nder-reset` marker whose ex
 after the filesystem has been uniquely identified and mounted successfully.
 The implementation resolves the current backends by exact label and ext4 type
 and has no dependency on USB device names or future partition numbers. This
-external path is offline implemented and partially hardware-qualified on the
-investigated reference system: normal persistence and marker-authorized reset
-of the system overlay with retained `/home` are demonstrated. Explicit missing
-or invalid system/userdata-backend cases remain open.
+external path is hardware-qualified on the investigated reference system:
+normal persistence, marker-authorized reset of the system overlay with retained
+`/home`, and fail-closed behavior for missing or invalid system and userdata
+backends are demonstrated. These degraded cases retained the immutable p8
+RootFS without an OverlayFS, `/home`, or p9/p10 fallback and kept diagnostic SSH
+available.
 
 The rest of this document records the observed Stock storage layout and does not
 assign its internal writable partitions to the current Fre3nder implementation.

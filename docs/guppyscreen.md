@@ -69,9 +69,9 @@ hardware-qualified compact portrait layouts for narrow displays.
 
 ## Build and RootFS contract
 
-REQ-2026.2-010 was still only planned before this work: Moonraker staging and
-generic RootFS assembly both lived in `build-x2000-rootfs`. That interface is
-removed. The component flow is now:
+Before the component split, Moonraker staging and generic RootFS assembly both
+lived in `build-x2000-rootfs`. That interface is removed. The component flow is
+now:
 
 ```text
 scripts/build-x2000

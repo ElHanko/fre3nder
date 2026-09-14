@@ -13,6 +13,12 @@ project version. Release tags use exactly that version number, without a `v`
 prefix. The first final release version is `2026.1`. Setting or changing
 `VERSION` does not by itself create a Git tag or GitHub release.
 
+Repository-root [`CHANGELOG.md`](../CHANGELOG.md) records user-visible and
+architecturally relevant release changes. Current technical behavior remains in
+the subject-specific documentation. Temporary requirement and qualification
+documents may be removed after their release evidence has been incorporated
+into those durable locations.
+
 Build manifests record the canonical `version`, numeric `release_year` and
 `release_number`, the normalized `release_stage` (`alpha`, `beta`, `rc`, or
 `final`), and `release_scope`. Built RootFS images expose the same canonical
@@ -109,12 +115,15 @@ the first implementation candidate is `2026.2.a`.
 
 The `2026.2` scope builds on the functionally achieved `2026.1` open-host
 baseline and adds the persistent runtime and application architecture required
-for normal day-to-day operation. Its detailed requirements and acceptance
-criteria are defined in [`requirements-2026.2.md`](requirements-2026.2.md).
+for normal day-to-day operation. Its completed functional scope and release
+history are summarized in [`CHANGELOG.md`](../CHANGELOG.md); current behavior
+is described by the subject-specific technical documentation.
 
 A `2026.2.a` build identifies an alpha implementation candidate. It does not
-claim that the `2026.2` acceptance criteria or hardware qualification are
-complete.
+by itself claim final-release status. The usable-system scope is now
+hardware-qualified on the investigated reference system, but `2026.2` remains
+unreleased until final release-mode artifacts from the reviewed current source
+are validated and the matching tag is created.
 
 ## Project name
 

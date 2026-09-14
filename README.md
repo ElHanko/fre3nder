@@ -8,13 +8,17 @@ owner.
 
 ## Current status
 
-Current version: [`2026.1`](docs/versioning.md)
+Current released version: [`2026.1`](docs/versioning.md)
 
 **`2026.1 FUNCTIONALLY ACHIEVED`** on the investigated reference system.
 Fre3nder provides an open X2000 host, upstream Klipper integration for the
 F005 MCU, a hardware-validated reference configuration, and a documented path
-back to Stock. The current product focus is maintainable post-2026.1
-development and qualification.
+back to Stock.
+
+**`2026.2 - Unreleased`** adds the persistent usable-system stack. Its
+functional scope is implemented and hardware-qualified on the investigated
+reference system; a final release-mode build from the reviewed current source
+and the release tag are still pending. See the [changelog](CHANGELOG.md).
 
 The important boundaries remain:
 
@@ -22,11 +26,8 @@ The important boundaries remain:
 - power-cycle Stock recovery: **QUALIFIED ON DEVICE (2/2)**;
 - physical PC22 backlight effect: **QUALIFIED ON DEVICE**;
 - integrated display/backlight/touch hardware path: **QUALIFIED ON DEVICE**;
-- GuppyScreen local Core-UI: **BUILD/DEPLOYMENT/RUNTIME HARDWARE QUALIFIED**
-  for the core local UI on the reference system; correct physical rotation,
-  calibrated touch, automatic backlight start, 60-second standby/wake, and
-  touch-beep feedback are demonstrated. Broader normal printer-control flows
-  remain outside this qualification.
+- the complete `2026.2` persistence, Moonraker, Fluidd, and GuppyScreen
+  usable-system path: **HARDWARE QUALIFIED ON DEVICE**.
 
 Observations marked as qualified apply to the investigated reference system
 unless explicitly stated otherwise. Do not treat its calibration, hardware
@@ -42,6 +43,7 @@ revision, or recovery behavior as universal.
 - [Recovery and return to Stock](docs/recovery.md)
 - [Development and tests](docs/development.md)
 - [Current roadmap](docs/roadmap.md)
+- [Release history](CHANGELOG.md)
 - [Licensing and provenance](docs/licensing-and-provenance.md)
 - [Acknowledgements](ACKNOWLEDGEMENTS.md)
 

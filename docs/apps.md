@@ -1,7 +1,6 @@
 # Installable applications
 
-Status: **OFFLINE IMPLEMENTED / RESTORE AND REBOOT HARDWARE QUALIFIED;
-FLUIDD UI CONTROL STILL OPEN**.
+Status: **HARDWARE QUALIFIED ON THE REFERENCE SYSTEM**.
 
 Fre3nder supplies a small application dispatcher, `/usr/bin/fre3nder`, and
 optional Lighttpd web infrastructure in the RootFS build inputs. The official
@@ -310,9 +309,9 @@ may have different lifecycle and update owners; the dispatcher imposes no
 universal desired version or rollback mechanism.
 
 Kernel, RootFS, Fre3nder Klipper, MCU firmware, A/B state and system packages
-remain outside this app updater. This separation supports
-REQ-2026.2-002/003/004/006/007; their requirement statuses are unchanged by
-these offline fixtures.
+remain outside this app updater. This is the permanent platform/application
+update-ownership boundary. The repository fixtures validate it without changing
+the hardware-qualification status recorded in [`CHANGELOG.md`](../CHANGELOG.md).
 
 ## Development and validation
 
@@ -539,7 +538,12 @@ returned HTTP 200 without another restore. This qualifies the explicit
 system-overlay restore path and normal-reboot persistence on the investigated
 reference system.
 
-## References and remaining qualification
+Subsequent testing on 2026-09-14 qualified normal printer status and control
+through the Fluidd UI and the explicit `fre3nder uninstall fluidd` path. The
+resulting `web=no-frontend` state is expected after removing the selected
+frontend and is not a service failure.
+
+## References and deferred work
 
 The bootstrap contract uses the official
 [Fluidd release API](https://api.github.com/repos/fluidd-core/fluidd/releases/latest).
@@ -575,13 +579,13 @@ describe static hosting and `/server/info`. The inspected
 uses Vue Router's default hash mode; no history-path fallback is introduced.
 This is reference evidence, not a Fluidd version pin.
 
-Still open: automatic camera hotplug recovery after a boot without the camera,
-Moonraker-driven Fluidd update, uninstall and the built-in-webserver disable
-marker on real hardware, an external-webserver scenario, and explicit normal
-printer control through the Fluidd UI. HTTPS/TLS and qualification of
-alternative frontend implementations are outside this step. The demonstrated initial Fluidd bootstrap, active selection, static
-LAN delivery, HTTP/WebSocket and webcam proxying, loopback-only Moonraker and
-camera backends, LAN authorization, and Fluidd camera display are qualified only
-on the investigated reference system. If the camera is connected only after S63
-has already run at boot, `/etc/init.d/S63fre3nder-camera start` is currently
-required; automatic retry is a separate QoL item.
+Deferred beyond the `2026.2` acceptance boundary are automatic camera hotplug
+recovery after a boot without the camera, Moonraker-driven Fluidd update, the
+built-in-webserver disable marker on real hardware, an external-webserver
+scenario, HTTPS/TLS, and qualification of alternative frontend
+implementations. The demonstrated initial Fluidd bootstrap, active selection,
+static LAN delivery, HTTP/WebSocket and webcam proxying, loopback-only Moonraker
+and camera backends, LAN authorization, and Fluidd camera display are qualified
+only on the investigated reference system. If the camera is connected only
+after S63 has already run at boot, `/etc/init.d/S63fre3nder-camera start` is
+currently required; automatic retry is a separate QoL item.
