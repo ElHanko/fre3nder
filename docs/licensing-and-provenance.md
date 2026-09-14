@@ -37,7 +37,7 @@ Policy:
 
 ## Buildroot and Ingenic SDK
 
-The productive RootFS is built from the official upstream Buildroot 2025.02
+The productive RootFS is built from the official upstream Buildroot 2025.02.18
 LTS source. Its exact release and commit are pinned in
 `configs/x2000/sources.json`.
 

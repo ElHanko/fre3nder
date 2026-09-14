@@ -153,7 +153,7 @@ without network access for the compilation step, as shown above.
 ## Host c_helper for X2000
 
 The F005 container does not contain or download a separate MIPS toolchain.
-The normal build mounts the existing upstream Buildroot 2025.02.17 `host/`
+The normal build mounts the existing upstream Buildroot 2025.02.18 `host/`
 output read-only and invokes its
 `mipsel-buildroot-linux-gnu-gcc` userspace wrapper. This gives the helper the
 same MIPS32r2/O32/hard-float/FPXX/NaN2008 contract as the Fre3nder RootFS.

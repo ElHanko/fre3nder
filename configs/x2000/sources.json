@@ -15,9 +15,9 @@
     "preempt_rt_enabled": false
   },
   "buildroot": {
-    "version": "2025.02.17",
+    "version": "2025.02.18",
     "url": "https://gitlab.com/buildroot.org/buildroot.git",
-    "commit": "d0820dd09916edcefc44e525355afbea30d5bee4",
+    "commit": "d030e36bbc9669230c015be971b14b6e062cfdde",
     "source": "upstream Buildroot"
   },
   "userspace": {
@@ -66,56 +66,56 @@
     "wpa_supplicant": {
       "version": "2.12",
       "license": "BSD-3-Clause",
-      "source": "upstream Buildroot 2025.02.17 package"
+      "source": "upstream Buildroot 2025.02.18 package"
     },
     "dropbear": {
       "version": "2026.93",
       "license": "MIT, BSD-2-Clause, Public domain, Unlicense, WTFPL",
-      "source": "upstream Buildroot 2025.02.17 package"
+      "source": "upstream Buildroot 2025.02.18 package"
     },
     "mjpg_streamer": {
       "repository": "https://github.com/jacksonliam/mjpg-streamer.git",
       "commit": "5a6e0a2db163e6ae9461552b59079870d0959340",
       "license": "GPL-2.0-or-later",
-      "source": "upstream Buildroot 2025.02.17 package",
+      "source": "upstream Buildroot 2025.02.18 package",
       "role": "USB-UVC V4L2 to localhost MJPEG streamer"
     },
     "busybox": {
       "version": "1.37.0",
       "license": "GPL-2.0, bzip2-1.0.6",
-      "source": "upstream Buildroot 2025.02.17 package"
+      "source": "upstream Buildroot 2025.02.18 package"
     },
     "python": {
       "version": "3.12.14",
       "license": "Python-2.0, others",
-      "source": "upstream Buildroot 2025.02.17 package"
+      "source": "upstream Buildroot 2025.02.18 package"
     },
     "greenlet": {
       "version": "3.1.1",
       "license": "MIT, PSF-2.0",
-      "source": "upstream Buildroot 2025.02.17 package",
+      "source": "upstream Buildroot 2025.02.18 package",
       "required_by": "Klipper 0499b30374315f2a9f49fc12808527fc7d0f5cfa for Python >= 3.12"
     }
   },
   "userspace_toolchain": {
     "identity": "Buildroot internal toolchain",
-    "source": "upstream Buildroot 2025.02.17",
+    "source": "upstream Buildroot 2025.02.18",
     "binutils": "2.43.1",
     "gcc": "13.4.0",
     "libc": "glibc",
     "kernel_headers": "6.6",
     "target": "mipsel MIPS32r2 O32 hard-float FPXX NaN2008",
-    "hardware_validated": true
+    "hardware_validated": false
   },
   "kernel_toolchain": {
     "identity": "Buildroot internal toolchain",
-    "source": "upstream Buildroot 2025.02.17",
+    "source": "upstream Buildroot 2025.02.18",
     "binutils": "2.43.1",
     "gcc": "13.4.0",
     "compiler": "mipsel-buildroot-linux-gnu-gcc.br_real",
     "target": "mipsel MIPS32r5 O32 soft-float legacy-NaN",
     "relationship": "same toolchain family as userspace, with separate Kbuild target flags",
-    "hardware_validated": true
+    "hardware_validated": false
   },
   "patch_set": {
     "identity": "fre3nder-x2000-ke-wlan-v1",

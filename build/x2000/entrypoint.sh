@@ -46,8 +46,8 @@ rootfs_out="$artifact_root/rootfs-only"
 sdk_url=https://github.com/Llixuma/ingenic-linux-kernel6.6-x2000-v1.0-20250221.git
 sdk_commit=a98c2e1f22e4263ddd4153a4eca4db4dcfd2777b
 buildroot_url=https://gitlab.com/buildroot.org/buildroot.git
-buildroot_version=2025.02.17
-buildroot_commit=d0820dd09916edcefc44e525355afbea30d5bee4
+buildroot_version=2025.02.18
+buildroot_commit=d030e36bbc9669230c015be971b14b6e062cfdde
 buildroot_patch="$project/patches/buildroot/0001-mips-add-ingenic-xburst2-target.patch"
 buildroot_toolchain_marker=.fre3nder-toolchain-fingerprint
 klipper_url=https://github.com/Klipper3d/klipper.git
@@ -247,8 +247,8 @@ buildroot_toolchain_ready() {
 		[ -f "$buildroot_output/build/toolchain-buildroot/.stamp_target_installed" ] &&
 		[ -f "$buildroot_output/build/host-gcc-final-13.4.0/.stamp_host_installed" ] &&
 		[ -f "$buildroot_output/build/host-binutils-2.43.1/.stamp_host_installed" ] &&
-		[ -f "$buildroot_output/build/glibc-2.41-143-gfc7a48bc9e999c0f9a1f9fa1b209eac1d6a93363/.stamp_staging_installed" ] &&
-		[ -f "$buildroot_output/build/linux-headers-6.6.152/.stamp_staging_installed" ]
+		[ -f "$buildroot_output/build/glibc-2.41-161-g5dd252cf1d113644b3679f5a158e9ef20217865e/.stamp_staging_installed" ] &&
+		[ -f "$buildroot_output/build/linux-headers-6.6.156/.stamp_staging_installed" ]
 }
 
 buildroot_toolchain_contract_matches() {
@@ -292,8 +292,8 @@ buildroot_legacy_toolchain_adoptable() {
 	buildroot_output=$1
 	config="$buildroot_output/.config"
 	# Markerless adoption is intentionally limited to the currently pinned
-	# upstream 2025.02.17 tag; a later pin must start clean.
-	[ "$buildroot_commit" = d0820dd09916edcefc44e525355afbea30d5bee4 ] ||
+	# upstream 2025.02.18 tag; a later pin must start clean.
+	[ "$buildroot_commit" = d030e36bbc9669230c015be971b14b6e062cfdde ] ||
 		return 1
 	[ -f "$config" ] && [ ! -L "$config" ] || return 1
 	grep -Fxq "# Buildroot ${buildroot_version}-dirty Configuration" "$config" ||

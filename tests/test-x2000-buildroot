@@ -40,39 +40,39 @@ assert data["userspace"]["klipper"] == {
 }
 buildroot = data["buildroot"]
 assert buildroot == {
-    "version": "2025.02.17",
+    "version": "2025.02.18",
     "url": "https://gitlab.com/buildroot.org/buildroot.git",
-    "commit": "d0820dd09916edcefc44e525355afbea30d5bee4",
+    "commit": "d030e36bbc9669230c015be971b14b6e062cfdde",
     "source": "upstream Buildroot",
 }
 greenlet = data["userspace"]["greenlet"]
 assert greenlet == {
     "version": "3.1.1",
     "license": "MIT, PSF-2.0",
-    "source": "upstream Buildroot 2025.02.17 package",
+    "source": "upstream Buildroot 2025.02.18 package",
     "required_by": (
         "Klipper 0499b30374315f2a9f49fc12808527fc7d0f5cfa for Python >= 3.12"),
 }
 assert data["userspace_toolchain"] == {
     "identity": "Buildroot internal toolchain",
-    "source": "upstream Buildroot 2025.02.17",
+    "source": "upstream Buildroot 2025.02.18",
     "binutils": "2.43.1",
     "gcc": "13.4.0",
     "libc": "glibc",
     "kernel_headers": "6.6",
     "target": "mipsel MIPS32r2 O32 hard-float FPXX NaN2008",
-    "hardware_validated": True,
+    "hardware_validated": False,
 }
 assert data["kernel_toolchain"] == {
     "identity": "Buildroot internal toolchain",
-    "source": "upstream Buildroot 2025.02.17",
+    "source": "upstream Buildroot 2025.02.18",
     "binutils": "2.43.1",
     "gcc": "13.4.0",
     "compiler": "mipsel-buildroot-linux-gnu-gcc.br_real",
     "target": "mipsel MIPS32r5 O32 soft-float legacy-NaN",
     "relationship": (
         "same toolchain family as userspace, with separate Kbuild target flags"),
-    "hardware_validated": True,
+    "hardware_validated": False,
 }
 assert data["userspace"]["moonraker"] == {
     "repository": "https://github.com/Arksine/moonraker.git",
@@ -143,8 +143,8 @@ PY
 
 grep -Fxq 'buildroot="$work/buildroot"' "$entrypoint"
 grep -Fxq 'buildroot_dl="$work/buildroot-dl"' "$entrypoint"
-grep -Fxq 'buildroot_version=2025.02.17' "$entrypoint"
-grep -Fxq 'buildroot_commit=d0820dd09916edcefc44e525355afbea30d5bee4' \
+grep -Fxq 'buildroot_version=2025.02.18' "$entrypoint"
+grep -Fxq 'buildroot_commit=d030e36bbc9669230c015be971b14b6e062cfdde' \
 	"$entrypoint"
 grep -Fq 'config BR2_mips_xburst2' "$entrypoint"
 grep -Fq 'BR_FP_CONTRACT_OFF' "$entrypoint"
@@ -496,8 +496,8 @@ done > "$tmp/buildroot-cache-functions.sh"
 . "$tmp/buildroot-cache-functions.sh"
 
 project=$cache_project
-buildroot_commit=d0820dd09916edcefc44e525355afbea30d5bee4
-buildroot_version=2025.02.17
+buildroot_commit=d030e36bbc9669230c015be971b14b6e062cfdde
+buildroot_version=2025.02.18
 buildroot_patch=$cache_project/patches/buildroot/0001-mips-add-ingenic-xburst2-target.patch
 buildroot_toolchain_marker=.fre3nder-toolchain-fingerprint
 
@@ -510,8 +510,8 @@ create_toolchain_fixture() {
 		"$cache_output/build/toolchain-buildroot" \
 		"$cache_output/build/host-gcc-final-13.4.0" \
 		"$cache_output/build/host-binutils-2.43.1" \
-		"$cache_output/build/glibc-2.41-143-gfc7a48bc9e999c0f9a1f9fa1b209eac1d6a93363" \
-		"$cache_output/build/linux-headers-6.6.152"
+		"$cache_output/build/glibc-2.41-161-g5dd252cf1d113644b3679f5a158e9ef20217865e" \
+		"$cache_output/build/linux-headers-6.6.156"
 	printf '%s\n' '#!/bin/sh' 'exit 0' '-ffp-contract=off' > \
 		"$cache_output/host/bin/toolchain-wrapper"
 	chmod +x "$cache_output/host/bin/toolchain-wrapper"
@@ -524,7 +524,7 @@ case "$1" in
 -dumpfullversion) printf '%s\n' 13.4.0 ;;
 --version)
 	printf '%s\n' \
-		'mipsel-buildroot-linux-gnu-gcc.br_real (Buildroot 2025.02.17-dirty) 13.4.0'
+		'mipsel-buildroot-linux-gnu-gcc.br_real (Buildroot 2025.02.18-dirty) 13.4.0'
 	;;
 -Q)
 	printf '%s\n' \
@@ -555,10 +555,10 @@ EOF
 		"$cache_output/build/toolchain-buildroot/.stamp_target_installed" \
 		"$cache_output/build/host-gcc-final-13.4.0/.stamp_host_installed" \
 		"$cache_output/build/host-binutils-2.43.1/.stamp_host_installed" \
-		"$cache_output/build/glibc-2.41-143-gfc7a48bc9e999c0f9a1f9fa1b209eac1d6a93363/.stamp_staging_installed" \
-		"$cache_output/build/linux-headers-6.6.152/.stamp_staging_installed"
+		"$cache_output/build/glibc-2.41-161-g5dd252cf1d113644b3679f5a158e9ef20217865e/.stamp_staging_installed" \
+		"$cache_output/build/linux-headers-6.6.156/.stamp_staging_installed"
 	cat > "$cache_output/.config" <<'EOF'
-# Buildroot 2025.02.17-dirty Configuration
+# Buildroot 2025.02.18-dirty Configuration
 BR2_mipsel=y
 BR2_mips_xburst2=y
 BR2_MIPS_CPU_MIPS32R5=y

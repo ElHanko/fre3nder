@@ -21,7 +21,7 @@ The productive source and configuration layers are separated as follows:
 Ingenic SDK
 └── Kernel 6.6.18-rt23 source
 
-Upstream Buildroot 2025.02.17
+Upstream Buildroot 2025.02.18
 └── internal GCC 13.4.0 / binutils 2.43.1 / glibc toolchain
     ├── Kernel compiler
     ├── RootFS / userspace compiler

@@ -122,7 +122,7 @@ assert package == {
     "repository": "https://github.com/jacksonliam/mjpg-streamer.git",
     "commit": "5a6e0a2db163e6ae9461552b59079870d0959340",
     "license": "GPL-2.0-or-later",
-    "source": "upstream Buildroot 2025.02.17 package",
+    "source": "upstream Buildroot 2025.02.18 package",
     "role": "USB-UVC V4L2 to localhost MJPEG streamer",
 }
 PY

@@ -5,6 +5,16 @@ Routine updates move between patch releases in that line, for example from
 `2025.02.17` to `2025.02.18`. Quarterly stable releases such as `2026.05` or
 `2026.08` are not automatic update targets.
 
+Before the Fre3nder 2026.2 release candidate, the baseline was advanced to
+Buildroot `2025.02.18`, the direct next patch release in the same LTS series.
+It carries bug fixes and security maintenance, including updates to expat,
+glibc, libcurl, and OpenSSL used by Fre3nder. This does not change the
+Fre3nder architecture model or move to a new Buildroot feature series. The
+ABI and architecture profiles were hardware-qualified with the previous
+baseline. Compatibility of the concrete Buildroot `2025.02.18` toolchain is
+statically checked, but that toolchain is not yet built or hardware-qualified.
+Build and hardware qualification follow with the release candidate.
+
 A move to a new LTS line, such as `2027.02`, is a separate migration requiring
 its own qualification. Buildroot may rename MIPS or internal-toolchain Kconfig
 symbols, change compiler or libc versions, change Python major/minor versions,
@@ -35,11 +45,11 @@ For every patch release update:
    NaN2008, internal glibc toolchain, Linux 6.6 headers, and C++.
 7. Confirm the effective GCC and binutils versions and that no external
    toolchain is selected.
-8. Run `scripts/build-x2000` from clean output and execute the
-   package-version, Python, ELF, and ABI checks.
-9. Run exactly one `scripts/build-x2000 --kernel-build` after the RootFS-only
-   validation.
-10. Record the change as build-validated only after those builds pass.
+8. Run exactly one `scripts/build-x2000 --kernel-build` from clean output so
+   the candidate Kernel and RootFS use the same current Buildroot basis. Do not
+   add `--f005-build`; retain the qualified F005 release baseline.
+9. Confirm the package-version, Python, ELF, and ABI checks from that build.
+10. Record the change as build-validated only after the build passes.
     Hardware validation remains a separate status and must not be inferred
     from build success.
 

@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "purpose": "Pure-Python wheels required by pinned Moonraker dependencies that are not supplied at a compatible version by Buildroot 2025.02.17",
+  "purpose": "Pure-Python wheels required by pinned Moonraker dependencies that are not supplied at a compatible version by Buildroot 2025.02.18",
   "retrieved": "2026-09-03",
   "source": "PyPI",
   "target": {

@@ -235,7 +235,7 @@ verify_mips_toolchain() {
 		die "shared Buildroot MIPS toolchain has an unexpected target"
 
 	"$mips_cc_host" --version | head -n 1 |
-		grep -Fxq 'mipsel-buildroot-linux-gnu-gcc.br_real (Buildroot 2025.02.17-dirty) 13.4.0' ||
+		grep -Fxq 'mipsel-buildroot-linux-gnu-gcc.br_real (Buildroot 2025.02.18-dirty) 13.4.0' ||
 		die "shared Buildroot MIPS compiler version mismatch"
 
 	"$mips_ld_host" --version | head -n 1 |

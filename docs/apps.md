@@ -463,8 +463,8 @@ implicitly re-enable the disabled service.
 
 ### Package and reference-X2000 validation
 
-The local pinned Buildroot `2025.02.17`, commit
-`d0820dd09916edcefc44e525355afbea30d5bee4`, defines Lighttpd `1.4.81`
+The local pinned Buildroot `2025.02.18`, commit
+`d030e36bbc9669230c015be971b14b6e062cfdde`, defines Lighttpd `1.4.81`
 (BSD-3-Clause). Only `BR2_PACKAGE_LIGHTTPD=y` and
 `BR2_PACKAGE_LIGHTTPD_PCRE=y` are requested. PCRE selects PCRE2 for the routing
 expression; the package also selects xxhash and libxcrypt on glibc. Optional
@@ -533,7 +533,7 @@ Moonraker `985c1d0bbeb90bc057d34a232c9dc3b05e0c6c8d` (GPL-3.0-only):
 and [NetDeploy validation](https://github.com/Arksine/moonraker/blob/985c1d0bbeb90bc057d34a232c9dc3b05e0c6c8d/moonraker/components/update_manager/net_deploy.py).
 
 Lighttpd package provenance: pinned Buildroot
-[package definition](https://gitlab.com/buildroot.org/buildroot/-/blob/d0820dd09916edcefc44e525355afbea30d5bee4/package/lighttpd/lighttpd.mk)
+[package definition](https://gitlab.com/buildroot.org/buildroot/-/blob/d030e36bbc9669230c015be971b14b6e062cfdde/package/lighttpd/lighttpd.mk)
 and [upstream 1.4.81 source](https://download.lighttpd.net/lighttpd/releases-1.4.x/lighttpd-1.4.81.tar.xz),
 SHA256 `d7d42c3fd2fd94b63c915aa7d18f4da3cac5937ddba33e909f81cf50842a5840`
 from Buildroot's package hash file. `src/meson.build` defines builtin/dynamic
