@@ -1,6 +1,6 @@
 # Moonraker runtime bring-up — current state
 
-Status date: 2026-09-11
+Status date: 2026-09-14
 
 ## Current architecture
 
@@ -161,11 +161,14 @@ system-overlay reset: upper/work are recreated; RootFS stable X is visible again
 ```
 
 This replaces the discarded multi-version/`active-version` mechanism. The
-system-overlay reset itself and retention of `/home` are hardware-qualified;
-the RootFS-integrated Moonraker baseline was subsequently built and deployed
-through the Stage-D RootFS path. Normal-reboot state retention and recovery of
-that baseline after a system-overlay reset still require qualification with the
-final `2026.2` candidate.
+release-mode `2026.2.a` candidate qualified the complete recovery path on the
+investigated reference system. An authorized system-overlay reset exposed the
+RootFS-integrated Moonraker baseline while retaining `/home`; Moonraker started
+from that baseline and returned to clean ready Klippy state. After the managed
+Fluidd payload was explicitly restored, `/server/info` reported no failed
+components or warnings. A subsequent Fre3nder-to-Fre3nder reboot retained the
+persistent Moonraker configuration/state and returned to the same ready
+runtime.
 
 ## Preserved hardware evidence
 
@@ -181,7 +184,8 @@ results for the same pinned Moonraker version and dependency set:
 - S60 readiness plus natural boot without the observed startup race.
 
 These results qualify the runtime and service behavior. The same pinned source
-and dependency baseline was subsequently built and deployed through the Stage-D
-RootFS path. Final-candidate normal-reboot state retention and OverlayFS
-recovery remain open; self-update and post-update restart are deferred beyond
+and dependency baseline was built into the `2026.2.a` candidate tested on the
+reference system. Final-candidate normal-reboot state retention and OverlayFS
+baseline recovery are now hardware-qualified. Self-update, dependency
+transition handling, and automatic post-update restart remain deferred beyond
 `2026.2`.

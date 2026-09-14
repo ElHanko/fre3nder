@@ -13,9 +13,15 @@ Fre3nder architecture model or move to a new Buildroot feature series. The
 commit pin remains authoritative; its exact annotated release tag is fetched
 and verified against that commit because Buildroot uses it for version identity.
 The ABI and architecture profiles were hardware-qualified with the previous
-baseline. Compatibility of the concrete Buildroot `2025.02.18` toolchain is
-statically checked, but that toolchain is not yet built or hardware-qualified.
-Build and hardware qualification follow with the release candidate.
+baseline. The concrete Buildroot `2025.02.18` toolchain was subsequently built
+as part of the release-mode `2026.2.a` candidate from project commit
+`885706f121c76190d6d74177ffac3895cd58c78d` and hardware-qualified on the
+investigated reference system. Successful boot, system-overlay recovery,
+Fre3nder-to-Fre3nder reboot persistence, the complete service stack, and a real
+print exercised both the userspace and kernel toolchain profiles. Both are now
+recorded as hardware-qualified in `configs/x2000/sources.json`. This evidence
+applies to the exact `2025.02.18` pin; a later Buildroot patch release requires
+fresh qualification.
 
 A move to a new LTS line, such as `2027.02`, is a separate migration requiring
 its own qualification. Buildroot may rename MIPS or internal-toolchain Kconfig

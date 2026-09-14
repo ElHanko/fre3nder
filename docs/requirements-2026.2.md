@@ -120,7 +120,7 @@ complete.
 
 ## REQ-2026.2-002 - Application software and persistence
 
-Status: **OFFLINE IMPLEMENTED / PARTIALLY HARDWARE QUALIFIED**
+Status: **OFFLINE IMPLEMENTED / NORMAL AND RESTORE LIFECYCLE HARDWARE QUALIFIED**
 
 Fre3nder shall clearly separate reconstructible application software from
 upgrade-persistent configuration and user state. A platform RootFS may contain
@@ -148,18 +148,18 @@ version resolver, or multi-version activation mechanism for every application.
 
 The OverlayFS and separate `/home` roles, marker-authorized system reset,
 service gating, generic application dispatcher, and explicit Fluidd
-install/restore/remove lifecycle are implemented. The persistence/reset
-behavior is partially qualified on the reference system, and the Moonraker
-baseline is integrated into the built and deployed RootFS path. Normal-reboot
-persistence and explicit restore of the separately installed Fluidd payload
-remain to be qualified before this requirement is complete.
+install/restore/remove lifecycle are implemented. The final `2026.2.a`
+candidate qualified normal-reboot persistence and explicit reconstruction of a
+missing Fluidd system-overlay payload while retaining desired state and
+configuration under `/home`. The reconstructed web stack returned to HTTP 200
+and remained present after a subsequent Fre3nder-to-Fre3nder reboot.
 
 Automatic desired-state reconciliation after an overlay reset and application
 self-update are later lifecycle improvements, not `2026.2` acceptance criteria.
 
 ## REQ-2026.2-003 - Moonraker integration
 
-Status: **OFFLINE IMPLEMENTED / RUNTIME PARTIALLY HARDWARE QUALIFIED**
+Status: **OFFLINE IMPLEMENTED / NORMAL AND RECOVERY LIFECYCLE HARDWARE QUALIFIED**
 
 Moonraker shall be the supported API and application-management boundary above
 Klipper.
@@ -188,12 +188,13 @@ the Fre3nder base platform.
 Reference hardware qualifies the pinned Moonraker runtime and dependency set,
 real startup, local HTTP API, network discovery, volatile Moonraker UDS,
 persistent configuration, ready Klippy connection, and S60 readiness through a
-natural boot. It now also qualifies LAN access to `/server/info` and real
-Moonraker JSON-RPC WebSocket traffic through Lighttpd while Moonraker remains
-loopback-only. The fixed RootFS source and Python environment were subsequently
-built and deployed as part of the Stage-D RootFS path. Qualification of the
-final `2026.2` candidate, its normal-reboot state retention, and its baseline
-recovery after a system-overlay reset remain open.
+natural boot. LAN access to `/server/info` and real Moonraker JSON-RPC
+WebSocket traffic through Lighttpd are qualified while Moonraker remains
+loopback-only. The fixed RootFS source and Python environment were built into
+the release-mode `2026.2.a` candidate. That candidate qualified baseline
+recovery after a system-overlay reset, clean `klippy_state=ready` operation
+without failed components or warnings, and persistent Moonraker
+configuration/state across a Fre3nder-to-Fre3nder reboot.
 
 Moonraker self-update, dependency transitions, and automatic post-update S61
 restart are not implemented as a complete lifecycle and are deferred beyond
@@ -201,7 +202,7 @@ restart are not implemented as a complete lifecycle and are deferred beyond
 
 ## REQ-2026.2-004 - Update ownership boundary
 
-Status: **OFFLINE IMPLEMENTED / PARTIALLY HARDWARE QUALIFIED**
+Status: **OFFLINE IMPLEMENTED / EXERCISED APP LIFECYCLE HARDWARE QUALIFIED**
 
 Fre3nder shall distinguish platform updates from managed-application updates.
 
@@ -256,7 +257,7 @@ final `2026.2` release.
 
 ## REQ-2026.2-006 - Frontend-neutral web-UI layer
 
-Status: **OFFLINE IMPLEMENTED / PARTIALLY HARDWARE QUALIFIED**
+Status: **OFFLINE IMPLEMENTED / FLUIDD REFERENCE PATH HARDWARE QUALIFIED**
 
 Fre3nder shall provide a persistent frontend-neutral web-UI layer.
 
@@ -272,16 +273,19 @@ outside the immutable RootFS.
 The selected active frontend is a LAN web-UI concern. The native local display
 is independently provided by GuppyScreen and does not consume this selection.
 
-Partial reference-hardware evidence now demonstrates the frontend-neutral
-selection file driving the generic S62 document root, a selected Fluidd payload
-served over the LAN, and HTTP/WebSocket forwarding to loopback-only Moonraker.
-Replacement with another compatible web frontend has not been qualified on the
-reference system; hardware qualification of multiple frontends is not required
-for `2026.2`.
+Reference-hardware evidence demonstrates the frontend-neutral selection file
+driving the generic S62 document root, a selected Fluidd payload served over the
+LAN, and HTTP/WebSocket forwarding to loopback-only Moonraker. The selected
+frontend survived the final-candidate reboot and resumed service after the
+reconstructible Fluidd payload was explicitly restored following the
+system-overlay reset. Replacement with another compatible web frontend has not
+been qualified on the reference system; hardware qualification of multiple
+frontends is not required for `2026.2`.
 
 ## REQ-2026.2-007 - Fluidd reference frontend
 
-Status: **OFFLINE IMPLEMENTED / PARTIALLY HARDWARE QUALIFIED**
+Status: **OFFLINE IMPLEMENTED / REBOOT AND RESTORE HARDWARE QUALIFIED /
+FLUIDD UI CONTROL OPEN**
 
 Fluidd shall be the first web frontend qualified for `2026.2`.
 
@@ -298,16 +302,19 @@ Qualification shall demonstrate:
 Support for alternative compatible frontends is an architectural requirement;
 hardware qualification of multiple frontends is not required for `2026.2`.
 
-Partial reference-hardware evidence now demonstrates initial Fluidd bootstrap,
+Reference-hardware evidence demonstrates initial Fluidd bootstrap,
 installation into the persistent application/UI layout, active frontend
-selection, static LAN access, and real Moonraker HTTP and WebSocket connectivity.
-Printer control through Fluidd, reboot persistence, explicit restore/removal,
-and independent replacement without RootFS deployment are not yet qualified.
-Moonraker-driven Fluidd self-update is deferred beyond `2026.2`.
+selection, static LAN access, and real Moonraker HTTP and WebSocket
+connectivity. The final candidate additionally qualifies normal-reboot
+persistence and explicit `fre3nder restore fluidd` reconstruction after a
+system-overlay reset. Explicit normal printer control through the Fluidd UI and the explicit
+uninstall path remain open. Hardware qualification of multiple frontend
+implementations is not required for `2026.2`, and Moonraker-driven Fluidd
+self-update is deferred beyond `2026.2`.
 
 ## REQ-2026.2-008 - Display, touch, and local presentation
 
-Status: **CORE LOCAL UI HARDWARE QUALIFIED / NORMAL CONTROL FLOWS OPEN**
+Status: **HARDWARE QUALIFIED ON THE REFERENCE SYSTEM**
 
 Fre3nder shall provide an open local display path for the printer's integrated
 display.
@@ -357,23 +364,25 @@ standby/wake behavior, and touch-beep path are physically qualified.
 
 The current pin `baa4f6689ac7334d240107529f6d3c42a1297319` adds the compact
 272x480 portrait layouts and was cross-compiled through the normal component
-path. Its Home temperatures and chart, Settings, Printer Tune, Console, Macros,
-and left navigation were physically exercised in a volatile on-device test.
-Persistent RootFS deployment of that exact pin remains part of qualification of
-the final `2026.2` candidate.
+path. The exact pin was incorporated into the release-mode `2026.2.a` candidate
+RootFS, deployed persistently to p8, and exercised on-device. Home temperatures
+and chart, Settings, Printer Tune, Console, Macros, and left navigation were
+physically exercised. A real print was then selected and started directly
+through GuppyScreen and completed successfully.
 
 Detailed evidence is recorded in
 [`x2000-display-touch.md`](x2000-display-touch.md) and
 [`guppyscreen.md`](guppyscreen.md).
 
-REQ-2026.2-008 remains incomplete only with respect to the broader set of
-normal local printer-control flows and their integrated behavior with
-Moonraker/Klipper. Those flows remain part of the final usable-system
-qualification rather than a display/touch hardware blocker.
+REQ-2026.2-008 is hardware-qualified on the investigated reference system.
+The final candidate demonstrated the native display/touch path, the exact
+persistent GuppyScreen pin, normal Moonraker/Klipper integration, and a complete
+real print initiated through the local UI. Additional UI polish is post-release
+quality-of-life work rather than a `2026.2` hardware blocker.
 
 ## REQ-2026.2-009 - Integrated usable-system qualification
 
-Status: **PLANNED**
+Status: **HARDWARE QUALIFIED ON THE REFERENCE SYSTEM**
 
 A final `2026.2` candidate shall be qualified as one integrated system on the
 investigated reference device.
@@ -398,9 +407,22 @@ The qualification shall demonstrate at minimum:
   Fre3nder-controlled MCU/platform components by managed-application
   operations.
 
-Completion of this requirement establishes the `2026.2 Usable System`
-functional milestone. Creation of the final release tag remains a separate
-release action under `docs/versioning.md`.
+The release-mode `2026.2.a` candidate from project commit
+`885706f121c76190d6d74177ffac3895cd58c78d` demonstrated the integrated path:
+kernel and RootFS boot, persistence, clean Klipper/Moonraker startup, expected
+F005 communication, Fluidd LAN availability, local GuppyScreen operation, a
+successful real print initiated through GuppyScreen, explicit Fluidd
+reconstruction after a system-overlay reset, and successful
+Fre3nder-to-Fre3nder reboot persistence. The next-boot selector was returned to
+the normal safe `STOCK_A` development state after testing.
+
+Detailed evidence is recorded in
+`docs/qualification-2026.2.md`.
+
+Completion of this requirement establishes the integrated `2026.2 Usable
+System` functional milestone. Separate acceptance items retained by other
+requirements are not implicitly waived. Creation of the final release tag
+remains a separate release action under `docs/versioning.md`.
 
 ## REQ-2026.2-010 - Componentized X2000 build architecture
 

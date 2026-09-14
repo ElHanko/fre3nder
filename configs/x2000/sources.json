@@ -105,7 +105,7 @@
     "libc": "glibc",
     "kernel_headers": "6.6",
     "target": "mipsel MIPS32r2 O32 hard-float FPXX NaN2008",
-    "hardware_validated": false
+    "hardware_validated": true
   },
   "kernel_toolchain": {
     "identity": "Buildroot internal toolchain",
@@ -115,7 +115,7 @@
     "compiler": "mipsel-buildroot-linux-gnu-gcc.br_real",
     "target": "mipsel MIPS32r5 O32 soft-float legacy-NaN",
     "relationship": "same toolchain family as userspace, with separate Kbuild target flags",
-    "hardware_validated": false
+    "hardware_validated": true
   },
   "patch_set": {
     "identity": "fre3nder-x2000-ke-wlan-v1",

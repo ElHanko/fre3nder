@@ -1,6 +1,7 @@
 # Installable applications
 
-Status: **OFFLINE IMPLEMENTED / PARTIALLY HARDWARE QUALIFIED**.
+Status: **OFFLINE IMPLEMENTED / RESTORE AND REBOOT HARDWARE QUALIFIED;
+FLUIDD UI CONTROL STILL OPEN**.
 
 Fre3nder supplies a small application dispatcher, `/usr/bin/fre3nder`, and
 optional Lighttpd web infrastructure in the RootFS build inputs. The official
@@ -152,9 +153,10 @@ scripts/install-development-app --apply <printer-host> <app>
 ```
 
 After a successful install, it restarts Moonraker and then the web server. It
-does not restart Klipper. Both forms are development workflows; they do not
-replace the separately required automatic app restore after boot or an overlay
-reset.
+does not restart Klipper. Both forms are development workflows. After a system-overlay reset, a
+separately installed application is reconstructed through the explicit
+`fre3nder restore <app>` lifecycle. Automatic desired-state reconciliation is
+deferred beyond `2026.2`.
 
 In summary, a clean build whose `APP_REF` names a published commit uses:
 
@@ -516,6 +518,27 @@ published the configured `fre3nder_camera`, and both
 `/webcam/?action=snapshot` and the Fluidd live view traversed Lighttpd while
 `mjpg_streamer` remained bound only to `127.0.0.1:8080`.
 
+### Final-candidate restore and reboot result
+
+The release-mode `2026.2.a` candidate was deployed with the authorized
+system-persistence reset. The persistent Fluidd desired-state marker,
+Moonraker fragment, and active frontend selection under `/home` survived while
+the reconstructible `/opt/fre3nder/web/fluidd` payload was absent, causing the
+expected `payload-unavailable` web-service state.
+
+`fre3nder status fluidd` reported `desired=installed`, a present compatible app
+handler, a missing payload, and present Moonraker configuration/include state.
+`fre3nder restore fluidd` reconstructed the payload. After the documented web
+and Moonraker restarts, Lighttpd returned HTTP 200, `/server/info` reported
+ready Klippy state with no failed components or warnings, and the expected
+qualified F005 MCU remained connected.
+
+A subsequent authorized Fre3nder-to-Fre3nder reboot retained the Fluidd desired
+state, handler, payload, and active frontend selection. The frontend again
+returned HTTP 200 without another restore. This qualifies the explicit
+system-overlay restore path and normal-reboot persistence on the investigated
+reference system.
+
 ## References and remaining qualification
 
 The bootstrap contract uses the official
@@ -553,11 +576,10 @@ uses Vue Router's default hash mode; no history-path fallback is introduced.
 This is reference evidence, not a Fluidd version pin.
 
 Still open: automatic camera hotplug recovery after a boot without the camera,
-Fluidd reboot persistence, system-overlay reset and restore,
 Moonraker-driven Fluidd update, uninstall and the built-in-webserver disable
-marker on real hardware, an external-webserver scenario, and printer control
-through the UI. HTTPS/TLS and alternative frontend implementations are outside
-this step. The demonstrated initial Fluidd bootstrap, active selection, static
+marker on real hardware, an external-webserver scenario, and explicit normal
+printer control through the Fluidd UI. HTTPS/TLS and qualification of
+alternative frontend implementations are outside this step. The demonstrated initial Fluidd bootstrap, active selection, static
 LAN delivery, HTTP/WebSocket and webcam proxying, loopback-only Moonraker and
 camera backends, LAN authorization, and Fluidd camera display are qualified only
 on the investigated reference system. If the camera is connected only after S63

@@ -1,7 +1,7 @@
 # GuppyScreen local Core-UI
 
-Status: **CORE INTEGRATION HARDWARE QUALIFIED / CURRENT PIN PERSISTENT
-DEPLOYMENT OPEN** on the investigated reference system.
+Status: **CURRENT PIN PERSISTENTLY DEPLOYED AND HARDWARE QUALIFIED**
+on the investigated reference system.
 
 GuppyScreen is Fre3nder's native local Core-UI. It is built from source into
 the immutable RootFS baseline and is neither a managed application nor a web
@@ -36,13 +36,12 @@ Makefile has a real `CROSS_COMPILE` path used by upstream's MIPS release job;
 Fre3nder uses the already established Buildroot GCC 13.4.0/binutils 2.43.1
 MIPS32r2/O32/hard-float/FPXX/NaN2008 toolchain instead of upstream's downloadable
 toolchain. The currently pinned fork commit was successfully cross-compiled with the
-Fre3nder Buildroot toolchain and packaged through the normal development
-component build path. The underlying GuppyScreen display, touch, backlight,
-standby, and touch-feedback integration had previously been assembled into the
-RootFS, deployed to p8, and booted on the investigated reference system. The
-compact portrait changes in the current pin were physically qualified there
-through a volatile on-device test; persistent RootFS deployment of this exact
-commit remains a separate step.
+Fre3nder Buildroot toolchain, packaged through the normal component path, and
+incorporated into the release-mode `2026.2.a` candidate RootFS. That exact
+RootFS was deployed to p8 and booted on the investigated reference system.
+Display, touch, backlight, standby, touch feedback, and the compact portrait UI
+were exercised from the persistent candidate. A complete real print was
+selected and started through GuppyScreen and finished successfully.
 
 Pinned native/vendored dependencies are:
 
@@ -193,15 +192,17 @@ calibrated touch path. Automatic backlight startup, 60-second physical
 backlight standby, first-touch wake, and audible touch-click feedback through
 Linux `pwm-beeper` are physically qualified.
 
-The current pin's compact portrait UI path is physically qualified through a
-volatile on-device test on the reference 272x480 logical display. Home
-temperatures and chart, Settings, Printer Tune, Console, Macros, and the left
-navigation were exercised. Narrow portrait layouts use the shared display-size
-detection in the pinned fork while the existing landscape layouts remain
-unchanged. Persistent RootFS deployment of this exact pin remains open.
+The current pin's compact portrait UI path is now physically qualified from
+the persistent `2026.2.a` candidate RootFS on the reference 272x480 logical
+display. Home temperatures and chart, Settings, Printer Tune, Console, Macros,
+and the left navigation were exercised. Narrow portrait layouts use the shared
+display-size detection in the pinned fork while the existing landscape layouts
+remain unchanged.
 
-The wider set of normal printer-control flows remains outside this
-qualification.
+A real print was selected and started directly through GuppyScreen and completed
+successfully. This exercised the normal GuppyScreen -> Moonraker -> Klipper ->
+F005 control path, including heating, homing, motion, extrusion, and job-state
+handling while the LAN web stack remained independently available.
 
 ## Persistent core integration and current-pin UI result
 
@@ -221,10 +222,12 @@ Touch calibration/rotation                   PASS
 Touch-beep / pwm-beeper                      PASS
 Current-pin cross-compilation/package        PASS
 Current-pin volatile compact portrait test   PASS
-Current-pin persistent RootFS deployment     OPEN
+Current-pin persistent RootFS deployment     PASS
+Real print initiated through GuppyScreen           PASS
+Fre3nder-to-Fre3nder reboot persistence            PASS
 ```
 
-The core local integration is therefore hardware-qualified on the investigated
-reference system. Persistent deployment of the current pin, broader normal
-printer-control flows, and qualification across other hardware revisions remain
-separate work.
+The current pinned local UI is therefore persistently deployed and
+hardware-qualified on the investigated reference system, including one complete
+real-print control flow. Additional UI polish and qualification across other
+hardware revisions remain separate work.

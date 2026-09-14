@@ -81,11 +81,11 @@ The release-level requirements and acceptance criteria are defined in
    Mainsail installable without rebuilding the RootFS.
 
 8. Complete the local display stack with GuppyScreen as the native Core-UI.
-   The core local UI is hardware-qualified on the reference system: build,
-   RootFS deployment, startup, fbdev output, dynamic evdev discovery, physical
+   The exact current pin is persistently deployed and hardware-qualified on the
+   reference system: startup, fbdev output, dynamic evdev discovery, physical
    rotation, calibrated touch mapping, automatic backlight startup, 60-second
-   standby/wake, and touch-beep feedback are demonstrated. Broader normal
-   printer-control flows remain part of integrated usable-system qualification.
+   standby/wake, touch-beep feedback, and a complete real print initiated
+   through GuppyScreen are demonstrated.
 
 9. Perform integrated `2026.2` qualification across normal boot, persistence,
    Klipper, Moonraker, managed-application lifecycle, Fluidd through the
@@ -134,29 +134,31 @@ requirement:
   discovery, and ready Klippy UDS connection have been demonstrated on the
   reference system;
 - Moonraker RootFS integration:
-  **OFFLINE IMPLEMENTED / RUNTIME PARTIALLY QUALIFIED ON DEVICE**; the fixed
-  pinned Git checkout, Python environment, RootFS dependencies, S61 fixed-path
-  launch, and strict update-ownership configuration are implemented. The same
-  pinned runtime, HTTP/API behavior, Klippy UDS connection, persistent config,
-  volatile Moonraker UDS, and S60/S61 boot ordering are qualified on the
-  reference system. The built-in baseline was subsequently built and deployed
-  through the Stage-D RootFS path. Final-candidate normal-reboot state
-  retention and overlay-reset baseline recovery remain to be qualified;
-- frontend-neutral web-UI layer: **OFFLINE IMPLEMENTED / PARTIALLY HARDWARE
-  QUALIFIED**; the selected Fluidd payload, LAN HTTP delivery, Moonraker HTTP
-  API, and real WebSocket forwarding are demonstrated on the reference system;
-- managed-application interface and Fluidd lifecycle: **OFFLINE IMPLEMENTED /
-  PARTIALLY HARDWARE QUALIFIED**; initial install, selection, service
-  integration, and network use are demonstrated; normal-reboot persistence,
-  explicit restore/removal, and ordinary printer control through Fluidd remain
-  to be qualified;
-- GuppyScreen local Core-UI: **PARTIALLY HARDWARE QUALIFIED**; the preceding
-  persistent integration and its startup, fbdev output, NS2009 evdev input,
-  `display_rotate: 1`, calibrated touch mapping, automatic backlight startup,
-  60-second standby/wake, and `pwm-beeper` touch feedback are demonstrated. The
-  current pin's compact Home, Settings, Printer Tune, Console, Macros, and left
-  navigation were exercised in a volatile on-device test; persistent deployment
-  of that exact pin and broader normal printer-control flows remain open.
+  **NORMAL AND RECOVERY LIFECYCLE QUALIFIED ON DEVICE**; the fixed pinned Git
+  checkout, Python environment, RootFS dependencies, S61 fixed-path launch,
+  Klippy UDS connection, persistent configuration, LAN API path, and strict
+  update-ownership boundary are demonstrated. The final `2026.2.a` candidate
+  additionally qualified system-overlay baseline recovery and
+  Fre3nder-to-Fre3nder reboot state retention;
+- frontend-neutral web-UI layer: **FLUIDD REFERENCE PATH QUALIFIED ON
+  DEVICE**; selected Fluidd payload delivery, LAN HTTP, Moonraker HTTP API,
+  WebSocket forwarding, active-frontend persistence, and recovery after an
+  explicit payload restore are demonstrated on the reference system;
+- managed-application interface and Fluidd lifecycle: **RESTORE AND REBOOT
+  HARDWARE QUALIFIED / FLUIDD UI CONTROL OPEN**; initial install, selection,
+  service integration, network use, system-overlay reconstruction, and
+  normal-reboot persistence are demonstrated. Explicit normal printer control
+  through the Fluidd UI remains open;
+- GuppyScreen local Core-UI: **HARDWARE QUALIFIED ON DEVICE**; the exact current
+  pin is persistently deployed and demonstrates startup, fbdev output, NS2009
+  evdev input, `display_rotate: 1`, calibrated touch mapping, automatic
+  backlight startup, 60-second standby/wake, `pwm-beeper` touch feedback, and a
+  successful real print initiated through GuppyScreen;
+- integrated `2026.2.a` usable-system candidate: **HARDWARE QUALIFIED ON
+  DEVICE**; kernel/RootFS deployment, system-overlay recovery, persistent
+  configuration, Klipper/Moonraker/F005 operation, Fluidd LAN availability,
+  GuppyScreen printing, and Fre3nder-to-Fre3nder reboot persistence passed on
+  the investigated reference system. See `docs/qualification-2026.2.md`.
 
 ## Mandatory gates
 
