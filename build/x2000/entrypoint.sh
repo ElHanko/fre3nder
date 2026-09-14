@@ -137,13 +137,24 @@ out.joinpath("build-manifest.json").write_text(
 PY
 }
 
+verify_buildroot_release() {
+	[ "$(git -C "$buildroot" rev-parse HEAD)" = "$buildroot_commit" ] ||
+		return 1
+	[ "$(git -C "$buildroot" cat-file -t \
+		"refs/tags/$buildroot_version")" = tag ] ||
+		return 1
+	[ "$(git -C "$buildroot" rev-parse \
+		"refs/tags/${buildroot_version}^{}")" = "$buildroot_commit" ] ||
+		return 1
+}
+
 prepare_buildroot() {
 	[ -d "$buildroot/.git" ]
 	[ "$(git -C "$buildroot" remote get-url origin)" = "$buildroot_url" ]
 	git -C "$buildroot" reset --hard "$buildroot_commit"
 	git -C "$buildroot" clean -fdx
 	git -C "$buildroot" checkout --detach "$buildroot_commit"
-	[ "$(git -C "$buildroot" rev-parse HEAD)" = "$buildroot_commit" ]
+	verify_buildroot_release
 	git -C "$buildroot" apply "$buildroot_patch"
 	git -C "$buildroot" apply --reverse --check "$buildroot_patch"
 	git -C "$buildroot" diff --check
@@ -651,13 +662,20 @@ fetch_moonraker_inputs() {
 	fetch_moonraker_python_wheels
 }
 
-fetch_buildroot_inputs() {
+fetch_buildroot_release() {
 	[ -d "$buildroot/.git" ] ||
-		git clone --filter=blob:none --no-checkout "$buildroot_url" "$buildroot"
+		git clone --filter=blob:none --no-checkout --no-tags \
+			"$buildroot_url" "$buildroot"
 	[ "$(git -C "$buildroot" remote get-url origin)" = "$buildroot_url" ]
-	git -C "$buildroot" fetch origin "$buildroot_commit"
+	git -C "$buildroot" fetch --no-tags origin "$buildroot_commit"
+	git -C "$buildroot" fetch --no-tags origin \
+		"refs/tags/$buildroot_version:refs/tags/$buildroot_version"
 	git -C "$buildroot" checkout --detach "$buildroot_commit"
-	[ "$(git -C "$buildroot" rev-parse HEAD)" = "$buildroot_commit" ]
+	verify_buildroot_release
+}
+
+fetch_buildroot_inputs() {
+	fetch_buildroot_release
 	prepare_buildroot
 
 	brfetch="$work/buildroot-fetch"

@@ -146,6 +146,12 @@ grep -Fxq 'buildroot_dl="$work/buildroot-dl"' "$entrypoint"
 grep -Fxq 'buildroot_version=2025.02.18' "$entrypoint"
 grep -Fxq 'buildroot_commit=d030e36bbc9669230c015be971b14b6e062cfdde' \
 	"$entrypoint"
+grep -Fq '"refs/tags/$buildroot_version:refs/tags/$buildroot_version"' \
+	"$entrypoint"
+grep -Fq '"refs/tags/${buildroot_version}^{}"' "$entrypoint"
+! grep -Fq '2025.02.17-113-gd030e36bbc-dirty' "$entrypoint"
+grep -Fq 'expected_compiler_version="mipsel-buildroot-linux-gnu-gcc.br_real (Buildroot ${buildroot_version}-dirty) 13.4.0"' \
+	"$entrypoint"
 grep -Fq 'config BR2_mips_xburst2' "$entrypoint"
 grep -Fq 'BR_FP_CONTRACT_OFF' "$entrypoint"
 grep -Fq -- '-ffp-contract=off' "$entrypoint"
@@ -396,6 +402,57 @@ grep -Fq 'relative.suffix in (".pyc", ".pyo")' "$entrypoint"
 tmp=$(mktemp -d)
 trap 'rm -rf -- "$tmp"' EXIT HUP INT TERM
 
+# Fetch the authoritative commit and only its exact annotated release tag.
+for function_name in verify_buildroot_release fetch_buildroot_release; do
+	sed -n "/^$function_name() {\$/,/^}\$/p" "$entrypoint"
+done > "$tmp/buildroot-release-functions.sh"
+. "$tmp/buildroot-release-functions.sh"
+
+release_source=$tmp/buildroot-release-source
+git init -q "$release_source"
+git -C "$release_source" config user.name 'Buildroot release fixture'
+git -C "$release_source" config user.email 'buildroot-fixture@fre3nder.invalid'
+printf '%s\n' previous > "$release_source/release"
+git -C "$release_source" add release
+git -C "$release_source" commit -q -m previous
+previous_commit=$(git -C "$release_source" rev-parse HEAD)
+git -C "$release_source" tag -a -m 2025.02.17 2025.02.17
+printf '%s\n' current > "$release_source/release"
+git -C "$release_source" commit -q -am current
+release_commit=$(git -C "$release_source" rev-parse HEAD)
+git -C "$release_source" tag -a -m 2025.02.18 2025.02.18
+
+buildroot=$tmp/buildroot-release-checkout
+buildroot_url=$release_source
+buildroot_version=2025.02.18
+buildroot_commit=$release_commit
+fetch_buildroot_release
+[ "$(git -C "$buildroot" cat-file -t refs/tags/2025.02.18)" = tag ]
+[ "$(git -C "$buildroot" rev-parse 'refs/tags/2025.02.18^{}')" = \
+	"$release_commit" ]
+! git -C "$buildroot" show-ref --verify --quiet refs/tags/2025.02.17
+printf '%s\n' dirty >> "$buildroot/release"
+[ "$(git -C "$buildroot" describe --tags --always --dirty)" = \
+	2025.02.18-dirty ]
+
+# A valid release tag that dereferences to another commit must fail closed.
+buildroot=$tmp/buildroot-release-mismatch
+buildroot_commit=$previous_commit
+if fetch_buildroot_release 2>/dev/null; then
+	echo 'Buildroot accepted a release tag/commit mismatch' >&2
+	exit 1
+fi
+
+# A lightweight tag on the pinned commit must also fail closed.
+git -C "$release_source" tag -d 2025.02.18 >/dev/null
+git -C "$release_source" tag 2025.02.18 "$release_commit"
+buildroot=$tmp/buildroot-release-lightweight
+buildroot_commit=$release_commit
+if fetch_buildroot_release 2>/dev/null; then
+	echo 'Buildroot accepted a lightweight release tag' >&2
+	exit 1
+fi
+
 # Component payloads are consumed only after their identity and archive hash
 # match the current RootFS inputs.
 sed -n '/^prepare_rootfs_component() {$/,/^}$/p' "$entrypoint" > \
@@ -586,6 +643,17 @@ create_cached_toolchain() {
 	write_buildroot_toolchain_fingerprint "$cache_output"
 	: > "$cache_output/preserved"
 }
+
+# The exact release identity is accepted; the observed previous-tag fallback is not.
+create_toolchain_fixture
+buildroot_toolchain_contract_matches "$cache_output"
+sed -i 's/Buildroot 2025.02.18-dirty/Buildroot 2025.02.17-113-gd030e36bbc-dirty/' \
+	"$cache_output/host/bin/mipsel-buildroot-linux-gnu-gcc.br_real"
+if buildroot_toolchain_contract_matches "$cache_output"; then
+	echo 'Buildroot accepted the previous-tag compiler identity' >&2
+	exit 1
+fi
+rm -rf -- "$cache_output"
 
 # 1. Release always removes an existing output.
 mkdir -p "$cache_output"

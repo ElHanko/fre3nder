@@ -10,7 +10,9 @@ Buildroot `2025.02.18`, the direct next patch release in the same LTS series.
 It carries bug fixes and security maintenance, including updates to expat,
 glibc, libcurl, and OpenSSL used by Fre3nder. This does not change the
 Fre3nder architecture model or move to a new Buildroot feature series. The
-ABI and architecture profiles were hardware-qualified with the previous
+commit pin remains authoritative; its exact annotated release tag is fetched
+and verified against that commit because Buildroot uses it for version identity.
+The ABI and architecture profiles were hardware-qualified with the previous
 baseline. Compatibility of the concrete Buildroot `2025.02.18` toolchain is
 statically checked, but that toolchain is not yet built or hardware-qualified.
 Build and hardware qualification follow with the release candidate.
