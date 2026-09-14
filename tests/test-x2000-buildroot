@@ -20,6 +20,9 @@ moonraker_source=${MOONRAKER_SOURCE:-$root/local/production/work/x2000/moonraker
 moonraker_wheel_cache=${MOONRAKER_WHEEL_CACHE:-$root/local/production/work/x2000/moonraker-python-wheels}
 klipper_source=${KLIPPER_SOURCE:-$root/local/production/work/x2000/klipper}
 post_build="$root/configs/x2000/rootfs-post-build.sh"
+nvram="$root/configs/x2000/rootfs-overlay/lib/firmware/brcm/brcmfmac43430-sdio.txt"
+nvram_license="$root/configs/x2000/rootfs-overlay/usr/share/licenses/radxa-rkwifibt/LICENSE"
+reuse="$root/REUSE.toml"
 sdk_source=${X2000_SDK_SOURCE:-$root/local/production/work/x2000/sdk}
 sdk_commit=a98c2e1f22e4263ddd4153a4eca4db4dcfd2777b
 wlan_patch=$root/configs/x2000/ke-wlan.patch
@@ -61,7 +64,7 @@ assert data["userspace_toolchain"] == {
     "libc": "glibc",
     "kernel_headers": "6.6",
     "target": "mipsel MIPS32r2 O32 hard-float FPXX NaN2008",
-    "hardware_validated": False,
+    "hardware_validated": True,
 }
 assert data["kernel_toolchain"] == {
     "identity": "Buildroot internal toolchain",
@@ -72,7 +75,112 @@ assert data["kernel_toolchain"] == {
     "target": "mipsel MIPS32r5 O32 soft-float legacy-NaN",
     "relationship": (
         "same toolchain family as userspace, with separate Kbuild target flags"),
-    "hardware_validated": False,
+    "hardware_validated": True,
+}
+assert data["wlan_firmware"] == {
+    "package": "linux-firmware",
+    "version": "20250211",
+    "repository": "https://gitlab.com/kernel-firmware/linux-firmware.git",
+    "tag": "20250211",
+    "commit": "5bc5868b7ee5a243abdd73cfcd3bbf7166f4f42f",
+    "source": "upstream Buildroot 2025.02.18 package",
+    "archive": "linux-firmware-20250211.tar.xz",
+    "archive_sha256": (
+        "2de1345897bf839d532c5de0fdb348770ca2a5f4edfb21971582597abb45297d"),
+    "firmware_version": "7.45.98.118",
+    "firmware_fwid": "01-32059766",
+    "license": "Cypress Wireless Connectivity Devices Driver EULA",
+    "license_file": "LICENCE.cypress",
+    "license_sha256": (
+        "ae0db6cc4db33941148df0f67de53e76a77b1b5a46b3165edb7040aa2750015f"),
+    "redistribution": (
+        "object-code redistribution permitted solely for use with Cypress "
+        "integrated circuit products"),
+    "hardware_validated": True,
+    "files": [
+        {
+            "source_path": "cypress/cyfmac43430-sdio.bin",
+            "runtime_path": "brcm/brcmfmac43430-sdio.bin",
+            "sha256": (
+                "93f3c40c94340c29a40714cb04e3e89974870fcae42a844b8a4544750159f40d"),
+        },
+        {
+            "source_path": "cypress/cyfmac43430-sdio.clm_blob",
+            "runtime_path": "brcm/brcmfmac43430-sdio.clm_blob",
+            "sha256": (
+                "3376b9c9b32d16bf762e21c7fafb665365070ae240d092498d0d1987c22022aa"),
+        },
+    ],
+}
+assert "byof_firmware" not in data
+assert data["wlan_nvram"] == {
+    "identity": "AZW372 BCM43430/CYW43438 board NVRAM",
+    "repository": "https://github.com/radxa/rkwifibt",
+    "commit": "3d93dbcf5ff6e04fa760a56a0dad9f6077394072",
+    "source_path": "firmware/infineon/CYW43438/cyw43438_azw372.txt",
+    "vendored_path": (
+        "configs/x2000/rootfs-overlay/lib/firmware/brcm/"
+        "brcmfmac43430-sdio.txt"),
+    "runtime_path": "brcm/brcmfmac43430-sdio.txt",
+    "size": 1016,
+    "sha256": "6167b8aaa5e80eabe09ac5bd8570760e5241aa3a9a6243a94be9fcba33cc1915",
+    "license": "BSD-3-Clause",
+    "license_file": "LICENSE",
+    "license_sha256": (
+        "ec1dabfa95bf2e8f0de4311a9ceacfd841c45a772bf7eab3aa4c121284616df2"),
+    "copyright": "2022 Rockchip Electronics Co.,Ltd.",
+    "redistribution": (
+        "source and binary redistribution permitted under BSD-3-Clause"),
+    "upstream_modified": False,
+    "content_hardware_validated": True,
+    "build_integration_hardware_validated": True,
+    "hardware_evidence": {
+        "date": "2026-09-14",
+        "scope": (
+            "unmodified NVRAM content on the investigated reference system"),
+        "chip": "BCM43430/1",
+        "firmware_version": "7.45.98.118",
+        "firmware_fwid": "01-32059766",
+        "mac_address_preserved": True,
+        "wpa_association": "PASS",
+        "dhcp": "PASS",
+        "gateway_icmp": "10/10 replies, 0 percent loss",
+        "previous_nvram_restore_association": "PASS",
+    },
+}
+assert data["wlan_hardware_qualification"] == {
+    "date": "2026-09-14",
+    "scope": (
+        "complete linux-firmware 20250211 plus Radxa AZW372 WLAN production "
+        "path on the investigated reference system"),
+    "build_command": "scripts/build-x2000 --kernel-build --develop",
+    "artifact_mode": "development",
+    "build_input_sha256": (
+        "84f625bd0984a9eb8511eec27af7d35e55f5c9202f3f572c8da74df55ed81d33"),
+    "kernel_sha256": (
+        "93207a7b627442759bbc74716876c94592edfacb94cacd0ea52f1a9c09ab9d13"),
+    "rootfs_sha256": (
+        "f86ad04f6a63653ef79f0f8280a91d951838102cba8d509e019e78332404055b"),
+    "p6_kernel_write_readback": "PASS",
+    "p8_rootfs_write_readback": "PASS",
+    "stock_p5_unchanged": "PASS",
+    "stock_p7_unchanged": "PASS",
+    "boot_root": "/dev/mmcblk0p8",
+    "fre3nder_b_boot": "PASS",
+    "persistent_root_runtime_contract": "PASS",
+    "final_selector": "STOCK_A",
+    "runtime_nvram_sha256": (
+        "6167b8aaa5e80eabe09ac5bd8570760e5241aa3a9a6243a94be9fcba33cc1915"),
+    "runtime_nvram_file": "PASS",
+    "chip": "BCM43430/1",
+    "firmware": "7.45.98.118 (7d96287 CY)",
+    "firmware_fwid": "01-32059766",
+    "wpa_association": "PASS",
+    "dhcp": "PASS",
+    "wlan_gateway_icmp": "10/10 replies, 0 percent loss",
+    "ethernet_default_path_unchanged": "PASS",
+    "overall_gate": "PASS",
+    "bluetooth_hardware_validated": False,
 }
 assert data["userspace"]["moonraker"] == {
     "repository": "https://github.com/Arksine/moonraker.git",
@@ -187,11 +295,69 @@ grep -Fxq 'BR2_PACKAGE_LIBCURL=y' "$fragment"
 grep -Fxq 'BR2_PACKAGE_LIBCURL_FORCE_TLS=y' "$fragment"
 grep -Fxq 'BR2_PACKAGE_LIBCURL_OPENSSL=y' "$fragment"
 grep -Fxq 'BR2_PACKAGE_PYTHON_NUMPY=y' "$fragment"
+grep -Fxq 'BR2_PACKAGE_LINUX_FIRMWARE=y' "$fragment"
+grep -Fxq 'BR2_PACKAGE_LINUX_FIRMWARE_CYPRESS_CYW43XXX=y' "$fragment"
 grep -Fq "grep -Fxq 'BR2_PACKAGE_PYTHON_NUMPY=y' \"\$brout/.config\"" \
 	"$entrypoint"
 grep -Fq 'numpy_dir="$target/usr/lib/python3.12/site-packages/numpy"' \
 	"$entrypoint"
 grep -Fq -- "-name '_multiarray_umath*.so'" "$entrypoint"
+! grep -Fq 'stage_byof_firmware()' "$entrypoint"
+grep -Fq 'stage_kernel_firmware()' "$entrypoint"
+grep -Fq "firmware_names='brcm/brcmfmac43430-sdio.bin brcm/brcmfmac43430-sdio.clm_blob brcm/brcmfmac43430-sdio.txt'" \
+	"$entrypoint"
+grep -Fq 'CONFIG_EXTRA_FIRMWARE="$firmware_names"' "$entrypoint"
+grep -Fq 'CONFIG_EXTRA_FIRMWARE_DIR="$kernel_firmware_dir"' "$entrypoint"
+[ "$(grep -Fc 'make -C "$buildroot" O="$brout" -j"$jobs" linux-firmware' \
+	"$entrypoint")" -eq 2 ]
+[ "$(grep -Fc 'stage_kernel_firmware "$brout"' "$entrypoint")" -eq 2 ]
+grep -Fq '93f3c40c94340c29a40714cb04e3e89974870fcae42a844b8a4544750159f40d' \
+	"$entrypoint"
+grep -Fq '3376b9c9b32d16bf762e21c7fafb665365070ae240d092498d0d1987c22022aa' \
+	"$entrypoint"
+grep -Fq 'ae0db6cc4db33941148df0f67de53e76a77b1b5a46b3165edb7040aa2750015f' \
+	"$entrypoint"
+grep -Fq '6167b8aaa5e80eabe09ac5bd8570760e5241aa3a9a6243a94be9fcba33cc1915' \
+	"$entrypoint"
+grep -Fq 'ec1dabfa95bf2e8f0de4311a9ceacfd841c45a772bf7eab3aa4c121284616df2' \
+	"$entrypoint"
+grep -Fq "grep -Fxq 'BR2_PACKAGE_LINUX_FIRMWARE=y'" "$entrypoint"
+grep -Fq "grep -Fxq 'BR2_PACKAGE_LINUX_FIRMWARE_CYPRESS_CYW43XXX=y'" \
+	"$entrypoint"
+! grep -Fq 'brcmfmac43430-sdio.bin' "$rootfs_build_script"
+! grep -Fq 'brcmfmac43430-sdio.txt' "$rootfs_build_script"
+! grep -Fq '60dbb5b77b2c232e513322e0ff4350ab5dab5a9fcad0e26e80a2f089e652d720' \
+	"$entrypoint" "$rootfs_build_script"
+! grep -Fq 'local/production/inputs/wifi' \
+	"$entrypoint" "$rootfs_build_script" "$root/docs/build.md"
+[ "$(wc -c < "$nvram")" -eq 1016 ]
+[ "$(sha256sum "$nvram" | awk '{print $1}')" = \
+	6167b8aaa5e80eabe09ac5bd8570760e5241aa3a9a6243a94be9fcba33cc1915 ]
+grep -Fxq 'ccode=ALL' "$nvram"
+[ "$(sha256sum "$nvram_license" | awk '{print $1}')" = \
+	ec1dabfa95bf2e8f0de4311a9ceacfd841c45a772bf7eab3aa4c121284616df2 ]
+grep -Fq 'configs/x2000/rootfs-overlay/lib/firmware/brcm/brcmfmac43430-sdio.txt' \
+	"$reuse"
+grep -Fq 'SPDX-License-Identifier = "BSD-3-Clause"' "$reuse"
+[ -f "$root/LICENSES/BSD-3-Clause.txt" ]
+grep -Fq '7.45.98.118' "$root/docs/buildroot-maintenance.md"
+grep -Fq '01-32059766' "$root/docs/buildroot-maintenance.md"
+grep -Fq '7.45.98.125' "$root/docs/buildroot-maintenance.md"
+grep -Fq '01-f420b81d' "$root/docs/buildroot-maintenance.md"
+grep -Fq '84f625bd0984a9eb8511eec27af7d35e55f5c9202f3f572c8da74df55ed81d33' \
+	"$root/docs/buildroot-maintenance.md"
+grep -Fq 'QUALIFIED ON DEVICE (WLAN ONLY)' \
+	"$root/docs/x2000-hardware-contract.md"
+grep -Fq 'Bluetooth was not tested or qualified' \
+	"$root/docs/buildroot-maintenance.md" "$root/docs/x2000-hardware-contract.md"
+! grep -Fq 'complete candidate build and normal boot remain pending' \
+	"$root/docs/buildroot-maintenance.md"
+! grep -Fq 'complete Fre3nder build integration remains unqualified' \
+	"$root/docs/x2000-hardware-contract.md"
+grep -Fq 'BYOF requirement is gone' \
+	"$root/docs/licensing-and-provenance.md"
+! grep -Fq 'not automatically publicly redistributable' \
+	"$root/docs/licensing-and-provenance.md"
 
 # These packages remain intentionally disabled in the product configuration,
 # but Buildroot may omit invisible Kconfig symbols from the effective .config.
@@ -350,7 +516,9 @@ grep -Fq 'moonraker_commit=985c1d0bbeb90bc057d34a232c9dc3b05e0c6c8d' \
 	"$entrypoint"
 grep -Fq 'prepare_moonraker_overlay()' "$entrypoint"
 [ "$(grep -Fc 'prepare_moonraker_overlay' "$entrypoint")" -eq 2 ]
-grep -Fq '"$wifi_overlay $klipper_overlay $moonraker_overlay $guppyscreen_overlay"' "$entrypoint"
+grep -Fq 'extra_overlay="$klipper_overlay $moonraker_overlay $guppyscreen_overlay"' \
+	"$entrypoint"
+! grep -Fq 'wifi_overlay' "$entrypoint"
 grep -Fq 'prepare_rootfs_component moonraker' "$entrypoint"
 grep -Fq 'prepare_rootfs_component guppyscreen' "$entrypoint"
 grep -Fq 'moonraker_root="$moonraker_overlay/opt/fre3nder/moonraker"' \
@@ -401,6 +569,44 @@ grep -Fq 'relative.suffix in (".pyc", ".pyo")' "$entrypoint"
 
 tmp=$(mktemp -d)
 trap 'rm -rf -- "$tmp"' EXIT HUP INT TERM
+
+# Exercise the isolated firmware staging helper with fixture linux-firmware
+# payloads. This does not invoke Buildroot or a build wrapper.
+kernel_firmware_dir=$tmp/kernel-firmware
+firmware_buildroot=$tmp/kernel-firmware-buildroot
+mkdir -p "$firmware_buildroot/target/lib/firmware/cypress"
+printf '%s\n' 'fixture firmware' > \
+	"$firmware_buildroot/target/lib/firmware/cypress/cyfmac43430-sdio.bin"
+printf '%s\n' 'fixture CLM' > \
+	"$firmware_buildroot/target/lib/firmware/cypress/cyfmac43430-sdio.clm_blob"
+sed -n '/^stage_kernel_firmware() {$/,/^}$/p' "$entrypoint" > \
+	"$tmp/stage-kernel-firmware.sh"
+(
+	sha256sum() {
+		case $1 in
+		*/cyfmac43430-sdio.bin)
+			printf '%s  %s\n' \
+				93f3c40c94340c29a40714cb04e3e89974870fcae42a844b8a4544750159f40d \
+				"$1"
+			;;
+		*/cyfmac43430-sdio.clm_blob)
+			printf '%s  %s\n' \
+				3376b9c9b32d16bf762e21c7fafb665365070ae240d092498d0d1987c22022aa \
+				"$1"
+			;;
+		*)
+			command sha256sum "$@"
+			;;
+		esac
+	}
+	project=$root
+	. "$tmp/stage-kernel-firmware.sh"
+	stage_kernel_firmware "$firmware_buildroot"
+)
+[ "$(find "$kernel_firmware_dir" -type f | wc -l)" -eq 3 ]
+[ -f "$kernel_firmware_dir/brcm/brcmfmac43430-sdio.bin" ]
+[ -f "$kernel_firmware_dir/brcm/brcmfmac43430-sdio.clm_blob" ]
+cmp "$nvram" "$kernel_firmware_dir/brcm/brcmfmac43430-sdio.txt"
 
 # Fetch the authoritative commit and only its exact annotated release tag.
 for function_name in verify_buildroot_release fetch_buildroot_release; do
@@ -913,7 +1119,16 @@ moonraker_root="$moonraker_overlay/opt/fre3nder/moonraker"
 	https://github.com/Arksine/moonraker.git ]
 
 target=$tmp/target
+build_dir=$tmp/build
+mkdir -p "$build_dir/linux-firmware-20250211"
+printf '%s\n' 'fixture Cypress license' > \
+	"$build_dir/linux-firmware-20250211/LICENCE.cypress"
+export BUILD_DIR="$build_dir"
 mkdir -p "$target/etc/init.d" "$target/usr/libexec/fre3nder" "$target/usr/bin"
+install -D -m 0644 "$nvram" \
+	"$target/lib/firmware/brcm/brcmfmac43430-sdio.txt"
+install -D -m 0644 "$nvram_license" \
+	"$target/usr/share/licenses/radxa-rkwifibt/LICENSE"
 cp "$root/configs/x2000/rootfs-overlay/usr/bin/fre3nder" "$target/usr/bin/"
 touch "$target/etc/init.d/fre3nder-root" \
 	"$target/etc/init.d/S20fre3nder-provision" \
@@ -931,6 +1146,11 @@ touch "$target/etc/init.d/fre3nder-root" \
 	"$target/usr/libexec/fre3nder-udhcpc"
 cp -a "$moonraker_overlay/." "$target/"
 "$post_build" "$target"
+cmp "$build_dir/linux-firmware-20250211/LICENCE.cypress" \
+	"$target/usr/share/licenses/linux-firmware/LICENCE.cypress"
+cmp "$nvram" "$target/lib/firmware/brcm/brcmfmac43430-sdio.txt"
+cmp "$nvram_license" \
+	"$target/usr/share/licenses/radxa-rkwifibt/LICENSE"
 [ -x "$target/usr/bin/fre3nder" ]
 [ -x "$target/etc/init.d/S59fre3nder-klipper-mcu" ]
 [ -x "$target/etc/init.d/S62fre3nder-web" ]

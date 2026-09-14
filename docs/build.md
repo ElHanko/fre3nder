@@ -12,8 +12,10 @@ is [`build/x2000`](../build/x2000), and the source manifest is
 
 The resulting host image uses Linux 6.6.18-rt23, a read-only SquashFS RootFS,
 `root=/dev/mmcblk0p8`, upstream Klipper at the pinned revision, and the
-project's passive-UART patch. BYOF firmware and credentials remain outside the
-repository and are never embedded automatically.
+project's passive-UART patch. The public board-specific Radxa AZW372 WLAN NVRAM
+is vendored unchanged; no Creality WLAN file remains a build input.
+Credentials remain outside the repository and are never embedded
+automatically.
 
 The productive source and configuration layers are separated as follows:
 
@@ -25,6 +27,7 @@ Upstream Buildroot 2025.02.18
 └── internal GCC 13.4.0 / binutils 2.43.1 / glibc toolchain
     ├── Kernel compiler
     ├── RootFS / userspace compiler
+    ├── linux-firmware 20250211 for CYW43430 firmware and CLM data
     └── F005 X2000 host-helper compiler
 
 Debian ARM bare-metal toolchain
@@ -57,9 +60,6 @@ The ignored productive tree is organized as follows:
 
 ```text
 local/production/
-├── inputs/wifi/
-│   ├── brcmfmac43430-sdio.bin
-│   └── brcmfmac43430-sdio.txt
 ├── work/x2000/
 └── artifacts/x2000/
     ├── moonraker/
@@ -79,9 +79,42 @@ in that same run. The individual builders are
 Buildroot builder's `--toolchain` phase precedes GuppyScreen compilation and its
 `--assemble` phase consumes the two validated component archives. The removed
 `build-x2000-rootfs` name has no compatibility alias, so there is only one
-RootFS assembly path. The two WLAN files are BYOF inputs and are checked against
-the hashes recorded in
-[`configs/x2000/sources.json`](../configs/x2000/sources.json).
+RootFS assembly path. The regular Buildroot `linux-firmware` package supplies
+`cypress/cyfmac43430-sdio.bin` and its CLM blob and creates their
+`brcm/brcmfmac43430-sdio.*` aliases from `WHENCE`. The package's
+`LICENCE.cypress` is copied into `/usr/share/licenses/linux-firmware/`. The
+generic `brcm/brcmfmac43430-sdio.txt` is the unmodified public Radxa AZW372
+file vendored in the base RootFS overlay; its upstream BSD-3-Clause notice is
+installed under `/usr/share/licenses/radxa-rkwifibt/`. Size, hashes, exact
+source path, and commit are recorded in
+[`configs/x2000/sources.json`](../configs/x2000/sources.json). No WLAN BYOF
+input or `local/production/inputs/wifi` path is used.
+
+The linux-firmware binary differs from the firmware used for the previous
+integrated WLAN qualification. Its internal identity is `7.45.98.118` / FWID
+`01-32059766`; it is not the NebulaOS-qualified Infineon `7.45.98.125` / FWID
+`01-f420b81d` firmware. On 2026-09-14 the complete production WLAN path was
+hardware-qualified on the investigated reference Ender-3 V3 KE. The
+development build `scripts/build-x2000 --kernel-build --develop` integrated
+the official linux-firmware `.bin` and `.clm_blob` and the exact vendored Radxa
+NVRAM into Kernel SHA-256
+`93207a7b627442759bbc74716876c94592edfacb94cacd0ea52f1a9c09ab9d13` and
+RootFS SHA-256
+`f86ad04f6a63653ef79f0f8280a91d951838102cba8d509e019e78332404055b`.
+Both artifacts passed deployment readback, Fre3nder B booted from
+`/dev/mmcblk0p8`, the runtime NVRAM matched its pinned SHA-256, and WPA,
+DHCP, and 10/10 gateway ICMP packets passed. The Ethernet default path remained
+unchanged. This qualification covers WLAN only; Bluetooth was not qualified.
+
+Kernel embedding remains required. `CONFIG_BRCMFMAC=y` registers `brcmfmac`
+as a device initcall, and the KE WLAN patch exposes the SDIO card during a late
+initcall. That card insertion immediately reaches `brcmf_sdio_probe()` and
+`request_firmware_nowait()`. The pinned kernel runs all initcalls before
+`prepare_namespace()` mounts the real SquashFS RootFS, so RootFS-only firmware
+cannot reliably satisfy the first SDIO probe. The Kernel therefore embeds the
+Buildroot-selected `.bin` and matching `.clm_blob` plus the vendored Radxa
+`.txt` through `CONFIG_EXTRA_FIRMWARE`; the same three runtime files remain in
+the RootFS for later requests.
 
 Normal builds are marked as `release` artifacts and retain the strict clean-tree
 deployment checks. Add `--develop` explicitly to create a `development`

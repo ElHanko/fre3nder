@@ -20,7 +20,9 @@ work under `AGENTS.md`.
 - Hardware-validated F005 mainline configuration and complete Fre3nder-B print
   on the investigated reference system.
 - Hardware-validated Fre3nder-B persistence, SSH access, and bounded selector
-  tooling; no credentials or vendor binaries are embedded in the image.
+  tooling; no credentials or proprietary Creality application binaries are
+  embedded in the image. Required device firmware and board data remain under
+  the separate redistribution rules in `docs/licensing-and-provenance.md`.
 - Open bidirectional F005 MCU transitions are qualified on the investigated
   reference system.
 - The proprietary Stock `mcu_util` dependency has been removed from the

@@ -74,14 +74,6 @@ if candidate_manifest.exists():
         raise SystemExit("F005 candidate does not match the qualified release")
 PY
 
-firmware="$local_root/inputs/wifi/brcmfmac43430-sdio.bin"
-nvram="$local_root/inputs/wifi/brcmfmac43430-sdio.txt"
-[ -r "$firmware" ] && [ -r "$nvram" ]
-[ "$(sha256sum "$firmware" | awk '{print $1}')" = \
-	60dbb5b77b2c232e513322e0ff4350ab5dab5a9fcad0e26e80a2f089e652d720 ]
-[ "$(sha256sum "$nvram" | awk '{print $1}')" = \
-	78fee458ab69c0a66ea462f6d6769e15b36f73582693f4dbb5a0e8e8be3cfb0a ]
-
 "$docker_cmd" run --rm --user "$runtime_user" \
 	-v "$root:/project" \
 	-v "$work_root:/work" \

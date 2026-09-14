@@ -39,6 +39,15 @@ SPDX-FileCopyrightText = "NOASSERTION"
 SPDX-License-Identifier = "GPL-3.0-only"
 
 [[annotations]]
+path = [
+    "configs/x2000/rootfs-overlay/lib/firmware/brcm/brcmfmac43430-sdio.txt",
+    "configs/x2000/rootfs-overlay/usr/share/licenses/radxa-rkwifibt/LICENSE",
+]
+precedence = "closest"
+SPDX-FileCopyrightText = "2022 Rockchip Electronics Co.,Ltd."
+SPDX-License-Identifier = "BSD-3-Clause"
+
+[[annotations]]
 path = "research/configs/x2000-prototype/slot-b-network-smoke-kernel.patch"
 precedence = "closest"
 SPDX-FileCopyrightText = "NOASSERTION"

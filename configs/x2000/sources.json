@@ -152,18 +152,93 @@
     "kernel_partition": "p6",
     "rootfs_partition": "p8"
   },
-  "byof_firmware": [
-    {
-      "name": "brcmfmac43430-sdio.bin",
-      "sha256": "60dbb5b77b2c232e513322e0ff4350ab5dab5a9fcad0e26e80a2f089e652d720",
-      "redistribution": "OPEN / BYOF-only"
-    },
-    {
-      "name": "brcmfmac43430-sdio.txt",
-      "sha256": "78fee458ab69c0a66ea462f6d6769e15b36f73582693f4dbb5a0e8e8be3cfb0a",
-      "redistribution": "OPEN / BYOF-only"
+  "wlan_firmware": {
+    "package": "linux-firmware",
+    "version": "20250211",
+    "repository": "https://gitlab.com/kernel-firmware/linux-firmware.git",
+    "tag": "20250211",
+    "commit": "5bc5868b7ee5a243abdd73cfcd3bbf7166f4f42f",
+    "source": "upstream Buildroot 2025.02.18 package",
+    "archive": "linux-firmware-20250211.tar.xz",
+    "archive_sha256": "2de1345897bf839d532c5de0fdb348770ca2a5f4edfb21971582597abb45297d",
+    "firmware_version": "7.45.98.118",
+    "firmware_fwid": "01-32059766",
+    "license": "Cypress Wireless Connectivity Devices Driver EULA",
+    "license_file": "LICENCE.cypress",
+    "license_sha256": "ae0db6cc4db33941148df0f67de53e76a77b1b5a46b3165edb7040aa2750015f",
+    "redistribution": "object-code redistribution permitted solely for use with Cypress integrated circuit products",
+    "hardware_validated": true,
+    "files": [
+      {
+        "source_path": "cypress/cyfmac43430-sdio.bin",
+        "runtime_path": "brcm/brcmfmac43430-sdio.bin",
+        "sha256": "93f3c40c94340c29a40714cb04e3e89974870fcae42a844b8a4544750159f40d"
+      },
+      {
+        "source_path": "cypress/cyfmac43430-sdio.clm_blob",
+        "runtime_path": "brcm/brcmfmac43430-sdio.clm_blob",
+        "sha256": "3376b9c9b32d16bf762e21c7fafb665365070ae240d092498d0d1987c22022aa"
+      }
+    ]
+  },
+  "wlan_nvram": {
+    "identity": "AZW372 BCM43430/CYW43438 board NVRAM",
+    "repository": "https://github.com/radxa/rkwifibt",
+    "commit": "3d93dbcf5ff6e04fa760a56a0dad9f6077394072",
+    "source_path": "firmware/infineon/CYW43438/cyw43438_azw372.txt",
+    "vendored_path": "configs/x2000/rootfs-overlay/lib/firmware/brcm/brcmfmac43430-sdio.txt",
+    "runtime_path": "brcm/brcmfmac43430-sdio.txt",
+    "size": 1016,
+    "sha256": "6167b8aaa5e80eabe09ac5bd8570760e5241aa3a9a6243a94be9fcba33cc1915",
+    "license": "BSD-3-Clause",
+    "license_file": "LICENSE",
+    "license_sha256": "ec1dabfa95bf2e8f0de4311a9ceacfd841c45a772bf7eab3aa4c121284616df2",
+    "copyright": "2022 Rockchip Electronics Co.,Ltd.",
+    "redistribution": "source and binary redistribution permitted under BSD-3-Clause",
+    "upstream_modified": false,
+    "content_hardware_validated": true,
+    "build_integration_hardware_validated": true,
+    "hardware_evidence": {
+      "date": "2026-09-14",
+      "scope": "unmodified NVRAM content on the investigated reference system",
+      "chip": "BCM43430/1",
+      "firmware_version": "7.45.98.118",
+      "firmware_fwid": "01-32059766",
+      "mac_address_preserved": true,
+      "wpa_association": "PASS",
+      "dhcp": "PASS",
+      "gateway_icmp": "10/10 replies, 0 percent loss",
+      "previous_nvram_restore_association": "PASS"
     }
-  ],
+  },
+  "wlan_hardware_qualification": {
+    "date": "2026-09-14",
+    "scope": "complete linux-firmware 20250211 plus Radxa AZW372 WLAN production path on the investigated reference system",
+    "build_command": "scripts/build-x2000 --kernel-build --develop",
+    "artifact_mode": "development",
+    "build_input_sha256": "84f625bd0984a9eb8511eec27af7d35e55f5c9202f3f572c8da74df55ed81d33",
+    "kernel_sha256": "93207a7b627442759bbc74716876c94592edfacb94cacd0ea52f1a9c09ab9d13",
+    "rootfs_sha256": "f86ad04f6a63653ef79f0f8280a91d951838102cba8d509e019e78332404055b",
+    "p6_kernel_write_readback": "PASS",
+    "p8_rootfs_write_readback": "PASS",
+    "stock_p5_unchanged": "PASS",
+    "stock_p7_unchanged": "PASS",
+    "boot_root": "/dev/mmcblk0p8",
+    "fre3nder_b_boot": "PASS",
+    "persistent_root_runtime_contract": "PASS",
+    "final_selector": "STOCK_A",
+    "runtime_nvram_sha256": "6167b8aaa5e80eabe09ac5bd8570760e5241aa3a9a6243a94be9fcba33cc1915",
+    "runtime_nvram_file": "PASS",
+    "chip": "BCM43430/1",
+    "firmware": "7.45.98.118 (7d96287 CY)",
+    "firmware_fwid": "01-32059766",
+    "wpa_association": "PASS",
+    "dhcp": "PASS",
+    "wlan_gateway_icmp": "10/10 replies, 0 percent loss",
+    "ethernet_default_path_unchanged": "PASS",
+    "overall_gate": "PASS",
+    "bluetooth_hardware_validated": false
+  },
   "credential_free": true,
   "selector_write": false,
   "display_patch_set": {

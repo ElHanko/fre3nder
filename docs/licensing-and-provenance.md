@@ -56,6 +56,64 @@ The F005 build reuses that same Buildroot userspace wrapper for its X2000
 `c_helper.so`; its separate `arm-none-eabi` toolchain targets only the
 GD32F303 bare-metal MCU.
 
+### CYW43430 WLAN firmware
+
+Buildroot 2025.02.18 selects its regular `linux-firmware` package at release
+`20250211` for the WLAN firmware. The upstream tag resolves to commit
+`5bc5868b7ee5a243abdd73cfcd3bbf7166f4f42f`; Buildroot verifies the release
+archive with SHA-256
+`2de1345897bf839d532c5de0fdb348770ca2a5f4edfb21971582597abb45297d`.
+The selected package supplies `cypress/cyfmac43430-sdio.bin` and
+`cypress/cyfmac43430-sdio.clm_blob`, while upstream `WHENCE` defines the
+`brcm/brcmfmac43430-sdio.bin` and `.clm_blob` driver aliases.
+
+These two files are proprietary binary firmware, not open source. `WHENCE`
+marks them redistributable and assigns `LICENCE.cypress`. That agreement
+permits object-code reproduction and distribution solely for use with Cypress
+integrated-circuit products; it does not grant a general right to use the
+firmware with arbitrary compatible hardware. The agreement does not expressly
+require its text to accompany every binary copy. Fre3nder nevertheless copies
+the unmodified `LICENCE.cypress` from the unpacked Buildroot package into
+`/usr/share/licenses/linux-firmware/` so the applicable terms travel with the
+RootFS. The exact source, file hashes, license-file hash, and restriction are
+recorded in `configs/x2000/sources.json`.
+
+The generic `brcm/brcmfmac43430-sdio.txt` is the unmodified AZW372 file
+`firmware/infineon/CYW43438/cyw43438_azw372.txt` from
+[Radxa/rkwifibt commit `3d93dbcf5ff6e04fa760a56a0dad9f6077394072`](https://github.com/radxa/rkwifibt/blob/3d93dbcf5ff6e04fa760a56a0dad9f6077394072/firmware/infineon/CYW43438/cyw43438_azw372.txt).
+It is 1016 bytes with SHA-256
+`6167b8aaa5e80eabe09ac5bd8570760e5241aa3a9a6243a94be9fcba33cc1915`.
+Fre3nder preserves every upstream byte, including `ccode=ALL`, the power
+tables, and all RF values; it does not adapt them to Creality hardware.
+
+Radxa/rkwifibt applies its repository-wide BSD-3-Clause license. The upstream
+copyright notice and license are vendored unchanged and installed in the
+RootFS under `/usr/share/licenses/radxa-rkwifibt/`; `REUSE.toml` records the
+same copyright and license identity for both files. Source and binary
+redistribution are therefore permitted subject to the BSD-3-Clause notice and
+disclaimer requirements.
+
+The WLAN licensing boundary is now:
+
+- `.bin` and `.clm_blob` come from linux-firmware `20250211` and remain subject
+  to `LICENCE.cypress`;
+- the unchanged `.txt` comes from Radxa/rkwifibt and is BSD-3-Clause;
+- no locally extracted Creality WLAN NVRAM remains a build input, so the WLAN
+  BYOF requirement is gone; and
+- embedding the Radxa NVRAM in a Kernel or including it in a RootFS no longer
+  prevents public redistribution on account of that NVRAM. Distributions must
+  still carry and follow both applicable license notices.
+
+On 2026-09-14 the exact official linux-firmware `.bin` and `.clm_blob` and the
+vendored Radxa NVRAM were qualified together on the investigated reference
+system in Kernel SHA-256
+`93207a7b627442759bbc74716876c94592edfacb94cacd0ea52f1a9c09ab9d13` and
+RootFS SHA-256
+`f86ad04f6a63653ef79f0f8280a91d951838102cba8d509e019e78332404055b`.
+The runtime NVRAM matched its pinned SHA-256 and the resulting WLAN path passed
+boot, WPA association, DHCP, and gateway traffic. This hardware evidence does
+not alter either component's licensing terms and does not qualify Bluetooth.
+
 ## Moonraker RootFS baseline
 
 Moonraker is consumed from `https://github.com/Arksine/moonraker.git` at

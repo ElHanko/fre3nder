@@ -2,6 +2,11 @@
 set -eu
 
 target=$1
+linux_firmware_license="$BUILD_DIR/linux-firmware-20250211/LICENCE.cypress"
+
+[ -f "$linux_firmware_license" ]
+install -D -m 0644 "$linux_firmware_license" \
+	"$target/usr/share/licenses/linux-firmware/LICENCE.cypress"
 
 moonraker_root="$target/opt/fre3nder/moonraker"
 moonraker_transport_git="$moonraker_root/.fre3nder-git"

@@ -55,14 +55,13 @@ klipper_commit=0499b30374315f2a9f49fc12808527fc7d0f5cfa
 moonraker_url=https://github.com/Arksine/moonraker.git
 moonraker_commit=985c1d0bbeb90bc057d34a232c9dc3b05e0c6c8d
 kernel_firmware_dir="$work/fre3nder-kernel-firmware"
-wifi_overlay="$work/fre3nder-wifi-overlay"
 klipper_overlay="$work/fre3nder-klipper-overlay"
 moonraker_overlay="$work/fre3nder-moonraker-overlay"
 guppyscreen_overlay="$work/fre3nder-guppyscreen-overlay"
 moonraker_component="$artifact_root/moonraker"
 guppyscreen_component="$artifact_root/guppyscreen"
 development_marker="$klipper_overlay/usr/share/fre3nder/DEVELOPMENT"
-firmware_names='brcm/brcmfmac43430-sdio.bin brcm/brcmfmac43430-sdio.txt'
+firmware_names='brcm/brcmfmac43430-sdio.bin brcm/brcmfmac43430-sdio.clm_blob brcm/brcmfmac43430-sdio.txt'
 artifact_mode=${FRE3NDER_ARTIFACT_MODE:-release}
 project_commit=
 project_worktree_status=
@@ -437,6 +436,9 @@ EOF
 	grep -Fxq 'BR2_BINUTILS_VERSION="2.43.1"' "$buildroot_output/.config"
 	grep -Fxq 'BR2_GCC_VERSION="13.4.0"' "$buildroot_output/.config"
 	grep -Fxq 'BR2_TOOLCHAIN_BUILDROOT_CXX=y' "$buildroot_output/.config"
+	grep -Fxq 'BR2_PACKAGE_LINUX_FIRMWARE=y' "$buildroot_output/.config"
+	grep -Fxq 'BR2_PACKAGE_LINUX_FIRMWARE_CYPRESS_CYW43XXX=y' \
+		"$buildroot_output/.config"
 	! grep -Eq '^BR2_TOOLCHAIN_EXTERNAL(=|_)' "$buildroot_output/.config"
 	grep -Fxq "BR2_DL_DIR=\"$buildroot_dl\"" "$buildroot_output/.config"
 	grep -Fxq "BR2_GLOBAL_PATCH_DIR=\"$project/patches\"" \
@@ -1082,31 +1084,37 @@ build_klipper_mcu() {
 	readelf -d "$mcu" | grep -Fq 'Shared library: [libc.so.6]'
 }
 
-stage_byof_firmware() {
-	input_dir="$local_root/inputs/wifi"
-	firmware="$input_dir/brcmfmac43430-sdio.bin"
-	nvram="$input_dir/brcmfmac43430-sdio.txt"
+stage_kernel_firmware() {
+	buildroot_output=$1
+	firmware="$buildroot_output/target/lib/firmware/cypress/cyfmac43430-sdio.bin"
+	clm="$buildroot_output/target/lib/firmware/cypress/cyfmac43430-sdio.clm_blob"
+	nvram="$project/configs/x2000/rootfs-overlay/lib/firmware/brcm/brcmfmac43430-sdio.txt"
 
-	[ -r "$firmware" ]
-	[ -r "$nvram" ]
 	[ "$(sha256sum "$firmware" | awk '{print $1}')" = \
-		60dbb5b77b2c232e513322e0ff4350ab5dab5a9fcad0e26e80a2f089e652d720 ] || {
-		echo 'BYOF WLAN firmware hash mismatch' >&2
+		93f3c40c94340c29a40714cb04e3e89974870fcae42a844b8a4544750159f40d ] || {
+		echo 'linux-firmware CYW43430 firmware hash mismatch' >&2
+		exit 1
+	}
+	[ "$(sha256sum "$clm" | awk '{print $1}')" = \
+		3376b9c9b32d16bf762e21c7fafb665365070ae240d092498d0d1987c22022aa ] || {
+		echo 'linux-firmware CYW43430 CLM hash mismatch' >&2
 		exit 1
 	}
 	[ "$(sha256sum "$nvram" | awk '{print $1}')" = \
-		78fee458ab69c0a66ea462f6d6769e15b36f73582693f4dbb5a0e8e8be3cfb0a ] || {
-		echo 'BYOF WLAN NVRAM hash mismatch' >&2
+		6167b8aaa5e80eabe09ac5bd8570760e5241aa3a9a6243a94be9fcba33cc1915 ] || {
+		echo 'Radxa AZW372 WLAN NVRAM hash mismatch' >&2
 		exit 1
 	}
+	[ "$(wc -c < "$nvram")" -eq 1016 ]
 
-	rm -rf -- "$kernel_firmware_dir" "$wifi_overlay"
+	rm -rf -- "$kernel_firmware_dir"
 	install -d -m 0700 "$kernel_firmware_dir/brcm"
-	install -m 0600 "$firmware" "$kernel_firmware_dir/brcm/brcmfmac43430-sdio.bin"
-	install -m 0600 "$nvram" "$kernel_firmware_dir/brcm/brcmfmac43430-sdio.txt"
-	install -d -m 0755 "$wifi_overlay/lib/firmware/brcm"
-	install -m 0600 "$firmware" "$wifi_overlay/lib/firmware/brcm/brcmfmac43430-sdio.bin"
-	install -m 0600 "$nvram" "$wifi_overlay/lib/firmware/brcm/brcmfmac43430-sdio.txt"
+	install -m 0644 "$firmware" \
+		"$kernel_firmware_dir/brcm/brcmfmac43430-sdio.bin"
+	install -m 0644 "$clm" \
+		"$kernel_firmware_dir/brcm/brcmfmac43430-sdio.clm_blob"
+	install -m 0644 "$nvram" \
+		"$kernel_firmware_dir/brcm/brcmfmac43430-sdio.txt"
 }
 
 prepare_kernel() {
@@ -1717,26 +1725,49 @@ check_rootfs() {
 		exit 1
 	fi
 
-	firmware="$target/lib/firmware/brcm/brcmfmac43430-sdio.bin"
+	firmware="$target/lib/firmware/cypress/cyfmac43430-sdio.bin"
+	firmware_link="$target/lib/firmware/brcm/brcmfmac43430-sdio.bin"
+	clm="$target/lib/firmware/cypress/cyfmac43430-sdio.clm_blob"
+	clm_link="$target/lib/firmware/brcm/brcmfmac43430-sdio.clm_blob"
 	nvram="$target/lib/firmware/brcm/brcmfmac43430-sdio.txt"
+	license="$target/usr/share/licenses/linux-firmware/LICENCE.cypress"
+	nvram_license="$target/usr/share/licenses/radxa-rkwifibt/LICENSE"
 	[ "$(sha256sum "$firmware" | awk '{print $1}')" = \
-		60dbb5b77b2c232e513322e0ff4350ab5dab5a9fcad0e26e80a2f089e652d720 ]
+		93f3c40c94340c29a40714cb04e3e89974870fcae42a844b8a4544750159f40d ]
+	[ -L "$firmware_link" ]
+	[ "$(readlink "$firmware_link")" = ../cypress/cyfmac43430-sdio.bin ]
+	[ "$(sha256sum "$clm" | awk '{print $1}')" = \
+		3376b9c9b32d16bf762e21c7fafb665365070ae240d092498d0d1987c22022aa ]
+	[ -L "$clm_link" ]
+	[ "$(readlink "$clm_link")" = ../cypress/cyfmac43430-sdio.clm_blob ]
 	[ "$(sha256sum "$nvram" | awk '{print $1}')" = \
-		78fee458ab69c0a66ea462f6d6769e15b36f73582693f4dbb5a0e8e8be3cfb0a ]
+		6167b8aaa5e80eabe09ac5bd8570760e5241aa3a9a6243a94be9fcba33cc1915 ]
+	[ "$(wc -c < "$nvram")" -eq 1016 ]
+	cmp -s \
+		"$project/configs/x2000/rootfs-overlay/lib/firmware/brcm/brcmfmac43430-sdio.txt" \
+		"$nvram"
+	[ "$(sha256sum "$license" | awk '{print $1}')" = \
+		ae0db6cc4db33941148df0f67de53e76a77b1b5a46b3165edb7040aa2750015f ]
+	[ "$(sha256sum "$nvram_license" | awk '{print $1}')" = \
+		ec1dabfa95bf2e8f0de4311a9ceacfd841c45a772bf7eab3aa4c121284616df2 ]
+	cmp -s \
+		"$project/configs/x2000/rootfs-overlay/usr/share/licenses/radxa-rkwifibt/LICENSE" \
+		"$nvram_license"
 }
 
 build() {
 	jobs=${JOBS:-4}
-	stage_byof_firmware
 	prepare_buildroot
 	prepare_klipper_overlay
 	prepare_rootfs_component moonraker "$moonraker_component" "$moonraker_overlay"
 	prepare_rootfs_component guppyscreen "$guppyscreen_component" "$guppyscreen_overlay"
 	brout="$work/buildroot-output-fre3nder"
-	extra_overlay="$wifi_overlay $klipper_overlay $moonraker_overlay $guppyscreen_overlay"
+	extra_overlay="$klipper_overlay $moonraker_overlay $guppyscreen_overlay"
 	configure_buildroot "$brout" "$extra_overlay"
 	make -C "$buildroot" O="$brout" -j"$jobs" toolchain
 	write_buildroot_toolchain_fingerprint "$brout"
+	make -C "$buildroot" O="$brout" -j"$jobs" linux-firmware
+	stage_kernel_firmware "$brout"
 	kernel_cross_compile="$brout/host/bin/mipsel-buildroot-linux-gnu-"
 	kernel_cc="${kernel_cross_compile}gcc.br_real"
 	[ -x "$kernel_cc" ]
@@ -1796,6 +1827,8 @@ build_kernel_only() {
 	configure_buildroot "$brout"
 	make -C "$buildroot" O="$brout" -j"$jobs" toolchain
 	write_buildroot_toolchain_fingerprint "$brout"
+	make -C "$buildroot" O="$brout" -j"$jobs" linux-firmware
+	stage_kernel_firmware "$brout"
 	kernel_cross_compile="$brout/host/bin/mipsel-buildroot-linux-gnu-"
 	kernel_cc="${kernel_cross_compile}gcc.br_real"
 	[ -x "$kernel_cc" ]
@@ -1833,14 +1866,13 @@ build_kernel_only() {
 }
 
 build_rootfs_only() {
-	stage_byof_firmware
 	prepare_buildroot
 	prepare_klipper_overlay
 	prepare_rootfs_component moonraker "$moonraker_component" "$moonraker_overlay"
 	prepare_rootfs_component guppyscreen "$guppyscreen_component" "$guppyscreen_overlay"
 	brout="$work/buildroot-output-fre3nder"
 	configure_buildroot "$brout" \
-		"$wifi_overlay $klipper_overlay $moonraker_overlay $guppyscreen_overlay"
+		"$klipper_overlay $moonraker_overlay $guppyscreen_overlay"
 	make -C "$buildroot" O="$brout" -j"${JOBS:-4}" toolchain
 	write_buildroot_toolchain_fingerprint "$brout"
 	build_klipper_chelper "$brout"
