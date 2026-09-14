@@ -27,11 +27,13 @@ matching release tag.
 ### User-facing installation and releases
 
 Define a reproducible public release-artifact and download boundary, including
-how a user selects an exact release and sees the installed version through the
-normal UI or API. Turn the established development deployment into a guided
-Stock-to-Fre3nder installation flow with model checks, Point-of-Return backup,
-safe deployment, and a clear return-to-Stock path. Minimize required SSH and
-developer-only steps without choosing an installer technology prematurely.
+how a user selects an exact release and sees its installed version and update
+state through the normal UI or API. Turn the established development deployment
+into a guided Stock-to-Fre3nder installation flow with model checks,
+Point-of-Return backup, safe deployment, understandable recovery and rollback,
+and a clear return-to-Stock path. Minimize required SSH and project-specific
+knowledge without removing expert SSH administration or choosing an installer
+technology prematurely.
 
 ### GuppyScreen project boundary
 
@@ -41,22 +43,41 @@ Fre3nder should eventually consume a clearly pinned GuppyScreen release instead
 of treating UI development as part of the platform, while the exact project and
 upstream relationship remains to be decided.
 
+### Local UI product experience
+
+Continue optimizing the GuppyScreen product experience for the small 480x272
+display. Improve remaining quality-of-life workflows and local administration
+so normal printer use depends less on the web UI or SSH. Larger layout or UX
+redesigns remain optional until a concrete scope is selected; this product work
+is separate from the GuppyScreen project and ownership boundary above.
+
 ### Managed applications
 
 Extend the simple managed-application model beyond the qualified Fluidd path as
-real applications require it. Complete a coherent generic install, remove,
-status, restore, update, version/pin, dependency, and user-management experience.
-Keep catalog or discovery work demand-driven and avoid introducing a general
-package-manager framework without a concrete need.
+real applications require it, and prove that the generic layer works for more
+than one useful application or frontend. Improve install, remove, status,
+restore, version/pin, dependency, discovery, and user-management behavior while
+keeping catalog work demand-driven. Avoid introducing a general package-manager
+framework without a concrete need.
 
 ## Later
+
+### Application update lifecycle
+
+Integrate Moonraker self-update and Fluidd or other managed-application updates
+with explicit version ownership, dependency handling, and defined service
+restarts. Restore desired applications automatically after a system-overlay
+reset when that can be done safely. Application updates must remain separate
+from platform ownership and must never implicitly replace the kernel, RootFS,
+F005 firmware, or A/B state.
 
 ### Platform updates (OTA) and rollback
 
 Design a safe release-to-release update path for the Fre3nder platform. It must
 respect the immutable RootFS, A/B and recovery boundaries, persistent `/home`,
 and the separation between platform and application updates. Updates must retain
-a usable fallback and must never imply silent F005 firmware flashing.
+a usable fallback, fit normal user-facing installation and recovery workflows,
+and must never imply silent F005 firmware flashing.
 
 ### Mainline Linux
 
@@ -73,18 +94,43 @@ userdata persistence roles, which currently use external Development storage.
 The design must preserve the logical role abstraction, avoid assuming ownership
 of Stock data, and define migration and recovery before changing partitions.
 
-### Operational resilience
+### Network resilience
 
-Complete runtime and hotplug network failover, late-camera recovery, and the
-uninterrupted software-only Fre3nder-to-Stock handoff. These are useful product
-improvements but are not missing `2026.2` acceptance work.
+Add runtime Ethernet/WLAN failover, predictable hotplug behavior, and bounded
+reconnect and recovery after link loss so administrative access normally
+restores itself. Define the required behavior without selecting a network-
+manager implementation prematurely.
+
+### Stock/Fre3nder transitions
+
+Complete the software-controlled Fre3nder-to-Stock handoff and qualify the
+remaining coordinated F005 and Stock-host transitions. Reduce manual recovery
+and power-cycle steps while preserving the current safety and recovery
+boundaries; Stock and Fre3nder are alternative operating states, not concurrent
+systems.
+
+### Peripheral workflows
+
+Recover the camera service automatically after late attachment, failure, or
+reconnection. Improve the already qualified ADXL345/input-shaping path with a
+more integrated calibration workflow and fewer maintenance or SSH steps,
+potentially through the normal UI, without redesigning its working hardware
+path.
 
 ## Exploratory
 
-- Qualify broader Ender-3 V3 KE hardware and firmware revisions before treating
-  reference-system results as universal.
-- Consider additional applications, web frontends, and peripherals only when a
-  concrete user need justifies product integration and maintenance cost.
+- Consider OctoApp as an application and Mainsail or other compatible web
+  frontends as candidates when a concrete use case justifies expanding and
+  validating the managed-application model. They are not promised release
+  contents.
+- Consider Bluetooth qualification and integration only if a concrete use case
+  emerges; current WLAN qualification does not cover Bluetooth.
+- Qualify broader Ender-3 V3 KE hardware, board, and Stock-firmware revisions
+  before treating reference-system results as universal.
+- Consider larger GuppyScreen layout or UX redesigns and additional local
+  functions only after a product scope is selected.
+- Evaluate HTTPS/TLS for the web UI when the deployment and threat model
+  justify the additional lifecycle and certificate ownership.
 - Evaluate which remaining Klipper, kernel, and UI changes can be contributed
   upstream after their long-term ownership boundaries are clear.
 
