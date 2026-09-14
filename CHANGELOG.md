@@ -4,7 +4,7 @@ This file records the user-visible and architecturally relevant changes of
 Fre3nder releases. Technical documentation describes the current system rather
 than preserving release-specific acceptance checklists.
 
-## 2026.2 - Unreleased
+## 2026.2 - 2026-09-14
 
 The usable-system scope is implemented and hardware-qualified on the
 investigated reference system. The integrated release-mode `2026.2.a` candidate
@@ -12,8 +12,8 @@ at commit `885706f121c76190d6d74177ffac3895cd58c78d` qualified the core system;
 later current-main testing completed the persistence failure cases, Fluidd
 control and uninstall, and the redistributable WLAN source path. Those later
 results are not retroactive properties of the historical candidate artifacts.
-A final release-mode build from the reviewed current source and the `2026.2`
-release tag are still pending.
+The final `2026.2` release was built, validated, and tagged from commit
+`fcabe6089dba72ded7c256b8550ea65bc7a34ec6`.
 
 ### Added
 

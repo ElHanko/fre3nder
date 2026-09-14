@@ -12,15 +12,7 @@ work.
 
 - `2026.1` — open printer stack and first qualified real print, released on
   2026-08-29.
-- `2026.2` — usable-system milestone reached on 2026-09-14. It is not yet
-  released; final release-mode packaging, validation, and tagging remain.
-
-## Current release work
-
-No functional or hardware-acceptance blocker remains for `2026.2`. The current
-work is limited to reviewing and committing the source state, producing and
-validating final release-mode artifacts from that exact state, and creating the
-matching release tag.
+- `2026.2` — usable-system, released on 2026-09-14.
 
 ## Next
 

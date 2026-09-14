@@ -8,17 +8,14 @@ owner.
 
 ## Current status
 
-Current released version: [`2026.1`](docs/versioning.md)
+Current released version: [`2026.2`](CHANGELOG.md)
 
-**`2026.1 FUNCTIONALLY ACHIEVED`** on the investigated reference system.
+**`2026.2 RELEASED`** on the investigated reference system.
 Fre3nder provides an open X2000 host, upstream Klipper integration for the
-F005 MCU, a hardware-validated reference configuration, and a documented path
-back to Stock.
-
-**`2026.2 - Unreleased`** adds the persistent usable-system stack. Its
-functional scope is implemented and hardware-qualified on the investigated
-reference system; a final release-mode build from the reviewed current source
-and the release tag are still pending. See the [changelog](CHANGELOG.md).
+F005 MCU, a persistent usable-system stack, Moonraker, managed web applications,
+GuppyScreen, and a documented path back to Stock. The `2026.2` usable-system
+scope is hardware-qualified on the investigated reference system. See the
+[changelog](CHANGELOG.md) for release history.
 
 The important boundaries remain:
 
