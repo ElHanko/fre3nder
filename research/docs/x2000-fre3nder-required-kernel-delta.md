@@ -7,8 +7,9 @@ basis recorded there is Linux `6.6.18-rt23` from the pinned X2000 SDK commit
 `a98c2e1f22e4263ddd4153a4eca4db4dcfd2777b`. Existing effective kernel
 configuration artifacts were used only to identify the immediate controller
 symbols selected by the base defconfig. This first inventory does not enumerate
-their transitive implementation; the following section does. No
-vendor-versus-upstream comparison is included.
+their transitive implementation; the following section does. It includes only
+the later clean-port decisions needed to prevent the current vendor
+configuration from being mistaken for a requirement.
 
 | Function | DTS reference | `compatible` | Relevant enabled Kconfig | Presumed responsible driver |
 | --- | --- | --- | --- | --- |
@@ -16,17 +17,17 @@ vendor-versus-upstream comparison is included.
 | Kernel scheduling and immutable/persistent root support | `/chosen` selects `/dev/mmcblk0p8`, SquashFS, and read-only root; no separate peripheral node | none | `CONFIG_PREEMPT`, `CONFIG_FILE_LOCKING`, `CONFIG_BLK_DEV_INITRD`, `CONFIG_OVERLAY_FS`, `CONFIG_SQUASHFS`, `CONFIG_SQUASHFS_XZ` | Kernel scheduler, VFS/OverlayFS, block-initrd support, and SquashFS/XZ. `CONFIG_INITRAMFS_SOURCE=""` means that no built-in initramfs content is named here |
 | eMMC system storage | `&msc0`, `&msc0_8bit`; 8-bit, non-removable, high-speed/HS200 declaration | inherited `ingenic,sdhci` | `CONFIG_MMC`, `CONFIG_MMC_BLOCK`, `CONFIG_MMC_SDHCI`, `CONFIG_MMC_SDHCI_INGENIC` | `sdhci-ingenic.c` plus the MMC/SDHCI core |
 | Main printer MCU transport | `&uart1`, `&uart1_pin`, child `uart1_pc_txrx`; GPC23/GPC24 | inherited `ingenic,8250-uart` | `CONFIG_SERIAL_INGENIC_UART`, `CONFIG_SERIAL_INGENIC_CONSOLE` | `ingenic_uart.c`; provides the Fre3nder `/dev/ttyS1` path used by Klipper for the F005 MCU |
-| USB controller, PHY, role and board power sensing | `&otg`, `&otg_phy`; VBUS detect GPD17 active-low and VBUS drive GPC9 active-high | inherited `ingenic,x2000-dwc2-hsotg`, `ingenic,usbphy-x2000` | `CONFIG_USB`, `CONFIG_USB_OTG`, `CONFIG_USB_DWC2`, `CONFIG_USB_DWC2_DUAL_ROLE`, `CONFIG_USB_DWC2_EXT_VBUS_DETECT`, `CONFIG_USB_PHY`, `CONFIG_USB_ROLE_SWITCH` | DWC2 core/platform code and `phy-ingenic.c`. Fre3nder's demonstrated appliance use is the host path even though the controller is configured dual-role |
+| USB controller, PHY, role and board power | current `&otg`, `&otg_phy`; GPD17 active-low VBUS detect and GPC9 active-high VBUS drive | current vendor tree inherits `ingenic,x2000-dwc2-hsotg`, `ingenic,usbphy-x2000`; the clean port uses upstream `ingenic,x2000-otg`, `ingenic,x2000-phy` | the current vendor configuration enables DWC2 dual-role, external-VBUS detect and role switching; the clean-port requirement is DWC2 host only | The demonstrated functions are USB mass storage, CDC-NCM Ethernet and UVC camera. The clean port models GPC9 as a fixed-regulator-backed DWC2 `vbus-supply` and omits GPD17; no Device/Gadget, dual-role, role-switch, HNP or SRP requirement is established. |
 | Boot-local USB provisioning | no static child node; device enumerates below `&otg` | supplied by the attached USB mass-storage device | `CONFIG_USB_STORAGE`, `CONFIG_FAT_FS`, `CONFIG_VFAT_FS` | USB mass-storage, SCSI/block, FAT/VFAT; Fre3nder mounts the selected FAT32 provisioning medium read-only |
 | External USB Ethernet | no static child node; device enumerates below `&otg` | supplied by USB interface descriptors | `CONFIG_USB_NET_DRIVERS`, `CONFIG_USB_USBNET`, `CONFIG_USB_NET_CDC_NCM`; effective selection also has `CONFIG_USB_NET_CDCETHER` | `usbnet`, `cdc_ether`, and `cdc_ncm`. The observed AX88179B presents CDC-NCM interfaces and binds `cdc_ncm` |
 | Optional alternate mode of the same USB Ethernet adapter | no static child node | supplied by USB interface descriptors | `CONFIG_USB_NET_AX88179_178A` | `ax88179_178a`; enabled and retained, but it did not bind to the currently observed CDC-NCM presentation and is not the demonstrated runtime path |
 | USB camera capture | no static child node; camera enumerates below `&otg` | supplied by USB UVC descriptors | `CONFIG_MEDIA_SUPPORT`, `CONFIG_MEDIA_SUPPORT_FILTER`, `CONFIG_MEDIA_CAMERA_SUPPORT`, `CONFIG_VIDEO_DEV`, `CONFIG_MEDIA_CONTROLLER`, `CONFIG_MEDIA_USB_SUPPORT`, `CONFIG_USB_VIDEO_CLASS` | `uvcvideo` and V4L2; provides the `/dev/videoX` capture endpoint consumed by `mjpg_streamer` |
-| SDIO WLAN | `&msc1`, `&msc1_4bit`, `&rtc32k_enable`, `&rtc32k_disable`, `/wifi-bt-power`; GPD4 WLAN REG_ON and GPA1 fixed-supply control | inherited `ingenic,sdhci`; `regulator-fixed` for the supply | `CONFIG_MMC`, `CONFIG_MMC_SDHCI`, `CONFIG_MMC_SDHCI_INGENIC`, `CONFIG_REGULATOR_FIXED_VOLTAGE`, `CONFIG_WLAN_VENDOR_BROADCOM`, `CONFIG_BRCMFMAC`, `CONFIG_BRCMFMAC_SDIO`, `CONFIG_CFG80211`, `CONFIG_FW_LOADER` | patched `sdhci-ingenic.c`/`ingenic_sdio.c`, fixed regulator, and `brcmfmac` SDIO. The firmware, CLM, and AZW372 NVRAM recorded in `sources.json` are part of the qualified WLAN path |
+| SDIO WLAN | `&msc1`, `&msc1_4bit`, RTC32K in its known working enabled state, `/wifi-bt-power`; GPD4 WLAN_REG_ON and GPA1 fixed-supply control | inherited `ingenic,sdhci`; `regulator-fixed` for the supply; future `mmc-pwrseq-simple` for WLAN_REG_ON | `CONFIG_MMC`, `CONFIG_MMC_SDHCI`, `CONFIG_MMC_SDHCI_INGENIC`, `CONFIG_REGULATOR_FIXED_VOLTAGE`, `CONFIG_WLAN_VENDOR_BROADCOM`, `CONFIG_BRCMFMAC`, `CONFIG_BRCMFMAC_SDIO`, `CONFIG_CFG80211`, `CONFIG_FW_LOADER` | The qualified current runtime uses patched `sdhci-ingenic.c`/`ingenic_sdio.c`; the clean-port architecture instead uses generic MMC pwrseq (`CONFIG_PWRSEQ_SIMPLE`), fixed regulator, normal first rescan, and `brcmfmac` SDIO. The firmware, CLM, and AZW372 NVRAM recorded in `sources.json` remain part of the WLAN path. |
 | ADXL345 accelerometer for input shaping | `/spi-gpio-adxl345`, `/spi-gpio-adxl345/spidev@0`, `&aliases` (`spi2`); SCK GPE16, MOSI GPE17, MISO GPE18, CS GPE21 | `spi-gpio`; child `rohm,dh2228fv` | `CONFIG_SPI`, `CONFIG_SPI_GPIO`, `CONFIG_SPI_SPIDEV`; immediate effective selections include `CONFIG_SPI_MASTER` and `CONFIG_SPI_BITBANG` | `spi-gpio.c` and `spidev.c`; exposes `/dev/spidev2.0` to the Klipper Linux-process MCU. The child compatible is only the pinned kernel's spidev allow-list token, not the fitted chip identity |
-| 480x272 parallel-RGB display output | `&dpu`, `/fre3nder-panel`; reset PB16 | inherited `ingenic,dpu`; panel `fre3nder,ender3-v3-ke-480x272` | `CONFIG_FB`, `CONFIG_FB_INGENIC`, `CONFIG_FB_INGENIC_STAGE`, `CONFIG_FB_INGENIC_DISPLAYS_STAGE`, `CONFIG_STAGE_ENDER3_V3_KE_480X272` | Ingenic `fb_stage`/`ingenicfb.c` plus the panel driver added by `ke-display.patch`; provides 480x272 at 60 Hz, parallel RGB565, through `/dev/fb0` |
+| 480x272 parallel-RGB display output | `&dpu`, `/fre3nder-panel`; reset PB16 | inherited `ingenic,dpu`; panel `fre3nder,ender3-v3-ke-480x272` | `CONFIG_FB`, `CONFIG_FB_INGENIC`, `CONFIG_FB_INGENIC_STAGE`, `CONFIG_FB_INGENIC_DISPLAYS_STAGE`, `CONFIG_STAGE_ENDER3_V3_KE_480X272` | Ingenic `fb_stage`/`ingenicfb.c` plus the panel driver added by `ke-display.patch`; provides `/dev/fb0` as a 480x272, 32-bpp BGRX/RGB888-compatible framebuffer. The DPU reduces that input in hardware to the physical parallel RGB565 panel output at 60 Hz. |
 | Display backlight | `/backlight`; GPC22 active-high | `gpio-backlight` | `CONFIG_BACKLIGHT_CLASS_DEVICE`, `CONFIG_BACKLIGHT_GPIO` | Generic `gpio_backlight.c`; its sysfs interface is used by GuppyScreen for startup, standby, and wake |
 | Resistive touchscreen | `&i2c4`, `&i2c4_pc`, `/.../touchscreen@48`; I2C address `0x48`, GPC25/GPC26, pendown GPC15 active-low | inherited controller `ingenic,x2000-i2c`; child `nsiway,ns2009` | `CONFIG_I2C`, `CONFIG_I2C_INGENIC`, `CONFIG_INPUT`, `CONFIG_INPUT_EVDEV`, `CONFIG_INPUT_TOUCHSCREEN`, `CONFIG_TOUCHSCREEN_NS2009` | `i2c-ingenic.c` plus `ns2009.c` added by `ke-touch.patch`; supplies ABS_X/ABS_Y and BTN_TOUCH through evdev |
-| Touch-feedback beeper | `/beeper`, `&pwm`, `&pwm3_pc`; PWM3 on PC03 | `pwm-beeper`; inherited controller `ingenic,x2000-pwm` | `CONFIG_PWM`, `CONFIG_PWM_INGENIC_V2`, `CONFIG_INPUT_MISC`, `CONFIG_INPUT_PWM_BEEPER` | `pwm-ingenic-v2.c` and generic `pwm-beeper.c`; GuppyScreen emits `EV_SND`/`SND_TONE` |
+| Touch-feedback beeper | `/beeper`, `&pwm`, `&pwm3_pc`; PWM3 on PC03 | `pwm-beeper`; inherited controller `ingenic,x2000-pwm` | `CONFIG_PWM`, `CONFIG_PWM_INGENIC_V2`, `CONFIG_INPUT_MISC`, `CONFIG_INPUT_PWM_BEEPER` | GuppyScreen emits `EV_SND`/`SND_TONE`; the productive path uses PWM3 at 260 Hz, normal polarity and 50% duty cycle through generic `pwm-beeper` and a small ordinary X2000 PWM provider. |
 | Shared GPIO and pin multiplexing for the above devices | `&gpa`, `&gpb`, `&gpc`, `&gpd`, `&gpe` and the named pinctrl groups above | inherited parent `ingenic,x2000-pinctrl` | `CONFIG_PINCTRL`, `CONFIG_PINCTRL_INGENIC`, `CONFIG_PINCTRL_INGENIC_V2`, `CONFIG_GPIOLIB`, `CONFIG_OF_GPIO` | Ingenic X2000 pinctrl/GPIO implementation and the GPIO consumer API |
 | SoC watchdog exposure | `&watchdog` | inherited `ingenic,watchdog` | `CONFIG_WATCHDOG`, `CONFIG_INGENIC_WDT` | `ingenic_wdt.c`; the node and driver are enabled in the current vendor-based configuration, but no Fre3nder userspace watchdog consumer is referenced by the inspected inputs. The later watchdog retention decision drops this watchdog-class path from the future upstream port; only the independent WDT-based platform restart primitive remains required. |
 
@@ -42,7 +43,7 @@ nodes are `&gpa`, `&gpb`, `&gpc`, `&gpd`, `&gpe`, `&pwm`, `&pwm3_pc`,
 `&wifi_bt_power`, `&i2c4_pc`, `&otg_phy`, and the locally defined
 `&adxl_spi` and `&uart1_pc_txrx` labels.
 
-The board file's complete explicit compatible set is
+The current board file's complete explicit compatible set is
 `creality,ender-3-v3-ke`, `ingenic,x2000`, `gpio-backlight`, `pwm-beeper`,
 `fre3nder,ender3-v3-ke-480x272`, `regulator-fixed`, `spi-gpio`,
 `rohm,dh2228fv`, and `nsiway,ns2009`. The immediately referenced controller
@@ -68,10 +69,13 @@ Remaining boundaries and uncertainties are:
   Despite the fixed regulator's `wifi_bt_power` name and the SDIO clock pin
   states, only WLAN is a current qualified consumer; Bluetooth is not a
   Fre3nder requirement established by these inputs.
-- `/chosen` requests `console=ttyS4,115200`, while the inherited UART4 node is
-  not reopened by the board DTS and is disabled in `x2000.dtsi`. The boot
-  argument is present, but a working UART4 console is not established as a
-  current Fre3nder hardware function.
+- `/chosen` supplies the productive kernel command line
+  `console=ttyS4,115200 root=/dev/mmcblk0p8 rootwait rootfstype=squashfs ro`.
+  It contains neither an `earlyprintk` nor an `earlycon` argument. The inherited
+  UART4 node is disabled in `x2000.dtsi` and is not enabled or assigned a
+  pinctrl group by the board DTS. No Getty, productive service, recovery path,
+  or debug path uses `ttyS4`; its `console=` argument was carried forward from
+  the captured Stock command line and is stale for the clean port.
 - The display patch can optionally consume `ingenic,vdd-en-gpio`, but the
   Fre3nder panel node does not provide it. The current qualified path uses
   PB16 reset and the separate PC22 backlight and deliberately does not drive
@@ -101,9 +105,14 @@ not evidence that Fre3nder needs its behavior.
 The classifications used here are exact:
 
 - **REQUIRED**: directly implements a demonstrated Fre3nder hardware path.
-- **TRANSITIVE REQUIRED**: is not itself a demonstrated peripheral function,
-  but the selected board, a required driver, or the current link layout cannot
-  operate or link without it.
+- **CURRENT VENDOR TREE — TRANSITIVE REQUIRED**: is not itself a demonstrated
+  peripheral function, but the selected board, a required driver, or the
+  current vendor link layout cannot operate or link without it. This
+  classification describes dependencies of the current vendor build, not
+  requirements that a future clean port must retain in the same form.
+- **CURRENT VENDOR CONFIG/LINK DEPENDENCY ONLY**: is selected or referenced by
+  the current vendor configuration but implements no demonstrated productive
+  requirement and must not be carried into the clean port.
 - **UNCLEAR**: enabled and reachable, but actual Fre3nder use is not proven.
 - **NOT REQUIRED**: no path from a demonstrated Fre3nder function reaches it.
 
@@ -117,20 +126,20 @@ endpoint, but is not expanded into a complete Linux dependency inventory.
 | Classification | Exact component files | Kconfig and Makefile selection | Origin and required chain | Reason |
 | --- | --- | --- | --- | --- |
 | **REQUIRED** | `module_drivers/dts/x2000/ender3-v3-ke.dts` (staged from `configs/x2000/ender3-v3-ke.dts`) | `CONFIG_DT_ENDER3_V3_KE`; added to `arch/mips/xburst2/soc-x2000/Kconfig.DT` and `module_drivers/dts/Makefile` by the X2000 build integration | Fre3nder board selection -> built-in DTB | This is the concrete board description that enables every controller in the first section. |
-| **TRANSITIVE REQUIRED** | `arch/mips/xburst2/core/prom.c`, `arch/mips/xburst2/soc-x2000/setup.c`, `arch/mips/xburst2/soc-x2000/include/soc/base.h`, `arch/mips/xburst2/soc-x2000/include/soc/ddr.h` | `CONFIG_MACH_XBURST2`, `CONFIG_SOC_X2000`, `CONFIG_INGENIC_BUILTIN_DTB`; `arch/mips/xburst2/Makefile`, `core/Makefile`, and `soc-x2000/Makefile` | selected built-in board DTB -> `get_fdt_addr()` -> `__dt_setup_arch()` -> `plat_of_populate()`; boot -> `of_clk_init()`, `timer_probe()`, `irqchip_init()` | Supplies the XBurst2 firmware/DT handoff and X2000 OF platform creation needed before any DT-described device can probe. The two headers supply the directly used X2000 address and DDR definitions. |
-| **TRANSITIVE REQUIRED** | `arch/mips/xburst2/core/sc.c`, `arch/mips/xburst2/core/smp.c`, `arch/mips/xburst2/core/include/core_base.h`, `arch/mips/xburst2/core/include/ccu.h`, `arch/mips/xburst2/core/include/mxuv3.h`, `arch/mips/xburst2/soc-x2000/include/cpu-feature-overrides.h` | `CONFIG_BOARD_SCACHE`, `CONFIG_XBURST2_CPU_SCACHE`, `CONFIG_SMP`, `CONFIG_NR_CPUS=2`; `core/Makefile` | X2000 CPU selection -> secondary-cache DMA operations and XBurst2 SMP setup -> per-CPU IRQ/timer initialization; generic MIPS context-switch header -> XBurst2 `mxuv3.h` | The cache/SMP code and its register headers are active properties of the selected two-core X2000 platform. `mxuv3.h` remains a compile-time architecture header, but X2000's feature override makes its runtime calls disappear; this does not make `common/mxuv3.c` required. |
-| **TRANSITIVE REQUIRED** | `arch/mips/xburst2/soc-x2000/serial.c` | built by `soc-x2000/Makefile`; consumed because `CONFIG_EARLY_PRINTK=y` | X2000 early-print implementation -> generic MIPS early printk -> `prom_putchar()` | Required as the selected early-print link provider. It does **not** prove that the disabled UART4 DT node is a Fre3nder runtime console. |
-| **TRANSITIVE REQUIRED** | `module_drivers/dts/x2000/x2000.dtsi`, `module_drivers/dts/x2000/x2000-pinctrl.dtsi`; `module_drivers/include/dt-bindings/{interrupt-controller/x2000-irq.h,clock/ingenic-tcu.h,clock/ingenic-x2000.h,sound/ingenic-baic.h,gpio/ingenic-gpio.h,net/ingenic_gmac.h,dma/ingenic-pdma.h,pinctrl/ingenic-pinctrl.h}` | included by the selected board DTS; no independent runtime Kconfig | board DTS -> base SoC nodes, phandles, constants, and pin groups | These are mandatory DT inputs. Inclusion of the sound, GMAC, and PDMA constant headers is only a preprocessing dependency and does not make those controllers required at runtime. |
-| **TRANSITIVE REQUIRED** | `arch/mips/xburst2/soc-x2000/reset.c` — only the normal `reset_init()` / `jz_wdt_restart()` path | `reset.o` is built by `soc-x2000/Makefile`; with `CONFIG_HIBERNATE_RESET` unset, `reset_init()` assigns `_machine_restart = jz_wdt_restart` | normal Linux reboot -> `_machine_restart` -> direct TCU/WDT programming | The later watchdog retention decision establishes that the WDT hardware is still needed as a one-shot platform reset source even though the watchdog-class driver is dropped. Port only this minimal restart primitive; vendor proc/debug or unrelated reset/power-management surface is not required. |
+| **CURRENT VENDOR TREE — TRANSITIVE REQUIRED** | `arch/mips/xburst2/core/prom.c`, `arch/mips/xburst2/soc-x2000/setup.c`, `arch/mips/xburst2/soc-x2000/include/soc/base.h`, `arch/mips/xburst2/soc-x2000/include/soc/ddr.h` | `CONFIG_MACH_XBURST2`, `CONFIG_SOC_X2000`, `CONFIG_INGENIC_BUILTIN_DTB`; `arch/mips/xburst2/Makefile`, `core/Makefile`, and `soc-x2000/Makefile` | selected built-in board DTB -> `get_fdt_addr()` -> `__dt_setup_arch()` -> `plat_of_populate()`; boot -> `of_clk_init()`, `timer_probe()`, `irqchip_init()` | Supplies the XBurst2 firmware/DT handoff and X2000 OF platform creation needed before any DT-described device can probe. The two headers supply the directly used X2000 address and DDR definitions. |
+| **CURRENT VENDOR TREE — TRANSITIVE REQUIRED** | `arch/mips/xburst2/core/sc.c`, `arch/mips/xburst2/core/smp.c`, `arch/mips/xburst2/core/include/core_base.h`, `arch/mips/xburst2/core/include/ccu.h`, `arch/mips/xburst2/core/include/mxuv3.h`, `arch/mips/xburst2/soc-x2000/include/cpu-feature-overrides.h` | `CONFIG_BOARD_SCACHE`, `CONFIG_XBURST2_CPU_SCACHE`, `CONFIG_SMP`, `CONFIG_NR_CPUS=2`; `core/Makefile` | X2000 CPU selection -> secondary-cache DMA operations and XBurst2 SMP setup -> per-CPU IRQ/timer initialization; generic MIPS context-switch header -> XBurst2 `mxuv3.h` | The cache/SMP code and its register headers are active properties of the selected two-core X2000 platform. `mxuv3.h` remains a compile-time architecture header, but X2000's feature override makes its runtime calls disappear; this does not make `common/mxuv3.c` required. |
+| **CURRENT VENDOR CONFIG/LINK DEPENDENCY ONLY** | `arch/mips/xburst2/soc-x2000/serial.c` | built unconditionally by `soc-x2000/Makefile`; its `prom_putchar()` is consumed because `CONFIG_EARLY_PRINTK=y` | config-enabled generic MIPS early printk -> vendor X2000 `prom_putchar()` | The command line does not request `earlyprintk`, no productive early serial console is required, and no other necessary X2000 function depends on this file. Do not port it. |
+| **CURRENT VENDOR TREE — TRANSITIVE REQUIRED** | `module_drivers/dts/x2000/x2000.dtsi`, `module_drivers/dts/x2000/x2000-pinctrl.dtsi`; `module_drivers/include/dt-bindings/{interrupt-controller/x2000-irq.h,clock/ingenic-tcu.h,clock/ingenic-x2000.h,sound/ingenic-baic.h,gpio/ingenic-gpio.h,net/ingenic_gmac.h,dma/ingenic-pdma.h,pinctrl/ingenic-pinctrl.h}` | included by the selected board DTS; no independent runtime Kconfig | board DTS -> base SoC nodes, phandles, constants, and pin groups | These are mandatory DT inputs. Inclusion of the sound, GMAC, and PDMA constant headers is only a preprocessing dependency and does not make those controllers required at runtime. |
+| **CURRENT VENDOR TREE — TRANSITIVE REQUIRED** | `arch/mips/xburst2/soc-x2000/reset.c` — only the normal `reset_init()` / `jz_wdt_restart()` path | `reset.o` is built by `soc-x2000/Makefile`; with `CONFIG_HIBERNATE_RESET` unset, `reset_init()` assigns `_machine_restart = jz_wdt_restart` | normal Linux reboot -> `_machine_restart` -> direct TCU/WDT programming | The later watchdog retention decision establishes that the WDT hardware is still needed as a one-shot platform reset source even though the watchdog-class driver is dropped. Port only this minimal restart primitive; vendor proc/debug or unrelated reset/power-management surface is not required. |
 | **NOT REQUIRED** | `arch/mips/xburst2/common/get-cpu-features.c`, `arch/mips/xburst2/common/mxuv3.c`, `arch/mips/xburst2/common/initrd-check.c`; `arch/mips/xburst2/soc-x2000/gpio.c`, `pm.c`, `pm_sleep.c`, `pm_fastboot.c`, `regs_save_restore.S` | several are unconditionally listed by vendor Makefiles; `initrd-check.o` is commented out; `CONFIG_XBURST2_CPU_TEST` and `CONFIG_FASTBOOT` are off | no call from a proven function; X2000 overrides make `cpu_has_mxuv3` false; the legacy exported GPIO helper has no required caller | Proc diagnostics, unused MXUv3 context code, the unused vendor initrd check, legacy GPIO API, suspend, and fastboot behavior are not needed merely because the vendor directory builds some of them. |
 
 ### Clock, interrupt, timer, and pin control
 
 | Classification | Exact component files | Kconfig and Makefile selection | Origin and required chain | Reason |
 | --- | --- | --- | --- | --- |
-| **TRANSITIVE REQUIRED** | `module_drivers/drivers/clk/ingenic-v2/clk.c`, `clk-div.c`, `clk-bus.c`, `power-gate.c`, `clk-pll-v1.c`, `clk-x2000.c`; private headers `clk.h`, `clk-div.h`, `clk-bus.h`, `power-gate.h`, `clk-pll-v1.h`; `module_drivers/include/dt-bindings/clock/ingenic-x2000.h` | `CONFIG_CLK_X2000` selects `CONFIG_COMMON_CLK_INGENIC`; the X2000 branch of `module_drivers/drivers/clk/ingenic-v2/Makefile` sets its local `CLK_PLL_V1 := y` and selects the six objects | `ingenic,x2000-clocks` -> clocks for CPU/buses, INTC, OST, UART1, MSC0/1, OTG/PHY, DPU/LCD, I2C4, and PWM | `clk-x2000.c` directly uses the common clock, divider, bus, PLL-v1, gate, and power-gate helpers. Those six objects are therefore mandatory for the required consumers. `CONFIG_INGENIC_CLK_DEBUG_FS` only adds diagnostics and is not itself required. |
-| **TRANSITIVE REQUIRED** | `module_drivers/drivers/irqchip/irq-ingenic-cpu.c`, `module_drivers/drivers/irqchip/irq-ingenic-chip.c`, `arch/mips/xburst2/core/include/irq_cpu.h`, `arch/mips/xburst2/soc-x2000/include/irq.h` | `CONFIG_IRQ_INGENIC_CPU`, `CONFIG_INGENIC_INTC_CHIP`; `module_drivers/drivers/irqchip/Makefile` | `ingenic,cpu-interrupt-controller` -> `ingenic,core-intc` -> interrupts for the required devices | Provides the CPU and SoC interrupt domains selected by `CONFIG_SOC_X2000`; the two XBurst2 headers provide their private interrupt definitions and interfaces. |
-| **TRANSITIVE REQUIRED** | `module_drivers/drivers/clocksource/ingenic_core_ost.c` | `CONFIG_CLKSRC_INGENIC_CORE_OST`; `module_drivers/drivers/clocksource/Makefile` | `ingenic,core-ost` -> global clocksource and per-CPU clockevents; XBurst2 SMP calls its per-CPU initializer | This is the selected X2000 system timer. |
+| **CURRENT VENDOR TREE — TRANSITIVE REQUIRED** | `module_drivers/drivers/clk/ingenic-v2/clk.c`, `clk-div.c`, `clk-bus.c`, `power-gate.c`, `clk-pll-v1.c`, `clk-x2000.c`; private headers `clk.h`, `clk-div.h`, `clk-bus.h`, `power-gate.h`, `clk-pll-v1.h`; `module_drivers/include/dt-bindings/clock/ingenic-x2000.h` | `CONFIG_CLK_X2000` selects `CONFIG_COMMON_CLK_INGENIC`; the X2000 branch of `module_drivers/drivers/clk/ingenic-v2/Makefile` sets its local `CLK_PLL_V1 := y` and selects the six objects | `ingenic,x2000-clocks` -> clocks for CPU/buses, INTC, OST, UART1, MSC0/1, OTG/PHY, DPU/LCD, I2C4, and PWM | `clk-x2000.c` directly uses the common clock, divider, bus, PLL-v1, gate, and power-gate helpers. Those six objects are therefore mandatory for the required consumers. `CONFIG_INGENIC_CLK_DEBUG_FS` only adds diagnostics and is not itself required. |
+| **CURRENT VENDOR TREE — TRANSITIVE REQUIRED** | `module_drivers/drivers/irqchip/irq-ingenic-cpu.c`, `module_drivers/drivers/irqchip/irq-ingenic-chip.c`, `arch/mips/xburst2/core/include/irq_cpu.h`, `arch/mips/xburst2/soc-x2000/include/irq.h` | `CONFIG_IRQ_INGENIC_CPU`, `CONFIG_INGENIC_INTC_CHIP`; `module_drivers/drivers/irqchip/Makefile` | `ingenic,cpu-interrupt-controller` -> `ingenic,core-intc` -> interrupts for the required devices | Provides the CPU and SoC interrupt domains selected by `CONFIG_SOC_X2000`; the two XBurst2 headers provide their private interrupt definitions and interfaces. |
+| **CURRENT VENDOR TREE — TRANSITIVE REQUIRED** | `module_drivers/drivers/clocksource/ingenic_core_ost.c` | `CONFIG_CLKSRC_INGENIC_CORE_OST`; `module_drivers/drivers/clocksource/Makefile` | `ingenic,core-ost` -> global clocksource and per-CPU clockevents; XBurst2 SMP calls its per-CPU initializer | This is the selected X2000 system timer. |
 | **REQUIRED** | `module_drivers/drivers/pinctrl/pinctrl-ingenic.c`, `module_drivers/drivers/pinctrl/pinctrl-ingenic.h`; `module_drivers/include/dt-bindings/pinctrl/ingenic-pinctrl.h` | `CONFIG_PINCTRL_INGENIC_V2`; `module_drivers/drivers/pinctrl/Makefile` | `ingenic,x2000-pinctrl` -> UART1, MSC0/1, I2C4, PWM3 and GPIO-backed reset/power/backlight/touch/USB/SPI signals | One driver supplies both X2000 pin muxing and the five GPIO banks/IRQ domains used by the board. `CONFIG_PINCTRL_DUMP` is diagnostic only and not required. |
 | **NOT REQUIRED** | `module_drivers/drivers/irqchip/irq-ingenic.c`, `module_drivers/drivers/clocksource/ingenic_sysost.c`, non-X2000 clock implementations and `clk-pll.c`/`clk-pll-v2.c`, `module_drivers/drivers/pinctrl/multi-vgpio.c` | not selected by the effective symbols or not matched by the active compatibles | no required board node or consumer reaches these alternatives | They implement older/different interrupt, timer, clock, PLL, or virtual-GPIO paths. |
 
@@ -138,7 +147,7 @@ endpoint, but is not expanded into a complete Linux dependency inventory.
 
 | Classification | Exact component files | Kconfig and Makefile selection | Origin and required chain | Reason |
 | --- | --- | --- | --- | --- |
-| **REQUIRED** | `module_drivers/drivers/mmc/host/sdhci-ingenic.c`, `module_drivers/drivers/mmc/host/ingenic_sdio.c`, `module_drivers/drivers/mmc/host/sdhci-ingenic.h`; `arch/mips/xburst2/soc-x2000/include/soc/cpm.h` | `CONFIG_MMC_SDHCI_INGENIC`; `mmc_sdhci_ingenic-objs := sdhci-ingenic.o ingenic_sdio.o` in `module_drivers/drivers/mmc/host/Makefile` | `&msc0` and `&msc1` -> `ingenic,sdhci` -> generic SDHCI/MMC; Fre3nder WLAN patch -> MSC1 REG_ON and RTC32K pin states -> generic `brcmfmac` SDIO | The composite object is shared by eMMC and WLAN. Both vendor source objects are required; `ingenic_sdio.c` performs the Fre3nder-patched MSC1 insertion/power sequence. The Broadcom endpoint uses generic in-tree `brcmfmac`, not BCMDHD. |
+| **REQUIRED IN CURRENT VENDOR TREE** | `module_drivers/drivers/mmc/host/sdhci-ingenic.c`, `module_drivers/drivers/mmc/host/ingenic_sdio.c`, `module_drivers/drivers/mmc/host/sdhci-ingenic.h`; `arch/mips/xburst2/soc-x2000/include/soc/cpm.h` | `CONFIG_MMC_SDHCI_INGENIC`; `mmc_sdhci_ingenic-objs := sdhci-ingenic.o ingenic_sdio.o` in `module_drivers/drivers/mmc/host/Makefile` | `&msc0` and `&msc1` -> `ingenic,sdhci` -> generic SDHCI/MMC; current Fre3nder WLAN patch -> MSC1 REG_ON and RTC32K pin states -> generic `brcmfmac` SDIO | The current composite object is shared by eMMC and WLAN. Its `ingenic_sdio.c` sequencing glue is required by the qualified vendor-based runtime, but **NOT REQUIRED IN THE CLEAN PORT**. The clean port retains X2000 SDHCI controller support and uses generic MMC/pwrseq for the board sequence. The Broadcom endpoint remains generic in-tree `brcmfmac`, not BCMDHD. |
 | **REQUIRED** | Generic `drivers/net/wireless/broadcom/brcm80211/brcmfmac/`: base objects `cfg80211.c`, `chip.c`, `fwil.c`, `fweh.c`, `p2p.c`, `proto.c`, `common.c`, `core.c`, `firmware.c`, `fwvid.c`, `feature.c`, `btcoex.c`, `vendor.c`, `pno.c`, `xtlv.c`; BCDC `bcdc.c`, `fwsignal.c`; SDIO `sdio.c`, `bcmsdh.c`; OF `of.c`; built-in vendor cores `wcc/core.c`, `cyw/core.c`, `bca/core.c`; generic `drivers/regulator/fixed.c` | `CONFIG_BRCMFMAC=y`, `CONFIG_BRCMFMAC_PROTO_BCDC=y`, `CONFIG_BRCMFMAC_SDIO=y`, `CONFIG_OF=y`, `CONFIG_REGULATOR_FIXED_VOLTAGE=y`; brcmfmac and regulator Makefiles | MSC1/SDIO -> detected WLAN function -> `brcmfmac` -> firmware/CLM/NVRAM from `configs/x2000/sources.json`; `/wifi-bt-power` -> `regulator-fixed` | This is the exact generic WLAN composite at the dependency boundary. Its unconditionally included `btcoex.c` is coexistence support inside the WLAN driver and does not establish a Fre3nder Bluetooth device or Bluetooth stack requirement. |
 | **REQUIRED** | `module_drivers/drivers/tty/serial/ingenic_uart.c`, `module_drivers/drivers/tty/serial/ingenic_uart.h` | `CONFIG_SERIAL_INGENIC_UART`; `module_drivers/drivers/tty/serial/Makefile` | `&uart1` -> `ingenic,8250-uart` -> `/dev/ttyS1` -> Klipper printer MCU | Implements the clocked/interrupt-driven UART1 controller. The board supplies no DMA properties, so no Ingenic PDMA driver is in this path. The enabled `CONFIG_SERIAL_INGENIC_CONSOLE`, `CONFIG_SERIAL_INGENIC_LARGE_BAUDRATE`, and `CONFIG_SERIAL_INGENIC_MAGIC_SYSRQ` only alter this same object and are not independently established requirements. |
 | **NOT REQUIRED** | `module_drivers/drivers/mmc/host/ingenic_mmc.c`, `ingenic_mmc.h`, `ingenic_mmc_reg.h`; the BCMDHD driver tree | old MMC controller selection and disabled BCMDHD configuration | no match to `ingenic,sdhci`/generic `brcmfmac` path | These are alternative implementations. `CONFIG_MMC_INDEX_MATCH_CONTROLLER` is also off. Bluetooth and the disabled UART4 node have no demonstrated runtime path. |
@@ -147,16 +156,18 @@ endpoint, but is not expanded into a complete Linux dependency inventory.
 
 | Classification | Exact component files | Kconfig and Makefile selection | Origin and required chain | Reason |
 | --- | --- | --- | --- | --- |
-| **REQUIRED** | Ingenic-bearing DWC2 files `drivers/usb/dwc2/{core.c,core.h,params.c,platform.c}` | `CONFIG_USB_DWC2`, `CONFIG_USB_DWC2_DUAL_ROLE`, `CONFIG_USB_DWC2_EXT_VBUS_DETECT`; `drivers/usb/dwc2/Makefile` | `ingenic,x2000-dwc2-hsotg` -> DWC2 platform match/parameters -> `ingenic,usbphy` lookup and Ingenic VBUS/over-current handling -> generic DWC2 host core | These generic-tree files contain the X2000-specific glue reached by the board's OTG node. Host operation is demonstrated; the configured dual-role/device side is not a separately demonstrated hardware requirement. |
-| **REQUIRED** | `module_drivers/drivers/usb/phy/phy-ingenic.c`, `module_drivers/drivers/usb/phy/phy-ingenic.h`, `module_drivers/drivers/usb/phy/phy-ingenic-x2000.c` | `CONFIG_INGENIC_USB_PHY`; `module_drivers/drivers/usb/phy/Makefile` | `ingenic,usbphy-x2000` -> common Ingenic PHY match/probe -> X2000 PHY data/operations | Implements the PHY used by the DWC2 controller, including the board's VBUS detect/drive GPIOs. |
-| **TRANSITIVE REQUIRED** | `module_drivers/drivers/usb/phy/phy-ingenic-x1000.c`, `phy-ingenic-x1600.c`, `phy-ingenic-x2500.c`, `phy-ingenic-x2600.c`, `phy-ingenic-ad100.c` | all are added by the same `CONFIG_INGENIC_USB_PHY` Makefile branch | common `phy-ingenic.c` OF match table -> externally defined per-family data symbols -> final link | These five non-X2000 implementations are not runtime hardware requirements, but the current source/Makefile topology makes them link dependencies of the selected common PHY driver. |
-| **NOT REQUIRED** | `drivers/net/usb/ax88179_178a.c` for the observed runtime; DWC2 device-role behavior as a distinct function | `CONFIG_USB_NET_AX88179_178A` is enabled; DWC2 is configured dual-role | the observed adapter binds CDC-NCM; all demonstrated attached devices use the host path | Enabled alternatives are not promoted to requirements without an observed consumer. USB mass storage, CDC-NCM and UVC remain required generic endpoint paths. |
+| **UPSTREAM — REQUIRED HOST PATH** | upstream `drivers/usb/dwc2/` | host-only DWC2 selection; no Fre3nder need for dual-role, external-VBUS detect or role switching | `ingenic,x2000-otg` -> upstream X2000 match/parameter data -> generic `phys`/`phy-names` linkage -> upstream DWC2 host core | Linux v6.6.18 already supplies X2000 HS host operation, UTMI 16-bit configuration, 16 host channels and 1024-word host FIFO data. No additional X2000-specific Fre3nder DWC2 function is statically established. |
+| **UPSTREAM — REQUIRED PHY PATH** | upstream `drivers/phy/ingenic/phy-ingenic-usb.c` | generic PHY framework selection | `ingenic,x2000-phy` -> upstream X2000 PHY initialization and host-mode programming | This is the clean-port PHY base. No additional Fre3nder-specific PHY function is statically established; vendor SRBC reset, SPENDN0, TX-strength, wake handling and legacy USB-PHY callbacks remain qualification subjects rather than automatic port requirements. |
+| **FRE3NDER BOARD DATA — REQUIRED** | board DTS only | `regulator-fixed` and DWC2 `vbus-supply` | GPC9 active-high -> GPIO-backed fixed regulator -> DWC2 port VBUS lifecycle | GPC9 is the hardware-required VBUS enable. Raw GPIO control from the vendor PHY is not required. GPD17 is omitted from the host-only clean port. |
+| **CURRENT VENDOR TREE — TRANSITIVE REQUIRED** | `module_drivers/drivers/usb/phy/phy-ingenic-x1000.c`, `phy-ingenic-x1600.c`, `phy-ingenic-x2500.c`, `phy-ingenic-x2600.c`, `phy-ingenic-ad100.c` | all are added by the same `CONFIG_INGENIC_USB_PHY` Makefile branch | common `phy-ingenic.c` OF match table -> externally defined per-family data symbols -> final link | These five non-X2000 implementations are not runtime hardware requirements, but the current source/Makefile topology makes them link dependencies of the selected common PHY driver. |
+| **NOT REQUIRED IN CLEAN PORT** | DWC2 Device/Gadget/DRD, HNP/SRP and vendor OTG/VBUS-detect glue; `drivers/net/usb/ax88179_178a.c` for the observed runtime | the current tree enables alternatives that have no demonstrated consumer | all demonstrated USB devices use the host path; the observed adapter binds CDC-NCM | Enabled alternatives are not promoted to requirements. USB mass storage, CDC-NCM and UVC remain the required generic endpoint paths. |
 
 The generic USB boundary reached here is concrete: DWC2 builds `core.o`,
 `core_intr.o`, `platform.o`, `drd.o`, `params.o`, host objects `hcd.o`,
 `hcd_intr.o`, `hcd_queue.o`, `hcd_ddma.o`, dual-role `gadget.o`, and (because
-debugfs is enabled) `debugfs.o`. Only the host side is demonstrated as a
-Fre3nder function.
+debugfs is enabled) `debugfs.o`. This describes the current build, not the
+clean-port requirement: only the host side is demonstrated as a Fre3nder
+function, and no productive function requires a role change.
 
 | Proven USB function | Exact generic driver files | Kconfig and Makefile selection |
 | --- | --- | --- |
@@ -171,7 +182,7 @@ Fre3nder function.
 | **REQUIRED** | Required subsets of `module_drivers/drivers/video/fbdev/ingenic/fb_stage/ingenicfb.c` and `dpu_ctrl.c`; private headers `dpu_reg.h`, `dpu_ctrl.h`, `dpu_dma_desc.h`; `module_drivers/drivers/video/fbdev/ingenic/include/ingenicfb.h`, `lcd_panel.h` | `CONFIG_FB_INGENIC`, `CONFIG_FB_INGENIC_STAGE`; the current vendor build also selects three framebuffer pages and four composer layers | `&dpu` -> `ingenic,dpu` -> one DMA-addressable framebuffer -> one direct RDMA descriptor/channel -> TFT timing and parallel RGB output -> `/dev/fb0` | Only the standard fbdev, direct-RDMA and TFT-output subsets implement the demonstrated primary display path. The complete vendor files are references, not wholesale port units. |
 | **REQUIRED** | `module_drivers/drivers/video/fbdev/ingenic/displays/panel-ender3-v3-ke-480x272.c` | `CONFIG_FB_INGENIC_DISPLAYS_STAGE`, `CONFIG_STAGE_ENDER3_V3_KE_480X272`; entry added to the display Kconfig/Makefile by `configs/x2000/ke-display.patch` | `/fre3nder-panel` -> `fre3nder,ender3-v3-ke-480x272` -> LCD panel registration -> DPU TFT mode | This project-added panel driver supplies the 480x272 parallel-RGB timings and PB16 reset. No PC21 supply GPIO exists in the Fre3nder node. |
 | **NOT REQUIRED** | `arch/mips/xburst2/soc-x2000/libdmmu.c`, `arch/mips/xburst2/soc-x2000/include/libdmmu.h`, `arch/mips/xburst2/common/proc.c`, `arch/mips/xburst2/core/include/ingenic_proc.h` | Unconditionally built or referenced by the current vendor architecture/composer layout | primary framebuffer DMA handle -> RDMA `FrameBufferAddr`; no DMMU mapping in this chain | DMMU is used only for optional composer layers and vendor DMMU UAPI. Its initialization and proc helper are vendor link/runtime ballast for the direct primary framebuffer. |
-| **TRANSITIVE REQUIRED** | `module_drivers/drivers/video/fbdev/ingenic/jz_mipi_dsi/jz_mipi_dsi.c`, `jz_mipi_dsi_lowlevel.c`, `jz_mipi_dsih_hal.c`, `jz_mipi_dsi_phy.c`; private headers `jz_mipi_dsi_lowlevel.h`, `jz_mipi_dsih_hal.h`, `jz_mipi_dsi_phy.h`, `jz_mipi_dsi_regs.h` | entering `jz_mipi_dsi/` under `CONFIG_FB_INGENIC` unconditionally adds all four objects | selected DPU objects -> unconditional MIPI function references -> MIPI implementation objects -> final link | The Fre3nder panel runs parallel TFT/RGB and does not exercise MIPI at runtime. These files are nevertheless mandatory under the present vendor link layout, so this is a link dependency, not a MIPI hardware requirement. |
+| **CURRENT VENDOR TREE — TRANSITIVE REQUIRED** | `module_drivers/drivers/video/fbdev/ingenic/jz_mipi_dsi/jz_mipi_dsi.c`, `jz_mipi_dsi_lowlevel.c`, `jz_mipi_dsih_hal.c`, `jz_mipi_dsi_phy.c`; private headers `jz_mipi_dsi_lowlevel.h`, `jz_mipi_dsih_hal.h`, `jz_mipi_dsi_phy.h`, `jz_mipi_dsi_regs.h` | entering `jz_mipi_dsi/` under `CONFIG_FB_INGENIC` unconditionally adds all four objects | selected DPU objects -> unconditional MIPI function references -> MIPI implementation objects -> final link | The Fre3nder panel runs parallel TFT/RGB and does not exercise MIPI at runtime. These files are nevertheless mandatory under the present vendor link layout, so this is a link dependency, not a MIPI hardware requirement. |
 | **NOT REQUIRED** | `fb_stage/hw_composer.c`, `hw_composer_fb.c`, `sysfs.c`, `hw_composer_v4l2.c`; `fb_stage_wip/`, other panel drivers, and the X2600 rotation path | several are forced into the current composite object or enabled as vendor control infrastructure; V4L2/experimental/rotation alternatives are off | the productive framebuffer selects `DATA_CH_RDMA` and starts before optional composer export/sysfs handling | Composer layers and UAPI, dynamic sysfs controls, V4L2/writeback, experimental paths, and unrelated panels are outside the established primary framebuffer requirement. |
 
 ### I2C4/touch, PWM/beeper, GPIO SPI, and backlight
@@ -180,7 +191,7 @@ Fre3nder function.
 | --- | --- | --- | --- | --- |
 | **REQUIRED** | `module_drivers/drivers/i2c/busses/i2c-ingenic.c` | `CONFIG_I2C_INGENIC`; `module_drivers/drivers/i2c/busses/Makefile` | `&i2c4` -> `ingenic,x2000-i2c` -> generic I2C core -> NS2009 child | Implements the I2C4 controller and consumes its X2000 clock and interrupt; it has no additional private Ingenic helper object. |
 | **REQUIRED** | `drivers/input/touchscreen/ns2009.c` | `CONFIG_TOUCHSCREEN_NS2009`; Kconfig/Makefile entries added by `configs/x2000/ke-touch.patch` | `nsiway,ns2009` at I2C address `0x48` -> input/evdev; pendown -> GPIO consumer API | This project-added generic I2C input driver is the demonstrated touchscreen endpoint. GT9xx is not on this path. |
-| **REQUIRED** | `module_drivers/drivers/pwm/pwm-ingenic-v2.c` | `CONFIG_PWM_INGENIC_V2`; `module_drivers/drivers/pwm/Makefile` | `ingenic,x2000-pwm` -> PWM3 -> generic `drivers/input/misc/pwm-beeper.c` | Implements the controller behind the Fre3nder beeper. Its `<irq.h>` include is an XBurst2 compile dependency, not a separate PWM helper driver. |
+| **REQUIRED FUNCTIONAL SUBSET** | ordinary PWM behavior from `module_drivers/drivers/pwm/pwm-ingenic-v2.c` | `CONFIG_PWM_INGENIC_V2`; `module_drivers/drivers/pwm/Makefile` | `ingenic,x2000-pwm` -> PWM3 -> generic `drivers/input/misc/pwm-beeper.c` | Fre3nder needs a small X2000 provider with `.apply()` for PWM3. The complete vendor file is only a register/sequence reference; its DMA, IRQ, debug and test surfaces are not port requirements. |
 | **REQUIRED** | generic `drivers/spi/spi-gpio.c`, `drivers/spi/spi-bitbang.c`, `drivers/spi/spidev.c`; generic `drivers/video/backlight/gpio_backlight.c`; generic `drivers/input/misc/pwm-beeper.c` | `CONFIG_SPI_GPIO`, `CONFIG_SPI_BITBANG`, `CONFIG_SPI_SPIDEV`, `CONFIG_BACKLIGHT_GPIO`, `CONFIG_INPUT_PWM_BEEPER` | board GPIO/pinctrl -> software SPI and backlight; Ingenic PWM -> beeper | These are the exact generic endpoint drivers. They require the X2000 pinctrl/GPIO or PWM provider above, but no additional Ingenic SPI, IIO, backlight, or input driver. |
 | **NOT REQUIRED** | Ingenic hardware-SPI and IIO/ADXL drivers, PWM v1/v3 alternatives, GT9xx touchscreen drivers | disabled or unmatched alternatives | the board uses GPIO SPI plus spidev, PWM v2, and NS2009 | None lies on a proven Fre3nder path. |
 
@@ -195,27 +206,32 @@ Fre3nder function.
 
 - **REQUIRED — direct X2000/board paths:** the board DTB; X2000 pinctrl/GPIO;
   the Ingenic SDHCI composite for eMMC and SDIO WLAN; Ingenic UART1; the
-  X2000-bearing DWC2 glue and common/X2000 USB PHY; the DPU/framebuffer
+  upstream X2000 DWC2/USB PHY host path plus GPC9 VBUS board data; the DPU/framebuffer
   subset and Fre3nder RGB panel; Ingenic I2C4 and NS2009; Ingenic PWM v2;
   and the generic GPIO-SPI/spidev, GPIO-backlight, PWM-beeper, USB storage,
-  CDC-NCM, and UVC endpoints. Counted as implementation groups, this is 11
-  direct board/Ingenic groups, comprising 18 directly reached driver `.c`
-  files plus their private headers and the board DTS.
-- **TRANSITIVE REQUIRED — platform/link infrastructure:** XBurst2 DT boot,
-  secondary-cache/SMP and early-print providers; the minimal WDT-based platform
-  restart primitive; the X2000 base DTS and binding headers; six Ingenic-v2
-  clock objects; two interrupt-controller objects; the core OST timer; five
-  non-X2000 PHY data objects forced by the common
-  PHY match table; and four MIPI objects forced by the current framebuffer link
+  CDC-NCM, and UVC endpoints. These functional groups, rather than a fragile
+  source-file count, define the direct requirement. For USB, the retained
+  requirement is the upstream X2000 DWC2/PHY host path plus the Fre3nder GPC9
+  VBUS board data, not the vendor dual-role or legacy-PHY integration.
+- **CURRENT VENDOR TREE — TRANSITIVE REQUIRED — platform/link infrastructure:** XBurst2 DT boot,
+  secondary-cache/SMP providers; the minimal WDT-based platform
+  restart primitive; the X2000 base DTS and binding headers; the Ingenic-v2
+  clock implementation; the interrupt-controller implementation; the core OST
+  timer; non-X2000 PHY data objects forced by the common PHY match table; and
+  MIPI objects forced by the current framebuffer link
   layout. The non-X2000 PHY and MIPI groups are build/link necessities only, not
   Fre3nder hardware functions.
-- **UNCLEAR:** no standalone runtime component remains in this inventory after
-  the later watchdog, UART, I2C, and DPU decisions.
+- **Retain/drop and architecture decisions:** no unresolved decision remains for
+  PREEMPT_RT, the watchdog, early print/ttyS4, UART, I2C, MSC1 WLAN sequencing,
+  the USB host/PHY/VBUS model, the PWM provider scope, DPU/fbdev, DPU DMA
+  mapping, or the DPU IRQ model. Remaining checks are hardware qualification,
+  including the final clean-port PWM clock/DT binding, not architecture questions.
 - **NOT REQUIRED — major excluded areas:** Bluetooth; the Ingenic Ethernet MAC;
   platform camera/ISP; ASoC; hardware SPI and IIO ADXL drivers; GT9xx; BCMDHD;
   the AX88179 driver as the current runtime path; UART4 runtime use; PC21 panel
   power; external initrd use; old MMC/IRQ/timer/PWM/watchdog alternatives; the
-  watchdog-class driver itself; non-selected display paths; XBurst2
+  watchdog-class driver itself; the vendor X2000 early-print path and stale
+  `console=ttyS4,115200` boot argument; non-selected display paths; XBurst2
   diagnostics/MXUv3; and X2000 power-management/fastboot plus reset proc/debug
   surface beyond the required minimal WDT-based restart primitive. Their presence in a defconfig,
   DTS include, or unconditional vendor Makefile is not evidence of a Fre3nder
@@ -227,9 +243,10 @@ This comparison uses the exact upstream commit
 [`d8a27ea2c98685cdaa5fa66c809c7069a4ff394b`](https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git/commit/?id=d8a27ea2c98685cdaa5fa66c809c7069a4ff394b)
 and the exact Ingenic SDK commit
 [`a98c2e1f22e4263ddd4153a4eca4db4dcfd2777b`](https://github.com/Llixuma/ingenic-linux-kernel6.6-x2000-v1.0-20250221/commit/a98c2e1f22e4263ddd4153a4eca4db4dcfd2777b).
-It covers only the `REQUIRED` and `TRANSITIVE REQUIRED` components identified
-above. “Port” below means the smallest functionality that has to be represented
-in an upstream-based tree; it does not mean copying the complete vendor file.
+It covers only the `REQUIRED` and `CURRENT VENDOR TREE — TRANSITIVE REQUIRED`
+components identified above. “Port” below means the smallest functionality
+that has to be represented in an upstream-based tree; it does not mean copying
+the complete vendor file.
 
 ### A. Architecture infrastructure
 
@@ -246,22 +263,102 @@ compatible alone is therefore not a bootable X2000 port.
 | `arch/mips/xburst2/core/prom.c`; `soc-x2000/setup.c`; `base.h`, `ddr.h` | **FULLY VENDOR-SPECIFIC**. Upstream's generic Ingenic board is the natural base, but lacks the vendor firmware/built-in-DTB handoff and X2000 platform setup. | **ARCHITECTURAL DEPENDENCY** | Add X2000 machine selection and the necessary DT handoff/population behavior to the upstream MIPS/Generic model. Do not import unrelated reset, PM, fastboot, or diagnostic code. |
 | `core/sc.c`, `core/smp.c`; `core_base.h`, `ccu.h`; X2000 `cpu-feature-overrides.h` | **FULLY VENDOR-SPECIFIC**. No equivalent XBurst2 secondary-cache and two-core SMP/CCU implementation exists upstream. | **ARCHITECTURAL DEPENDENCY** | New XBurst2 cache/SMP support is required. Port only the cache maintenance, secondary-core bring-up, IPI and per-CPU initialization reached by this configuration. |
 | `core/include/mxuv3.h` | **FULLY VENDOR-SPECIFIC**, but used as an architecture compile-time header; the selected X2000 feature override suppresses its MXUv3 runtime calls. | **ARCHITECTURAL DEPENDENCY** in the current architecture layout | Either provide the minimal definitions required by the XBurst2 context-switch path or restructure that path. `common/mxuv3.c` remains unnecessary. |
-| `soc-x2000/serial.c` | **FULLY VENDOR-SPECIFIC** provider for `prom_putchar()` under the current `EARLY_PRINTK` setup. Upstream already has Ingenic 8250 earlycon machinery. | **ARCHITECTURAL DEPENDENCY** for the current config, not for normal UART1 operation | Prefer upstream earlycon and omit this file if early printk is not retained; it is not evidence for a working UART4 runtime console. |
+| `soc-x2000/serial.c` | **FULLY VENDOR-SPECIFIC** provider for `prom_putchar()` under the current config-enabled `EARLY_PRINTK` setup. | **CURRENT VENDOR CONFIG/LINK DEPENDENCY ONLY** | Do not port this file, `prom_putchar()`, the vendor X2000 early-print integration, or `CONFIG_EARLY_PRINTK` solely for this path. No replacement earlycon is required. |
 | `module_drivers/dts/x2000/x2000.dtsi`, `x2000-pinctrl.dtsi`, and X2000 binding headers | **FULLY VENDOR-SPECIFIC** as files. Upstream has only `include/dt-bindings/dma/x2000-dma.h`, not the required SoC description and vendor binding constants. | **ARCHITECTURAL DEPENDENCY** | Add an upstream-style X2000 DTSI and only the binding constants used by the retained nodes. Drop disabled sound, GMAC, PDMA and other unused nodes/constants from the minimal board path where practical. |
 | Ingenic-v2 clocks: `clk-x2000.c` plus `clk.c`, `clk-div.c`, `clk-bus.c`, `power-gate.c`, `clk-pll-v1.c` | **UPSTREAM BASE + X2000 ADDITION** at the subsystem level. Upstream has `drivers/clk/ingenic/{cgu.c,cgu.h,...}` and older SoC data, but no X2000 clock provider. The vendor framework is a separate implementation, not a small diff against those files. | **ARCHITECTURAL DEPENDENCY** | X2000 clock topology, PLL/divider/bus/gate and power-gate data are required. Implement them on the upstream CGU framework where it can express the hardware; do not assume all five vendor common-helper files must become new upstream files. |
 | `irq-ingenic-cpu.c`, `irq-ingenic-chip.c` and private IRQ headers | **FULLY VENDOR-SPECIFIC** XBurst2/per-CPU implementation. Upstream `irq-ingenic.c` is an older single Ingenic interrupt-controller design and does not implement the `cpu-intc-map` XBurst2 SMP topology. | **ARCHITECTURAL DEPENDENCY** | Add the XBurst2 CPU interrupt dispatch and X2000 per-CPU core INTC/domain behavior; omit vendor diagnostics and unrelated wake/PM extensions unless proven necessary. |
 | `ingenic_core_ost.c` | **FULLY VENDOR-SPECIFIC**. Upstream `drivers/clocksource/ingenic-ost.c` supports the older OST design, not this global-counter plus per-CPU `cpu-ost-map` implementation. | **ARCHITECTURAL DEPENDENCY** | Add the X2000 global clocksource and per-CPU clockevent implementation, including the bounds fix recorded below. |
 | `libdmmu.c`, `libdmmu.h`; `common/proc.c`, `ingenic_proc.h` | **FULLY VENDOR-SPECIFIC**, but reached only by optional composer-layer address translation, vendor DMMU UAPI, and diagnostics. The direct RDMA framebuffer uses the DMA handle without DMMU. | **VENDOR LINK-LAYOUT DEPENDENCY** | Do not port DMMU or its proc wrapper for the minimal primary framebuffer. Reconsider address translation only if a future requirement deliberately adds user-virtual composer layers. |
 
+#### Early-print clean-port decision
+
+```text
+EARLY PRINT DECISION:
+DROP VENDOR EARLY PRINT
+```
+
+The productive kernel command line comes from `/chosen/bootargs` and is:
+
+```text
+console=ttyS4,115200 root=/dev/mmcblk0p8 rootwait rootfstype=squashfs ro
+```
+
+The current state is:
+
+```text
+earlyprintk:
+config-enabled only
+
+earlyprintk bootarg:
+absent
+
+earlycon:
+absent
+
+ttyS4 productive runtime use:
+not established
+```
+
+`CONFIG_EARLY_PRINTK=y` activates the generic MIPS early-print path in the
+current vendor configuration without an `earlyprintk` command-line argument.
+`arch/mips/xburst2/soc-x2000/serial.c` supplies its `prom_putchar()` provider
+and is therefore classified as:
+
+```text
+arch/mips/xburst2/soc-x2000/serial.c:
+
+CURRENT VENDOR CONFIG/LINK DEPENDENCY ONLY
+```
+
+No other necessary X2000 function depends on this file. The clean-port rule is:
+
+```text
+Do not port:
+- soc-x2000/serial.c
+- prom_putchar()
+- vendor X2000 early-print integration
+- CONFIG_EARLY_PRINTK solely for this path
+```
+
+Do not add a replacement earlycon. There is no current productive requirement
+for an early serial console.
+
+The inherited UART4 node is disabled in the X2000 DTSI and the Fre3nder board
+DTS neither enables it nor selects one of its pinctrl groups. No Getty,
+productive service, recovery path, or debug path uses `ttyS4`. The console
+argument was historically carried forward from the captured Stock command
+line and is therefore classified as:
+
+```text
+console=ttyS4,115200:
+STALE / REMOVE IN CLEAN PORT
+```
+
+This records a future clean-port action only; the current boot argument is not
+changed here.
+
+```text
+UART1 / F005:
+unaffected
+```
+
+The productive `/dev/ttyS1` path for the F005 MCU is a separate normal-UART
+requirement and needs no early-print path. It remains subject to the independent
+UART divisor decision below.
+
+It remains unqualified which already bootloader-initialized UART, if any, the
+vendor early-print scanner could physically reach. That uncertainty does not
+establish a productive port requirement.
+
 ### B. Required X2000 controllers
 
 | Function and exact files | v6.6.18 comparison | Reached difference and minimal port boundary |
 | --- | --- | --- |
-| eMMC/SDIO: `sdhci-ingenic.c`, `ingenic_sdio.c`, `sdhci-ingenic.h`, `soc/cpm.h` | **FULLY VENDOR-SPECIFIC** glue over the upstream SDHCI/MMC core. v6.6.18 has no Ingenic SDHCI platform driver. | Port the X2000 clock/tuning/reset/ADMA quirks needed by MSC0 and the manual-card-detect/power path needed by MSC1. The generic SDHCI/MMC core is not a port item. Keep the Fre3nder WLAN sequencing hunks separate as section C. |
+| eMMC/SDIO: `sdhci-ingenic.c`, `ingenic_sdio.c`, `sdhci-ingenic.h`, `soc/cpm.h` | **FULLY VENDOR-SPECIFIC** glue over the upstream SDHCI/MMC core. v6.6.18 has no Ingenic SDHCI platform driver. | Port the X2000 clock/tuning/reset/ADMA controller behavior needed by MSC0/MSC1. The generic SDHCI/MMC core is not a port item. Do not port the manual MSC1 card-detect/power sequence; the clean-port board sequence uses generic regulator, GPIO, MMC pwrseq, non-removable startup/rescan, and brcmfmac enumeration. |
 | UART1: vendor `ingenic_uart.c/.h` versus upstream `drivers/tty/serial/8250/8250_ingenic.c` | **UPSTREAM BASE + X2000 ADDITION**. Upstream already implements the Ingenic register shift, UME/RTOIE handling, clocks, FIFO data, console and 8250 registration, but has no X2000 match and uses different compatibles/clock names. | Extend the upstream 8250 driver and use an upstream-style compatible/clock description. The board supplies no DMA properties, so the vendor DMA engine, custom standalone `uart_driver`, debug proc code and most of the large vendor file are not needed. The later UART divisor decision establishes that only a small X2000-specific UMR setup is additionally required for 230400 baud; nonzero UACR and the full vendor algorithm are not required. |
-| DWC2: `drivers/usb/dwc2/{params.c,platform.c,core.c,core.h,hcd.c}` | **GENERIC UPSTREAM FILE MODIFIED**. `Makefile`, `drd.c`, `hcd.h`, `hcd_intr.c`, `hcd_queue.c` and `hcd_ddma.c` are **IDENTICAL TO UPSTREAM**. | Preserve upstream DWC2 and add only an X2000 match/parameter record, PHY hookup, board VBUS drive, and external-VBUS-detect handling. Required vendor hunks are `dwc2_set_hsotg_params()`, the `ingenic,x2000-dwc2-hsotg` match, `external_vbus_detect`, `devm_usb_get_phy_by_phandle(..., "ingenic,usbphy", ...)`, `usb_phy_vbus_on/off()` and the host connect-state accommodation. The read-only `dwc2_mode` sysfs file, broad deletion of newer upstream clock/regulator/power handling, gadget-only wrappers, formatting churn, and changes in `core_intr.c`, `gadget.c`, `debugfs.c` and `hw.h` are not required by the demonstrated host path. |
-| USB PHY: vendor `phy-ingenic.c/.h`, `phy-ingenic-x2000.c` | **UPSTREAM BASE + X2000 ADDITION**. v6.6.18 already has `drivers/phy/ingenic/phy-ingenic-usb.c`, including `x2000_usb_phy_init()` and `ingenic,x2000-phy`; the vendor driver instead uses the legacy USB-PHY API and `ingenic,usbphy-x2000`, and owns the KE VBUS GPIOs. | Reuse the upstream generic PHY implementation, adapt the DTS compatible, and add only any still-required X2000/board VBUS-drive and detect integration. A clean design need not import the vendor common driver wholesale. |
-| DPU/framebuffer: required subsets of `fb_stage/{ingenicfb.c,dpu_ctrl.c}` and private register/descriptor headers | **FULLY VENDOR-SPECIFIC** for the X2000 DPU. Upstream's older Ingenic DRM/IPU files contain no X2000 DPU match or equivalent direct-RDMA descriptor implementation. | Add a clean minimal X2000 standard-fbdev driver with one DMA-addressable 32-bpp framebuffer, one direct RDMA descriptor/channel, TFT timing, parallel RGB565 output, blanking, and minimal `yoffset=0` pan handling. Composer, DMMU and vendor control surfaces are not part of this port boundary. |
+| DWC2: `drivers/usb/dwc2/{params.c,platform.c,core.c,core.h,hcd.c}` | **UPSTREAM X2000 SUPPORT ALREADY PRESENT; VENDOR INTEGRATION DIFFERS**. v6.6.18 already provides the `ingenic,x2000-otg` match, X2000 parameter data, HS host operation, UTMI 16-bit configuration, 16 host channels, 1024-word host FIFO data and generic PHY linkage. | Use upstream DWC2 unchanged for the host-only architecture. The vendor `INCR16` AHB value is not a demonstrated functional requirement and must not be carried for speculative performance. Legacy PHY hookup, external-VBUS detection/override, raw VBUS GPIO control and Device/Gadget/DRD integration are not clean-port requirements. The vendor early-connect check remains **UNRESOLVED / qualification item** and must not be carried preemptively. |
+| USB PHY: vendor `phy-ingenic.c/.h`, `phy-ingenic-x2000.c` | **UPSTREAM X2000 SUPPORT ALREADY PRESENT**. v6.6.18 has `drivers/phy/ingenic/phy-ingenic-usb.c`, including `x2000_usb_phy_init()` and `ingenic,x2000-phy`; the vendor driver instead uses the legacy USB-PHY API and owns both board VBUS GPIOs. | Use upstream `ingenic,x2000-phy` as the clean-port base. No additional Fre3nder-specific PHY function is statically established. Vendor SRBC reset, SPENDN0, TX-strength, wake handling and legacy callbacks are hardware-qualification subjects only. Model GPC9 separately through a fixed regulator and DWC2 `vbus-supply`; omit GPD17. |
+| DPU/framebuffer: required subsets of `fb_stage/{ingenicfb.c,dpu_ctrl.c}` and private register/descriptor headers | **FULLY VENDOR-SPECIFIC** for the X2000 DPU. Upstream's older Ingenic DRM/IPU files contain no X2000 DPU match or equivalent direct-RDMA descriptor implementation. | Add a clean minimal X2000 standard-fbdev driver with one DMA-addressable 32-bpp framebuffer, one direct RDMA descriptor/channel, TFT timing, parallel RGB565 output and blanking. The later `yoffset=0` pan call is non-critical and may be handled as a trivial frame-0 reselect or successful no-op. Composer, DMMU and vendor control surfaces are not part of this port boundary. |
 | I2C4: `i2c-ingenic.c` | **UPSTREAM BASE + X2000 ADDITION**. Upstream `i2c-jz4780.c` implements the same X1000-style register, explicit-STOP and 64-entry-FIFO model; the later I2C decision finds no additional X2000 controller quirk required by NS2009. | Let the X2000 compatible select the existing upstream X1000 data and provide its APB-derived gate plus explicit 100 kHz bus rate in DT. Do not port the divergent vendor driver or its debug/config surface. |
 | PWM3: `pwm-ingenic-v2.c` | **FULLY VENDOR-SPECIFIC** X2000 16-channel PWM block. Upstream `pwm-jz4740.c` drives TCU channels through a parent regmap and is not the controller at `0x134c0000`. | Add a reduced X2000 PWM provider. Fre3nder needs only ordinary `.apply` behavior for channel 3; DMA waveform support, debug sysfs, test allocation and unrelated M300 support are not demonstrated requirements. |
 | Pinctrl/GPIO: vendor `pinctrl-ingenic.c/.h` | **UPSTREAM BASE + X2000 ADDITION**, with an important integration defect. Upstream v6.6.18 already contains X2000/X2000E pin, function, GPIO and IRQ data—including UART1 PC23/PC24, MSC0/1, I2C4 and PWM3—but its match data is guarded by undefined `CONFIG_MACH_X2000`, making the X2000 match unusable in that tree. | Reuse the upstream driver, make the existing X2000 data selectable/reachable, and translate the vendor pinctrl DTS to upstream group/function bindings. A wholesale vendor pinctrl driver is not needed. |
@@ -282,20 +379,220 @@ These belong above a generic X2000 port and must remain reviewable separately:
 
 | Component | Classification | Minimal content |
 | --- | --- | --- |
-| `configs/x2000/ender3-v3-ke.dts` plus its DTB Kconfig/Makefile entry | **FRE3NDER-SPECIFIC** | Board identity, memory/root choice, UART1, eMMC, SDIO WLAN power/pins, USB VBUS pins, I2C4/NS2009, DPU/panel, PWM3/beeper, backlight and GPIO-SPI ADXL345. It must be translated to the bindings chosen for the clean X2000 port. |
+| `configs/x2000/ender3-v3-ke.dts` plus its DTB Kconfig/Makefile entry | **FRE3NDER-SPECIFIC** | Board identity, memory/root choice, UART1, eMMC, SDIO WLAN power/pins, GPC9 active-high USB VBUS enable, I2C4/NS2009, DPU/panel, PWM3/beeper, backlight and GPIO-SPI ADXL345. It must be translated to the bindings chosen for the clean X2000 port; GPD17 is omitted from the host-only USB model. |
 | `configs/x2000/ke-display.patch` | **FRE3NDER-SPECIFIC** | The KE panel compatible, 480x272 timings, PB16 reset and hardware-confirmed parallel RGB565 mode. The generic X2000 DPU is section B; PC21 power is deliberately not claimed. |
 | `configs/x2000/ke-touch.patch` | **FRE3NDER-SPECIFIC** | NS2009 I2C input driver and Kconfig/Makefile entry, including the KE's GPC15 `pendown-gpios` path. v6.6.18 has no NS2009 driver. |
-| `configs/x2000/ke-wlan.patch` | **FRE3NDER-SPECIFIC** | Late MSC1 manual insertion; cancellation of the pending generic detect work; MMC power cycle; direct raw WLAN_REG_ON low/100-ms/high sequence; and the GPIO descriptor field/acquisition. This is above the generic X2000 SDHCI support. |
+| MSC1 WLAN board data in `configs/x2000/ender3-v3-ke.dts` | **FRE3NDER-SPECIFIC — REQUIRED** | GPA1 shared-supply enable and polarity, GPD4 WLAN_REG_ON and polarity, the required delay, `non-removable`, and RTC32K in its known working enabled state. Translate these facts to generic clean-port bindings. |
+| `configs/x2000/ke-wlan.patch` | **CURRENT RUNTIME WORKAROUND — NOT REQUIRED IN CLEAN PORT** | The patch's late manual insertion, detect-work cancellation, extra MMC power cycle, software card-present/SDHCI flag changes, manual rescan, direct raw GPD4 control, and vendor WLAN/RTC32K glue are not clean-port architecture requirements. The patch itself remains unchanged while the current vendor-based runtime depends on it. |
 
 `regulator-fixed`, `brcmfmac`, `spi-gpio`, `spi-bitbang`, `spidev`,
 `gpio-backlight`, `pwm-beeper`, USB storage, CDC-NCM and UVC are not
 Fre3nder-specific source deltas because their selected v6.6.18 files are
 identical.
 
+#### MSC1 WLAN clean-port decision
+
+```text
+MSC1 WLAN INTEGRATION:
+GENERIC LINUX MODEL SUFFICIENT
+```
+
+The future clean port needs no Fre3nder-specific MMC/SDHCI sequencing code for
+the WLAN board sequence. This does not remove or reclassify the separate
+generic X2000 SDHCI controller requirement.
+
+The generic target model is:
+
+```text
+GPA1
+  -> regulator-fixed
+  -> active-low
+  -> regulator-boot-on / regulator-always-on
+  -> MSC1 vmmc-supply
+
+GPD4 / WLAN_REG_ON
+  -> mmc-pwrseq-simple
+  -> active-low reset-gpios
+
+MSC1
+  -> non-removable
+  -> normal MMC host startup and first rescan
+  -> SDIO enumeration
+  -> brcmfmac bind
+```
+
+The required GPD4 sequence is `assert low -> wait at least 100 ms -> deassert
+high -> SDIO enumeration`. The selected delay must run while GPD4 remains
+asserted. In Linux v6.6.18, the MMC-host `post-power-on-delay-ms` is positioned
+between pwrseq assertion and deassertion and can express that hold. The
+`mmc-pwrseq-simple` node's own `post-power-on-delay-ms` runs only after reset
+deassertion and therefore must not be used as the 100-ms low hold.
+
+Dynamic RTC32K switching: **not required**. The clean port must initially
+preserve the known working enabled RTC32K state. The independent electrical
+necessity of RTC32K was not isolated, so this conclusion does not classify the
+clock itself as unnecessary.
+
+The following current behavior is removable from the clean port:
+
+- the WLAN `late_initcall` and vendor WLAN/RTC32K sequencing glue;
+- manual software card-present, `SDHCI_DEVICE_DEAD` manipulation, and
+  `SDHCI_QUIRK_BROKEN_CARD_DETECTION` for this purpose;
+- cancellation of the competing detect work;
+- the extra `mmc_power_off()` / `mmc_power_up()` cycle;
+- manual `mmc_detect_change()` and vendor-core changes used only to permit a
+  repeated rescan;
+- the `wlan-reg-on-gpios` SDHCI property and raw GPD4 control in the host
+  driver.
+
+This architecture decision is not yet hardware-qualified. The minimal later
+test must demonstrate:
+
+1. GPA1 supply is active.
+2. `mmc-pwrseq-simple` physically drives GPD4 low.
+3. GPD4 remains low for at least 100 ms.
+4. GPD4 subsequently goes high.
+5. The normal first MMC rescan enumerates the SDIO device.
+6. `brcmfmac` binds without manual card insertion or an additional rescan.
+
+An earlier OpenKE pwrseq attempt executed its callback without physically
+moving GPD4. This remains a hardware-qualification warning for the generic
+GPIO/pwrseq integration, but it is not evidence that the vendor workaround is
+an architectural prerequisite.
+
+#### USB host clean-port decision
+
+```text
+USB ROLE:
+HOST ONLY
+```
+
+The only demonstrated productive Fre3nder USB functions are USB mass storage,
+CDC-NCM Ethernet, and a UVC camera. There is no demonstrated requirement for
+USB Device/Gadget, dual-role operation, OTG role switching, HNP, or SRP.
+
+```text
+X2000 DWC2:
+
+upstream Linux v6.6.18 already provides:
+```
+
+- the `ingenic,x2000-otg` compatible and match;
+- X2000 parameter data;
+- high-speed host operation;
+- UTMI 16-bit configuration;
+- 16 host channels;
+- 1024-word host RX, non-periodic TX, and periodic TX FIFO data;
+- generic `phys` / `phy-names` linkage.
+
+No mandatory X2000-specific Fre3nder DWC2 extension beyond that upstream
+support was found. The vendor `INCR16` AHB value is not a demonstrated
+functional requirement and must not be carried solely for possible
+performance.
+
+```text
+X2000 USB PHY:
+
+upstream ingenic,x2000-phy is the clean-port base
+```
+
+No additional Fre3nder-specific PHY function is statically established. The
+vendor SRBC reset, SPENDN0, TX-strength, wake-handling, and legacy USB-PHY
+callback sequences are not automatic port requirements; they remain hardware-
+qualification subjects if a concrete failure later points to them.
+
+```text
+GPC9:
+hardware-required active-high VBUS enable
+
+raw GPIO control from vendor PHY:
+not required
+```
+
+The clean board model is:
+
+```text
+board:
+  GPC9 active-high
+    -> regulator-fixed
+    -> DWC2 vbus-supply
+
+DWC2:
+  compatible = "ingenic,x2000-otg"
+  dr_mode = "host"
+  phys / phy-names
+  -> upstream DWC2 host core
+
+PHY:
+  compatible = "ingenic,x2000-phy"
+  -> upstream X2000 PHY implementation
+
+GPD17:
+  omitted
+```
+
+The generic regulator integration owns the DWC2 port-VBUS lifecycle.
+
+```text
+GPD17 external VBUS detect:
+DEVICE/OTG ONLY for the demonstrated Fre3nder use case
+```
+
+The vendor code uses GPD17 for gadget VBUS state, gadget connect/disconnect,
+and OTG notification. The productive host path detects attached devices
+through DWC2 and does not require this input.
+
+```text
+HOST EARLY-CONNECT QUIRK:
+UNRESOLVED / qualification item
+
+Do not carry this quirk preemptively.
+```
+
+The workaround avoids a possible suspend/power-saving transition that would
+remove VBUS after a connection is detected but before the host port is enabled.
+This has not been established as X2000-specific hardware behavior; upstream
+has no exactly equivalent check, and no evidence shows that Fre3nder's
+productive devices require it. Re-evaluate it only if hardware qualification
+produces a reproducible failure.
+
+The following vendor functionality is removable from the host-only clean port:
+
+- Dual-role/DRD and Gadget support as Fre3nder requirements;
+- HNP/SRP and external-ID handling;
+- Gadget FIFO/DMA configuration;
+- GPD17 GPIO/IRQ/workqueue glue;
+- the external-VBUS-detect parameter and GOTGCTL external-VBUS override;
+- the external-VBUS resume workaround;
+- legacy `ingenic,usbphy` integration;
+- raw GPC9 control through `usb_phy_set_vbus()`;
+- vendor USB-PHY OTG callbacks and role-state glue.
+
+This architecture decision is not yet hardware-qualified. Later qualification
+must cover:
+
+1. cold boot with USB mass storage;
+2. mass-storage hotplug;
+3. CDC-NCM Ethernet;
+4. the UVC camera;
+5. suspend/resume if used productively;
+6. a USB device attached very early during host startup;
+7. upstream PHY initialization versus the vendor SRBC/SPENDN0/TX-strength
+   sequence;
+8. the `INCR16` value only if a real performance problem is observed.
+
+None of these open checks is a reason to carry vendor code preemptively.
+
 ### D. Vendor link ballast
 
 The following current build dependencies are not hardware port requirements:
 
+- **CURRENT VENDOR CONFIG/LINK ONLY — X2000 early print:**
+  `arch/mips/xburst2/soc-x2000/serial.c`, its `prom_putchar()` provider, and
+  the vendor X2000 early-print integration are reached only because the current
+  configuration enables `CONFIG_EARLY_PRINTK`. No productive early serial
+  console is required, so this path is omitted without adding an upstream
+  earlycon replacement.
 - **VENDOR LINK-LAYOUT ONLY — other USB PHY families:**
   `phy-ingenic-x1000.c`, `phy-ingenic-x1600.c`, `phy-ingenic-x2500.c`,
   `phy-ingenic-x2600.c`, and `phy-ingenic-ad100.c`. The vendor Makefile places
@@ -317,9 +614,9 @@ The following current build dependencies are not hardware port requirements:
   `ingenic_proc.h` are pulled into this path by optional DMMU diagnostics. They
   can be removed with that proc interface without changing address translation.
 
-The vendor clock helper files and early-print provider are not placed in this
-list: their literal file layout is replaceable, but they currently supply real
-clock or architecture behavior rather than an unreachable family implementation.
+The vendor clock helper files are not placed in this list: their literal file
+layout is replaceable, but they currently supply required clock behavior. The
+early-print provider is listed as current configuration/link ballast above.
 
 ### E. NebulaOS findings
 
@@ -330,18 +627,18 @@ inventory.
 
 | Area | Classification | Relevant finding |
 | --- | --- | --- |
-| MSC1/SDIO WLAN | **CONFIRMS FRE3NDER** | OpenKE's bring-up established the explicit manual-insert model and the need to avoid racing the pending generic detect work. The Fre3nder WLAN patch contains the resulting bounded sequence. See [`858509a4a`](https://github.com/coreflake1/NebulaOS-kernel/commit/858509a4a0387d4f181a01e3679213b93bbd6863), [`0494e1df7`](https://github.com/coreflake1/NebulaOS-kernel/commit/0494e1df7), and [`2947aa10f`](https://github.com/coreflake1/NebulaOS-kernel/commit/2947aa10f536afd61ad96d7801b15acdedaa1da6). |
+| MSC1/SDIO WLAN | **CONFIRMS CURRENT VENDOR WORKAROUND; NOT A CLEAN-PORT REQUIREMENT** | OpenKE's bring-up established why the current late manual-insert path must avoid racing pending generic detect work. It does not establish manual insertion as a hardware property of the fixed SDIO device. With the board sequence attached to normal host startup through generic pwrseq, the first rescan replaces the late insertion and repeated-rescan workaround. See [`858509a4a`](https://github.com/coreflake1/NebulaOS-kernel/commit/858509a4a0387d4f181a01e3679213b93bbd6863), [`0494e1df7`](https://github.com/coreflake1/NebulaOS-kernel/commit/0494e1df7), and [`2947aa10f`](https://github.com/coreflake1/NebulaOS-kernel/commit/2947aa10f536afd61ad96d7801b15acdedaa1da6). |
 | MSC1 clock selection | **KNOWN VENDOR FIX RELEVANT** | In the low-speed path, vendor `sdhci_ingenic_set_clock()` writes the MSC0 clock register literal even for MSC1 instead of its already-computed `cpm_msc`. OpenKE corrects that in [`858509a4a`](https://github.com/coreflake1/NebulaOS-kernel/commit/858509a4a0387d4f181a01e3679213b93bbd6863). This fix is not in the current Fre3nder WLAN patch and must be evaluated when extracting generic MSC support. |
-| WLAN power DTS | **CONFIRMS FRE3NDER** | OpenKE identified the active-low PA1 shared supply and PD4 WLAN_REG_ON behavior; Fre3nder's DTS and direct raw low/high sequence reflect those results. See [`1143ecb97`](https://github.com/coreflake1/NebulaOS-kernel/commit/1143ecb977bc2cd361177e781172dbcaeb5c9614) and [`c12ca7cb8`](https://github.com/coreflake1/NebulaOS-kernel/commit/c12ca7cb824784fe04d557c4cf72ae858d0917fa). Its older pwrseq-cell/delay fixes are not separately required by Fre3nder's final direct-GPIO sequence. |
+| WLAN power DTS | **CONFIRMS FRE3NDER BOARD DATA** | OpenKE identified the active-low PA1 shared supply and PD4 WLAN_REG_ON behavior. These polarities and the low/100-ms/high requirement remain required board data, but direct raw GPIO control does not. An earlier pwrseq attempt did not physically move GPD4 despite callback execution; retain that result as a qualification warning for the clean generic GPIO/pwrseq path, not as a reason to preserve manual host-driver sequencing. See [`1143ecb97`](https://github.com/coreflake1/NebulaOS-kernel/commit/1143ecb977bc2cd361177e781172dbcaeb5c9614) and [`c12ca7cb8`](https://github.com/coreflake1/NebulaOS-kernel/commit/c12ca7cb824784fe04d557c4cf72ae858d0917fa). |
 | UART1/pinctrl | **CONFIRMS FRE3NDER** | OpenKE enabled the actual printer-MCU UART, removed conflicting pin ownership, and finally restricted UART1 to TX/RX. Fre3nder uses the same PC23/PC24 pair through its own group. See [`4905cb23e`](https://github.com/coreflake1/NebulaOS-kernel/commit/4905cb23e60ce200f9969503a6b6259e731ed660), [`c60cf4d67`](https://github.com/coreflake1/NebulaOS-kernel/commit/c60cf4d67ec2f50496715efa871d5123f978b4cb), and [`970bd6b83`](https://github.com/coreflake1/NebulaOS-kernel/commit/970bd6b834ea3d0af195b6281a0deacdafff4506). |
-| USB VBUS | **CONFIRMS FRE3NDER** | GPC9 as VBUS drive was recovered from the stock DTB and is already cited in the Fre3nder board DTS: [`c902097d1`](https://github.com/coreflake1/NebulaOS-kernel/commit/c902097d1a79c21ef6717d7e4ecc1db2a9233990). |
+| USB VBUS | **CONFIRMS FRE3NDER BOARD DATA** | GPC9 as the active-high VBUS enable was recovered from the stock DTB and is already cited in the Fre3nder board DTS: [`c902097d1`](https://github.com/coreflake1/NebulaOS-kernel/commit/c902097d1a79c21ef6717d7e4ecc1db2a9233990). This establishes the board signal, not a requirement for the vendor PHY's raw GPIO API; the clean port uses a fixed regulator and DWC2 `vbus-supply`. |
 | OST | **KNOWN VENDOR FIX RELEVANT** | [`2d507671c`](https://github.com/coreflake1/NebulaOS-kernel/commit/2d507671c4aff8f424cbc90e7c0fb7ae525606a1) checks the `cpu-ost-map` pair index before writing. The original post-increment test emits a false overflow for exactly `NR_CPUS` pairs and could allow an out-of-bounds write for oversized data. |
 | Core IRQ | **KNOWN VENDOR FIX RELEVANT** | [`e123bb14f`](https://github.com/coreflake1/NebulaOS-kernel/commit/e123bb14fd8e3fd03a5550cf187a5a9f64faf281) fixes the identical pre-write bounds error in `cpu-intc-map`. |
 | TCU | **KNOWN VENDOR FIX NOT REQUIRED FOR CURRENT FRE3NDER PATH** | [`5ac124ac6`](https://github.com/coreflake1/NebulaOS-kernel/commit/5ac124ac6015d4b0c51f549cb7cd5835ccd8a97b) only downgrades a message about the optional trigger-mode IRQ. Fre3nder's dedicated X2000 PWM block and core OST do not require that optional IRQ; the watchdog-class driver is dropped, and the independent WDT-based restart primitive does not establish a need for this trigger IRQ either. |
 | Watchdog | **KNOWN VENDOR FIX NOT REQUIRED FOR CURRENT PORT** | OpenKE's initial KE commit stops the hardware counter unconditionally at probe before clearing mask/flag state: [`8e97319a1`](https://github.com/coreflake1/NebulaOS-kernel/commit/8e97319a1754e264580ac39400a0c41139d2deb4). The later retention analysis classifies the watchdog-class driver as `DROP`: no productive Fre3nder consumer exists and the available X2000-v12 SPL source disables the counter during normal boot. The OpenKE probe-stop hunk is therefore not part of the current port; only the independent WDT-based platform restart primitive remains required. |
 | Display/DPU | **CONFIRMS FRE3NDER** | [`4af473b43`](https://github.com/coreflake1/NebulaOS-kernel/commit/4af473b43475344c74f1718f0e9970384b9a332b) records the hardware-confirmed parallel RGB565 bus mode used by the Fre3nder panel. [`41fec9840`](https://github.com/coreflake1/NebulaOS-kernel/commit/41fec9840ceaf661fea8eb5606d4b49b25dd0bae) merely changes an error to debug output for absent optional compositor layer sizes; it is **KNOWN VENDOR FIX NOT REQUIRED FOR CURRENT FRE3NDER PATH**. The MIPI mutex cleanup in `295b7101d` is likewise irrelevant to RGB. |
 | NS2009 touch | **CONFIRMS FRE3NDER** | OpenKE found that GPC15 pendown, rather than the generic Z1 threshold, is the usable touch-present signal; Fre3nder carries the cleaned optional-GPIO form. See [`713d4d196`](https://github.com/coreflake1/NebulaOS-kernel/commit/713d4d19619a62cbbb866c0d60ca4ce3eb542ac9) and cleanup [`f7ff80a8a`](https://github.com/coreflake1/NebulaOS-kernel/commit/f7ff80a8aa21886a32783dab167e451298c60a8d). |
-| PWM | **UNCLEAR** | OpenKE uses the same X2000 PWM controller for the board but contains no controller-driver correction. This confirms the selected hardware path, not the correctness or minimality of the vendor PWM implementation. |
+| PWM | **CONFIRMS HARDWARE PATH; NO PROVIDER CORRECTION** | OpenKE uses the same X2000 PWM controller for the board but contains no controller-driver correction. This confirms PWM3/PC03 as the selected path, not the correctness or minimality of the vendor PWM implementation. The clean-port decision independently requires only a small ordinary provider. |
 
 ### Compact port inventory
 
@@ -354,7 +651,7 @@ NEW FILES NEEDED FROM VENDOR (as reduced/reworked implementations):
 - X2000 per-CPU core interrupt controller and core/global OST
 - X2000 SDHCI platform glue for MSC0/MSC1
 - minimal X2000 direct-RDMA fbdev and parallel-RGB display support
-- X2000 dedicated 16-channel PWM provider
+- small ordinary X2000 PWM provider; only PWM3 is a productive Fre3nder channel
 
 UPSTREAM FILES NEEDING X2000 CHANGES:
 - arch/mips Kconfig/generic Ingenic board integration and DTB wiring
@@ -362,14 +659,50 @@ UPSTREAM FILES NEEDING X2000 CHANGES:
 - drivers/pinctrl/pinctrl-ingenic.c (make its existing X2000 data reachable)
 - drivers/tty/serial/8250/8250_ingenic.c (X2000 match/data and binding)
 - drivers/i2c/busses/i2c-jz4780.c (X2000 compatible selecting existing X1000 data)
-- drivers/phy/ingenic/phy-ingenic-usb.c (board VBUS integration if retained there)
-- drivers/usb/dwc2/{params.c,platform.c,core.c,core.h,hcd.c} (small X2000 host/PHY/VBUS delta)
+
+UPSTREAM USB SUPPORT USED WITHOUT A FRE3NDER DRIVER DELTA:
+- drivers/usb/dwc2/*: ingenic,x2000-otg host match and parameter data
+- drivers/phy/ingenic/phy-ingenic-usb.c: ingenic,x2000-phy
 
 FRE3NDER-SPECIFIC FILES:
 - Ender-3 V3 KE board DTS and DTB selection
 - 480x272 parallel-RGB565 panel driver/Kconfig/Makefile entry
 - NS2009 driver/Kconfig/Makefile entry with GPC15 pendown support
-- MSC1 WLAN manual-insert/power-sequence changes
+- MSC1 WLAN board data in the board DTS: GPA1/GPD4 wiring and polarity,
+  at-least-100-ms asserted delay, non-removable, and enabled RTC32K state
+- USB board data in the board DTS: GPC9 active-high fixed regulator connected
+  as the DWC2 vbus-supply; host-only role; GPD17 omitted
+
+REMOVABLE CURRENT WLAN WORKAROUNDS:
+- ke-wlan.patch manual insert/power sequencing; vendor late_initcall,
+  card-present/SDHCI flag manipulation, detect-work cancellation, extra MMC
+  power cycle, manual rescan, raw host-driver GPD4 control, WLAN/RTC32K glue,
+  and vendor-core repeated-rescan changes needed only by that path
+
+REMOVABLE CURRENT USB/OTG FUNCTIONALITY:
+- Dual-role/DRD, Gadget, HNP/SRP, external-ID and Gadget FIFO/DMA configuration
+- GPD17 GPIO/IRQ/workqueue glue and external-VBUS-detect handling
+- GOTGCTL external-VBUS override and external-VBUS resume workaround
+- legacy ingenic,usbphy integration, raw GPC9 usb_phy_set_vbus() control, and
+  vendor USB-PHY OTG callbacks/role-state glue
+
+USB HOST EARLY-CONNECT QUALIFICATION:
+- unresolved; do not carry the vendor quirk preemptively
+- reassess only after a reproducible hardware failure
+
+REMOVABLE CURRENT PWM FUNCTIONALITY:
+- DMA waveform and arbitrary-waveform support
+- DMA IRQ/status/retrigger and the IRQ resource/handler used for that path
+- capture, complementary output, dead-time and multi-channel synchronization
+- debug sysfs, test interfaces, M300-specific extras and vendor-special
+  suspend/resume behavior
+
+DROPPED VENDOR EARLY-PRINT PATH:
+- soc-x2000/serial.c, prom_putchar(), vendor X2000 early-print integration, and
+  CONFIG_EARLY_PRINTK solely for this path
+- no replacement earlycon; no productive early serial console requirement
+- console=ttyS4,115200 is stale and must be removed in the clean port
+- UART1 / F005 remains unaffected as the separate productive /dev/ttyS1 path
 
 LIKELY REMOVABLE VENDOR LINK DEPENDENCIES:
 - phy-ingenic-{x1000,x1600,x2500,x2600,ad100}.c
@@ -387,12 +720,117 @@ KNOWN RELEVANT VENDOR BUGS/FIXES:
 - the OpenKE watchdog probe-stop workaround is not part of the current port
   because the watchdog-class driver is dropped; retain only the independent
   WDT-based restart primitive
-- retain hardware-confirmed UART1 PC23/PC24, USB VBUS GPC9, WLAN polarities,
+- retain hardware-confirmed UART1 PC23/PC24, USB VBUS GPC9 board data, WLAN polarities,
   NS2009 GPC15 pendown, and display RGB565 findings
 
 DISPLAY USERSPACE SURFACE:
 - resolved: standard fbdev only; composer, DMMU and vendor JZFB surfaces are not required
+
+DISPLAY IMPLEMENTATION CONSTRAINTS:
+- one framebuffer from dma_alloc_coherent(), mapped to userspace with
+  dma_mmap_coherent(); no custom cache mapping or driver-side PFN remap
+- one self-linked direct-RDMA descriptor/channel with continuous static scanout
+- all unnecessary DPU interrupt sources masked; no functional DPU IRQ handler;
+  use status polling for quick-stop where necessary
+- no unresolved DPU retain/drop or implementation-architecture decision;
+  hardware qualification remains
 ```
+
+## PWM/beeper decision
+
+This decision is limited to the demonstrated touch-feedback beeper on X2000
+PWM3 / PC03. The complete vendor PWM driver is not a clean-port unit.
+
+```text
+PWM DECISION:
+SMALL X2000 PWM PROVIDER REQUIRED
+```
+
+### Productive path and PWM-core contract
+
+```text
+GuppyScreen
+  -> EV_SND / SND_TONE
+  -> pwm-beeper
+  -> Linux PWM API
+  -> X2000 PWM3
+  -> PC03
+```
+
+The demonstrated output is 260 Hz with normal polarity and a 50% duty cycle.
+Generic `pwm-beeper` also maps `SND_BELL` to 1000 Hz by default, but that is not
+a demonstrated productive Fre3nder use case.
+
+The reached consumer API is `devm_pwm_get()`, `pwm_init_state()`,
+`pwm_get_state()`, `pwm_set_relative_duty_cycle(..., 50, 100)`, and
+`pwm_apply_state()`. Disabling changes the enabled state and reaches the same
+provider `.apply()` path. Functionally, `.apply()` is therefore the only
+provider callback required by Fre3nder; no additional callback is a product
+requirement.
+
+### Provider boundary
+
+```text
+drivers/pwm/pwm-jz4740.c:
+NOT SUFFICIENT FOR X2000
+```
+
+The upstream JZ4740 driver is a child of the Ingenic TCU and uses its parent
+regmap, per-channel timer clocks, and TCU register model. The X2000 instead has
+an independent 16-channel PWM block with its own registers and shared PWM
+clocks. Adding an X2000 `compatible` to `pwm-jz4740.c` is therefore not
+sufficient.
+
+The minimal X2000 provider must:
+
+- map the PWM MMIO registers;
+- enable the functional equivalent of `gate_pwm` and provide the functional
+  equivalent of `div_pwm`;
+- configure channel 3, including its prescaler, period counter and duty
+  counter;
+- select the normal output level and enable the output;
+- enable and disable the channel; and
+- route PWM3 to PC03 through the X2000 pinctrl description.
+
+Only one channel, PWM3, is a productive Fre3nder requirement. A normal Linux
+PWM chip may expose more hardware channels when that simplifies the provider,
+but Fre3nder does not require extra channel or synchronization logic. Normal
+polarity is sufficient; inverted-polarity support is not a Fre3nder
+requirement.
+
+The demonstrated vendor setup supplies a 50 MHz PWM clock and selects a `/4`
+prescaler. The 260-Hz, 50%-duty signal fits comfortably in that counter model.
+These values are a known functional reference, not a requirement to preserve
+that exact clock architecture in the clean port.
+
+### IRQ, DMA, and removable vendor scope
+
+```text
+IRQ required:
+no
+
+DMA required:
+no
+```
+
+Ordinary PWM output runs autonomously after the channel is started. The vendor
+IRQ handler belongs to DMA waveform status/retrigger handling and is not needed
+for the beeper. The following vendor functionality is outside the clean-port
+requirement: DMA waveform and arbitrary-waveform support; DMA IRQ/status/
+retrigger; capture; complementary output; dead-time; multi-channel
+synchronization; debug sysfs; test interfaces; M300-specific extras;
+vendor-special suspend/resume behavior; and an IRQ resource or handler for
+ordinary beeper operation.
+
+Hardware qualification remains for:
+
+1. the reduced register sequence on real hardware;
+2. the correct idle and active output levels;
+3. the clean-port PWM clock binding; and
+4. 260-Hz output through PWM3 / PC03.
+
+These qualification items do not justify carrying DMA, IRQ, debug, test, or
+other unused vendor functionality preemptively.
 
 ## DPU and framebuffer decision
 
@@ -408,12 +846,14 @@ MINIMAL DIRECT-RDMA FBDEV PATH SUFFICIENT
 ### Productive fbdev contract
 
 The demonstrated userspace endpoint is a single standard `/dev/fb0` device.
-GuppyScreen needs `open(O_RDWR)`, `FBIOGET_FSCREENINFO`,
-`FBIOGET_VSCREENINFO`, `FBIOBLANK`, a writable shared `mmap()`, and a successful
-`FBIOPAN_DISPLAY` with `yoffset = 0`. It does not use a vendor JZFB ioctl,
+GuppyScreen's hard requirements are `open(O_RDWR)`, `FBIOGET_FSCREENINFO`,
+`FBIOGET_VSCREENINFO`, `FBIOBLANK(FB_BLANK_UNBLANK)`, a writable shared
+`mmap()`, and visibility of userspace CPU writes to RDMA. Its productive
+sleep/wakeup path also calls `FBIOPAN_DISPLAY` with `yoffset = 0`, but an error
+from that later call is non-critical. It does not use a vendor JZFB ioctl,
 `FBIO_WAITFORVSYNC`, DMA-BUF, DRM/KMS, or a composer device.
 
-The productive memory and scanout chain is:
+The demonstrated vendor memory and scanout chain is:
 
 ```text
 one dma_alloc_coherent() framebuffer
@@ -422,6 +862,46 @@ one dma_alloc_coherent() framebuffer
   -> TFT timing/output block
   -> 480x272 parallel RGB565 panel
 ```
+
+```text
+DMA MAPPING:
+STANDARD DMA API SUFFICIENT
+```
+
+The clean driver allocates its one framebuffer with
+`dma_alloc_coherent(dev, size, &dma_addr, GFP_KERNEL)` and maps that same
+allocation to userspace with
+`dma_mmap_coherent(dev, vma, cpu_addr, dma_addr, size)`. No additional
+`DMA_ATTR_*` is required for the demonstrated path. The coherent-DMA contract
+is the relevant abstraction:
+
+```text
+CPU/userspace writes
+      ↕
+coherent framebuffer
+      ↕
+X2000 RDMA scanout
+```
+
+Explicit cache flushes, `msync()`, custom cache maintenance, and custom page
+protections are not clean-port requirements. The generic DMA API supplies the
+architecture-correct userspace mapping. The vendor `io_remap_pfn_range()` plus
+`_CACHE_CACHABLE_WA` path is dropped, and direct driver-side
+`io_remap_pfn_range()` is not required.
+
+```text
+Vendor _CACHE_CACHABLE_WA mapping:
+DROP
+
+direct driver-side io_remap_pfn_range():
+NOT REQUIRED
+```
+
+Continuous CPU writes while RDMA scans the coherent buffer are permitted. With
+one framebuffer, RDMA can observe a partially updated frame and visible tearing
+can result. That is a consequence of the deliberately selected single-buffer
+model, not a cache-coherency failure, and does not introduce a pageflip or VSYNC
+requirement.
 
 The framebuffer is 480x272 at 32 bits per pixel with a 1920-byte stride. Its
 little-endian byte order is B, G, R, X/A: blue occupies bits 0--7, green bits
@@ -440,14 +920,14 @@ available sources, but the vendor Fre3nder path already uses this combination.
 
 | Area | Minimum clean-port requirement |
 | --- | --- |
-| Framebuffer allocation | Allocate one DMA-addressable 480x272x4 buffer, expose its size and DMA address through standard fbdev information, and provide a writable shared mapping with visibility to RDMA. The current three-frame allocation is pageflip capacity, not a requirement. |
+| Framebuffer allocation | Allocate one 480x272x4 buffer with `dma_alloc_coherent()`, expose its size and DMA address through standard fbdev information, and map it writable with `dma_mmap_coherent()`. No additional DMA attribute, cache maintenance, or custom page protection is required. The current three-frame allocation is pageflip capacity, not a requirement. |
 | fbdev registration | Allocate and register one `struct fb_info` as `/dev/fb0`, with fixed 480x272, 32-bpp BGRX/RGB888-compatible geometry and a 1920-byte stride. |
 | Direct RDMA | Build one self-linked descriptor for framebuffer 0, select one direct RDMA channel, program format/address/stride, and start continuous scanout. No composer layer is active. |
 | TFT output | Enable the LCD and pixel clocks, program the demonstrated 480x272@60 timing, select TFT output, and configure parallel RGB565 with the established RGB channel order. |
 | Blank/unblank | `FB_BLANK_UNBLANK` must leave clocks, TFT timing and direct RDMA scanout active. Other blank modes may quick-stop RDMA and gate the display clocks, provided unblank restores the path. Repeating the vendor panel reset on every unblank is not established as a DPU requirement. |
-| Pan | Accept `FBIOPAN_DISPLAY` only for the fixed frame at `xoffset = 0`, `yoffset = 0`; it may reselect descriptor 0 or succeed as a no-op when already active. Multi-frame panning, pageflip and VSYNC synchronization are unnecessary. |
+| Pan | The productive sleep/wakeup path calls `FBIOPAN_DISPLAY` for the fixed frame at `xoffset = 0`, `yoffset = 0`, but treats failure as non-critical. A minimal driver may reselect descriptor 0 or return success as a no-op when already active. Multi-frame panning, pageflip and VSYNC synchronization are unnecessary. |
 | Panel integration | Retain the Fre3nder panel timings and PB16 reset behavior from `panel-ender3-v3-ke-480x272.c`. Backlight remains the separate generic GPIO-backlight device. |
-| IRQ handling | Continuous scanout, pan and blank do not depend on a DPU completion event. A clean port may mask all DPU sources and omit event-driven behavior; if a source cannot be suppressed during startup, retain only the acknowledge path needed to prevent an interrupt storm. No VSYNC timestamp or wait queue is required. |
+| IRQ handling | Continuous static RDMA scanout needs no functional interrupt. Keep unnecessary sources masked, disable descriptor interrupt control, omit the DPU IRQ handler, and use status polling for quick-stop where necessary. No VSYNC timestamp or wait queue is required. |
 
 The direct primary framebuffer does not use DMMU. DMMU mappings occur only for
 optional composer layers with `tlb_en` and for vendor DMMU ioctls. Likewise,
@@ -455,6 +935,55 @@ the hardware composer is surrounded by a vendor software abstraction, but the
 productive `/dev/fb0` path selects `DATA_CH_RDMA` and does not submit a composer
 layer. The minimum is therefore one framebuffer, one direct RDMA channel, and
 zero composer layers.
+
+### DPU interrupt boundary
+
+```text
+DPU IRQ:
+NO FUNCTIONAL IRQ REQUIRED
+```
+
+The direct RDMA start is performed by register programming and does not depend
+on interrupt-driven progress. `SRD_START` is notification only: the current
+handler acknowledges it and updates the vendor VSYNC timestamp, while disabled
+descriptor-change code has no productive effect. In the minimal port,
+`SRD_START` remains masked and descriptor interrupt control is disabled.
+
+```text
+SRD_START:
+notification only
+```
+
+The TFT-underflow IRQ is diagnostic only. The vendor handler acknowledges the
+event and increments statistics but performs no required recovery. Keep this
+source masked; if it is deliberately enabled later for diagnosis, its event
+must be acknowledged correctly.
+
+```text
+TFT underflow IRQ:
+diagnostic only
+```
+
+SRD/display-end notifications, VSYNC timestamp events, composer and layer
+interrupts, writeback completion/overrun, TFT-underflow notification, and
+general event/debug interrupts are not required by the productive minimal path.
+Clear stale status before start and keep those sources masked. Quick-stop may
+continue to use the existing status/polling model.
+
+The resulting minimal display port is:
+
+```text
+1 coherent DMA framebuffer
+1 direct RDMA descriptor/channel
+dma_alloc_coherent()
+dma_mmap_coherent()
+32-bpp framebuffer input
+parallel RGB565 output
+continuous static scanout
+all unnecessary DPU IRQ sources masked
+no DPU IRQ handler required
+polled stop where necessary
+```
 
 ### Vendor-code boundary
 
@@ -465,10 +994,10 @@ no behavior from the group is required by the productive display path.
 
 | Vendor file or functional group | Classification | Port consequence |
 | --- | --- | --- |
-| `fb_stage/ingenicfb.c` as a complete file | **REFERENCE ONLY** | Extract only standard fbdev setup, one-frame DMA allocation/mapping, fixed mode reporting, blank/unblank, `yoffset=0` pan, probe/remove and the calls needed to operate direct RDMA. Drop its DMMU hooks, vendor ioctls, VSYNC waits, multi-frame policy, composer integration and debug paths. |
+| `fb_stage/ingenicfb.c` as a complete file | **REFERENCE ONLY** | Extract only standard fbdev setup, one-frame coherent DMA allocation/mapping, fixed mode reporting, blank/unblank, probe/remove and the calls needed to operate direct RDMA. Use `dma_mmap_coherent()` rather than the vendor `_CACHE_CACHABLE_WA`/`io_remap_pfn_range()` path. The non-critical `yoffset=0` pan call may be handled as a trivial frame-0 reselect or successful no-op. Drop its DMMU hooks, vendor ioctls, VSYNC waits, multi-frame policy, composer integration and debug paths. |
 | Minimal fbdev behavior identified in `ingenicfb.c` | **PORT REQUIRED** | Reimplement the productive contract above in a small clean driver; do not preserve unused configurability merely because it is present in the vendor file. |
 | `fb_stage/dpu_ctrl.c` as a complete file | **REFERENCE ONLY** | Use it for the X2000 register definitions and proven clock, TFT, direct-RDMA descriptor, start, quick-stop and status sequences. Do not port its composer, writeback, MIPI, LVDS, DMMU, CSC, colorbar or broad interrupt machinery. |
-| Direct-RDMA/TFT behavior identified in `dpu_ctrl.c` | **PORT REQUIRED** | Retain one descriptor/channel, 32-bpp input, address/stride programming, TFT timing, RGB565 output selection, start/stop and only unavoidable IRQ acknowledgement. |
+| Direct-RDMA/TFT behavior identified in `dpu_ctrl.c` | **PORT REQUIRED** | Retain one descriptor/channel, 32-bpp input, address/stride programming, TFT timing, RGB565 output selection, register-driven start and polled quick-stop. No functional IRQ handler is required. |
 | `fb_stage/hw_composer.c` | **DROP** | Vendor wrapper for optional composer operations; direct RDMA does not call it. |
 | `fb_stage/hw_composer_fb.c` | **DROP** | Exported layer/writeback framebuffer and composer update surface are not productive endpoints. |
 | `fb_stage/sysfs.c` | **DROP** | Runtime composer, videomode, RDMA, MIPI and debug controls are not needed for the fixed display. |
@@ -476,23 +1005,24 @@ no behavior from the group is required by the productive display path.
 | DPU register/descriptor definitions | **REFERENCE ONLY**, then reduce | Carry only definitions referenced by the retained direct-RDMA and TFT sequences into the clean implementation. |
 | `panel-ender3-v3-ke-480x272.c` and its board wiring | **PORT REQUIRED** | Preserve the product-specific mode, parallel RGB565 selection and PB16 reset integration separately from the generic X2000 DPU driver. |
 
-The minimal implementation is expected to be roughly 700--1100 lines of
-driver and private register/descriptor code, plus small Kconfig, Makefile and
-binding changes and the separately maintained panel driver. This is an
-order-of-magnitude planning estimate, not a target that should override clarity
-or hardware correctness; the six named vendor implementation files total more
-than 7000 lines largely because they include the dropped surfaces.
+The minimal implementation is expected to be substantially smaller than the
+vendor implementation because it excludes the dropped surfaces. Functional
+groups, not a line-count estimate, define its scope.
 
-Remaining uncertainties are limited and do not expand the port boundary:
+No unresolved DPU retain/drop or implementation-architecture decision remains.
+The precise hardware rule for RGB888-to-RGB565 reduction with dithering
+disabled is not documented, but the established mode remains unchanged and
+does not expand the port boundary.
 
-- the precise hardware rule for RGB888-to-RGB565 reduction with dithering
-  disabled is not documented;
-- the one-frame configuration and a fully masked DPU interrupt configuration
-  are supported by the static control flow but have not been hardware-qualified;
-- the current vendor mapping uses `_CACHE_CACHABLE_WA` without an explicit
-  pan-time flush, and its exact X2000 coherency effect is not fully documented;
-  the clean driver must use a DMA mapping method that preserves CPU-to-RDMA
-  visibility rather than copying that mapping choice without qualification.
+Remaining work is hardware qualification only:
+
+1. Map the single framebuffer to userspace with `dma_mmap_coherent()`.
+2. Write alternating full-screen patterns.
+3. Verify that no stale or cache-induced image regions occur.
+4. Accept visible tearing as valid for this single-buffer test.
+5. Run scanout with all DPU interrupt sources masked.
+6. Verify blank/unblank.
+7. Verify that no interrupt storm occurs.
 
 Explicit minimal-port `DROP` list: framebuffer pages 1 and 2; every composer
 layer and exported layer framebuffer; pageflip and VSYNC waits/timestamps;
@@ -538,17 +1068,17 @@ into **X2000 ONLY** and **VENDOR OTHER** rows.
 | `drivers/tty/serial/8250/8250_core.c`, `8250_port.c`; `include/linux/serial_8250.h` — 8250 locking and console | Adds RT-aware port locking, legacy-console gating, nbcon atomic/thread console writers, console state fields, and the split IER helpers. | All 48 scoped official RT23 hunks are represented semantically. | None; the official patch does not touch `8250_ingenic.c`. In the effective Fre3nder configuration `CONFIG_SERIAL_8250` is unset. | **RT ONLY** | These changes are dormant in the current vendor-driver path and need not accompany an X2000 addition to upstream `8250_ingenic.c`. |
 | The same six generic serial files — remaining vendor diff | Large indentation/brace restyling plus non-matching generic serial drift outside the named RT23 functions/hunks. | No concrete correspondence with the official scoped RT23 hunks. | No X2000-specific identifiers or behavior were found in this remainder. | **VENDOR OTHER** | Do not copy the bulk vendor diff; start from the upstream serial core/8250 files. |
 | `arch/mips/Kconfig` — `ARCH_SUPPORTS_RT`, `HAVE_PREEMPT_AUTO`, `HAVE_POSIX_CPU_TIMERS_TASK_WORK` selections | Enables RT/automatic-preemption prerequisites for MIPS generally. | These lines are absent from the official RT23 patch, which has no `arch/mips` hunk. | They are not X2000-specific and are unnecessary for the selected `CONFIG_PREEMPT=y`, `CONFIG_PREEMPT_RT=n` configuration. | **VENDOR OTHER** | Do not carry this vendor MIPS RT enablement as part of the minimal X2000 port. |
-| `arch/mips/Kconfig`, `arch/mips/Makefile`, `arch/mips/xburst2/**` — XBurst2 machine, boot, SMP, secondary cache, early print, minimal restart | Adds the XBurst2/X2000 architecture selection and its implementation/integration. The later watchdog decision additionally retains only the normal `reset_init()` / `jz_wdt_restart()` platform-reset primitive from `soc-x2000/reset.c`. | No official RT23 hunk in these paths. | This is the X2000 CPU/platform support identified as required or transitively required, including the independent WDT-based reboot mechanism. | **X2000 ONLY** | Port the necessary platform, SMP/cache, DT handoff, and minimal restart integration independently of RT23; omit optional diagnostics and unused power-management/reset surface. |
+| `arch/mips/Kconfig`, `arch/mips/Makefile`, `arch/mips/xburst2/**` — XBurst2 machine, boot, SMP, secondary cache, current early print, minimal restart | Adds the XBurst2/X2000 architecture selection and its implementation/integration. The later watchdog decision additionally retains only the normal `reset_init()` / `jz_wdt_restart()` platform-reset primitive from `soc-x2000/reset.c`; the early-print subpath is only a current configuration/link dependency. | No official RT23 hunk in these paths. | The platform, SMP/cache, DT handoff, and independent WDT-based reboot mechanism are required X2000 support. The vendor early-print subpath has no productive requirement. | **X2000 ONLY** for the retained platform support; **CURRENT VENDOR CONFIG/LINK DEPENDENCY ONLY** for early print | Port the necessary platform, SMP/cache, DT handoff, and minimal restart integration independently of RT23. Omit `soc-x2000/serial.c`, `prom_putchar()`, and the vendor early-print integration; do not add a replacement earlycon. |
 | `module_drivers/dts/x2000/{x2000.dtsi,x2000-pinctrl.dtsi}` and required binding headers | Supplies the X2000 SoC nodes, phandles, pins, and constants used by the board DTS. | No official RT23 hunk. | Entirely X2000 DT description/integration. | **X2000 ONLY** | Provide an upstream-style X2000 DTSI and only the bindings needed by retained nodes. |
 | `module_drivers/drivers/clk/ingenic-v2/**` and clock Kconfig/Makefiles | Adds the X2000 clock, PLL, divider, bus, gate, and power-gate topology. | No official RT23 hunk. | Supplies clocks for all retained X2000 controllers. | **X2000 ONLY** | Implement the required X2000 clock data/behavior on an appropriate upstream clock framework; RT23 is irrelevant to it. |
 | `module_drivers/drivers/irqchip/irq-ingenic-{cpu,chip}.c` and integration | Adds the XBurst2 CPU dispatch and per-CPU X2000 interrupt-controller/domain topology. | No official RT23 hunk. | Required by SMP and all retained device interrupts; the known map-bounds fix is likewise non-RT. | **X2000 ONLY** | Port the X2000 interrupt topology and bounds fix without importing diagnostics or unrelated PM extensions. |
 | `module_drivers/drivers/clocksource/ingenic_core_ost.c` and integration | Adds the X2000 global counter and per-CPU clockevents. | No official RT23 hunk. | Required X2000 timer behavior; the known `cpu-ost-map` bounds fix is non-RT. | **X2000 ONLY** | Port the X2000 OST implementation and bounds fix independently of RT23. |
-| `module_drivers/drivers/mmc/host/{sdhci-ingenic.c,ingenic_sdio.c,sdhci-ingenic.h}` and integration | Adds X2000 SDHCI clock/tuning/reset/ADMA glue and the MSC1 manual-card/power path. | No official RT23 hunk. | Required for eMMC and SDIO WLAN; the MSC-register fix is X2000 controller logic. | **X2000 ONLY** | Port only the MSC0/MSC1 controller behavior. Keep the Fre3nder WLAN sequencing patch separately reviewable. |
+| `module_drivers/drivers/mmc/host/{sdhci-ingenic.c,ingenic_sdio.c,sdhci-ingenic.h}` and integration | Adds X2000 SDHCI clock/tuning/reset/ADMA glue and the current MSC1 manual-card/power path. | No official RT23 hunk. | X2000 controller support remains required for eMMC and SDIO WLAN; the manual WLAN path is a removable vendor/Fre3nder workaround. The MSC-register fix is X2000 controller logic. | **X2000 ONLY** for controller behavior; **NOT REQUIRED IN CLEAN PORT** for manual WLAN sequencing | Port only the MSC0/MSC1 controller behavior. Express Fre3nder WLAN board sequencing with generic regulator, pwrseq, GPIO, non-removable startup/rescan, and brcmfmac mechanisms. |
 | `module_drivers/drivers/tty/serial/ingenic_uart.c/.h` and integration | Adds the selected standalone Ingenic UART driver, including X2000 register/FIFO/clock behavior. Its locking remains direct `spin_lock*()` rather than the RT23 UART wrappers. | The file does not exist in the official patch, so none of its code can be attributed to RT23. | The core UART1 path is X2000-specific. DMA, proc/debug, and the separate vendor-driver architecture are not required by the current no-DMA board node. | **X2000 ONLY** for the core path; unused portions are **VENDOR OTHER** | Prefer a small X2000 extension to upstream `8250_ingenic.c`; do not import the standalone driver wholesale. The later UART divisor decision limits the required addition to X2000 match/clock/FIFO data and a small divisor-register hook. |
 | `drivers/tty/serial/8250/8250_ingenic.c` | Vendor file is byte-identical to exact upstream v6.6.18. | No official RT23 hunk. | It has no vendor X2000 addition; such an addition is the proposed clean-port direction, not an existing vendor diff. | No vendor difference | Add X2000 match/data only as a separate X2000 port change if this upstream driver is used. |
-| `drivers/usb/dwc2/{params.c,platform.c,core.c,core.h,hcd.c}` — X2000 host/PHY/VBUS hunks | Adds the X2000 match and parameters, legacy PHY hookup, external-VBUS detection/drive, and host connect-state accommodation. | No official RT23 hunk in DWC2. | These reached hunks implement the KE's X2000 USB host path and board VBUS wiring. | **X2000 ONLY** | Rebase only these functions onto upstream DWC2; no RT patch is needed for them. |
+| `drivers/usb/dwc2/{params.c,platform.c,core.c,core.h,hcd.c}` — vendor X2000/OTG/VBUS hunks | Adds a vendor compatible/parameter path, legacy PHY hookup, external-VBUS detection/drive and host connect-state changes. | No official RT23 hunk in DWC2. | Upstream v6.6.18 already provides the required X2000 host match/parameters and generic PHY/regulator integration. The vendor `INCR16` value is not a demonstrated functional requirement; the early-connect check is an unresolved qualification item. | **VENDOR OTHER / NOT REQUIRED IN CLEAN PORT** for the legacy/OTG/VBUS integration; **UNRESOLVED** for the early-connect check | Use upstream DWC2 host-only and generic `vbus-supply`. Do not carry the early-connect check preemptively; reassess it only after a reproducible failure. |
 | DWC2 remaining vendor hunks | Adds a read-only mode sysfs file and gadget wrappers while deleting or changing broader generic clock/regulator/power handling, plus formatting churn. | No official RT23 involvement. | Not needed by the demonstrated host path. | **VENDOR OTHER** | Leave these hunks out of the minimal port. |
-| `module_drivers/drivers/usb/phy/phy-ingenic.c/.h`, `phy-ingenic-x2000.c` | Adds the legacy-API X2000 PHY implementation and owns the KE VBUS GPIO behavior. | No official RT23 hunk in the scoped USB PHY paths. | X2000 PHY/board VBUS behavior is required, although upstream already has a different X2000 PHY base. | **X2000 ONLY** | Add only missing X2000/board VBUS integration to the upstream PHY design. |
+| `module_drivers/drivers/usb/phy/phy-ingenic.c/.h`, `phy-ingenic-x2000.c` | Adds the legacy-API X2000 PHY implementation and owns the KE VBUS GPIO behavior. | No official RT23 hunk in the scoped USB PHY paths. | Upstream `ingenic,x2000-phy` is the clean-port base and no additional Fre3nder PHY function is statically established. GPC9 is separate board data for a generic DWC2 VBUS supply; GPD17 is Device/OTG-only for the demonstrated use. | **VENDOR OTHER / NOT REQUIRED IN CLEAN PORT** | Use the upstream PHY. Treat vendor SRBC/SPENDN0/TX-strength/wake sequences only as hardware-qualification subjects, not as code to port preemptively. |
 | `phy-ingenic-{x1000,x1600,x2500,x2600,ad100}.c` | Linked only because the vendor common match table references every SoC family's data. | No official RT23 involvement. | No retained X2000 runtime path reaches these implementations. | **VENDOR OTHER** | Split or guard the match/data entries; do not port these family drivers. |
 | `drivers/pinctrl/pinctrl-ingenic.c` and vendor pinctrl integration | Vendor uses its own binding/driver path; upstream already has X2000 pin/function data but leaves its match unreachable behind an undefined selection. | No official RT23 hunk in pinctrl/GPIO. | Making the existing upstream X2000 data reachable and translating the DTS binding are X2000 requirements. | **X2000 ONLY** | Use the upstream driver/data with a small X2000 reachability/binding change; do not import the vendor driver wholesale. |
 | Required subsets of `fb_stage/{ingenicfb.c,dpu_ctrl.c}` — primary RGB framebuffer path | Adds standard fbdev registration/mapping, one direct RDMA descriptor/channel, TFT timing, start/stop, and the 32-bpp-input to parallel-RGB565 output configuration. | No official RT23 hunk in the DPU path. | Required for the demonstrated parallel-RGB `/dev/fb0` path. | **X2000 ONLY** | Implement the minimal direct-RDMA fbdev path independently of RT23; use the vendor files as register/sequence references rather than porting them wholesale. |
@@ -570,10 +1100,9 @@ RT ONLY:
   and currently unselected generic 8250 support (48 hunks)
 
 X2000 ONLY:
-- 13 required functional groups:
+- required functional groups:
   XBurst2 platform, SoC DTS/bindings, clocks, core IRQ, OST, MMC/SDHCI,
-  UART, DWC2, USB PHY/VBUS, pinctrl/GPIO reachability, DPU,
-  I2C, and ordinary PWM
+  UART, pinctrl/GPIO reachability, DPU, I2C, and ordinary PWM
 - the associated minimal Kconfig/Makefile integration belongs to its group
 
 MIXED:
@@ -583,23 +1112,34 @@ VENDOR OTHER:
 - generic serial restyling/non-RT drift
 - vendor MIPS RT enablement absent from the official RT23 patch
 - unused standalone-UART DMA/debug surface
-- unrelated DWC2 sysfs/gadget/general-power churn
-- other-SoC USB PHY link ballast
+- vendor DWC2 dual-role/Gadget/external-VBUS/legacy-PHY integration and
+  unrelated sysfs/general-power churn
+- vendor legacy USB-PHY/OTG glue and other-SoC USB PHY link ballast
 - composer, DMMU, MIPI and display proc/sysfs/debug link ballast
 - PWM DMA/debug/test surface
 - standalone watchdog-class driver and its DT/Kconfig exposure
 
-UNCLEAR:
-- no remaining display userspace-surface question
+RETAIN/DROP ARCHITECTURE DECISIONS:
+- no unresolved decision remains for PREEMPT_RT, the watchdog, early
+  print/ttyS4, UART, I2C, MSC1 WLAN sequencing, the USB host/PHY/VBUS model,
+  the PWM provider scope, DPU/fbdev, DPU DMA mapping, or the DPU IRQ model
+
+IMPLEMENTATION AND HARDWARE QUALIFICATION:
+- PWM implementation work remains limited to later hardware qualification and
+  the final clean-port clock/DT binding
+- USB early-connect behavior and PHY qualification remain hardware-qualification
+  items
+- DPU DMA mapping and IRQ architecture are resolved; standard coherent DMA and
+  no functional DPU IRQ are selected, with hardware qualification remaining
 ```
 
 **Would a Fre3nder port to plain Linux v6.6.18 lose X2000-relevant code solely
 by omitting RT23?** No, according to the present static comparison. None of the
 official RT23 hunks in the scoped inventory implements X2000 hardware behavior,
 and plain v6.6.18 already supports the selected `CONFIG_PREEMPT=y` model. This
-does not mean that unmodified v6.6.18 supports the printer: all 13 X2000 groups
-and the separate Fre3nder-specific components still have to be added. It means
-only that those additions do not depend on applying the official RT23 patch.
+does not mean that unmodified v6.6.18 supports the printer: the listed X2000
+groups and the separate Fre3nder-specific components still have to be added. It
+means only that those additions do not depend on applying the official RT23 patch.
 The RT-aware serial locking/console changes are present in the vendor tree even
 with `CONFIG_PREEMPT_RT=n`, but no static X2000 requirement for them was found.
 
