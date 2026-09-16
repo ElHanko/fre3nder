@@ -345,6 +345,21 @@ External findings are reference evidence, not authority:
    documentation section, stock-derived artifact, or hardware report,
    rather than only the project homepage.
 
+### Canonical kernel reference
+
+For the X2000 clean-port work, the canonical upstream target-kernel reference is:
+
+- Path: `local/research/x2000-kernel/linux-upstream`
+- Version: Linux `v6.6.18`
+- Commit: `d8a27ea2c98685cdaa5fa66c809c7069a4ff394b`
+
+Treat this tree as read-only reference material.
+
+Do not use another local Linux tree as the upstream clean-port reference unless
+the user explicitly changes the reference for a specific task.
+
+Do not modify, commit in, rebase, reset, or otherwise mutate this reference tree.
+
 # Secrets
 
 Never store or commit passwords, tokens, API keys, private SSH keys, credentials,
