@@ -532,6 +532,9 @@ These are later tests, not work performed by this plan.
 
 ## Implementation work packages
 
+Implementation and validation of the patch series follow
+[`x2000-clean-port-patch-workflow.md`](x2000-clean-port-patch-workflow.md).
+
 1. **UP platform:** Patch 01 only; stop before any unauthorized build.
 2. **Clocks:** Patch 02 and its binding/IDs.
 3. **Interrupt/time:** Patches 03-04; OST depends on clock and IRQ parents.
