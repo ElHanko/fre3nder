@@ -78,12 +78,14 @@ For Patch 01, the initial state is the pinned upstream commit.
 
 For Patch 02 and later, apply every predecessor patch in numerical order.
 
-After applying the predecessor series, record that state as a temporary local
-Git baseline inside the disposable clone. This makes `git diff` contain only
-the current patch.
+After applying the predecessor series, stage that state in the disposable
+clone's Git index with `git add -A`. The index then acts as the predecessor
+baseline while the working tree remains available for the current patch.
 
-The temporary commit exists only in the disposable kernel clone. It is not a
-Fre3nder repository commit and must never be pushed.
+Do not create a temporary commit. Changes for the current patch remain
+unstaged, so `git diff` contains only the current patch delta. The staged
+predecessor state exists only inside the disposable kernel clone and must never
+be pushed.
 
 ## 3. Implement only the current patch
 
@@ -298,8 +300,8 @@ require changing that label.
 
 ## 10. Repository commit
 
-The Fre3nder repository commit is separate from temporary commits inside
-disposable kernel clones.
+The Fre3nder repository commit is separate from the disposable kernel clone's
+staged predecessor baseline.
 
 Before a Fre3nder commit, follow the normal `AGENTS.md` Git checks and review
 the complete staged change.
@@ -329,4 +331,3 @@ Disposable work and verification trees may be removed after:
 
 The canonical upstream reference is never cleaned up or replaced as part of
 this process.
-
