@@ -1,0 +1,122 @@
+diff --git a/Documentation/devicetree/bindings/serial/ingenic,uart.yaml b/Documentation/devicetree/bindings/serial/ingenic,uart.yaml
+index d5f153bde..7d7bf7667 100644
+--- a/Documentation/devicetree/bindings/serial/ingenic,uart.yaml
++++ b/Documentation/devicetree/bindings/serial/ingenic,uart.yaml
+@@ -11,6 +11,15 @@ maintainers:
+ 
+ allOf:
+   - $ref: serial.yaml#
++  - if:
++      properties:
++        compatible:
++          contains:
++            const: ingenic,x2000-uart
++    else:
++      required:
++        - dmas
++        - dma-names
+ 
+ properties:
+   $nodename:
+@@ -24,6 +33,7 @@ properties:
+           - ingenic,jz4760-uart
+           - ingenic,jz4780-uart
+           - ingenic,x1000-uart
++          - ingenic,x2000-uart
+       - items:
+           - enum:
+               - ingenic,jz4770-uart
+@@ -68,8 +78,6 @@ required:
+   - interrupts
+   - clocks
+   - clock-names
+-  - dmas
+-  - dma-names
+ 
+ unevaluatedProperties: false
+ 
+diff --git a/drivers/tty/serial/8250/8250_ingenic.c b/drivers/tty/serial/8250/8250_ingenic.c
+index 4c4c4da73..881d5261a 100644
+--- a/drivers/tty/serial/8250/8250_ingenic.c
++++ b/drivers/tty/serial/8250/8250_ingenic.c
+@@ -24,6 +24,8 @@
+ struct ingenic_uart_config {
+ 	int tx_loadsz;
+ 	int fifosize;
++	void (*set_divisor)(struct uart_port *port, unsigned int baud,
++			    unsigned int quot, unsigned int quot_frac);
+ };
+ 
+ struct ingenic_uart_data {
+@@ -39,6 +41,9 @@ static const struct of_device_id of_match[];
+ #define UART_MCR_MDCE	BIT(7)
+ #define UART_MCR_FCM	BIT(6)
+ 
++#define INGENIC_UART_UMR	0x24
++#define INGENIC_UART_UACR	0x28
++
+ static struct earlycon_device *early_device;
+ 
+ static uint8_t early_in(struct uart_port *port, int offset)
+@@ -228,6 +233,32 @@ static unsigned int ingenic_uart_serial_in(struct uart_port *p, int offset)
+ 	return value;
+ }
+ 
++/*
++ * Fre3nder uses a 24 MHz X2000 UART baud clock. 115200 baud matches
++ * standard 8250 16x mode with D=13, M=16 and A=0. At 230400 baud the
++ * standard integer divisor has almost 7% error; the X2000 requires
++ * D=8, M=13 and A=0 instead.
++ *
++ * Keep ordinary 16x 8250 behavior for other rates rather than importing
++ * the vendor driver's fractional UACR search.
++ */
++static void x2000_uart_set_divisor(struct uart_port *port, unsigned int baud,
++				   unsigned int quot,
++				   unsigned int quot_frac)
++{
++	unsigned int umr = 16;
++
++	if (baud == 230400) {
++		quot = 8;
++		umr = 13;
++	}
++
++	serial8250_do_set_divisor(port, baud, quot, quot_frac);
++
++	writeb(umr, port->membase + INGENIC_UART_UMR);
++	writeb(0, port->membase + INGENIC_UART_UACR);
++}
++
+ static int ingenic_uart_probe(struct platform_device *pdev)
+ {
+ 	struct uart_8250_port uart = {};
+@@ -264,6 +295,7 @@ static int ingenic_uart_probe(struct platform_device *pdev)
+ 	uart.port.regshift = 2;
+ 	uart.port.serial_out = ingenic_uart_serial_out;
+ 	uart.port.serial_in = ingenic_uart_serial_in;
++	uart.port.set_divisor = cdata->set_divisor;
+ 	uart.port.irq = irq;
+ 	uart.port.dev = &pdev->dev;
+ 	uart.port.fifosize = cdata->fifosize;
+@@ -350,6 +382,12 @@ static const struct ingenic_uart_config x1000_uart_config = {
+ 	.fifosize = 64,
+ };
+ 
++static const struct ingenic_uart_config x2000_uart_config = {
++	.tx_loadsz = 32,
++	.fifosize = 64,
++	.set_divisor = x2000_uart_set_divisor,
++};
++
+ static const struct of_device_id of_match[] = {
+ 	{ .compatible = "ingenic,jz4740-uart", .data = &jz4740_uart_config },
+ 	{ .compatible = "ingenic,jz4750-uart", .data = &jz4760_uart_config },
+@@ -358,6 +396,7 @@ static const struct of_device_id of_match[] = {
+ 	{ .compatible = "ingenic,jz4775-uart", .data = &jz4760_uart_config },
+ 	{ .compatible = "ingenic,jz4780-uart", .data = &jz4780_uart_config },
+ 	{ .compatible = "ingenic,x1000-uart", .data = &x1000_uart_config },
++	{ .compatible = "ingenic,x2000-uart", .data = &x2000_uart_config },
+ 	{ /* sentinel */ }
+ };
+ MODULE_DEVICE_TABLE(of, of_match);
