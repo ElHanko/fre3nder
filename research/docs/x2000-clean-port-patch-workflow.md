@@ -4,8 +4,13 @@ This document defines the standard implementation and validation workflow for
 the X2000 clean-port Linux patch series.
 
 The architecture and patch contents are defined by
-`x2000-clean-port-implementation-plan.md`. This document only standardizes how
-each patch is prepared, tested, recorded, and reviewed.
+`x2000-clean-port-implementation-plan.md`. This document standardizes how each
+patch is prepared, implemented, validated, recorded, reproduced, reviewed, and
+committed.
+
+`AGENTS.md` remains authoritative for safety, build authorization, Git rules,
+hardware access, and proportionality. If this workflow conflicts with
+`AGENTS.md`, follow `AGENTS.md`.
 
 ## Canonical base
 
@@ -15,11 +20,18 @@ The canonical upstream kernel reference is:
 * commit: `d8a27ea2c98685cdaa5fa66c809c7069a4ff394b`
 * local reference: `local/research/x2000-kernel/linux-upstream`
 
-The canonical reference tree is read-only. Never modify, reset, clean, commit
-in, or build directly in it.
+The canonical reference tree is read-only.
 
-All implementation and validation work happens in disposable trees below
-`local/production/work/x2000/`.
+Never modify, reset, clean, commit in, rebase, or build directly in it.
+
+All implementation and validation work happens in disposable trees below:
+
+```text
+local/production/work/x2000/
+```
+
+The canonical reference exists only to provide the exact reproducible upstream
+base.
 
 ## Patch state model
 
@@ -38,10 +50,51 @@ upstream v6.6.18
 ```
 
 Patch 03 therefore contains only the changes introduced by Patch 03. It must
-not contain the changes from Patch 01 or Patch 02 again.
+not contain Patch 01 or Patch 02 again.
 
-A patch is not considered validated merely because it applies directly to the
-unpatched upstream tree when its declared dependencies include earlier patches.
+A dependent patch is never validated against the unpatched upstream tree when
+its declared base includes predecessor patches.
+
+### Development-tree index model
+
+For Patch 02 and later, the disposable development clone uses Git's index as
+the exact predecessor baseline:
+
+```text
+HEAD         = pristine pinned upstream commit
+INDEX        = upstream + all predecessor patches
+WORKTREE     = INDEX + current patch implementation
+```
+
+After applying all predecessor patches, run:
+
+```sh
+git add -A
+```
+
+This stages the predecessor state only.
+
+Do not create temporary commits for predecessor patches.
+
+The current patch remains unstaged during implementation. Therefore:
+
+```text
+git diff --cached
+```
+
+represents the predecessor baseline relative to upstream, while:
+
+```text
+git diff
+```
+
+represents the tracked part of the current patch.
+
+New files belonging to the current patch remain untracked until a temporary
+index is deliberately used for tree calculation or artifact generation.
+
+The real disposable-tree index must remain unchanged throughout current-patch
+development.
 
 ## 1. Preflight
 
@@ -49,53 +102,102 @@ Before starting a patch:
 
 1. read `AGENTS.md`;
 2. identify the patch purpose, dependencies, expected files, references,
-   exclusions, and earliest validation gate from
+   exclusions, and earliest useful validation gate from
    `x2000-clean-port-implementation-plan.md`;
-3. verify that the project worktree contains no unrelated changes that could be
-   mixed into the patch;
-4. verify that the canonical upstream tree is still at the pinned commit.
+3. verify that the Fre3nder project worktree contains no unrelated changes that
+   could be mixed into the patch;
+4. verify that the canonical upstream tree is clean and still at the pinned
+   commit;
+5. identify all predecessor patch artifacts required by the current patch;
+6. identify the expected predecessor Git tree where practical.
 
-The implementation scope must stay within the current patch. Do not pull work
-from later patches forward merely because doing so would make the current
-implementation more complete.
+The implementation scope must stay within the current patch.
+
+Do not pull work from later patches forward merely because doing so would make
+the current implementation more complete.
+
+The implementation plan is a planning document, not immutable truth. If
+investigation proves that the smallest correct implementation requires a
+different file than originally predicted, update the plan instead of forcing
+the implementation to match an obsolete prediction.
 
 ## 2. Create an isolated source tree
 
-Create a disposable clone of the canonical upstream tree under
-`local/production/work/x2000/`.
+Create a disposable clone of the canonical upstream tree below:
+
+```text
+local/production/work/x2000/
+```
 
 Example naming:
 
 ```text
 patch01-work.XXXXXX/
 patch02-work.XXXXXX/
-...
+patch08-work.XXXXXX/
 ```
 
 The isolated tree is the only kernel source tree modified during development.
 
 For Patch 01, the initial state is the pinned upstream commit.
 
-For Patch 02 and later, apply every predecessor patch in numerical order.
+For Patch 02 and later:
 
-After applying the predecessor series, stage that state in the disposable
-clone's Git index with `git add -A`. The index then acts as the predecessor
-baseline while the working tree remains available for the current patch.
+1. apply every predecessor patch in numerical order;
+2. verify each patch with `git apply --check` before applying it;
+3. stage the complete predecessor state with `git add -A`;
+4. record the resulting predecessor tree with `git write-tree`.
 
-Do not create a temporary commit. Changes for the current patch remain
-unstaged, so `git diff` contains only the current patch delta. The staged
-predecessor state exists only inside the disposable kernel clone and must never
-be pushed.
+Conceptually:
+
+```text
+canonical upstream
+  + predecessor artifacts
+        =
+BASE_TREE
+```
+
+`BASE_TREE` is the exact source state from which the current patch is developed.
+
+During implementation, repeatedly verifying:
+
+```sh
+git write-tree
+```
+
+against the expected `BASE_TREE` is a useful guard that the real index has not
+accidentally absorbed current-patch changes.
+
+Do not create temporary predecessor commits.
+
+Do not push anything from the disposable kernel clone.
 
 ## 3. Implement only the current patch
 
-Make the smallest changes required by the current patch plan.
+Make the smallest changes required by the current patch.
 
-Use upstream Linux abstractions where they already fit. Vendor, stock, OpenKE,
-NebulaOS, or other external sources are evidence for hardware semantics, not a
-reason to copy an entire implementation.
+Use upstream Linux abstractions where they already fit.
 
-Keep provenance for adopted hardware facts or implementation details.
+Vendor, stock, OpenKE, NebulaOS, or other external sources are evidence for
+hardware semantics and implementation requirements, not a reason to import a
+complete vendor subsystem.
+
+Prefer:
+
+```text
+upstream abstraction
+    +
+minimal X2000-specific delta
+```
+
+over:
+
+```text
+vendor subsystem replacement
+```
+
+Keep provenance for adopted hardware facts, register sequences, algorithms, or
+substantial implementation details.
 
 Before any build, perform the useful non-build checks for the patch, including
 as applicable:
@@ -104,12 +206,22 @@ as applicable:
 git diff
 git diff --check
 Kconfig inspection
-DTS syntax/static inspection
+DTS/static inspection
 symbol/reference searches
-comparison with the vendor/reference implementation
+API inspection
+comparison with upstream implementations
+comparison with vendor/reference implementations
+checkpatch
+scope checks
 ```
 
+Untracked current-patch files must be reviewed explicitly because ordinary
+`git diff` does not show them.
+
 Do not build merely to discover something that static inspection can establish.
+
+If static inspection reveals a concrete architecture or API problem, resolve it
+before requesting a build.
 
 ## 4. Use the smallest declared validation gate
 
@@ -128,36 +240,73 @@ hardware
 Use the smallest gate that meaningfully validates the current change.
 
 A build requires separate operator authorization as defined by `AGENTS.md`.
-Do not interpret implementation or test authorization as build authorization.
 
-Boot or hardware validation also requires its applicable explicit authorization
-and safety gates.
+A request to implement, continue, validate, test, or finish a patch is not build
+authorization.
+
+Before requesting build authorization, state:
+
+1. why the build is required;
+2. the smallest useful build scope;
+3. the exact build command or build operation;
+4. the expected result or artifact.
+
+After authorization, execute only the authorized build scope.
+
+If that build exposes a concrete problem:
+
+1. diagnose the specific failure;
+2. make the smallest required implementation change;
+3. repeat relevant static checks;
+4. request another build only when the fix requires build validation.
+
+A materially different or broader build requires fresh authorization.
+
+Boot or hardware validation requires its own applicable authorization and safety
+gates.
 
 Successful offline validation never constitutes hardware qualification.
 
+A patch may therefore be compile- or link-qualified while remaining completely
+untested on physical hardware.
+
 ## 5. Standard isolated build environment
 
-Kernel compile/link validation uses the Fre3nder X2000 build container with:
+Kernel compile/link validation uses an isolated Fre3nder X2000 build
+environment.
+
+Exact container mount names are implementation details. The required invariants
+are:
 
 ```text
-/project  read-only Fre3nder repository
-/work     writable local/production/work/x2000
-network   disabled
+kernel source       read-only
+build output        separate writable directory
+Buildroot toolchain read-only
+network             disabled
 ```
 
-Use the prepared Buildroot toolchain:
+Use a fresh output directory for a qualification build rather than silently
+reusing output generated from an earlier source state.
+
+The prepared Buildroot toolchain is below:
 
 ```text
-/work/buildroot-output-fre3nder/host/bin/mipsel-buildroot-linux-gnu-
+local/production/work/x2000/buildroot-output-fre3nder/host/bin/
 ```
 
-For kernel builds use the underlying compiler:
+with prefix:
+
+```text
+mipsel-buildroot-linux-gnu-
+```
+
+For kernel compilation, use the underlying compiler:
 
 ```text
 mipsel-buildroot-linux-gnu-gcc.br_real
 ```
 
-Do not use the Buildroot userspace compiler wrapper for the kernel.
+Do not use the Buildroot userspace compiler wrapper for kernel compilation.
 
 The established X2000 kernel compiler contract is:
 
@@ -169,10 +318,7 @@ legacy-NaN
 little-endian
 ```
 
-For an X2000 build, verify the actual `.cmd` files rather than inferring the
-contract only from the compiler defaults or ELF architecture label.
-
-The expected relevant compile flags include:
+Relevant compile flags include:
 
 ```text
 -march=mips32r5
@@ -181,47 +327,122 @@ The expected relevant compile flags include:
 -mnan=legacy
 ```
 
-The MIPS ELF header may report `mips32r2`; the actual Kbuild compile command is
-the authoritative check for the selected MIPS32r5 ISA.
+This compiler contract does not need to be rediscovered for every patch.
 
-Interactive diagnostic shells should not use an unguarded
-`set -euo pipefail`. Commands such as `grep | head` may otherwise terminate the
-container through SIGPIPE. Expected non-matches or diagnostic pipelines must be
-guarded explicitly where appropriate.
+Re-check generated `.cmd` files when a patch changes or may affect:
+
+* architecture compiler flags;
+* toolchain selection;
+* relevant architecture Kconfig;
+* CPU ISA selection;
+* ABI selection;
+* floating-point mode;
+* NaN mode;
+* other inputs that could materially alter the established compiler contract.
+
+The MIPS ELF header may report `mips32r2`. When the compiler contract itself is
+under investigation, the actual Kbuild compile command is authoritative.
+
+Qualification builds should record useful identities such as:
+
+```text
+effective relevant .config values
+vmlinux SHA256
+DTB SHA256 where applicable
+current patch tree identity
+```
+
+Interactive diagnostic shells should not use an unguarded:
+
+```sh
+set -euo pipefail
+```
+
+when diagnostic pipelines may intentionally terminate early.
+
+Commands such as:
+
+```sh
+grep ... | head
+```
+
+may otherwise terminate the shell through SIGPIPE.
+
+Expected non-matches and diagnostic pipelines must be guarded appropriately.
 
 ## 6. Record the patch artifact
 
 After the implementation has passed its authorized validation gate, create the
-repository patch artifact under:
+repository patch artifact below:
 
 ```text
 research/patches/linux/
 ```
 
-Naming follows the series order, for example:
+Naming follows the numerical series order, for example:
 
 ```text
 0001-mips-ingenic-add-minimal-x2000-up-platform.patch
 0002-clk-ingenic-add-x2000-clock-provider.patch
+0008-mips-ingenic-add-x2000-smp-support.patch
 ```
 
-Each patch begins with a small provenance header containing at least:
+The stored artifact is a reproducible unified diff containing only the current
+patch delta.
+
+It does not require an additional textual header before the first:
 
 ```text
-SPDX-License-Identifier
-target upstream Linux version
-target upstream commit
-hardware-semantics/reference source when applicable
-exact reference commit when applicable
+diff --git
 ```
 
-Linux clean-port patches are covered by the repository's
-`research/patches/linux/**` GPL-2.0-only REUSE annotation.
+record.
 
-Generate the patch body from the current disposable source tree relative to its
+Generate the artifact from the current disposable source tree relative to its
 prepared predecessor baseline.
 
-The patch artifact must contain only the current patch delta.
+Because the real Git index contains only the predecessor baseline, use a
+temporary Git index when current-patch untracked files must participate in the
+artifact.
+
+Conceptually:
+
+```text
+real index
+    =
+BASE_TREE
+
+temporary index
+    =
+BASE_TREE + current patch
+```
+
+Do not disturb the real predecessor index merely to create the patch artifact.
+
+When adopted code, register semantics, hardware sequences, or other
+third-party-derived material require attribution, preserve provenance in the
+resulting source comments or accompanying technical documentation.
+
+Repository-level redistribution metadata for:
+
+```text
+research/patches/linux/**
+```
+
+is maintained through `REUSE.toml`.
+
+File-level SPDX identifiers and upstream copyright notices inside newly added or
+derived source remain authoritative for the material they describe.
+
+After generating the artifact:
+
+1. verify its expected file scope;
+2. verify its semantics and exclusions;
+3. run the relevant patch/static checks;
+4. record its SHA256.
+
+The artifact SHA256 becomes the identity of the reviewed repository artifact
+until commit.
 
 ## 7. Patch apply gate
 
@@ -231,80 +452,240 @@ Create a fresh disposable verification clone from the canonical upstream tree.
 
 Then:
 
-1. apply all predecessor patches in numerical order;
-2. run `git apply --check` for the current patch;
-3. run the whitespace-aware patch check;
-4. apply the current patch only inside the disposable verification clone.
+1. check out the exact pinned upstream commit;
+2. apply all predecessor patches in numerical order;
+3. run `git apply --check` for the current patch;
+4. run the whitespace-aware patch check;
+5. apply the current patch;
+6. verify the resulting source tree.
 
-For the current patch, the required checks include:
+`git apply --check` for a kernel patch must run inside this correctly prepared
+kernel verification tree.
+
+Do not run the kernel patch check in the Fre3nder repository itself. Paths such
+as:
 
 ```text
-git apply --check
-git apply --check --whitespace=error-all
+arch/mips/...
+drivers/...
 ```
 
-These checks validate the patch as a patch.
+refer to the Linux source tree, not to the Fre3nder project root.
 
-Do not use ordinary repository `git diff --check` output on a `.patch` file as
-the authoritative patch-whitespace gate. Unified-diff context lines contain a
-required leading space and can produce misleading `space before tab` or
-`trailing whitespace` diagnostics when the patch file itself is treated as
-ordinary source text.
+Required current-patch checks include:
 
-The resulting source files must remain whitespace-clean.
+```sh
+git apply --check <patch>
+git apply --check --whitespace=error-all <patch>
+```
+
+Do not use ordinary Fre3nder-repository:
+
+```sh
+git diff --check
+```
+
+on the `.patch` file as the authoritative patch-whitespace check.
+
+Unified-diff context lines contain required leading whitespace and can otherwise
+produce misleading diagnostics when treated as ordinary source text.
+
+After applying the patch, the resulting kernel source must itself remain
+whitespace-clean.
 
 ## 8. Reproducibility gate
 
-The patch artifact must reproduce exactly the source state that passed
+The stored patch artifact must reproduce exactly the source state that passed
 validation.
 
-After applying the patch series in the fresh verification clone, compare every
-file modified by the current patch with the corresponding file from the tested
-source tree.
+The standard identity check uses Git tree objects.
 
-All comparisons must match exactly.
+### Qualified implementation tree
 
-This establishes the chain:
+Starting from:
+
+```text
+INDEX    = BASE_TREE
+WORKTREE = current implementation
+```
+
+create a temporary Git index containing:
+
+```text
+BASE_TREE + current implementation
+```
+
+and calculate:
+
+```sh
+git write-tree
+```
+
+This produces:
+
+```text
+QUALIFIED_PATCH_TREE
+```
+
+The real development-tree index remains unchanged.
+
+### Fresh artifact tree
+
+In a fresh verification clone:
 
 ```text
 canonical upstream
-  + predecessor patch artifacts
-  + current patch artifact
+  + artifacts 01..N
         =
-tested source tree
+VERIFY_TREE
 ```
 
-A successful build of one source tree is not sufficient if the stored patch
-artifact produces a different tree.
+After applying the entire series through the current patch:
+
+```sh
+git add -A
+git write-tree
+```
+
+produces `VERIFY_TREE`.
+
+The required invariant is:
+
+```text
+QUALIFIED_PATCH_TREE == VERIFY_TREE
+```
+
+Therefore:
+
+```text
+canonical upstream
+  + predecessor artifacts
+  + current stored artifact
+        =
+exact source state that passed validation
+```
+
+This is stronger and simpler than relying only on individual file comparisons.
+
+The predecessor development index must still equal `BASE_TREE` after this
+process.
+
+A successful build alone is not sufficient if the stored artifact reconstructs
+a different source tree.
 
 ## 9. Final review
 
-Before declaring a patch commit-ready, verify:
+Before declaring a patch commit-ready, verify all relevant items below.
 
-* correct canonical upstream commit;
-* correct predecessor series;
-* current patch applies cleanly;
-* patch whitespace gate passes;
-* stored artifact reproduces the tested source state;
-* only intended files and scope are present;
-* implementation-plan file list matches reality;
-* exclusions remain excluded;
-* provenance and licensing are present;
+### Repository and base state
+
+* Fre3nder is at the expected predecessor commit.
+* The canonical upstream tree is clean and still at the pinned commit.
+* The disposable development index still equals `BASE_TREE`.
+* No unrelated Fre3nder changes are present.
+
+### Artifact identity
+
+* Only the expected patch artifact is new or modified.
+* Its SHA256 matches the artifact that was reviewed.
+* Its file scope is exactly the intended current patch scope.
+* The artifact applies on the correctly prepared predecessor series.
+* The whitespace-aware patch gate passes.
+* Fresh apply reproduces exactly `QUALIFIED_PATCH_TREE`.
+
+### Implementation review
+
+* All required current-patch functionality is present.
+* Later-patch functionality remains excluded.
+* Vendor-only or explicitly rejected implementation surfaces have not leaked
+  into the patch.
+* The implementation plan reflects the actual architecture and file scope.
+
+The implementation plan is not immutable. If implementation evidence changes
+the smallest correct file set, update the plan rather than forcing the code to
+match an outdated prediction.
+
+### Licensing and provenance
+
+* New or modified third-party-derived material has documented provenance where
+  required.
+* Redistribution status is understood.
+* File-level SPDX identifiers and copyright notices are appropriate.
+* Repository REUSE metadata remains compatible with the artifact.
+
+### Repository hygiene
+
+Before commit, perform the normal `AGENTS.md` checks, including:
+
+```text
+git status --short
+git diff --check
+complete diff review
+docs/local-device.md ignore guard
+secret scan
+device-specific-information scan
+provenance / redistribution review
+```
+
+`docs/local-device.md` must remain untracked and ignored.
+
+Personal local paths, hostnames, network addresses, credentials, and other
+individual device information must not appear in the patch.
+
+### Static tooling
+
+Run `checkpatch.pl` where applicable.
+
+A patch does not need zero warnings at any cost.
+
+Warnings must be understood and reviewed. Do not add unnecessary abstractions
+merely to silence a stylistic warning when the resulting implementation would
+be less appropriate.
+
+Errors require resolution unless there is a concrete and documented reason they
+are inapplicable.
+
+### Qualification claim
+
+Verify that:
+
 * the required authorized validation gate passed;
 * no stronger validation claim is made than the evidence supports;
-* no hardware qualification is claimed unless hardware testing actually passed.
+* hardware qualification is not claimed unless physical hardware testing
+  actually passed.
 
 Keep the validation label in the implementation plan at its defined earliest
-useful gate. Stronger validation evidence obtained during development does not
-require changing that label.
+useful gate.
+
+Obtaining stronger evidence during implementation does not require changing that
+planning label.
 
 ## 10. Repository commit
 
-The Fre3nder repository commit is separate from the disposable kernel clone's
-staged predecessor baseline.
+The Fre3nder repository commit is separate from the disposable kernel clone and
+its staged predecessor baseline.
 
-Before a Fre3nder commit, follow the normal `AGENTS.md` Git checks and review
-the complete staged change.
+Do not commit without explicit operator approval.
+
+Before staging the patch artifact, verify its previously reviewed SHA256 again.
+
+Then stage only the intended Fre3nder repository files.
+
+Before commit, at minimum run or verify:
+
+```text
+git status --short
+git diff --check
+git diff --cached --check
+complete staged diff
+artifact SHA256
+docs/local-device.md guard
+secret/device scan
+provenance / redistribution status
+```
+
+The commit should contain the repository artifact and any explicitly intended
+documentation updates, not disposable build or verification state.
 
 A patch may be described as:
 
@@ -319,15 +700,79 @@ hardware qualified
 
 only according to evidence actually obtained.
 
-Do not commit without explicit operator approval.
+### Commit and push are separate operations
+
+Authorization to create a commit does not implicitly authorize a push.
+
+Push only when:
+
+* the operator explicitly requests it; or
+* the operator performs the push separately.
+
+After a push, verifying the remote commit identity is useful evidence that the
+intended commit reached the expected branch.
 
 ## 11. Cleanup
 
-Disposable work and verification trees may be removed after:
+Disposable development, verification, temporary-index, and build trees may be
+removed after:
 
 1. the patch artifact is committed;
 2. its reproducibility check has passed;
-3. no further evidence is needed from the build output.
+3. the required validation evidence has been recorded;
+4. no further investigation requires the build output.
 
-The canonical upstream reference is never cleaned up or replaced as part of
-this process.
+Do not remove useful build evidence prematurely when it is still needed for the
+current patch or a directly following validation step.
+
+Temporary Git index files should be removed after their tree calculation or
+artifact-generation purpose is complete.
+
+The canonical upstream reference is never cleaned, replaced, rebuilt, reset, or
+otherwise mutated as part of this process.
+
+## Workflow summary
+
+For Patch N, the standard sequence is:
+
+```text
+1. Read AGENTS.md and implementation plan
+2. Verify clean Fre3nder state and canonical upstream
+3. Create disposable kernel clone
+4. Apply patches 01..N-1
+5. Stage predecessor state
+6. Record BASE_TREE
+7. Implement Patch N unstaged
+8. Perform static inspection
+9. Request the smallest required build authorization
+10. Run the authorized validation gate
+11. Fix concrete failures and revalidate as required
+12. Compute QUALIFIED_PATCH_TREE with a temporary index
+13. Generate Patch N artifact
+14. Record artifact SHA256
+15. Fresh-clone canonical upstream
+16. Apply patches 01..N
+17. Run patch whitespace/static gates
+18. Compute VERIFY_TREE
+19. Require VERIFY_TREE == QUALIFIED_PATCH_TREE
+20. Run complete pre-commit review
+21. Request explicit commit authorization
+22. Commit only intended repository artifacts/docs
+23. Push only separately authorized
+24. Retain or clean disposable evidence proportionally
+```
+
+The core reproducibility invariant is:
+
+```text
+canonical upstream
+  + stored patch series
+        =
+exact qualified source tree
+```
+
+while the core safety invariant is:
+
+```text
+offline validation != hardware authorization
+```

@@ -278,29 +278,59 @@ high
 ### PATCH 08 — Add two-core XBurst2 SMP/CCU support
 
 Purpose:
-Enable CPU1 only after the UP eMMC/rootfs path is qualified.
+Enable CPU1 using the X2000 CCU, mailbox IPI and the already SMP-ready
+Patch 03 interrupt and Patch 04 OST infrastructure.
 
 Depends on:
-Patches 01, 03-04 and successful UP qualification through Patch 07.
+Patches 01, 03-04 and 07.
 
 Files:
 modify:
-- `arch/mips/ingenic/{Kconfig,Makefile}`
-- Patch 03 IRQ and Patch 04 OST sources for secondary-CPU initialization
+- `arch/mips/generic/Platform`
+- `arch/mips/generic/init.c`
+- `arch/mips/ingenic/Kconfig`
+- `drivers/clocksource/ingenic-x2000-ost.c`
+- `drivers/irqchip/irq-ingenic-x2000.c`
 new:
-- reduced XBurst2 CCU/SMP source under `arch/mips/ingenic/`
+- `arch/mips/ingenic/Makefile`
+- `arch/mips/ingenic/x2000-smp.c`
+
+Repository artifact:
+- `research/patches/linux/0008-mips-ingenic-add-x2000-smp-support.patch`
 
 Reference:
 - vendor `xburst2/core/smp.c`, `core_base.h` and `ccu.h`
+- upstream MIPS generic SMP and CPU-interrupt infrastructure
 
 Minimal content:
-- two CPUs, secondary entry/reset, mailbox IPI, per-CPU IRQ/clockevent init
+- advertise X2000 SMP support and register the X2000 `plat_smp_ops` before the
+  generic CPS/VSMP/UP fallback
+- two-core CPU map with CPU1 CCU reset-entry bring-up
+- vendor-derived secondary trampoline setup for stack/thread context handoff
+- CCU mailbox IPI on CPU interrupt IP3 using the upstream MIPS CPU interrupt
+  controller
+- secondary-CPU activation of the Patch 03 X2000 INTC parent path
+- secondary clockevent registration and CPU-local IP4 activation in Patch 04 OST
+- keep the existing Patch 03 and Patch 04 per-CPU hardware windows instead of
+  introducing vendor replacement drivers
 
 Excluded:
-- CPU hotplug, debug dumps, tests and unrelated XBurst2 SoCs
+- CPU hotplug
+- vendor CPU interrupt driver replacement
+- vendor `request_percpu_irq()` mailbox implementation
+- offline IRQ migration
+- debug dumps, PM and tests
+- unrelated XBurst2 SoCs
 
 Validation:
 `kernel link`
+
+Qualification evidence:
+- `CONFIG_SMP=y`
+- `CONFIG_NR_CPUS=2`
+- X2000 SMP object and SMP ops linked into `vmlinux`
+- fresh apply of Patches 01-08 reproduces the qualified source tree exactly
+- hardware qualification remains separate
 
 Risk:
 high
