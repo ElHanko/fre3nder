@@ -60,18 +60,23 @@ Upstream Linux v6.6.18.
 
 Files:
 modify:
-- `arch/mips/Kconfig`, `arch/mips/ingenic/{Kconfig,Makefile}`
-- `arch/mips/generic/board-ingenic.c`, `arch/mips/mm/c-r4k.c`
-new:
-- XBurst2 secondary-cache source under `arch/mips/mm/`
-- minimal X2000 platform/restart helper under `arch/mips/ingenic/`
+- `arch/mips/Makefile`
+- `arch/mips/ingenic/Kconfig`
+- `arch/mips/generic/board-ingenic.c`
+- `arch/mips/mm/{c-r4k.c,sc-mips.c}`
+
+Repository artifact:
+- `research/patches/linux/0001-mips-ingenic-add-minimal-x2000-up-platform.patch`
 
 Reference:
 - vendor `xburst2/core/{prom.c,sc.c}` and `soc-x2000/{setup.c,reset.c}`
 
 Minimal content:
-- CPU0 boot, required DT handoff, CPU/DMA selections, cache/DMA hooks,
+- reuse generic MIPS CPU discovery and DT handoff; add X2000 CPU/DMA
+  selections, the XBurst2 cache-geometry and DMA-invalidate edge fixes, and
   one-shot reboot
+- preserve the qualified X2000 kernel compiler contract by applying
+  `-mnan=legacy` only when `CONFIG_MACH_X2000=y`
 - define `MACH_X2000` so existing upstream X2000 pinctrl data is reachable
 
 Excluded:
