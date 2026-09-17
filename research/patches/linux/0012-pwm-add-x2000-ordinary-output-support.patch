@@ -1,0 +1,388 @@
+diff --git a/Documentation/devicetree/bindings/pwm/ingenic,x2000-pwm.yaml b/Documentation/devicetree/bindings/pwm/ingenic,x2000-pwm.yaml
+new file mode 100644
+index 000000000..1839dc3cd
+--- /dev/null
++++ b/Documentation/devicetree/bindings/pwm/ingenic,x2000-pwm.yaml
+@@ -0,0 +1,49 @@
++# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
++%YAML 1.2
++---
++$id: http://devicetree.org/schemas/pwm/ingenic,x2000-pwm.yaml#
++$schema: http://devicetree.org/meta-schemas/core.yaml#
++
++title: Ingenic X2000 PWM controller
++
++maintainers:
++  - Paul Cercueil <paul@crapouillou.net>
++
++allOf:
++  - $ref: pwm.yaml#
++
++properties:
++  compatible:
++    const: ingenic,x2000-pwm
++
++  reg:
++    maxItems: 1
++
++  clocks:
++    maxItems: 1
++
++  clock-names:
++    const: pwm
++
++  "#pwm-cells":
++    const: 3
++
++required:
++  - compatible
++  - reg
++  - clocks
++  - clock-names
++
++additionalProperties: false
++
++examples:
++  - |
++    #include <dt-bindings/clock/ingenic,x2000-cgu.h>
++
++    pwm@134c0000 {
++      compatible = "ingenic,x2000-pwm";
++      reg = <0x134c0000 0x10000>;
++      clocks = <&cgu X2000_CLK_PWM>;
++      clock-names = "pwm";
++      #pwm-cells = <3>;
++    };
+diff --git a/drivers/pwm/Kconfig b/drivers/pwm/Kconfig
+index 8ebcddf91..932f8b47d 100644
+--- a/drivers/pwm/Kconfig
++++ b/drivers/pwm/Kconfig
+@@ -694,6 +694,17 @@ config PWM_VT8500
+ 	  To compile this driver as a module, choose M here: the module
+ 	  will be called pwm-vt8500.
+ 
++config PWM_X2000
++	tristate "Ingenic X2000 PWM support"
++	depends on MACH_X2000 || COMPILE_TEST
++	depends on COMMON_CLK && OF && HAS_IOMEM
++	help
++	  Generic PWM framework driver for the ordinary-output PWM
++	  controller found in Ingenic X2000 SoCs.
++
++	  To compile this driver as a module, choose M here: the module
++	  will be called pwm-x2000.
++
+ config PWM_XILINX
+ 	tristate "Xilinx AXI Timer PWM support"
+ 	depends on OF_ADDRESS
+diff --git a/drivers/pwm/Makefile b/drivers/pwm/Makefile
+index c822389c2..c4ae71457 100644
+--- a/drivers/pwm/Makefile
++++ b/drivers/pwm/Makefile
+@@ -65,4 +65,5 @@ obj-$(CONFIG_PWM_TWL)		+= pwm-twl.o
+ obj-$(CONFIG_PWM_TWL_LED)	+= pwm-twl-led.o
+ obj-$(CONFIG_PWM_VISCONTI)	+= pwm-visconti.o
+ obj-$(CONFIG_PWM_VT8500)	+= pwm-vt8500.o
++obj-$(CONFIG_PWM_X2000)		+= pwm-x2000.o
+ obj-$(CONFIG_PWM_XILINX)	+= pwm-xilinx.o
+diff --git a/drivers/pwm/pwm-x2000.c b/drivers/pwm/pwm-x2000.c
+new file mode 100644
+index 000000000..a807ae8f2
+--- /dev/null
++++ b/drivers/pwm/pwm-x2000.c
+@@ -0,0 +1,295 @@
++// SPDX-License-Identifier: GPL-2.0-only
++/*
++ * Ingenic X2000 ordinary-output PWM controller
++ *
++ * Register semantics are derived from Ingenic's public X2000
++ * pwm-ingenic-v2.c at commit
++ * a98c2e1f22e4263ddd4153a4eca4db4dcfd2777b.
++ */
++
++#include <linux/bitops.h>
++#include <linux/clk.h>
++#include <linux/device.h>
++#include <linux/io.h>
++#include <linux/math64.h>
++#include <linux/module.h>
++#include <linux/mutex.h>
++#include <linux/of.h>
++#include <linux/platform_device.h>
++#include <linux/pwm.h>
++#include <linux/time64.h>
++
++#define X2000_PWM_NUM_CHANNELS		16
++
++#define X2000_PWM_CCFG0			0x000
++#define X2000_PWM_CCFG1			0x004
++#define X2000_PWM_ENS			0x010
++#define X2000_PWM_ENC			0x014
++#define X2000_PWM_INITR			0x030
++#define X2000_PWM_WCFG			0x0b0
++#define X2000_PWM_DCR0			0x110
++#define X2000_PWM_OEN			0x300
++
++#define X2000_PWM_PRESCALE_MASK		0xf
++#define X2000_PWM_MAX_PRESCALE		0xf
++#define X2000_PWM_MAX_COUNT		0xffff
++
++#define X2000_PWM_WCFG_HIGH_SHIFT	16
++
++#define X2000_PWM_DEFAULT_RATE		50000000UL
++
++struct x2000_pwm {
++	struct pwm_chip chip;
++	void __iomem *base;
++	struct clk *clk;
++	struct mutex lock;
++};
++
++static inline struct x2000_pwm *to_x2000_pwm(struct pwm_chip *chip)
++{
++	return container_of(chip, struct x2000_pwm, chip);
++}
++
++static void x2000_pwm_set_prescale(struct x2000_pwm *priv,
++				   unsigned int channel,
++				   unsigned int prescale)
++{
++	unsigned int shift = (channel % 8) * 4;
++	unsigned int reg;
++	u32 value;
++
++	reg = channel < 8 ? X2000_PWM_CCFG0 : X2000_PWM_CCFG1;
++
++	value = readl(priv->base + reg);
++	value &= ~(X2000_PWM_PRESCALE_MASK << shift);
++	value |= prescale << shift;
++	writel(value, priv->base + reg);
++}
++
++static void x2000_pwm_set_common_mode(struct x2000_pwm *priv,
++				      unsigned int channel)
++{
++	u32 value;
++
++	value = readl(priv->base + X2000_PWM_DCR0);
++	value &= ~BIT(channel);
++	writel(value, priv->base + X2000_PWM_DCR0);
++}
++
++static void x2000_pwm_set_normal_levels(struct x2000_pwm *priv,
++					 unsigned int channel)
++{
++	u32 value;
++
++	value = readl(priv->base + X2000_PWM_INITR);
++
++	value |= BIT(channel);
++	value &= ~BIT(channel + 16);
++
++	writel(value, priv->base + X2000_PWM_INITR);
++}
++
++static void x2000_pwm_set_waveform(struct x2000_pwm *priv,
++				    unsigned int channel,
++				    unsigned int high,
++				    unsigned int low)
++{
++	u32 value;
++
++	value = high << X2000_PWM_WCFG_HIGH_SHIFT;
++	value |= low;
++
++	writel(value, priv->base + X2000_PWM_WCFG + channel * 4);
++}
++
++static void x2000_pwm_output_enable(struct x2000_pwm *priv,
++				     unsigned int channel)
++{
++	u32 value;
++
++	value = readl(priv->base + X2000_PWM_OEN);
++	value |= BIT(channel);
++	writel(value, priv->base + X2000_PWM_OEN);
++}
++
++static void x2000_pwm_enable(struct x2000_pwm *priv, unsigned int channel)
++{
++	writel(BIT(channel), priv->base + X2000_PWM_ENS);
++}
++
++static void x2000_pwm_disable(struct x2000_pwm *priv, unsigned int channel)
++{
++	writel(BIT(channel), priv->base + X2000_PWM_ENC);
++}
++
++static int x2000_pwm_calculate(struct x2000_pwm *priv,
++			       const struct pwm_state *state,
++			       unsigned int *prescale,
++			       unsigned int *high,
++			       unsigned int *low)
++{
++	unsigned long rate;
++	u64 denominator;
++	u64 period_ticks;
++	u64 duty_ticks;
++	unsigned int scale;
++
++	if (!state->period || state->duty_cycle > state->period)
++		return -EINVAL;
++
++	/*
++	 * The vendor ordinary-output implementation only accepts periods
++	 * up to one second. Keep the same bounded operating range.
++	 */
++	if (state->period > NSEC_PER_SEC)
++		return -ERANGE;
++
++	rate = clk_get_rate(priv->clk);
++	if (!rate)
++		return -EINVAL;
++
++	for (scale = 0; scale <= X2000_PWM_MAX_PRESCALE; scale++) {
++		denominator = (u64)NSEC_PER_SEC << scale;
++
++		period_ticks = div64_u64((u64)rate * state->period +
++					 denominator / 2,
++					 denominator);
++
++		if (period_ticks && period_ticks <= X2000_PWM_MAX_COUNT)
++			break;
++	}
++
++	if (scale > X2000_PWM_MAX_PRESCALE)
++		return -ERANGE;
++
++	duty_ticks = div64_u64((u64)rate * state->duty_cycle +
++			       denominator / 2,
++			       denominator);
++
++	if (duty_ticks > period_ticks)
++		duty_ticks = period_ticks;
++
++	*prescale = scale;
++	*high = duty_ticks;
++	*low = period_ticks - duty_ticks;
++
++	return 0;
++}
++
++static void x2000_pwm_configure(struct x2000_pwm *priv,
++				 unsigned int channel,
++				 unsigned int prescale,
++				 unsigned int high,
++				 unsigned int low)
++{
++	x2000_pwm_set_common_mode(priv, channel);
++	x2000_pwm_set_prescale(priv, channel, prescale);
++	x2000_pwm_set_normal_levels(priv, channel);
++	x2000_pwm_set_waveform(priv, channel, high, low);
++	x2000_pwm_output_enable(priv, channel);
++}
++
++static int x2000_pwm_apply(struct pwm_chip *chip, struct pwm_device *pwm,
++			    const struct pwm_state *state)
++{
++	struct x2000_pwm *priv = to_x2000_pwm(chip);
++	unsigned int prescale;
++	unsigned int high;
++	unsigned int low;
++	int ret = 0;
++
++	if (state->polarity != PWM_POLARITY_NORMAL)
++		return -EINVAL;
++
++	if (state->enabled) {
++		ret = x2000_pwm_calculate(priv, state, &prescale, &high, &low);
++		if (ret)
++			return ret;
++	}
++
++	mutex_lock(&priv->lock);
++
++	if (pwm->state.enabled)
++		x2000_pwm_disable(priv, pwm->hwpwm);
++
++	if (state->enabled) {
++		x2000_pwm_configure(priv, pwm->hwpwm, prescale, high, low);
++		x2000_pwm_enable(priv, pwm->hwpwm);
++	}
++
++	mutex_unlock(&priv->lock);
++
++	return 0;
++}
++
++static const struct pwm_ops x2000_pwm_ops = {
++	.apply = x2000_pwm_apply,
++	.owner = THIS_MODULE,
++};
++
++static void x2000_pwm_disable_clock(void *data)
++{
++	clk_disable_unprepare(data);
++}
++
++static int x2000_pwm_probe(struct platform_device *pdev)
++{
++	struct device *dev = &pdev->dev;
++	struct x2000_pwm *priv;
++	int ret;
++
++	priv = devm_kzalloc(dev, sizeof(*priv), GFP_KERNEL);
++	if (!priv)
++		return -ENOMEM;
++
++	priv->base = devm_platform_ioremap_resource(pdev, 0);
++	if (IS_ERR(priv->base))
++		return PTR_ERR(priv->base);
++
++	priv->clk = devm_clk_get(dev, "pwm");
++	if (IS_ERR(priv->clk))
++		return dev_err_probe(dev, PTR_ERR(priv->clk),
++				     "failed to get PWM clock\n");
++
++	ret = clk_set_rate(priv->clk, X2000_PWM_DEFAULT_RATE);
++	if (ret)
++		return dev_err_probe(dev, ret,
++				     "failed to set PWM clock rate\n");
++
++	ret = clk_prepare_enable(priv->clk);
++	if (ret)
++		return dev_err_probe(dev, ret,
++				     "failed to enable PWM clock\n");
++
++	ret = devm_add_action_or_reset(dev, x2000_pwm_disable_clock,
++				       priv->clk);
++	if (ret)
++		return ret;
++
++	mutex_init(&priv->lock);
++
++	priv->chip.dev = dev;
++	priv->chip.ops = &x2000_pwm_ops;
++	priv->chip.base = -1;
++	priv->chip.npwm = X2000_PWM_NUM_CHANNELS;
++
++	return devm_pwmchip_add(dev, &priv->chip);
++}
++
++static const struct of_device_id x2000_pwm_of_match[] = {
++	{ .compatible = "ingenic,x2000-pwm" },
++	{ }
++};
++MODULE_DEVICE_TABLE(of, x2000_pwm_of_match);
++
++static struct platform_driver x2000_pwm_driver = {
++	.probe = x2000_pwm_probe,
++	.driver = {
++		.name = "x2000-pwm",
++		.of_match_table = x2000_pwm_of_match,
++	},
++};
++module_platform_driver(x2000_pwm_driver);
++
++MODULE_DESCRIPTION("Ingenic X2000 ordinary-output PWM controller");
++MODULE_LICENSE("GPL");
