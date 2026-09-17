@@ -32,7 +32,7 @@ generic MIPS machine and built-in DT handoff
   -> XBurst2/X2000 core IRQ
   -> X2000 OST
   -> XBurst2 secondary-cache maintenance
-  -> existing upstream X2000 pinctrl/GPIO data
+  -> upstream X2000 pinctrl/GPIO data + minimal X2000 corrections
   -> X2000 DTSI + Fre3nder DTS
   -> X2000 SDHCI -> MSC0/eMMC -> rootfs
   -> XBurst2 SMP/CCU + per-CPU IRQ/OST
@@ -189,7 +189,7 @@ Patches 01-04.
 
 Files:
 modify:
-- none expected
+- `drivers/pinctrl/pinctrl-ingenic.c`
 new:
 - `arch/mips/boot/dts/ingenic/x2000.dtsi`
 
@@ -199,6 +199,9 @@ Reference:
 Minimal content:
 - CPUs, buses, clocks, INTC, OST, pinctrl/GPIO, UART1, MSC0/1, DWC2/PHY,
   I2C4, PWM and DPU; non-core devices disabled by default
+- reuse upstream X2000 pinctrl/GPIO data, correct the duplicated MMC0 4-bit
+  pin entry and add the RTC32K PE23 pinmux function required by the later
+  board WLAN description
 
 Excluded:
 - sound, GMAC, PDMA, hardware SPI, camera/ISP, SFC, watchdog, MIPI/LVDS
