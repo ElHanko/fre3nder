@@ -1,0 +1,510 @@
+diff --git a/arch/mips/generic/Platform b/arch/mips/generic/Platform
+index 0c03623f3..83e702e0d 100644
+--- a/arch/mips/generic/Platform
++++ b/arch/mips/generic/Platform
+@@ -10,6 +10,7 @@
+ 
+ # Note: order matters, keep the asm/mach-generic include last.
+ cflags-$(CONFIG_MACH_INGENIC_SOC)	+= -I$(srctree)/arch/mips/include/asm/mach-ingenic
++core-$(CONFIG_MACH_X2000)		+= arch/mips/ingenic/
+ cflags-$(CONFIG_MIPS_GENERIC)	+= -I$(srctree)/arch/mips/include/asm/mach-generic
+ 
+ load-$(CONFIG_MIPS_GENERIC)	+= 0xffffffff80100000
+diff --git a/arch/mips/generic/init.c b/arch/mips/generic/init.c
+index 1d712eac1..b0c5cf4c9 100644
+--- a/arch/mips/generic/init.c
++++ b/arch/mips/generic/init.c
+@@ -18,6 +18,10 @@
+ #include <asm/mips-cps.h>
+ #include <asm/prom.h>
+ #include <asm/smp-ops.h>
++
++#if defined(CONFIG_MACH_X2000) && defined(CONFIG_SMP)
++extern const struct plat_smp_ops x2000_smp_ops;
++#endif
+ #include <asm/time.h>
+ 
+ static __initconst const void *fdt;
+@@ -111,6 +115,14 @@ void __init plat_mem_setup(void)
+ void __init device_tree_init(void)
+ {
+ 	unflatten_and_copy_device_tree();
++
++#if defined(CONFIG_MACH_X2000) && defined(CONFIG_SMP)
++	if (mips_machtype == MACH_INGENIC_X2000) {
++		register_smp_ops(&x2000_smp_ops);
++		return;
++	}
++#endif
++
+ 	mips_cpc_probe();
+ 
+ 	if (!register_cps_smp_ops())
+diff --git a/arch/mips/ingenic/Kconfig b/arch/mips/ingenic/Kconfig
+index 011e37ea0..98ef8cca2 100644
+--- a/arch/mips/ingenic/Kconfig
++++ b/arch/mips/ingenic/Kconfig
+@@ -94,5 +94,6 @@ config MACH_X2000
+ 	select SYS_HAS_CPU_MIPS32_R2
+ 	select SYS_HAS_CPU_MIPS32_R5
+ 	select SYS_SUPPORTS_HIGHMEM
++	select SYS_SUPPORTS_SMP
+ 	select WEAK_ORDERING
+ 	select WEAK_REORDERING_BEYOND_LLSC
+diff --git a/arch/mips/ingenic/Makefile b/arch/mips/ingenic/Makefile
+new file mode 100644
+index 000000000..baa94298b
+--- /dev/null
++++ b/arch/mips/ingenic/Makefile
+@@ -0,0 +1,3 @@
++# SPDX-License-Identifier: GPL-2.0-only
++
++obj-$(CONFIG_MACH_X2000) += x2000-smp.o
+diff --git a/arch/mips/ingenic/x2000-smp.c b/arch/mips/ingenic/x2000-smp.c
+new file mode 100644
+index 000000000..7238d78ea
+--- /dev/null
++++ b/arch/mips/ingenic/x2000-smp.c
+@@ -0,0 +1,335 @@
++// SPDX-License-Identifier: GPL-2.0-or-later
++/*
++ * Ingenic X2000 XBurst2 SMP support
++ *
++ * Secondary-core sequencing is derived from the public Ingenic X2000
++ * Linux SDK.
++ *
++ * Copyright (C) 2001, 2002, 2003 Broadcom Corporation
++ */
++
++#include <linux/bitops.h>
++#include <linux/cpumask.h>
++#include <linux/gfp.h>
++#include <linux/init.h>
++#include <linux/io.h>
++#include <linux/irq.h>
++#include <linux/irqchip/chained_irq.h>
++#include <linux/irqdomain.h>
++#include <linux/kernel.h>
++#include <linux/of.h>
++#include <linux/sched/task_stack.h>
++#include <linux/smp.h>
++#include <linux/spinlock.h>
++
++#include <asm/addrspace.h>
++#include <asm/cacheflush.h>
++#include <asm/mipsregs.h>
++#include <asm/smp.h>
++#include <asm/smp-ops.h>
++#include <asm/uasm.h>
++
++#define X2000_CCU_PHYS_BASE		0x12200000
++
++#define X2000_CCU_CSRR			0x0040
++#define X2000_CCU_PIMR			0x0120
++#define X2000_CCU_MIMR			0x0160
++#define X2000_CCU_OIMR			0x01a0
++#define X2000_CCU_RER			0x0f00
++#define X2000_CCU_MAILBOX(cpu)		(0x1000 + (cpu) * 4)
++
++#define X2000_CPU_COUNT			2
++#define X2000_MAILBOX_HWIRQ		3
++
++struct x2000_mailbox {
++	raw_spinlock_t lock;
++	void __iomem *reg;
++};
++
++struct x2000_smp {
++	unsigned long context_sp;
++	unsigned long context_gp;
++	unsigned long entry;
++	unsigned int mailbox_irq;
++	struct x2000_mailbox mailbox[X2000_CPU_COUNT];
++};
++
++static struct x2000_smp x2000_smp;
++
++extern void x2000_intc_init_secondary(void);
++extern void x2000_ost_init_secondary(void);
++
++static void __iomem *x2000_ccu_reg(unsigned int offset)
++{
++	return (void __iomem *)CKSEG1ADDR(X2000_CCU_PHYS_BASE + offset);
++}
++
++static u32 x2000_ccu_read(unsigned int offset)
++{
++	return readl(x2000_ccu_reg(offset));
++}
++
++static void x2000_ccu_write(unsigned int offset, u32 value)
++{
++	writel(value, x2000_ccu_reg(offset));
++}
++
++static void x2000_unmask_cpu_irq(unsigned int irq)
++{
++	struct irq_chip *chip;
++	struct irq_data *data;
++
++	data = irq_get_irq_data(irq);
++	if (!data)
++		return;
++
++	chip = irq_data_get_irq_chip(data);
++	if (chip && chip->irq_unmask)
++		chip->irq_unmask(data);
++}
++
++static void x2000_mailbox_handle_irq(struct irq_desc *desc)
++{
++	struct irq_chip *chip = irq_desc_get_chip(desc);
++	struct x2000_mailbox *mailbox;
++	unsigned int cpu = raw_smp_processor_id();
++	unsigned long flags;
++	u32 action;
++
++	chained_irq_enter(chip, desc);
++
++	if (cpu >= X2000_CPU_COUNT)
++		goto out;
++
++	mailbox = &x2000_smp.mailbox[cpu];
++
++	raw_spin_lock_irqsave(&mailbox->lock, flags);
++	action = readl(mailbox->reg);
++	writel(0, mailbox->reg);
++	raw_spin_unlock_irqrestore(&mailbox->lock, flags);
++
++	if (action & SMP_CALL_FUNCTION)
++		generic_smp_call_function_interrupt();
++
++	if (action & SMP_RESCHEDULE_YOURSELF)
++		scheduler_ipi();
++
++out:
++	chained_irq_exit(chip, desc);
++}
++
++static void x2000_init_secondary(void)
++{
++	unsigned int cpu = raw_smp_processor_id();
++	u32 mask;
++
++	if (cpu >= X2000_CPU_COUNT)
++		return;
++
++	clear_c0_cause(CAUSEF_IP);
++	clear_c0_status(ST0_IM);
++
++	mask = x2000_ccu_read(X2000_CCU_MIMR);
++	x2000_ccu_write(X2000_CCU_MIMR, mask | BIT(cpu));
++	x2000_unmask_cpu_irq(x2000_smp.mailbox_irq);
++
++	mask = x2000_ccu_read(X2000_CCU_PIMR);
++	x2000_ccu_write(X2000_CCU_PIMR, mask | BIT(cpu));
++	x2000_intc_init_secondary();
++
++	mask = x2000_ccu_read(X2000_CCU_OIMR);
++	x2000_ccu_write(X2000_CCU_OIMR, mask | BIT(cpu));
++	x2000_ost_init_secondary();
++}
++
++static void x2000_smp_finish(void)
++{
++	local_irq_enable();
++}
++
++static void __init x2000_build_bounce_code(void)
++{
++	unsigned long *sp = &x2000_smp.context_sp;
++	unsigned long *gp = &x2000_smp.context_gp;
++	unsigned int entry = (unsigned int)smp_bootstrap;
++	unsigned int *code;
++	unsigned int *p;
++
++#define X2000_STATUS_BITS	ST0_CU0
++#define X2000_CAUSE_BITS	BIT(27)
++
++	code = (unsigned int *)__get_free_pages(GFP_KERNEL, 0);
++	if (!code)
++		panic("X2000 SMP: failed to allocate secondary entry code");
++
++	p = code;
++	x2000_smp.entry = (unsigned long)code;
++
++	/* Disable the XBurst2 IFU small buffer. */
++	UASM_i_MFC0(&p, 2, 16, 7);
++	uasm_i_ori(&p, 2, 2, 7 << 3);
++	UASM_i_MTC0(&p, 2, 16, 7);
++
++	/* Use cached KSEG0 accesses. */
++	UASM_i_MFC0(&p, 2, 16, 0);
++	UASM_i_LA(&p, 3, ~7);
++	uasm_i_and(&p, 2, 2, 3);
++	uasm_i_ori(&p, 2, 2, 3);
++	UASM_i_MTC0(&p, 2, 16, 0);
++
++	UASM_i_LA(&p, 2, X2000_CAUSE_BITS);
++	UASM_i_MTC0(&p, 2, 13, 0);
++
++	UASM_i_MTC0(&p, 0, 9, 0);
++
++	UASM_i_LA(&p, 2, X2000_STATUS_BITS);
++	UASM_i_MTC0(&p, 2, 12, 0);
++
++	UASM_i_LA(&p, 29, (unsigned long)sp);
++	UASM_i_LW(&p, 29, 0, 29);
++
++	UASM_i_LA(&p, 28, (unsigned long)gp);
++	UASM_i_LW(&p, 28, 0, 28);
++
++	UASM_i_LA(&p, 31, entry);
++	uasm_i_jr(&p, 31);
++	uasm_i_nop(&p);
++
++	dma_cache_wback_inv((unsigned long)code, 128);
++}
++
++static int x2000_boot_secondary(int cpu, struct task_struct *idle)
++{
++	u32 reset;
++
++	if (cpu != 1)
++		return -EINVAL;
++
++	x2000_ccu_write(X2000_CCU_RER, x2000_smp.entry);
++
++	reset = x2000_ccu_read(X2000_CCU_CSRR);
++	x2000_ccu_write(X2000_CCU_CSRR, reset | BIT(cpu));
++
++	x2000_smp.context_sp = __KSTK_TOS(idle);
++	x2000_smp.context_gp = (unsigned long)task_thread_info(idle);
++
++	/*
++	 * Publish the secondary stack and thread-info pointer before CPU1
++	 * leaves reset and starts executing the trampoline.
++	 */
++	wmb();
++
++	x2000_ccu_write(X2000_CCU_CSRR, reset & ~BIT(cpu));
++
++	return 0;
++}
++
++static void __init x2000_smp_setup(void)
++{
++	unsigned int cpu;
++
++	/*
++	 * Keep CPU1 in reset until boot_secondary() has installed the
++	 * trampoline context. CPU0 must never be reset here.
++	 */
++	x2000_ccu_write(X2000_CCU_MIMR, 0);
++	x2000_ccu_write(X2000_CCU_CSRR, BIT(1));
++
++	for (cpu = 0; cpu < nr_cpu_ids; cpu++) {
++		bool available = cpu < X2000_CPU_COUNT;
++
++		set_cpu_possible(cpu, available);
++		set_cpu_present(cpu, available);
++	}
++
++	__cpu_number_map[0] = 0;
++	__cpu_logical_map[0] = 0;
++	__cpu_number_map[1] = 1;
++	__cpu_logical_map[1] = 1;
++}
++
++static void __init x2000_prepare_cpus(unsigned int max_cpus)
++{
++	struct device_node *node;
++	struct irq_domain *domain;
++	unsigned int cpu;
++
++	if (max_cpus <= 1)
++		return;
++
++	node = of_find_compatible_node(NULL, NULL,
++				      "mti,cpu-interrupt-controller");
++	if (!node)
++		panic("X2000 SMP: missing CPU interrupt controller");
++
++	domain = irq_find_host(node);
++	of_node_put(node);
++
++	if (!domain)
++		panic("X2000 SMP: missing CPU interrupt domain");
++
++	x2000_smp.mailbox_irq =
++		irq_create_mapping(domain, X2000_MAILBOX_HWIRQ);
++	if (!x2000_smp.mailbox_irq)
++		panic("X2000 SMP: failed to map mailbox IRQ");
++
++	for (cpu = 0; cpu < X2000_CPU_COUNT; cpu++) {
++		struct x2000_mailbox *mailbox = &x2000_smp.mailbox[cpu];
++
++		mailbox->reg =
++			x2000_ccu_reg(X2000_CCU_MAILBOX(cpu));
++		raw_spin_lock_init(&mailbox->lock);
++		writel(0, mailbox->reg);
++	}
++
++	irq_set_chained_handler_and_data(x2000_smp.mailbox_irq,
++					 x2000_mailbox_handle_irq,
++					 &x2000_smp);
++
++	x2000_ccu_write(X2000_CCU_MIMR, BIT(0));
++
++	x2000_ccu_write(X2000_CCU_PIMR,
++			 x2000_ccu_read(X2000_CCU_PIMR) | BIT(0));
++	x2000_ccu_write(X2000_CCU_OIMR,
++			 x2000_ccu_read(X2000_CCU_OIMR) | BIT(0));
++
++	x2000_build_bounce_code();
++
++	x2000_ccu_write(X2000_CCU_RER, x2000_smp.entry);
++}
++
++static void x2000_send_ipi_single(int cpu, unsigned int action)
++{
++	struct x2000_mailbox *mailbox;
++	unsigned long flags;
++	u32 value;
++
++	if (cpu >= X2000_CPU_COUNT)
++		return;
++
++	mailbox = &x2000_smp.mailbox[cpu];
++
++	raw_spin_lock_irqsave(&mailbox->lock, flags);
++	value = readl(mailbox->reg);
++	writel(value | action, mailbox->reg);
++	raw_spin_unlock_irqrestore(&mailbox->lock, flags);
++}
++
++static void x2000_send_ipi_mask(const struct cpumask *mask,
++				unsigned int action)
++{
++	unsigned int cpu;
++
++	for_each_cpu(cpu, mask)
++		x2000_send_ipi_single(cpu, action);
++}
++
++const struct plat_smp_ops x2000_smp_ops = {
++	.send_ipi_single = x2000_send_ipi_single,
++	.send_ipi_mask = x2000_send_ipi_mask,
++	.init_secondary = x2000_init_secondary,
++	.smp_finish = x2000_smp_finish,
++	.boot_secondary = x2000_boot_secondary,
++	.smp_setup = x2000_smp_setup,
++	.prepare_cpus = x2000_prepare_cpus,
++};
+diff --git a/drivers/clocksource/ingenic-x2000-ost.c b/drivers/clocksource/ingenic-x2000-ost.c
+index 910b9341f..ae7009380 100644
+--- a/drivers/clocksource/ingenic-x2000-ost.c
++++ b/drivers/clocksource/ingenic-x2000-ost.c
+@@ -248,7 +248,7 @@ static int __init x2000_ost_parse_cpu_map(struct device_node *np,
+ 	return 0;
+ }
+ 
+-static void __init x2000_ost_init_event(struct x2000_ost *ost,
++static void x2000_ost_init_event(struct x2000_ost *ost,
+ 					 unsigned int cpu)
+ {
+ 	struct x2000_ost_event *event = &ost->events[cpu];
+@@ -280,6 +280,41 @@ static void __init x2000_ost_init_event(struct x2000_ost *ost,
+ 	event->initialized = true;
+ }
+ 
++void x2000_ost_init_secondary(void)
++{
++	struct x2000_ost *ost = &x2000_ost;
++	struct x2000_ost_event *event;
++	struct irq_chip *chip;
++	struct irq_data *data;
++	unsigned int cpu = raw_smp_processor_id();
++
++	if (cpu >= X2000_OST_CPU_COUNT)
++		return;
++
++	event = &ost->events[cpu];
++
++	if (!event->initialized)
++		x2000_ost_init_event(ost, cpu);
++
++	clockevents_config_and_register(&event->ced, ost->rate,
++					0xf, 0xffffffff);
++
++	writel(0, event->base + X2000_OST_MASK);
++
++	/*
++	 * The upstream MIPS CPU interrupt controller stores the CP0
++	 * interrupt mask in CPU-local state. CPU1 therefore has to
++	 * unmask IP4 for itself after the common IRQ was requested by CPU0.
++	 */
++	data = irq_get_irq_data(ost->irq);
++	if (!data)
++		return;
++
++	chip = irq_data_get_irq_chip(data);
++	if (chip && chip->irq_unmask)
++		chip->irq_unmask(data);
++}
++
+ static int __init x2000_ost_init(struct device_node *np)
+ {
+ 	struct x2000_ost *ost = &x2000_ost;
+diff --git a/drivers/irqchip/irq-ingenic-x2000.c b/drivers/irqchip/irq-ingenic-x2000.c
+index 0a024c25a..577c59b5f 100644
+--- a/drivers/irqchip/irq-ingenic-x2000.c
++++ b/drivers/irqchip/irq-ingenic-x2000.c
+@@ -37,10 +37,13 @@ struct x2000_intc {
+ 	void __iomem *base;
+ 	void __iomem *cpu_base[X2000_INTC_CPU_COUNT];
+ 	struct irq_domain *domain;
++	unsigned int parent_irq;
+ 	raw_spinlock_t lock;
+ 	u8 target_cpu[X2000_INTC_NR_IRQS];
+ };
+ 
++static struct x2000_intc *x2000_intc_primary;
++
+ static void x2000_intc_mask(struct irq_data *data)
+ {
+ 	struct x2000_intc *intc = irq_data_get_irq_chip_data(data);
+@@ -189,6 +192,23 @@ static void x2000_intc_handle_irq(struct irq_desc *desc)
+ 	chained_irq_exit(chip, desc);
+ }
+ 
++void x2000_intc_init_secondary(void)
++{
++	struct irq_chip *chip;
++	struct irq_data *data;
++
++	if (!x2000_intc_primary)
++		return;
++
++	data = irq_get_irq_data(x2000_intc_primary->parent_irq);
++	if (!data)
++		return;
++
++	chip = irq_data_get_irq_chip(data);
++	if (chip && chip->irq_unmask)
++		chip->irq_unmask(data);
++}
++
+ static int __init x2000_intc_parse_cpu_map(struct x2000_intc *intc,
+ 					    struct device_node *node,
+ 					    resource_size_t size)
+@@ -278,6 +298,9 @@ static int __init x2000_intc_init(struct device_node *node,
+ 	irq_set_chained_handler_and_data(parent_irq,
+ 					 x2000_intc_handle_irq, intc);
+ 
++	intc->parent_irq = parent_irq;
++	x2000_intc_primary = intc;
++
+ 	return 0;
+ 
+ err_domain:

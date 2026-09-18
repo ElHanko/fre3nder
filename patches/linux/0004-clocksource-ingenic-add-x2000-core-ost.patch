@@ -1,0 +1,534 @@
+# SPDX-License-Identifier: GPL-2.0-only
+#
+# Clean-port patch for upstream Linux v6.6.18.
+# Upstream source: https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git
+# Upstream commit: d8a27ea2c98685cdaa5fa66c809c7069a4ff394b
+# Hardware-semantics reference: public Ingenic X2000 Linux SDK
+# https://github.com/Llixuma/ingenic-linux-kernel6.6-x2000-v1.0-20250221
+# Ingenic SDK commit: a98c2e1f22e4263ddd4153a4eca4db4dcfd2777b
+#
+# Add the minimal X2000 core Operating System Timer required by the
+# Fre3nder clean port. Use the existing X2000 CGU OST clock, expose the
+# global counter as clocksource/sched_clock, and provide the CPU0
+# clockevent through MIPS CPU interrupt input 4.
+#
+# Keep the two-entry CPU OST mapping required by the later SMP port while
+# excluding the vendor SYSOST, TCU, PM and diagnostic surface.
+#
+
+diff --git a/Documentation/devicetree/bindings/timer/ingenic,x2000-core-ost.yaml b/Documentation/devicetree/bindings/timer/ingenic,x2000-core-ost.yaml
+new file mode 100644
+index 0000000000000000000000000000000000000000..1c3fdcd41500c1b6f96f5655db24e5a132dc4941
+--- /dev/null
++++ b/Documentation/devicetree/bindings/timer/ingenic,x2000-core-ost.yaml
+@@ -0,0 +1,76 @@
++# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
++%YAML 1.2
++---
++$id: http://devicetree.org/schemas/timer/ingenic,x2000-core-ost.yaml#
++$schema: http://devicetree.org/meta-schemas/core.yaml#
++
++title: Ingenic X2000 core Operating System Timer
++
++maintainers:
++  - Paul Cercueil <paul@crapouillou.net>
++
++description:
++  The X2000 core OST provides one system-wide 64-bit free-running counter
++  and one 32-bit clockevent timer window per CPU.
++
++properties:
++  compatible:
++    const: ingenic,x2000-core-ost
++
++  reg:
++    minItems: 2
++    maxItems: 2
++
++  reg-names:
++    items:
++      - const: global
++      - const: core
++
++  clocks:
++    maxItems: 1
++
++  clock-names:
++    const: ost
++
++  interrupts:
++    maxItems: 1
++
++  ingenic,cpu-ost-map:
++    $ref: /schemas/types.yaml#/definitions/uint32-array
++    minItems: 4
++    maxItems: 4
++    description:
++      Two CPU and core-register-offset pairs. The X2000 has two CPU-local
++      OST windows, for CPU0 and CPU1 respectively.
++
++required:
++  - compatible
++  - reg
++  - reg-names
++  - clocks
++  - clock-names
++  - interrupts
++  - ingenic,cpu-ost-map
++
++additionalProperties: false
++
++examples:
++  - |
++    #include <dt-bindings/clock/ingenic,x2000-cgu.h>
++
++    ost: timer@12000000 {
++        compatible = "ingenic,x2000-core-ost";
++        reg = <0x12000000 0x10000>,
++              <0x12100000 0x10000>;
++        reg-names = "global", "core";
++
++        clocks = <&cgu X2000_CLK_OST>;
++        clock-names = "ost";
++
++        interrupt-parent = <&cpuintc>;
++        interrupts = <4>;
++
++        ingenic,cpu-ost-map = <0 0x000>,
++                              <1 0x100>;
++    };
++...
+diff --git a/drivers/clocksource/Kconfig b/drivers/clocksource/Kconfig
+index 0ba0dc4ecf06201a0532d3af71194841a5167c64..9e722e4f45cf6409bb3f66fa43266404838c7654 100644
+--- a/drivers/clocksource/Kconfig
++++ b/drivers/clocksource/Kconfig
+@@ -715,6 +715,18 @@ config INGENIC_OST
+ 	help
+ 	  Support for the Operating System Timer of the Ingenic JZ SoCs.
+ 
++config INGENIC_X2000_OST
++	bool "Clocksource/timer using the core OST in Ingenic X2000 SoCs"
++	depends on MACH_X2000
++	default MACH_X2000
++	select TIMER_OF
++	help
++	  Support the Operating System Timer found in Ingenic X2000 SoCs.
++	  The global OST provides the system clocksource and sched_clock,
++	  while the CPU-local OST provides the clockevent device through
++	  MIPS CPU interrupt input 4. The timer consumes the OST clock from
++	  the X2000 CGU and retains both CPU mappings for later SMP support.
++
+ config MICROCHIP_PIT64B
+ 	bool "Microchip PIT64B support"
+ 	depends on OF && ARM
+diff --git a/drivers/clocksource/Makefile b/drivers/clocksource/Makefile
+index 368c3461dab8146a6f89a111677c413b974e4608..7870bb0bde2d44681864facdcf5855e0da64f9dd 100644
+--- a/drivers/clocksource/Makefile
++++ b/drivers/clocksource/Makefile
+@@ -75,6 +75,7 @@ obj-$(CONFIG_CLKSRC_IMX_TPM)		+= timer-imx-tpm.o
+ obj-$(CONFIG_TIMER_IMX_SYS_CTR)		+= timer-imx-sysctr.o
+ obj-$(CONFIG_ASM9260_TIMER)		+= asm9260_timer.o
+ obj-$(CONFIG_INGENIC_OST)		+= ingenic-ost.o
++obj-$(CONFIG_INGENIC_X2000_OST)	+= ingenic-x2000-ost.o
+ obj-$(CONFIG_INGENIC_SYSOST)	+= ingenic-sysost.o
+ obj-$(CONFIG_INGENIC_TIMER)		+= ingenic-timer.o
+ obj-$(CONFIG_CLKSRC_ST_LPC)		+= clksrc_st_lpc.o
+diff --git a/drivers/clocksource/ingenic-x2000-ost.c b/drivers/clocksource/ingenic-x2000-ost.c
+new file mode 100644
+index 0000000000000000000000000000000000000000..910b9341ff15b6fafe89c773e070bfc245d21187
+--- /dev/null
++++ b/drivers/clocksource/ingenic-x2000-ost.c
+@@ -0,0 +1,393 @@
++// SPDX-License-Identifier: GPL-2.0-only
++/*
++ * Ingenic X2000 core Operating System Timer
++ *
++ * Hardware semantics are based on the public Ingenic X2000 Linux SDK.
++ * CPU interrupt dispatch is provided by the generic MIPS CPU interrupt
++ * controller.
++ */
++
++#include <linux/bitops.h>
++#include <linux/clk.h>
++#include <linux/clockchips.h>
++#include <linux/clocksource.h>
++#include <linux/init.h>
++#include <linux/interrupt.h>
++#include <linux/io.h>
++#include <linux/ioport.h>
++#include <linux/math.h>
++#include <linux/of.h>
++#include <linux/of_address.h>
++#include <linux/of_clk.h>
++#include <linux/of_irq.h>
++#include <linux/sched_clock.h>
++#include <linux/smp.h>
++#include <linux/spinlock.h>
++
++#define X2000_OST_CPU_COUNT		2
++#define X2000_OST_CPU_WINDOW_SIZE	0x20
++
++#define X2000_OST_CCR			0x00
++#define X2000_OST_ENABLE		0x04
++#define X2000_OST_CLEAR			0x08
++#define X2000_OST_FLAG			0x0c
++#define X2000_OST_MASK			0x10
++#define X2000_OST_DATA			0x14
++
++#define X2000_GLOBAL_OST_CCR		0x00
++#define X2000_GLOBAL_OST_ENABLE		0x04
++#define X2000_GLOBAL_OST_CLEAR		0x08
++#define X2000_GLOBAL_OST_CNTH		0x0c
++#define X2000_GLOBAL_OST_CNTL		0x10
++
++struct x2000_ost_event {
++	struct clock_event_device ced;
++	void __iomem *base;
++	raw_spinlock_t lock;
++	u32 deferred_delta;
++	bool initialized;
++};
++
++struct x2000_ost {
++	void __iomem *global_base;
++	void __iomem *core_base;
++	void __iomem *cpu_base[X2000_OST_CPU_COUNT];
++
++	struct clk *clk;
++	unsigned long rate;
++	int irq;
++
++	struct clocksource cs;
++	struct x2000_ost_event events[X2000_OST_CPU_COUNT];
++};
++
++static struct x2000_ost x2000_ost;
++
++static u64 notrace x2000_ost_read_counter(void)
++{
++	void __iomem *base = x2000_ost.global_base;
++	u32 high;
++	u32 low;
++
++	do {
++		high = readl(base + X2000_GLOBAL_OST_CNTH);
++		low = readl(base + X2000_GLOBAL_OST_CNTL);
++	} while (high != readl(base + X2000_GLOBAL_OST_CNTH));
++
++	return ((u64)high << 32) | low;
++}
++
++static u64 notrace x2000_ost_clocksource_read(struct clocksource *cs)
++{
++	return x2000_ost_read_counter();
++}
++
++static u64 notrace x2000_ost_sched_clock_read(void)
++{
++	return x2000_ost_read_counter();
++}
++
++static int x2000_ost_event_shutdown(struct clock_event_device *ced)
++{
++	struct x2000_ost_event *event =
++		container_of(ced, struct x2000_ost_event, ced);
++	unsigned long flags;
++
++	raw_spin_lock_irqsave(&event->lock, flags);
++	event->deferred_delta = 0;
++	writel(0, event->base + X2000_OST_ENABLE);
++	raw_spin_unlock_irqrestore(&event->lock, flags);
++
++	return 0;
++}
++
++static int x2000_ost_event_periodic(struct clock_event_device *ced)
++{
++	struct x2000_ost_event *event =
++		container_of(ced, struct x2000_ost_event, ced);
++	unsigned long flags;
++	u32 latch;
++
++	latch = DIV_ROUND_CLOSEST(x2000_ost.rate, HZ);
++
++	raw_spin_lock_irqsave(&event->lock, flags);
++	event->deferred_delta = 0;
++	writel(latch, event->base + X2000_OST_DATA);
++	writel(1, event->base + X2000_OST_CLEAR);
++	writel(1, event->base + X2000_OST_ENABLE);
++	raw_spin_unlock_irqrestore(&event->lock, flags);
++
++	return 0;
++}
++
++static int x2000_ost_event_next(unsigned long delta,
++				 struct clock_event_device *ced)
++{
++	struct x2000_ost_event *event =
++		container_of(ced, struct x2000_ost_event, ced);
++	unsigned long flags;
++
++	raw_spin_lock_irqsave(&event->lock, flags);
++
++	writel(0, event->base + X2000_OST_ENABLE);
++
++	if (!readl(event->base + X2000_OST_FLAG)) {
++		event->deferred_delta = 0;
++		writel(delta, event->base + X2000_OST_DATA);
++		writel(1, event->base + X2000_OST_CLEAR);
++		writel(1, event->base + X2000_OST_ENABLE);
++	} else {
++		event->deferred_delta = delta;
++	}
++
++	raw_spin_unlock_irqrestore(&event->lock, flags);
++
++	return 0;
++}
++
++static irqreturn_t x2000_ost_interrupt(int irq, void *dev_id)
++{
++	struct x2000_ost *ost = dev_id;
++	struct x2000_ost_event *event;
++	unsigned int cpu = raw_smp_processor_id();
++	unsigned long flags;
++	u32 deferred;
++
++	if (cpu >= X2000_OST_CPU_COUNT)
++		return IRQ_NONE;
++
++	event = &ost->events[cpu];
++
++	if (!event->initialized)
++		return IRQ_NONE;
++
++	if (!readl(event->base + X2000_OST_FLAG))
++		return IRQ_NONE;
++
++	raw_spin_lock_irqsave(&event->lock, flags);
++
++	writel(0, event->base + X2000_OST_FLAG);
++
++	if (clockevent_state_oneshot(&event->ced) ||
++	    clockevent_state_oneshot_stopped(&event->ced)) {
++		deferred = event->deferred_delta;
++		event->deferred_delta = 0;
++
++		if (deferred) {
++			writel(deferred, event->base + X2000_OST_DATA);
++			writel(1, event->base + X2000_OST_CLEAR);
++			writel(1, event->base + X2000_OST_ENABLE);
++		} else {
++			writel(0, event->base + X2000_OST_ENABLE);
++		}
++	}
++
++	raw_spin_unlock_irqrestore(&event->lock, flags);
++
++	event->ced.event_handler(&event->ced);
++
++	return IRQ_HANDLED;
++}
++
++static int __init x2000_ost_parse_cpu_map(struct device_node *np,
++					  struct x2000_ost *ost,
++					  resource_size_t core_size)
++{
++	unsigned long seen = 0;
++	int count;
++	int i;
++
++	count = of_property_count_u32_elems(np, "ingenic,cpu-ost-map");
++	if (count != X2000_OST_CPU_COUNT * 2) {
++		pr_err("%pOF: ingenic,cpu-ost-map must contain %u pairs\n",
++		       np, X2000_OST_CPU_COUNT);
++		return -EINVAL;
++	}
++
++	for (i = 0; i < count; i += 2) {
++		u32 cpu;
++		u32 offset;
++		int ret;
++
++		ret = of_property_read_u32_index(np, "ingenic,cpu-ost-map",
++						 i, &cpu);
++		if (ret)
++			return ret;
++
++		ret = of_property_read_u32_index(np, "ingenic,cpu-ost-map",
++						 i + 1, &offset);
++		if (ret)
++			return ret;
++
++		if (cpu >= X2000_OST_CPU_COUNT) {
++			pr_err("%pOF: invalid OST CPU %u\n", np, cpu);
++			return -EINVAL;
++		}
++
++		if (test_bit(cpu, &seen)) {
++			pr_err("%pOF: duplicate OST CPU %u\n", np, cpu);
++			return -EINVAL;
++		}
++
++		if (core_size < X2000_OST_CPU_WINDOW_SIZE ||
++		    offset > core_size - X2000_OST_CPU_WINDOW_SIZE) {
++			pr_err("%pOF: OST CPU%u offset %#x outside resource\n",
++			       np, cpu, offset);
++			return -EINVAL;
++		}
++
++		ost->cpu_base[cpu] = ost->core_base + offset;
++		set_bit(cpu, &seen);
++	}
++
++	if (seen != GENMASK(X2000_OST_CPU_COUNT - 1, 0)) {
++		pr_err("%pOF: incomplete ingenic,cpu-ost-map\n", np);
++		return -EINVAL;
++	}
++
++	return 0;
++}
++
++static void __init x2000_ost_init_event(struct x2000_ost *ost,
++					 unsigned int cpu)
++{
++	struct x2000_ost_event *event = &ost->events[cpu];
++	struct clock_event_device *ced = &event->ced;
++
++	event->base = ost->cpu_base[cpu];
++	raw_spin_lock_init(&event->lock);
++
++	writel(0, event->base + X2000_OST_ENABLE);
++	writel(1, event->base + X2000_OST_MASK);
++	writel(0, event->base + X2000_OST_CCR);
++	writel(1, event->base + X2000_OST_CLEAR);
++	writel(0, event->base + X2000_OST_FLAG);
++
++	ced->name = "x2000-ost";
++	ced->features = CLOCK_EVT_FEAT_PERIODIC |
++			CLOCK_EVT_FEAT_ONESHOT |
++			CLOCK_EVT_FEAT_PERCPU;
++	ced->rating = 400;
++	ced->irq = ost->irq;
++	ced->cpumask = cpumask_of(cpu);
++	ced->set_state_shutdown = x2000_ost_event_shutdown;
++	ced->set_state_periodic = x2000_ost_event_periodic;
++	ced->set_state_oneshot = x2000_ost_event_shutdown;
++	ced->set_state_oneshot_stopped = x2000_ost_event_shutdown;
++	ced->tick_resume = x2000_ost_event_shutdown;
++	ced->set_next_event = x2000_ost_event_next;
++
++	event->initialized = true;
++}
++
++static int __init x2000_ost_init(struct device_node *np)
++{
++	struct x2000_ost *ost = &x2000_ost;
++	struct resource core_res;
++	unsigned long rate;
++	int ret;
++
++	ost->global_base = of_iomap(np, 0);
++	if (!ost->global_base) {
++		pr_err("%pOF: failed to map global OST registers\n", np);
++		return -ENOMEM;
++	}
++
++	ost->core_base = of_iomap(np, 1);
++	if (!ost->core_base) {
++		pr_err("%pOF: failed to map core OST registers\n", np);
++		ret = -ENOMEM;
++		goto err_unmap_global;
++	}
++
++	ret = of_address_to_resource(np, 1, &core_res);
++	if (ret) {
++		pr_err("%pOF: failed to read core OST resource\n", np);
++		goto err_unmap_core;
++	}
++
++	ret = x2000_ost_parse_cpu_map(np, ost, resource_size(&core_res));
++	if (ret)
++		goto err_unmap_core;
++
++	ost->clk = of_clk_get_by_name(np, "ost");
++	if (IS_ERR(ost->clk)) {
++		ret = PTR_ERR(ost->clk);
++		pr_err("%pOF: failed to get OST clock: %d\n", np, ret);
++		goto err_unmap_core;
++	}
++
++	ret = clk_prepare_enable(ost->clk);
++	if (ret) {
++		pr_err("%pOF: failed to enable OST clock: %d\n", np, ret);
++		goto err_put_clk;
++	}
++
++	rate = clk_get_rate(ost->clk);
++	if (!rate) {
++		pr_err("%pOF: invalid OST clock rate\n", np);
++		ret = -EINVAL;
++		goto err_disable_clk;
++	}
++	ost->rate = rate;
++
++	ost->irq = irq_of_parse_and_map(np, 0);
++	if (!ost->irq) {
++		pr_err("%pOF: failed to map core OST interrupt\n", np);
++		ret = -EINVAL;
++		goto err_disable_clk;
++	}
++
++	x2000_ost_init_event(ost, 0);
++
++	ret = request_irq(ost->irq, x2000_ost_interrupt,
++			  IRQF_PERCPU | IRQF_TIMER,
++			  "x2000-ost", ost);
++	if (ret) {
++		pr_err("%pOF: failed to request OST IRQ: %d\n", np, ret);
++		goto err_disable_clk;
++	}
++
++	writel(0, ost->global_base + X2000_GLOBAL_OST_ENABLE);
++	writel(0, ost->global_base + X2000_GLOBAL_OST_CCR);
++	writel(1, ost->global_base + X2000_GLOBAL_OST_CLEAR);
++	writel(1, ost->global_base + X2000_GLOBAL_OST_ENABLE);
++
++	ost->cs.name = "x2000-ost";
++	ost->cs.rating = 400;
++	ost->cs.read = x2000_ost_clocksource_read;
++	ost->cs.mask = CLOCKSOURCE_MASK(63);
++	ost->cs.flags = CLOCK_SOURCE_IS_CONTINUOUS;
++
++	ret = clocksource_register_hz(&ost->cs, rate);
++	if (ret) {
++		pr_err("%pOF: failed to register clocksource: %d\n", np, ret);
++		goto err_free_irq;
++	}
++
++	clockevents_config_and_register(&ost->events[0].ced, rate,
++					0xf, 0xffffffff);
++
++	writel(0, ost->events[0].base + X2000_OST_MASK);
++
++	sched_clock_register(x2000_ost_sched_clock_read, 64, rate);
++
++	pr_info("X2000 core OST: %lu Hz, IRQ %d\n", rate, ost->irq);
++
++	return 0;
++
++err_free_irq:
++	free_irq(ost->irq, ost);
++err_disable_clk:
++	clk_disable_unprepare(ost->clk);
++err_put_clk:
++	clk_put(ost->clk);
++err_unmap_core:
++	iounmap(ost->core_base);
++err_unmap_global:
++	iounmap(ost->global_base);
++
++	return ret;
++}
++
++TIMER_OF_DECLARE(x2000_core_ost, "ingenic,x2000-core-ost", x2000_ost_init);

@@ -376,7 +376,7 @@ After the implementation has passed its authorized validation gate, create the
 repository patch artifact below:
 
 ```text
-research/patches/linux/
+patches/linux/
 ```
 
 Naming follows the numerical series order, for example:
@@ -426,7 +426,7 @@ resulting source comments or accompanying technical documentation.
 Repository-level redistribution metadata for:
 
 ```text
-research/patches/linux/**
+patches/linux/**
 ```
 
 is maintained through `REUSE.toml`.

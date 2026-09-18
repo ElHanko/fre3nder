@@ -5,7 +5,17 @@
     "role": "public source mirror",
     "url": "https://github.com/Llixuma/ingenic-linux-kernel6.6-x2000-v1.0-20250221",
     "release_identity": "ingenic-linux-kernel6.6-x2000-v1.0-20250221",
-    "commit": "a98c2e1f22e4263ddd4153a4eca4db4dcfd2777b"
+    "commit": "a98c2e1f22e4263ddd4153a4eca4db4dcfd2777b",
+    "production_active": true
+  },
+  "clean_port_kernel_source": {
+    "name": "upstream Linux stable",
+    "role": "prepared future production kernel source",
+    "url": "https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git",
+    "version": "v6.6.18",
+    "commit": "d8a27ea2c98685cdaa5fa66c809c7069a4ff394b",
+    "patch_series": "configs/x2000/kernel-patches.series",
+    "production_active": false
   },
   "kernel": {
     "kernel_version": "6.6.18",

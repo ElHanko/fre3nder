@@ -1,0 +1,475 @@
+diff --git a/Documentation/devicetree/bindings/mmc/ingenic,x2000-sdhci.yaml b/Documentation/devicetree/bindings/mmc/ingenic,x2000-sdhci.yaml
+new file mode 100644
+index 000000000..45f63590d
+--- /dev/null
++++ b/Documentation/devicetree/bindings/mmc/ingenic,x2000-sdhci.yaml
+@@ -0,0 +1,55 @@
++# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
++%YAML 1.2
++---
++$id: http://devicetree.org/schemas/mmc/ingenic,x2000-sdhci.yaml#
++$schema: http://devicetree.org/meta-schemas/core.yaml#
++
++title: Ingenic X2000 SDHCI Controller
++
++maintainers:
++  - Paul Cercueil <paul@crapouillou.net>
++
++allOf:
++  - $ref: mmc-controller.yaml#
++
++properties:
++  compatible:
++    const: ingenic,x2000-sdhci
++
++  reg:
++    maxItems: 1
++
++  interrupts:
++    maxItems: 1
++
++  clocks:
++    maxItems: 1
++
++  clock-names:
++    const: mmc
++
++required:
++  - compatible
++  - reg
++  - interrupts
++  - clocks
++  - clock-names
++
++unevaluatedProperties: false
++
++examples:
++  - |
++    #include <dt-bindings/clock/ingenic,x2000-cgu.h>
++
++    mmc@13450000 {
++        compatible = "ingenic,x2000-sdhci";
++        reg = <0x13450000 0x10000>;
++
++        interrupts = <37>;
++
++        clocks = <&cgu X2000_CLK_MSC0>;
++        clock-names = "mmc";
++
++        bus-width = <8>;
++        non-removable;
++    };
+diff --git a/drivers/mmc/host/Kconfig b/drivers/mmc/host/Kconfig
+index bc7e2ad37..8610a7d0c 100644
+--- a/drivers/mmc/host/Kconfig
++++ b/drivers/mmc/host/Kconfig
+@@ -150,6 +150,19 @@ config MMC_SDHCI_PLTFM
+ 
+ 	  If unsure, say N.
+ 
++config MMC_SDHCI_INGENIC
++	tristate "Ingenic X2000 SDHCI support"
++	depends on MMC_SDHCI_PLTFM
++	depends on OF
++	depends on COMMON_CLK
++	depends on MACH_X2000 || COMPILE_TEST
++	help
++	  This selects support for the SDHCI-compatible MMC controllers
++	  found in the Ingenic X2000 SoC.
++
++	  The driver supports both the eMMC MSC0 controller and the MSC1
++	  controller used for SDIO devices.
++
+ config MMC_SDHCI_OF_ARASAN
+ 	tristate "SDHCI OF support for the Arasan SDHCI controllers"
+ 	depends on MMC_SDHCI_PLTFM
+diff --git a/drivers/mmc/host/Makefile b/drivers/mmc/host/Makefile
+index a693fa3d3..784db0af1 100644
+--- a/drivers/mmc/host/Makefile
++++ b/drivers/mmc/host/Makefile
+@@ -75,6 +75,7 @@ obj-$(CONFIG_MMC_REALTEK_PCI)	+= rtsx_pci_sdmmc.o
+ obj-$(CONFIG_MMC_REALTEK_USB)	+= rtsx_usb_sdmmc.o
+ 
+ obj-$(CONFIG_MMC_SDHCI_PLTFM)		+= sdhci-pltfm.o
++obj-$(CONFIG_MMC_SDHCI_INGENIC)	+= sdhci-ingenic.o
+ obj-$(CONFIG_MMC_SDHCI_CADENCE)		+= sdhci-cadence.o
+ obj-$(CONFIG_MMC_SDHCI_ESDHC_MCF)       += sdhci-esdhc-mcf.o
+ obj-$(CONFIG_MMC_SDHCI_ESDHC_IMX)	+= sdhci-esdhc-imx.o
+diff --git a/drivers/mmc/host/sdhci-ingenic.c b/drivers/mmc/host/sdhci-ingenic.c
+new file mode 100644
+index 000000000..51719041a
+--- /dev/null
++++ b/drivers/mmc/host/sdhci-ingenic.c
+@@ -0,0 +1,372 @@
++// SPDX-License-Identifier: GPL-2.0-only
++/*
++ * Ingenic X2000 SDHCI controller driver
++ *
++ * Hardware register behavior is derived from the public Ingenic X2000
++ * Linux SDK and the independently qualified OpenKE MSC1 clock-register fix.
++ */
++
++#include <linux/bitops.h>
++#include <linux/clk.h>
++#include <linux/device.h>
++#include <linux/dma-mapping.h>
++#include <linux/io.h>
++#include <linux/module.h>
++#include <linux/of.h>
++#include <linux/of_address.h>
++#include <linux/platform_device.h>
++#include <linux/sizes.h>
++
++#include <dt-bindings/clock/ingenic,x2000-cgu.h>
++
++#include "sdhci-pltfm.h"
++
++#define X2000_MSC0CDR			0x68
++#define X2000_MSC1CDR			0xa4
++
++#define X2000_MSC_RX_TUNING		BIT(20)
++#define X2000_MSC_LOW_SPEED		BIT(21)
++
++/*
++ * The X2000 vendor driver supplies these values because the controller's
++ * capability registers are not used as the authoritative capability source.
++ */
++static const u32 x2000_sdhci_caps = 0x276dc898;
++static const u32 x2000_sdhci_caps1;
++
++struct ingenic_sdhci {
++	void __iomem *cgu_base;
++	struct clk *ext_clk;
++	struct clk *mpll_clk;
++	u32 cdr;
++};
++
++static void ingenic_sdhci_iounmap(void *data)
++{
++	iounmap(data);
++}
++
++static void ingenic_sdhci_clk_put(void *data)
++{
++	clk_put(data);
++}
++
++static int ingenic_sdhci_get_cgu_clock(struct device *dev,
++				      struct device_node *cgu_np,
++				      unsigned int id,
++				      struct clk **clk)
++{
++	struct of_phandle_args clkspec = {
++		.np = cgu_np,
++		.args_count = 1,
++	};
++	int ret;
++
++	clkspec.args[0] = id;
++
++	*clk = of_clk_get_from_provider(&clkspec);
++	if (IS_ERR(*clk))
++		return dev_err_probe(dev, PTR_ERR(*clk),
++				     "failed to get X2000 CGU parent clock %u\n",
++				     id);
++
++	ret = devm_add_action_or_reset(dev, ingenic_sdhci_clk_put, *clk);
++	if (ret)
++		return ret;
++
++	return 0;
++}
++
++static int ingenic_sdhci_map_cgu(struct device *dev,
++				   struct ingenic_sdhci *ingenic)
++{
++	struct of_phandle_args clkspec;
++	int ret;
++
++	ret = of_parse_phandle_with_args(dev->of_node, "clocks",
++					 "#clock-cells", 0, &clkspec);
++	if (ret)
++		return dev_err_probe(dev, ret,
++				     "failed to parse mmc clock\n");
++
++	if (!of_device_is_compatible(clkspec.np, "ingenic,x2000-cgu") ||
++	    clkspec.args_count != 1) {
++		ret = -EINVAL;
++		goto out_put;
++	}
++
++	switch (clkspec.args[0]) {
++	case X2000_CLK_MSC0:
++		ingenic->cdr = X2000_MSC0CDR;
++		break;
++	case X2000_CLK_MSC1:
++		ingenic->cdr = X2000_MSC1CDR;
++		break;
++	default:
++		ret = -EINVAL;
++		goto out_put;
++	}
++
++	ingenic->cgu_base = of_iomap(clkspec.np, 0);
++	if (!ingenic->cgu_base) {
++		ret = -ENOMEM;
++		goto out_put;
++	}
++
++	ret = devm_add_action_or_reset(dev, ingenic_sdhci_iounmap,
++					 ingenic->cgu_base);
++	if (ret)
++		goto out_put;
++
++	ret = ingenic_sdhci_get_cgu_clock(dev, clkspec.np,
++					  X2000_CLK_EXCLK,
++					  &ingenic->ext_clk);
++	if (ret)
++		goto out_put;
++
++	ret = ingenic_sdhci_get_cgu_clock(dev, clkspec.np,
++					  X2000_CLK_MPLL,
++					  &ingenic->mpll_clk);
++
++out_put:
++	of_node_put(clkspec.np);
++
++	if (ret)
++		return dev_err_probe(dev, ret,
++				     "invalid X2000 MSC clock provider\n");
++
++	return 0;
++}
++
++static void ingenic_sdhci_update_cdr(struct ingenic_sdhci *ingenic,
++				     u32 mask, u32 value)
++{
++	u32 reg;
++
++	reg = readl(ingenic->cgu_base + ingenic->cdr);
++	reg &= ~mask;
++	reg |= value & mask;
++	writel(reg, ingenic->cgu_base + ingenic->cdr);
++}
++
++static int ingenic_sdhci_set_cgu_clock(struct sdhci_host *host,
++				       unsigned int clock)
++{
++	struct sdhci_pltfm_host *pltfm_host = sdhci_priv(host);
++	struct ingenic_sdhci *ingenic = sdhci_pltfm_priv(pltfm_host);
++	struct clk *parent;
++	u32 low_speed;
++	int enable_ret;
++	int ret;
++
++	parent = clock <= 400000 ? ingenic->ext_clk : ingenic->mpll_clk;
++	low_speed = clock <= 400000 ? X2000_MSC_LOW_SPEED : 0;
++
++	/*
++	 * MSC0/1 combine mux, divider and gate controls. The upstream
++	 * Ingenic CGU marks this mux as requiring the clock to be gated
++	 * while its parent changes.
++	 */
++	clk_disable_unprepare(pltfm_host->clk);
++
++	ret = clk_set_parent(pltfm_host->clk, parent);
++	if (!ret)
++		ret = clk_set_rate(pltfm_host->clk, clock);
++
++	if (!ret)
++		ingenic_sdhci_update_cdr(ingenic, X2000_MSC_LOW_SPEED,
++					 low_speed);
++
++	enable_ret = clk_prepare_enable(pltfm_host->clk);
++	if (enable_ret)
++		return enable_ret;
++
++	return ret;
++}
++
++static void ingenic_sdhci_set_clock(struct sdhci_host *host,
++				    unsigned int clock)
++{
++	struct sdhci_pltfm_host *pltfm_host = sdhci_priv(host);
++	struct ingenic_sdhci *ingenic = sdhci_pltfm_priv(pltfm_host);
++	unsigned int actual_clock;
++	unsigned int saved_max_clk;
++	int ret;
++
++	/*
++	 * Stop the card clock before changing the external MSC clock.
++	 */
++	sdhci_set_clock(host, 0);
++
++	if (!clock)
++		return;
++
++	ret = ingenic_sdhci_set_cgu_clock(host, clock);
++	if (ret) {
++		dev_err(mmc_dev(host->mmc),
++			"failed to set MSC clock to %u Hz: %d\n",
++			clock, ret);
++		return;
++	}
++
++	actual_clock = clk_get_rate(pltfm_host->clk);
++	if (!actual_clock) {
++		dev_err(mmc_dev(host->mmc),
++			"MSC clock has zero rate after programming\n");
++		return;
++	}
++
++	/*
++	 * CAPABILITIES describes the vendor's fixed 200 MHz SDHCI base
++	 * clock, while X2000 also changes the external CGU MSC clock.
++	 * Use the actual CGU rate as the base for this transition so the
++	 * generic SDHCI divider remains 1:1 rather than dividing twice.
++	 */
++	saved_max_clk = host->max_clk;
++	host->max_clk = actual_clock;
++	sdhci_set_clock(host, clock);
++	host->max_clk = saved_max_clk;
++
++	/*
++	 * The Ender-3 V3 KE does not request manual RX/TX phase selection.
++	 * Its HS200/SDR104 path uses automatic RX tuning.
++	 */
++	if (host->mmc->ios.timing == MMC_TIMING_MMC_HS200 ||
++	    host->mmc->ios.timing == MMC_TIMING_UHS_SDR104)
++		ingenic_sdhci_update_cdr(ingenic, X2000_MSC_RX_TUNING, 0);
++}
++
++#define BOUNDARY_OK(addr, len) \
++	((addr | (SZ_128M - 1)) == ((addr + len - 1) | (SZ_128M - 1)))
++
++static void ingenic_sdhci_adma_write_desc(struct sdhci_host *host,
++					  void **desc,
++					  dma_addr_t addr,
++					  int len,
++					  unsigned int cmd)
++{
++	int offset;
++	int first_len;
++
++	if (likely(!len || BOUNDARY_OK(addr, len))) {
++		sdhci_adma_write_desc(host, desc, addr, len, cmd);
++		return;
++	}
++
++	offset = addr & (SZ_128M - 1);
++	first_len = SZ_128M - offset;
++
++	sdhci_adma_write_desc(host, desc, addr, first_len, cmd);
++
++	addr += first_len;
++	len -= first_len;
++
++	sdhci_adma_write_desc(host, desc, addr, len, cmd);
++}
++
++static const struct sdhci_ops ingenic_sdhci_ops = {
++	.set_clock		= ingenic_sdhci_set_clock,
++	.set_bus_width		= sdhci_set_bus_width,
++	.reset			= sdhci_reset,
++	.set_uhs_signaling	= sdhci_set_uhs_signaling,
++	.adma_write_desc	= ingenic_sdhci_adma_write_desc,
++};
++
++static const struct sdhci_pltfm_data ingenic_sdhci_pdata = {
++	.ops = &ingenic_sdhci_ops,
++	.quirks = SDHCI_QUIRK_INVERTED_WRITE_PROTECT |
++		  SDHCI_QUIRK_NO_ENDATTR_IN_NOPDESC |
++		  SDHCI_QUIRK_NO_HISPD_BIT |
++		  SDHCI_QUIRK_32BIT_DMA_ADDR |
++		  SDHCI_QUIRK_32BIT_DMA_SIZE,
++};
++
++static int ingenic_sdhci_probe(struct platform_device *pdev)
++{
++	struct device *dev = &pdev->dev;
++	struct sdhci_pltfm_host *pltfm_host;
++	struct ingenic_sdhci *ingenic;
++	struct sdhci_host *host;
++	u32 extra;
++	int ret;
++
++	host = sdhci_pltfm_init(pdev, &ingenic_sdhci_pdata,
++				sizeof(*ingenic));
++	if (IS_ERR(host))
++		return PTR_ERR(host);
++
++	pltfm_host = sdhci_priv(host);
++	ingenic = sdhci_pltfm_priv(pltfm_host);
++
++	ret = ingenic_sdhci_map_cgu(dev, ingenic);
++	if (ret)
++		goto free_pltfm;
++
++	pltfm_host->clk = devm_clk_get_enabled(dev, "mmc");
++	if (IS_ERR(pltfm_host->clk)) {
++		ret = dev_err_probe(dev, PTR_ERR(pltfm_host->clk),
++				    "failed to get mmc clock\n");
++		goto free_pltfm;
++	}
++
++	sdhci_get_of_property(pdev);
++
++	ret = mmc_of_parse(host->mmc);
++	if (ret)
++		goto free_pltfm;
++
++	if (host->mmc->caps & MMC_CAP_NONREMOVABLE)
++		host->quirks |= SDHCI_QUIRK_BROKEN_CARD_DETECTION;
++
++	/* The X2000 SDHCI timeout clock is the 24 MHz TMCLK. */
++	host->timeout_clk = 24000;
++
++	/*
++	 * Preserve the X2000 vendor controller mode while using the upstream
++	 * capability-override API instead of its private MISSING_CAPS quirk.
++	 */
++	sdhci_enable_v4_mode(host);
++	__sdhci_read_caps(host, NULL, &x2000_sdhci_caps,
++			  &x2000_sdhci_caps1);
++
++	/*
++	 * One extra descriptor may be required whenever a transfer crosses a
++	 * 128 MiB DMA boundary. Reserve enough table entries for the full
++	 * 32-bit DMA address space.
++	 */
++	extra = DIV_ROUND_UP_ULL(dma_get_required_mask(dev), SZ_128M);
++	if (extra > SDHCI_MAX_SEGS)
++		extra = SDHCI_MAX_SEGS;
++	host->adma_table_cnt += extra;
++
++	ret = sdhci_add_host(host);
++	if (ret)
++		goto free_pltfm;
++
++	return 0;
++
++free_pltfm:
++	sdhci_pltfm_free(pdev);
++	return ret;
++}
++
++static const struct of_device_id ingenic_sdhci_of_match[] = {
++	{ .compatible = "ingenic,x2000-sdhci" },
++	{ }
++};
++MODULE_DEVICE_TABLE(of, ingenic_sdhci_of_match);
++
++static struct platform_driver ingenic_sdhci_driver = {
++	.driver = {
++		.name = "sdhci-ingenic",
++		.probe_type = PROBE_PREFER_ASYNCHRONOUS,
++		.of_match_table = ingenic_sdhci_of_match,
++		.pm = &sdhci_pltfm_pmops,
++	},
++	.probe = ingenic_sdhci_probe,
++	.remove_new = sdhci_pltfm_remove,
++};
++module_platform_driver(ingenic_sdhci_driver);
++
++MODULE_DESCRIPTION("Ingenic X2000 SDHCI controller driver");
++MODULE_LICENSE("GPL");

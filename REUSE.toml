@@ -66,6 +66,12 @@ SPDX-FileCopyrightText = "NOASSERTION"
 SPDX-License-Identifier = "GPL-2.0-only"
 
 [[annotations]]
+path = "patches/linux/**"
+precedence = "closest"
+SPDX-FileCopyrightText = "NOASSERTION"
+SPDX-License-Identifier = "GPL-2.0-only"
+
+[[annotations]]
 path = "research/patches/klipper/**"
 precedence = "closest"
 SPDX-FileCopyrightText = "NOASSERTION"

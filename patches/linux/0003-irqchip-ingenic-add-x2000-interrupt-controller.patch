@@ -1,0 +1,458 @@
+# SPDX-License-Identifier: GPL-2.0-only
+#
+# Clean-port patch for upstream Linux v6.6.18.
+# Upstream source: https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git
+# Upstream commit: d8a27ea2c98685cdaa5fa66c809c7069a4ff394b
+# Hardware-semantics reference: public Ingenic X2000 Linux SDK
+# https://github.com/Llixuma/ingenic-linux-kernel6.6-x2000-v1.0-20250221
+# Ingenic SDK commit: a98c2e1f22e4263ddd4153a4eca4db4dcfd2777b
+# OpenKE bounds-check reference:
+# https://github.com/coreflake1/NebulaOS-kernel
+# OpenKE commit: e123bb14fd8e3fd03a5550cf187a5a9f64faf281
+#
+# Add the minimal X2000 core interrupt controller required by the
+# Fre3nder clean port. Reuse the upstream MIPS CPU interrupt controller
+# and chain the 64-source X2000 core INTC through CPU interrupt input 2.
+# Retain bounded CPU-window DT parsing and the affinity support required
+# by the later SMP port; exclude vendor wake, PM and diagnostic surface.
+#
+diff --git a/Documentation/devicetree/bindings/interrupt-controller/ingenic,x2000-intc.yaml b/Documentation/devicetree/bindings/interrupt-controller/ingenic,x2000-intc.yaml
+new file mode 100644
+index 0000000000000000000000000000000000000000..bb3fa65e65510703535eb6732eb54a9d7a4b1faf
+--- /dev/null
++++ b/Documentation/devicetree/bindings/interrupt-controller/ingenic,x2000-intc.yaml
+@@ -0,0 +1,74 @@
++# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
++%YAML 1.2
++---
++$id: http://devicetree.org/schemas/interrupt-controller/ingenic,x2000-intc.yaml#
++$schema: http://devicetree.org/meta-schemas/core.yaml#
++
++title: Ingenic X2000 core interrupt controller
++
++maintainers:
++  - Paul Cercueil <paul@crapouillou.net>
++
++description: |
++  The X2000 core interrupt controller provides 64 interrupt sources in two
++  groups of 32. Each CPU has a private register window within the controller.
++  The controller is cascaded through MIPS CPU interrupt input 2.
++
++properties:
++  compatible:
++    const: ingenic,x2000-intc
++
++  reg:
++    maxItems: 1
++
++  interrupts:
++    maxItems: 1
++
++  interrupt-parent: true
++
++  interrupt-controller: true
++
++  "#interrupt-cells":
++    const: 1
++
++  ingenic,cpu-intc-map:
++    $ref: /schemas/types.yaml#/definitions/uint32-array
++    minItems: 4
++    maxItems: 4
++    description:
++      Two pairs containing the logical CPU number followed by that CPU's
++      register-window offset within the core interrupt controller resource.
++
++required:
++  - compatible
++  - reg
++  - interrupts
++  - interrupt-parent
++  - interrupt-controller
++  - "#interrupt-cells"
++  - ingenic,cpu-intc-map
++
++additionalProperties: false
++
++examples:
++  - |
++    cpuintc: interrupt-controller {
++      compatible = "mti,cpu-interrupt-controller";
++      #address-cells = <0>;
++      #interrupt-cells = <1>;
++      interrupt-controller;
++    };
++
++    core_intc: interrupt-controller@12300000 {
++      compatible = "ingenic,x2000-intc";
++      reg = <0x12300000 0x1000>;
++
++      interrupt-controller;
++      #interrupt-cells = <1>;
++
++      interrupt-parent = <&cpuintc>;
++      interrupts = <2>;
++
++      ingenic,cpu-intc-map = <0 0x000>,
++                             <1 0x100>;
++    };
+diff --git a/drivers/irqchip/Kconfig b/drivers/irqchip/Kconfig
+index f7149d0f3d45ca2358e220a5f229491d86271a7e..0501e3a3b5ab34529a1fc6a157ef9ef4d28501f3 100644
+--- a/drivers/irqchip/Kconfig
++++ b/drivers/irqchip/Kconfig
+@@ -332,6 +332,17 @@ config MIPS_GIC
+ 	select IRQ_DOMAIN_HIERARCHY
+ 	select MIPS_CM
+ 
++config INGENIC_X2000_IRQ
++	bool "Ingenic X2000 interrupt controller"
++	depends on MACH_X2000
++	default MACH_X2000
++	select IRQ_DOMAIN
++	help
++	  Support the 64-source per-CPU core interrupt controller found in
++	  Ingenic X2000 SoCs. The controller is chained through CPU interrupt
++	  input 2 and uses the generic MIPS CPU interrupt controller for CPU
++	  interrupt dispatch. Say Y when building for an Ingenic X2000 SoC.
++
+ config INGENIC_IRQ
+ 	bool
+ 	depends on MACH_INGENIC
+diff --git a/drivers/irqchip/Makefile b/drivers/irqchip/Makefile
+index ffd945fe71aa2ce7e97d1c7e86509886b2fecb23..e42c68e960263c80baf1fcdec9f951925516da73 100644
+--- a/drivers/irqchip/Makefile
++++ b/drivers/irqchip/Makefile
+@@ -71,6 +71,7 @@ obj-$(CONFIG_MIPS_GIC)			+= irq-mips-gic.o
+ obj-$(CONFIG_ARCH_MEDIATEK)		+= irq-mtk-sysirq.o irq-mtk-cirq.o
+ obj-$(CONFIG_ARCH_DIGICOLOR)		+= irq-digicolor.o
+ obj-$(CONFIG_ARCH_SA1100)		+= irq-sa11x0.o
++obj-$(CONFIG_INGENIC_X2000_IRQ)	+= irq-ingenic-x2000.o
+ obj-$(CONFIG_INGENIC_IRQ)		+= irq-ingenic.o
+ obj-$(CONFIG_INGENIC_TCU_IRQ)		+= irq-ingenic-tcu.o
+ obj-$(CONFIG_IMX_GPCV2)			+= irq-imx-gpcv2.o
+diff --git a/drivers/irqchip/irq-ingenic-x2000.c b/drivers/irqchip/irq-ingenic-x2000.c
+new file mode 100644
+index 0000000000000000000000000000000000000000..0a024c25a5b3f805a2ee0c476b5f0744b831aaf3
+--- /dev/null
++++ b/drivers/irqchip/irq-ingenic-x2000.c
+@@ -0,0 +1,292 @@
++// SPDX-License-Identifier: GPL-2.0-only
++/*
++ * Ingenic X2000 core interrupt controller
++ *
++ * Hardware semantics are based on the public Ingenic X2000 Linux SDK:
++ * https://github.com/Llixuma/ingenic-linux-kernel6.6-x2000-v1.0-20250221
++ * commit a98c2e1f22e4263ddd4153a4eca4db4dcfd2777b.
++ *
++ * The MIPS CPU interrupt domain and CP0 dispatch are provided by the
++ * upstream MIPS CPU interrupt controller.
++ */
++
++#include <linux/bitops.h>
++#include <linux/init.h>
++#include <linux/io.h>
++#include <linux/irq.h>
++#include <linux/irqchip.h>
++#include <linux/irqchip/chained_irq.h>
++#include <linux/irqdomain.h>
++#include <linux/of.h>
++#include <linux/of_address.h>
++#include <linux/of_irq.h>
++#include <linux/slab.h>
++#include <linux/smp.h>
++
++#include <dt-bindings/interrupt-controller/ingenic,x2000-irq.h>
++
++#define X2000_INTC_CPU_COUNT		2
++#define X2000_INTC_PART_STRIDE		0x20
++#define X2000_INTC_MASK		0x04
++#define X2000_INTC_SET_MASK		0x08
++#define X2000_INTC_CLEAR_MASK		0x0c
++#define X2000_INTC_PENDING		0x10
++#define X2000_INTC_CPU_WINDOW_SIZE	0x40
++
++struct x2000_intc {
++	void __iomem *base;
++	void __iomem *cpu_base[X2000_INTC_CPU_COUNT];
++	struct irq_domain *domain;
++	raw_spinlock_t lock;
++	u8 target_cpu[X2000_INTC_NR_IRQS];
++};
++
++static void x2000_intc_mask(struct irq_data *data)
++{
++	struct x2000_intc *intc = irq_data_get_irq_chip_data(data);
++	unsigned int hwirq = data->hwirq;
++	unsigned int group = hwirq / 32;
++	void __iomem *base;
++	unsigned long flags;
++	u32 bit = BIT(hwirq & 31);
++
++	raw_spin_lock_irqsave(&intc->lock, flags);
++	base = intc->cpu_base[intc->target_cpu[hwirq]];
++	writel(bit, base + group * X2000_INTC_PART_STRIDE +
++	       X2000_INTC_SET_MASK);
++	raw_spin_unlock_irqrestore(&intc->lock, flags);
++}
++
++static void x2000_intc_unmask(struct irq_data *data)
++{
++	struct x2000_intc *intc = irq_data_get_irq_chip_data(data);
++	unsigned int hwirq = data->hwirq;
++	unsigned int group = hwirq / 32;
++	void __iomem *base;
++	unsigned long flags;
++	u32 bit = BIT(hwirq & 31);
++
++	raw_spin_lock_irqsave(&intc->lock, flags);
++	base = intc->cpu_base[intc->target_cpu[hwirq]];
++	writel(bit, base + group * X2000_INTC_PART_STRIDE +
++	       X2000_INTC_CLEAR_MASK);
++	raw_spin_unlock_irqrestore(&intc->lock, flags);
++}
++
++#ifdef CONFIG_SMP
++static int x2000_intc_set_affinity(struct irq_data *data,
++				    const struct cpumask *dest,
++				    bool force)
++{
++	struct x2000_intc *intc = irq_data_get_irq_chip_data(data);
++	unsigned int hwirq = data->hwirq;
++	unsigned int group = hwirq / 32;
++	unsigned int old_cpu;
++	unsigned int cpu;
++	void __iomem *old_base;
++	void __iomem *new_base;
++	unsigned long flags;
++	u32 bit = BIT(hwirq & 31);
++	bool masked;
++
++	(void)force;
++
++	cpu = cpumask_any_and(dest, cpu_online_mask);
++	if (cpu >= X2000_INTC_CPU_COUNT || !intc->cpu_base[cpu])
++		return -EINVAL;
++
++	raw_spin_lock_irqsave(&intc->lock, flags);
++
++	old_cpu = intc->target_cpu[hwirq];
++	if (old_cpu == cpu) {
++		raw_spin_unlock_irqrestore(&intc->lock, flags);
++		return IRQ_SET_MASK_OK;
++	}
++
++	old_base = intc->cpu_base[old_cpu];
++	new_base = intc->cpu_base[cpu];
++
++	masked = readl(old_base + group * X2000_INTC_PART_STRIDE +
++		       X2000_INTC_MASK) & bit;
++
++	writel(bit, old_base + group * X2000_INTC_PART_STRIDE +
++	       X2000_INTC_SET_MASK);
++
++	if (masked)
++		writel(bit, new_base + group * X2000_INTC_PART_STRIDE +
++		       X2000_INTC_SET_MASK);
++	else
++		writel(bit, new_base + group * X2000_INTC_PART_STRIDE +
++		       X2000_INTC_CLEAR_MASK);
++
++	intc->target_cpu[hwirq] = cpu;
++
++	raw_spin_unlock_irqrestore(&intc->lock, flags);
++
++	return IRQ_SET_MASK_OK;
++}
++#endif
++
++static struct irq_chip x2000_intc_chip = {
++	.name = "X2000-INTC",
++	.irq_mask = x2000_intc_mask,
++	.irq_mask_ack = x2000_intc_mask,
++	.irq_unmask = x2000_intc_unmask,
++#ifdef CONFIG_SMP
++	.irq_set_affinity = x2000_intc_set_affinity,
++#endif
++};
++
++static int x2000_intc_domain_map(struct irq_domain *domain,
++				  unsigned int irq,
++				  irq_hw_number_t hwirq)
++{
++	if (hwirq >= X2000_INTC_NR_IRQS)
++		return -EINVAL;
++
++	irq_set_chip_data(irq, domain->host_data);
++	irq_set_chip_and_handler(irq, &x2000_intc_chip, handle_level_irq);
++
++	return 0;
++}
++
++static const struct irq_domain_ops x2000_intc_domain_ops = {
++	.map = x2000_intc_domain_map,
++	.xlate = irq_domain_xlate_onecell,
++};
++
++static void x2000_intc_handle_irq(struct irq_desc *desc)
++{
++	struct x2000_intc *intc = irq_desc_get_handler_data(desc);
++	struct irq_chip *chip = irq_desc_get_chip(desc);
++	unsigned int cpu = raw_smp_processor_id();
++	unsigned int group;
++	void __iomem *base;
++
++	chained_irq_enter(chip, desc);
++
++	if (cpu >= X2000_INTC_CPU_COUNT || !intc->cpu_base[cpu])
++		goto out;
++
++	base = intc->cpu_base[cpu];
++
++	for (group = 0; group < 2; group++) {
++		u32 pending;
++
++		pending = readl(base + group * X2000_INTC_PART_STRIDE +
++				X2000_INTC_PENDING);
++
++		while (pending) {
++			unsigned int bit = __ffs(pending);
++			unsigned int hwirq = group * 32 + bit;
++
++			generic_handle_domain_irq(intc->domain, hwirq);
++			pending &= ~BIT(bit);
++		}
++	}
++
++out:
++	chained_irq_exit(chip, desc);
++}
++
++static int __init x2000_intc_parse_cpu_map(struct x2000_intc *intc,
++					    struct device_node *node,
++					    resource_size_t size)
++{
++	int count;
++	unsigned int index;
++
++	count = of_property_count_u32_elems(node, "ingenic,cpu-intc-map");
++	if (count != X2000_INTC_CPU_COUNT * 2)
++		return -EINVAL;
++
++	for (index = 0; index < count; index += 2) {
++		u32 cpu;
++		u32 offset;
++
++		if (of_property_read_u32_index(node, "ingenic,cpu-intc-map",
++					       index, &cpu) ||
++		    of_property_read_u32_index(node, "ingenic,cpu-intc-map",
++					       index + 1, &offset))
++			return -EINVAL;
++
++		if (cpu >= X2000_INTC_CPU_COUNT || intc->cpu_base[cpu])
++			return -EINVAL;
++
++		if (size < X2000_INTC_CPU_WINDOW_SIZE ||
++		    offset > size - X2000_INTC_CPU_WINDOW_SIZE)
++			return -EINVAL;
++
++		intc->cpu_base[cpu] = intc->base + offset;
++	}
++
++	if (!intc->cpu_base[0] || !intc->cpu_base[1])
++		return -EINVAL;
++
++	return 0;
++}
++
++static int __init x2000_intc_init(struct device_node *node,
++				   struct device_node *parent)
++{
++	struct x2000_intc *intc;
++	struct resource resource;
++	unsigned int cpu;
++	unsigned int parent_irq;
++	int ret;
++
++	intc = kzalloc(sizeof(*intc), GFP_KERNEL);
++	if (!intc)
++		return -ENOMEM;
++
++	ret = of_address_to_resource(node, 0, &resource);
++	if (ret)
++		goto err_free;
++
++	intc->base = of_iomap(node, 0);
++	if (!intc->base) {
++		ret = -ENODEV;
++		goto err_free;
++	}
++
++	ret = x2000_intc_parse_cpu_map(intc, node, resource_size(&resource));
++	if (ret)
++		goto err_unmap;
++
++	raw_spin_lock_init(&intc->lock);
++
++	for (cpu = 0; cpu < X2000_INTC_CPU_COUNT; cpu++) {
++		writel(~0U, intc->cpu_base[cpu] + X2000_INTC_SET_MASK);
++		writel(~0U, intc->cpu_base[cpu] +
++		       X2000_INTC_PART_STRIDE + X2000_INTC_SET_MASK);
++	}
++
++	intc->domain = irq_domain_add_linear(node, X2000_INTC_NR_IRQS,
++					      &x2000_intc_domain_ops,
++					      intc);
++	if (!intc->domain) {
++		ret = -ENOMEM;
++		goto err_unmap;
++	}
++
++	parent_irq = irq_of_parse_and_map(node, 0);
++	if (!parent_irq) {
++		ret = -EINVAL;
++		goto err_domain;
++	}
++
++	irq_set_chained_handler_and_data(parent_irq,
++					 x2000_intc_handle_irq, intc);
++
++	return 0;
++
++err_domain:
++	irq_domain_remove(intc->domain);
++err_unmap:
++	iounmap(intc->base);
++err_free:
++	kfree(intc);
++
++	return ret;
++}
++IRQCHIP_DECLARE(x2000_intc, "ingenic,x2000-intc", x2000_intc_init);
+diff --git a/include/dt-bindings/interrupt-controller/ingenic,x2000-irq.h b/include/dt-bindings/interrupt-controller/ingenic,x2000-irq.h
+new file mode 100644
+index 0000000000000000000000000000000000000000..e09a1464db1ba36e75f0bead61fea00acd7b2f8e
+--- /dev/null
++++ b/include/dt-bindings/interrupt-controller/ingenic,x2000-irq.h
+@@ -0,0 +1,22 @@
++/* SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause) */
++#ifndef __DT_BINDINGS_INTERRUPT_CONTROLLER_INGENIC_X2000_IRQ_H__
++#define __DT_BINDINGS_INTERRUPT_CONTROLLER_INGENIC_X2000_IRQ_H__
++
++#define X2000_IRQ_OTG		1
++
++#define X2000_IRQ_GPIO4		13
++#define X2000_IRQ_GPIO3		14
++#define X2000_IRQ_GPIO2		15
++#define X2000_IRQ_GPIO1		16
++#define X2000_IRQ_GPIO0		17
++
++#define X2000_IRQ_MSC1		36
++#define X2000_IRQ_MSC0		37
++
++#define X2000_IRQ_UART1		46
++
++#define X2000_IRQ_I2C4		57
++
++#define X2000_INTC_NR_IRQS	64
++
++#endif

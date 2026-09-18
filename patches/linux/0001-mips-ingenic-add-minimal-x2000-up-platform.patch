@@ -1,0 +1,144 @@
+# SPDX-License-Identifier: GPL-2.0-only
+#
+# Clean-port patch for upstream Linux v6.6.18.
+# Upstream source: https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git
+# Upstream commit: d8a27ea2c98685cdaa5fa66c809c7069a4ff394b
+# Hardware-semantics reference: public Ingenic X2000 Linux SDK
+# https://github.com/Llixuma/ingenic-linux-kernel6.6-x2000-v1.0-20250221
+# Ingenic SDK commit: a98c2e1f22e4263ddd4153a4eca4db4dcfd2777b
+diff --git a/arch/mips/Makefile b/arch/mips/Makefile
+--- a/arch/mips/Makefile
++++ b/arch/mips/Makefile
+@@ -155,6 +155,7 @@ cflags-$(CONFIG_CPU_TX49XX)	+= -march=r4600 -Wa,--trap
+ cflags-$(CONFIG_CPU_MIPS32_R1)	+= -march=mips32 -Wa,--trap
+ cflags-$(CONFIG_CPU_MIPS32_R2)	+= -march=mips32r2 -Wa,--trap
+ cflags-$(CONFIG_CPU_MIPS32_R5)	+= -march=mips32r5 -Wa,--trap -modd-spreg
++cflags-$(CONFIG_MACH_X2000)	+= -mnan=legacy
+ cflags-$(CONFIG_CPU_MIPS32_R6)	+= -march=mips32r6 -Wa,--trap -modd-spreg
+ cflags-$(CONFIG_CPU_MIPS64_R1)	+= -march=mips64 -Wa,--trap
+ cflags-$(CONFIG_CPU_MIPS64_R2)	+= -march=mips64r2 -Wa,--trap
+diff --git a/arch/mips/generic/board-ingenic.c b/arch/mips/generic/board-ingenic.c
+--- a/arch/mips/generic/board-ingenic.c
++++ b/arch/mips/generic/board-ingenic.c
+@@ -65,6 +65,44 @@ static __init char *ingenic_get_system_type(unsigned long machtype)
+ #define JZ4750_CGU_CPCCR_ECS	BIT(30)
+ #define JZ4760_CGU_CPCCR_ECS	BIT(31)
+ 
++#define X2000_CPM_OPCR		0x24
++#define X2000_CPM_CLKGR1	0x28
++#define X2000_CPM_OPCR_ERCS	BIT(2)
++#define X2000_CPM_CLKGR1_TCU	BIT(8)
++#define X2000_TCU_BASE		0x10002000
++#define X2000_TCU_TSCR		0x3c
++#define X2000_TCU_TSCR_WDT	BIT(16)
++#define X2000_WDT_TDR		0x00
++#define X2000_WDT_TCER		0x04
++#define X2000_WDT_TCNT		0x08
++#define X2000_WDT_TCSR		0x0c
++#define X2000_WDT_TDR_4MS	2
++#define X2000_WDT_TCER_TCEN	BIT(0)
++#define X2000_WDT_TCSR_RTC_EN	BIT(1)
++#define X2000_WDT_TCSR_PRESCALE_64	(3 << 3)
++#define X2000_WDT_TCSR_CNT_CLRZ	BIT(10)
++
++static void __noreturn x2000_restart(char *command)
++{
++	void __iomem *cpm = (void __iomem *)CKSEG1ADDR(INGENIC_CGU_BASE);
++	void __iomem *tcu = (void __iomem *)CKSEG1ADDR(X2000_TCU_BASE);
++
++	writel(readl(cpm + X2000_CPM_OPCR) & ~X2000_CPM_OPCR_ERCS,
++	       cpm + X2000_CPM_OPCR);
++	writel(readl(cpm + X2000_CPM_CLKGR1) & ~X2000_CPM_CLKGR1_TCU,
++	       cpm + X2000_CPM_CLKGR1);
++	writel(X2000_TCU_TSCR_WDT, tcu + X2000_TCU_TSCR);
++	writel(0, tcu + X2000_WDT_TCER);
++	writel(0, tcu + X2000_WDT_TCNT);
++	writel(X2000_WDT_TDR_4MS, tcu + X2000_WDT_TDR);
++	writel(X2000_WDT_TCSR_CNT_CLRZ | X2000_WDT_TCSR_PRESCALE_64 |
++	       X2000_WDT_TCSR_RTC_EN, tcu + X2000_WDT_TCSR);
++	writel(X2000_WDT_TCER_TCEN, tcu + X2000_WDT_TCER);
++
++	for (;;)
++		cpu_relax();
++}
++
+ static __init void ingenic_force_12M_ext(const void *fdt, unsigned int mask)
+ {
+ 	const __be32 *prop;
+@@ -126,6 +164,9 @@ static __init const void *ingenic_fixup_fdt(const void *fdt, const void *match_d
+ 	case MACH_INGENIC_JZ4760:
+ 		ingenic_force_12M_ext(fdt, JZ4760_CGU_CPCCR_ECS);
+ 		break;
++	case MACH_INGENIC_X2000:
++		_machine_restart = x2000_restart;
++		break;
+ 	default:
+ 		break;
+ 	}
+diff --git a/arch/mips/ingenic/Kconfig b/arch/mips/ingenic/Kconfig
+--- a/arch/mips/ingenic/Kconfig
++++ b/arch/mips/ingenic/Kconfig
+@@ -9,6 +9,7 @@ config MACH_INGENIC_GENERIC
+ 	select MACH_JZ4780
+ 	select MACH_X1000
+ 	select MACH_X1830
++	select MACH_X2000
+ 
+ choice
+ 	prompt "Machine type"
+@@ -76,3 +77,13 @@ config MACH_X1830
+ 	select MIPS_CPU_SCACHE
+ 	select SYS_HAS_CPU_MIPS32_R2
+ 	select SYS_SUPPORTS_HIGHMEM
++
++config MACH_X2000
++	bool
++	select MIPS_CPU_SCACHE
++	select SYS_HAS_CPU_MIPS32_R1
++	select SYS_HAS_CPU_MIPS32_R2
++	select SYS_HAS_CPU_MIPS32_R5
++	select SYS_SUPPORTS_HIGHMEM
++	select WEAK_ORDERING
++	select WEAK_REORDERING_BEYOND_LLSC
+diff --git a/arch/mips/mm/c-r4k.c b/arch/mips/mm/c-r4k.c
+--- a/arch/mips/mm/c-r4k.c
++++ b/arch/mips/mm/c-r4k.c
+@@ -848,4 +848,16 @@ static void r4k_dma_cache_inv(unsigned long addr, unsigned long size)
+ 		R4600_HIT_CACHEOP_WAR_IMPL;
++		if (IS_ENABLED(CONFIG_MACH_X2000) &&
++		    (current_cpu_data.processor_id & PRID_IMP_MASK) ==
++		    PRID_IMP_XBURST2) {
++			unsigned long lsize = cpu_dcache_line_size();
++			unsigned long almask = ~(lsize - 1);
++
++			if (addr & (lsize - 1))
++				cache_op(Hit_Writeback_Inv_D, addr & almask);
++			if ((addr + size) & (lsize - 1))
++				cache_op(Hit_Writeback_Inv_D,
++					 (addr + size - 1) & almask);
++		}
+ 		blast_inv_dcache_range(addr, addr + size);
+ 	}
+ 	preempt_enable();
+diff --git a/arch/mips/mm/sc-mips.c b/arch/mips/mm/sc-mips.c
+--- a/arch/mips/mm/sc-mips.c
++++ b/arch/mips/mm/sc-mips.c
+@@ -7,6 +7,7 @@
+ #include <linux/sched.h>
+ #include <linux/mm.h>
+ 
++#include <asm/cpu.h>
+ #include <asm/cpu-type.h>
+ #include <asm/mipsregs.h>
+ #include <asm/bcache.h>
+@@ -216,7 +217,9 @@ static inline int mips_sc_probe(void)
+ 		return 0;
+ 
+ 	tmp = (config2 >> 0) & 0x0f;
+-	if (tmp <= 7)
++	if (tmp <= 7 ||
++	    (IS_ENABLED(CONFIG_MACH_X2000) && tmp == 15 &&
++	     (c->processor_id & PRID_IMP_MASK) == PRID_IMP_XBURST2))
+ 		c->scache.ways = tmp + 1;
+ 	else
+ 		return 0;

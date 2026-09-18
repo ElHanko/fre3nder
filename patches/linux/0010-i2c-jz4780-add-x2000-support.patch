@@ -1,0 +1,54 @@
+diff --git a/Documentation/devicetree/bindings/i2c/ingenic,i2c.yaml b/Documentation/devicetree/bindings/i2c/ingenic,i2c.yaml
+index b61fdc954..012229b08 100644
+--- a/Documentation/devicetree/bindings/i2c/ingenic,i2c.yaml
++++ b/Documentation/devicetree/bindings/i2c/ingenic,i2c.yaml
+@@ -11,6 +11,15 @@ maintainers:
+ 
+ allOf:
+   - $ref: /schemas/i2c/i2c-controller.yaml#
++  - if:
++      properties:
++        compatible:
++          contains:
++            const: ingenic,x2000-i2c
++    else:
++      required:
++        - dmas
++        - dma-names
+ 
+ properties:
+   $nodename:
+@@ -21,6 +30,7 @@ properties:
+       - enum:
+           - ingenic,jz4770-i2c
+           - ingenic,x1000-i2c
++          - ingenic,x2000-i2c
+       - items:
+           - const: ingenic,jz4780-i2c
+           - const: ingenic,jz4770-i2c
+@@ -53,8 +63,6 @@ required:
+   - interrupts
+   - clocks
+   - clock-frequency
+-  - dmas
+-  - dma-names
+ 
+ unevaluatedProperties: false
+ 
+diff --git a/drivers/i2c/busses/i2c-jz4780.c b/drivers/i2c/busses/i2c-jz4780.c
+index 55035cca0..9a1c3a711 100644
+--- a/drivers/i2c/busses/i2c-jz4780.c
++++ b/drivers/i2c/busses/i2c-jz4780.c
+@@ -754,6 +754,12 @@ static const struct of_device_id jz4780_i2c_of_matches[] = {
+ 	{ .compatible = "ingenic,jz4770-i2c", .data = &jz4780_i2c_config },
+ 	{ .compatible = "ingenic,jz4780-i2c", .data = &jz4780_i2c_config },
+ 	{ .compatible = "ingenic,x1000-i2c", .data = &x1000_i2c_config },
++	/*
++	 * X2000 uses the X1000 register layout, STOP semantics and
++	 * 64-byte FIFO. The public X2000 Linux SDK carries this driver
++	 * unchanged and describes the controller as ingenic,x2000-i2c.
++	 */
++	{ .compatible = "ingenic,x2000-i2c", .data = &x1000_i2c_config },
+ 	{ /* sentinel */ }
+ };
+ MODULE_DEVICE_TABLE(of, jz4780_i2c_of_matches);

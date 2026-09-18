@@ -1,0 +1,138 @@
+#!/bin/sh
+set -eu
+
+root=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+
+python3 - "$root" <<'PY'
+import hashlib
+import json
+import pathlib
+import re
+import shutil
+import sys
+import tempfile
+
+
+class ContractError(Exception):
+    pass
+
+
+root = pathlib.Path(sys.argv[1])
+sources_path = root / "configs/x2000/sources.json"
+series_path = root / "configs/x2000/kernel-patches.series"
+patch_directory = pathlib.PurePosixPath("patches/linux")
+
+
+def require(condition, message):
+    if not condition:
+        raise ContractError(message)
+
+
+def validate_series(repository_root, manifest_text):
+    require(manifest_text.endswith("\n"), "patch series must end with a newline")
+    require("research/patches/linux/" not in manifest_text,
+            "production patch series must not reference the research patch location")
+    lines = manifest_text.splitlines()
+    require(len(lines) == 14, "patch series must contain exactly 14 entries")
+    require(all(lines), "patch series must not contain empty lines")
+
+    entries = []
+    pattern = re.compile(
+        r"([0-9a-f]{64})  "
+        r"(patches/linux/([0-9]{4})-[a-z0-9-]+\.patch)"
+    )
+    for index, line in enumerate(lines, start=1):
+        match = pattern.fullmatch(line)
+        require(match is not None, f"malformed patch series entry: {line!r}")
+        digest, path_text, number = match.groups()
+        require(number == f"{index:04d}", "patch series order must be P01 through P14")
+        relative = pathlib.PurePosixPath(path_text)
+        require(not relative.is_absolute(), "patch path must be repository-relative")
+        require(".." not in relative.parts, "patch path must not escape the repository")
+        entries.append((digest, relative))
+
+    paths = [path for _, path in entries]
+    require(len(set(paths)) == len(paths), "patch series must not contain duplicates")
+
+    patch_root = repository_root.joinpath(*patch_directory.parts)
+    require(patch_root.is_dir(), "patch directory is missing")
+    available = {
+        patch_directory / candidate.name
+        for candidate in patch_root.iterdir()
+        if candidate.name.endswith(".patch")
+    }
+    require(set(paths) == available, "patch series must exactly allowlist the patch directory")
+
+    for expected_digest, relative in entries:
+        patch = repository_root.joinpath(*relative.parts)
+        require(patch.is_file() and not patch.is_symlink(),
+                f"patch is not a regular file: {relative}")
+        actual_digest = hashlib.sha256(patch.read_bytes()).hexdigest()
+        require(actual_digest == expected_digest, f"patch SHA256 mismatch: {relative}")
+
+
+sources = json.loads(sources_path.read_text(encoding="utf-8"))
+require(sources.get("schema") == 1, "unexpected sources manifest schema")
+require(sources.get("sdk", {}).get("production_active") is True,
+        "legacy SDK production source must remain active during Phase 1")
+require(sources.get("clean_port_kernel_source") == {
+    "name": "upstream Linux stable",
+    "role": "prepared future production kernel source",
+    "url": "https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git",
+    "version": "v6.6.18",
+    "commit": "d8a27ea2c98685cdaa5fa66c809c7069a4ff394b",
+    "patch_series": "configs/x2000/kernel-patches.series",
+    "production_active": False,
+}, "clean-port kernel source contract mismatch")
+
+series_text = series_path.read_text(encoding="utf-8")
+validate_series(root, series_text)
+
+
+def expect_failure(repository_root, manifest_text, description):
+    try:
+        validate_series(repository_root, manifest_text)
+    except ContractError:
+        return
+    raise ContractError(f"negative fixture unexpectedly passed: {description}")
+
+
+lines = series_text.splitlines()
+with tempfile.TemporaryDirectory() as temporary:
+    fixture_root = pathlib.Path(temporary)
+    fixture_patch_root = fixture_root.joinpath(*patch_directory.parts)
+    shutil.copytree(root.joinpath(*patch_directory.parts), fixture_patch_root)
+
+    wrong_order = lines.copy()
+    wrong_order[0], wrong_order[1] = wrong_order[1], wrong_order[0]
+    expect_failure(fixture_root, "\n".join(wrong_order) + "\n", "wrong order")
+
+    wrong_hash = lines.copy()
+    wrong_hash[0] = "0" * 64 + wrong_hash[0][64:]
+    expect_failure(fixture_root, "\n".join(wrong_hash) + "\n", "wrong hash")
+
+    missing_patch = fixture_patch_root / pathlib.PurePosixPath(lines[-1].split("  ", 1)[1]).name
+    missing_patch.unlink()
+    expect_failure(fixture_root, series_text, "missing patch")
+    shutil.copy2(root / lines[-1].split("  ", 1)[1], missing_patch)
+
+    additional_patch = fixture_patch_root / "0015-unlisted.patch"
+    additional_patch.write_text("unlisted\n", encoding="utf-8")
+    expect_failure(fixture_root, series_text, "additional patch")
+    additional_patch.unlink()
+
+    malformed = lines.copy()
+    malformed[0] = malformed[0].replace("  ", " ", 1)
+    expect_failure(fixture_root, "\n".join(malformed) + "\n", "malformed entry")
+
+    duplicate = lines.copy()
+    duplicate[-1] = duplicate[-2]
+    expect_failure(fixture_root, "\n".join(duplicate) + "\n", "duplicate entry")
+
+    symlink = fixture_patch_root / pathlib.PurePosixPath(lines[-1].split("  ", 1)[1]).name
+    symlink.unlink()
+    symlink.symlink_to(pathlib.PurePosixPath(lines[0].split("  ", 1)[1]).name)
+    expect_failure(fixture_root, series_text, "non-regular patch")
+
+print("fre3nder-x2000 kernel integration contracts: PASS")
+PY

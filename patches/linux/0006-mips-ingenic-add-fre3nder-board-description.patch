@@ -1,0 +1,295 @@
+diff --git a/Documentation/devicetree/bindings/mips/ingenic/devices.yaml b/Documentation/devicetree/bindings/mips/ingenic/devices.yaml
+index f2e822afe..8677a3b33 100644
+--- a/Documentation/devicetree/bindings/mips/ingenic/devices.yaml
++++ b/Documentation/devicetree/bindings/mips/ingenic/devices.yaml
+@@ -53,6 +53,11 @@ properties:
+           - const: yna,cu2000-neo
+           - const: ingenic,x2000e
+ 
++      - description: Creality Ender-3 V3 KE
++        items:
++          - const: creality,ender-3-v3-ke
++          - const: ingenic,x2000
++
+ additionalProperties: true
+ 
+ ...
+diff --git a/arch/mips/boot/dts/ingenic/Makefile b/arch/mips/boot/dts/ingenic/Makefile
+index 54aa0c4e6..d380d98de 100644
+--- a/arch/mips/boot/dts/ingenic/Makefile
++++ b/arch/mips/boot/dts/ingenic/Makefile
+@@ -5,5 +5,6 @@ dtb-$(CONFIG_JZ4770_GCW0)	+= gcw0.dtb
+ dtb-$(CONFIG_JZ4780_CI20)	+= ci20.dtb
+ dtb-$(CONFIG_X1000_CU1000_NEO)	+= cu1000-neo.dtb
+ dtb-$(CONFIG_X1830_CU1830_NEO)	+= cu1830-neo.dtb
++dtb-$(CONFIG_DT_ENDER3_V3_KE)	+= ender3-v3-ke.dtb
+ 
+ obj-$(CONFIG_BUILTIN_DTB)	+= $(addsuffix .o, $(dtb-y))
+diff --git a/arch/mips/boot/dts/ingenic/ender3-v3-ke.dts b/arch/mips/boot/dts/ingenic/ender3-v3-ke.dts
+new file mode 100644
+index 000000000..fb0b89c65
+--- /dev/null
++++ b/arch/mips/boot/dts/ingenic/ender3-v3-ke.dts
+@@ -0,0 +1,242 @@
++// SPDX-License-Identifier: GPL-2.0
++/dts-v1/;
++
++#include <dt-bindings/gpio/gpio.h>
++
++#include "x2000.dtsi"
++
++/ {
++	compatible = "creality,ender-3-v3-ke", "ingenic,x2000";
++	model = "Creality Ender-3 V3 KE";
++
++	aliases {
++		mmc0 = &msc0;
++		mmc1 = &msc1;
++		serial1 = &uart1;
++		spi2 = &adxl_spi;
++	};
++
++	chosen {
++		bootargs = "root=/dev/mmcblk0p8 rootwait rootfstype=squashfs ro";
++	};
++
++	memory@0 {
++		device_type = "memory";
++		reg = <0x0 0x10000000>;
++	};
++
++	backlight {
++		compatible = "gpio-backlight";
++		gpios = <&gpc 22 GPIO_ACTIVE_HIGH>;
++	};
++
++	beeper {
++		compatible = "pwm-beeper";
++		pwms = <&pwm 3 1000000 0>;
++
++		pinctrl-names = "default";
++		pinctrl-0 = <&pins_pwm3>;
++	};
++
++	fre3nder_panel: panel {
++		compatible = "fre3nder,ender3-v3-ke-480x272";
++
++		/*
++		 * The qualified vendor-derived driver pulses PB16 low then high.
++		 * The clean descriptor binding therefore models reset as
++		 * active-low.
++		 */
++		reset-gpios = <&gpb 16 GPIO_ACTIVE_LOW>;
++	};
++
++	/*
++	 * X2000/E data-sheet rail USB_AVD33. The existing board integration
++	 * exposes no independent enable GPIO for this PHY supply, so model it
++	 * as an always-present rail. GPC9 below controls USB VBUS separately.
++	 */
++	usb_phy_vcc: regulator-usb-phy-vcc {
++		compatible = "regulator-fixed";
++		regulator-name = "usb_phy_vcc";
++		regulator-min-microvolt = <3300000>;
++		regulator-max-microvolt = <3300000>;
++		regulator-always-on;
++		regulator-boot-on;
++	};
++
++	usb_vbus: regulator-usb-vbus {
++		compatible = "regulator-fixed";
++		regulator-name = "usb_vbus";
++		regulator-min-microvolt = <5000000>;
++		regulator-max-microvolt = <5000000>;
++		gpio = <&gpc 9 GPIO_ACTIVE_HIGH>;
++		enable-active-high;
++	};
++
++	wifi_bt_power: regulator-wifi-bt {
++		compatible = "regulator-fixed";
++		regulator-name = "wifi_bt_power";
++		regulator-min-microvolt = <3300000>;
++		regulator-max-microvolt = <3300000>;
++		gpio = <&gpa 1 GPIO_ACTIVE_LOW>;
++		regulator-always-on;
++		regulator-boot-on;
++	};
++
++	wlan_pwrseq: mmc-pwrseq {
++		compatible = "mmc-pwrseq-simple";
++		reset-gpios = <&gpd 4 GPIO_ACTIVE_LOW>;
++	};
++
++	/*
++	 * Onboard ADXL345 wiring and polarities are qualified by the existing
++	 * Fre3nder/OpenKE integration. The compatible below is the v6.6.18
++	 * spidev allow-list token, not the fitted chip identity.
++	 */
++	adxl_spi: spi-gpio-adxl345 {
++		compatible = "spi-gpio";
++		#address-cells = <1>;
++		#size-cells = <0>;
++
++		sck-gpios = <&gpe 16 GPIO_ACTIVE_HIGH>;
++		mosi-gpios = <&gpe 17 GPIO_ACTIVE_HIGH>;
++		miso-gpios = <&gpe 18 GPIO_ACTIVE_HIGH>;
++		cs-gpios = <&gpe 21 GPIO_ACTIVE_LOW>;
++		num-chipselects = <1>;
++
++		spidev@0 {
++			compatible = "rohm,dh2228fv";
++			reg = <0>;
++			spi-max-frequency = <2000000>;
++		};
++	};
++};
++
++&exclk {
++	clock-frequency = <24000000>;
++};
++
++&pinctrl {
++	pins_uart1: uart1 {
++		function = "uart1";
++		groups = "uart1-data";
++		bias-pull-up;
++	};
++
++	pins_msc0: msc0 {
++		function = "mmc0";
++		groups = "mmc0-1bit", "mmc0-4bit", "mmc0-8bit";
++		bias-disable;
++	};
++
++	pins_msc1: msc1 {
++		function = "mmc1";
++		groups = "mmc1-1bit", "mmc1-4bit";
++		bias-disable;
++	};
++
++	pins_rtc32k: rtc32k {
++		function = "rtc32k";
++		groups = "rtc32k";
++		bias-disable;
++	};
++
++	pins_i2c4: i2c4 {
++		function = "i2c4";
++		groups = "i2c4-data-c";
++		bias-pull-up;
++	};
++
++	pins_pwm3: pwm3 {
++		function = "pwm3";
++		groups = "pwm3-c";
++		bias-disable;
++	};
++
++	pins_lcd: lcd {
++		function = "lcd";
++		groups = "lcd-tft-8bit", "lcd-tft-16bit";
++		bias-disable;
++	};
++};
++
++&uart1 {
++	status = "okay";
++
++	pinctrl-names = "default";
++	pinctrl-0 = <&pins_uart1>;
++};
++
++&msc0 {
++	status = "okay";
++
++	pinctrl-names = "default";
++	pinctrl-0 = <&pins_msc0>;
++
++	bus-width = <8>;
++	max-frequency = <100000000>;
++	non-removable;
++
++	cap-mmc-highspeed;
++	mmc-hs200-1_8v;
++	voltage-ranges = <1800 3300>;
++};
++
++&msc1 {
++	status = "okay";
++
++	pinctrl-names = "default";
++	pinctrl-0 = <&pins_msc1 &pins_rtc32k>;
++
++	bus-width = <4>;
++	max-frequency = <100000000>;
++	non-removable;
++
++	cap-sd-highspeed;
++	voltage-ranges = <1800 3300>;
++
++	vmmc-supply = <&wifi_bt_power>;
++	mmc-pwrseq = <&wlan_pwrseq>;
++
++	/*
++	 * mmc_pwrseq_pre_power_on() asserts GPD4 low. The MMC-host delay
++	 * runs before mmc_pwrseq_post_power_on() deasserts it, preserving
++	 * the qualified >=100 ms asserted interval.
++	 */
++	post-power-on-delay-ms = <100>;
++};
++
++&otg_phy {
++	vcc-supply = <&usb_phy_vcc>;
++	status = "okay";
++};
++
++&otg {
++	dr_mode = "host";
++	vbus-supply = <&usb_vbus>;
++	status = "okay";
++};
++
++&i2c4 {
++	status = "okay";
++	clock-frequency = <100000>;
++
++	pinctrl-names = "default";
++	pinctrl-0 = <&pins_i2c4>;
++
++	touchscreen@48 {
++		compatible = "nsiway,ns2009";
++		reg = <0x48>;
++		pendown-gpios = <&gpc 15 GPIO_ACTIVE_LOW>;
++	};
++};
++
++&pwm {
++	status = "okay";
++};
++
++&dpu {
++	status = "okay";
++
++	pinctrl-names = "default";
++	pinctrl-0 = <&pins_lcd>;
++};
+diff --git a/arch/mips/ingenic/Kconfig b/arch/mips/ingenic/Kconfig
+index 5eaf8bc71..011e37ea0 100644
+--- a/arch/mips/ingenic/Kconfig
++++ b/arch/mips/ingenic/Kconfig
+@@ -44,6 +44,15 @@ config X1830_CU1830_NEO
+ 	bool "YSH & ATIL CU1830 Module with Neo backplane"
+ 	select MACH_X1830
+ 
++config DT_ENDER3_V3_KE
++	bool "Creality Ender-3 V3 KE"
++	select MACH_X2000
++	help
++	  Select this option to build the device tree for the Creality
++	  Ender-3 V3 KE control board based on the Ingenic X2000 SoC.
++	  The board description provides the fixed hardware wiring used by
++	  the printer, including storage, USB, display and peripheral buses.
++
+ endchoice
+ 
+ config MACH_JZ4725B

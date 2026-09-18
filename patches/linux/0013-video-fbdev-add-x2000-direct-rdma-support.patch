@@ -1,0 +1,984 @@
+diff --git a/Documentation/devicetree/bindings/display/ingenic,x2000-dpu.yaml b/Documentation/devicetree/bindings/display/ingenic,x2000-dpu.yaml
+new file mode 100644
+index 0000000000000000000000000000000000000000..a2b8ee13af85099227b87590da76100e7de9f196
+--- /dev/null
++++ b/Documentation/devicetree/bindings/display/ingenic,x2000-dpu.yaml
+@@ -0,0 +1,47 @@
++# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
++%YAML 1.2
++---
++$id: http://devicetree.org/schemas/display/ingenic,x2000-dpu.yaml#
++$schema: http://devicetree.org/meta-schemas/core.yaml#
++
++title: Ingenic X2000 Display Processing Unit
++
++maintainers:
++  - Paul Cercueil <paul@crapouillou.net>
++
++description:
++  The X2000 DPU contains a direct-RDMA scanout path used to feed the
++  parallel TFT output. This binding describes the controller resources;
++  panel-specific timing and reset handling are provided separately.
++
++properties:
++  compatible:
++    const: ingenic,x2000-dpu
++
++  reg:
++    maxItems: 1
++
++  clocks:
++    maxItems: 1
++
++  clock-names:
++    const: lcd
++
++required:
++  - compatible
++  - reg
++  - clocks
++  - clock-names
++
++additionalProperties: false
++
++examples:
++  - |
++    #include <dt-bindings/clock/ingenic,x2000-cgu.h>
++
++    display-controller@13050000 {
++      compatible = "ingenic,x2000-dpu";
++      reg = <0x13050000 0x10000>;
++      clocks = <&cgu X2000_CLK_LCD>;
++      clock-names = "lcd";
++    };
+diff --git a/drivers/video/fbdev/Kconfig b/drivers/video/fbdev/Kconfig
+index c29754b65c0ec923387cfb8c1b7e0f47557d33cd..bccfbd20d2d7ec8b6ec40fc7ab0d1fb7270c62c3 100644
+--- a/drivers/video/fbdev/Kconfig
++++ b/drivers/video/fbdev/Kconfig
+@@ -1739,6 +1739,23 @@ config FB_PS3_DEFAULT_SIZE_M
+ 	  The default value can be overridden on the kernel command line
+ 	  using the "ps3fb" option (e.g. "ps3fb=9M");
+ 
++config FB_X2000_DPU
++	tristate "Ingenic X2000 direct-RDMA framebuffer"
++	depends on FB
++	depends on MACH_X2000 || COMPILE_TEST
++	depends on COMMON_CLK && HAS_IOMEM && OF
++	select FB_CFB_FILLRECT
++	select FB_CFB_COPYAREA
++	select FB_CFB_IMAGEBLIT
++	help
++	  Minimal framebuffer driver for the direct-RDMA display path in
++	  Ingenic X2000 SoCs. It exposes one coherent 32-bpp framebuffer
++	  through the standard fbdev API and drives a parallel RGB565 TFT
++	  output without the vendor composer, DMMU or interrupt paths.
++
++	  To compile this driver as a module, choose M here: the module
++	  will be called x2000-dpu-fb.
++
+ config FB_XILINX
+ 	tristate "Xilinx frame buffer support"
+ 	depends on FB && (MICROBLAZE || ARCH_ZYNQ || ARCH_ZYNQMP)
+diff --git a/drivers/video/fbdev/Makefile b/drivers/video/fbdev/Makefile
+index 70569f7027ed7b2110c51b1d01f21858a51ee3ce..9167696787fc2f22430acbf40371966d0a30ad73 100644
+--- a/drivers/video/fbdev/Makefile
++++ b/drivers/video/fbdev/Makefile
+@@ -105,6 +105,7 @@ obj-$(CONFIG_FB_PS3)		  += ps3fb.o
+ obj-$(CONFIG_FB_SM501)            += sm501fb.o
+ obj-$(CONFIG_FB_UDL)		  += udlfb.o
+ obj-$(CONFIG_FB_SMSCUFX)	  += smscufx.o
++obj-$(CONFIG_FB_X2000_DPU)       += x2000-dpu-fb.o
+ obj-$(CONFIG_FB_XILINX)           += xilinxfb.o
+ obj-$(CONFIG_FB_SH_MOBILE_LCDC)	  += sh_mobile_lcdcfb.o
+ obj-y				  += omap/
+diff --git a/drivers/video/fbdev/x2000-dpu-fb.c b/drivers/video/fbdev/x2000-dpu-fb.c
+new file mode 100644
+index 0000000000000000000000000000000000000000..ba527b047e930ce5779ed2268ceb19c27db6de94
+--- /dev/null
++++ b/drivers/video/fbdev/x2000-dpu-fb.c
+@@ -0,0 +1,844 @@
++// SPDX-License-Identifier: GPL-2.0-only
++/*
++ * Minimal Ingenic X2000 direct-RDMA framebuffer
++ *
++ * DPU register and direct-RDMA descriptor semantics are derived from
++ * Ingenic's public X2000 Linux SDK at commit
++ * a98c2e1f22e4263ddd4153a4eca4db4dcfd2777b.
++ */
++
++#include <linux/bitops.h>
++#include <linux/build_bug.h>
++#include <linux/clk.h>
++#include <linux/dma-mapping.h>
++#include <linux/fb.h>
++#include <linux/iopoll.h>
++#include <linux/math64.h>
++#include <linux/module.h>
++#include <linux/mutex.h>
++#include <linux/of.h>
++#include <linux/platform_device.h>
++
++#include "x2000-dpu-fb.h"
++
++/*
++ * The hardware descriptors contain 32-bit DMA addresses. Restrict both
++ * coherent allocations accordingly instead of truncating dma_addr_t.
++ */
++#define X2000_DPU_DMA_BITS		32
++
++#define X2000_DPU_BPP			32
++#define X2000_DPU_BYTES_PER_PIXEL	4
++
++/* Direct-RDMA registers. */
++#define X2000_DC_RDMA_CHAIN_ADDR		0x1000
++#define X2000_DC_RDMA_CHAIN_CTRL		0x1004
++
++#define X2000_DC_CTRL			0x2000
++#define X2000_DC_ST			0x2004
++#define X2000_DC_CLR_ST			0x2008
++#define X2000_DC_INTC			0x200c
++#define X2000_DC_COM_CONFIG		0x2014
++
++#define X2000_DC_DISP_COM		0x8000
++
++#define X2000_DC_TFT_HSYNC		0x9000
++#define X2000_DC_TFT_VSYNC		0x9004
++#define X2000_DC_TFT_HDE		0x9008
++#define X2000_DC_TFT_VDE		0x900c
++#define X2000_DC_TFT_CFG		0x9010
++
++#define X2000_DC_RDMA_START		BIT(0)
++
++#define X2000_DC_QCK_STP_RDMA		BIT(1)
++#define X2000_DC_SRD_WORKING		BIT(3)
++
++#define X2000_DC_OUT_SEL_MASK		GENMASK(1, 0)
++#define X2000_DC_OUT_SEL_RDMA		BIT(1)
++
++#define X2000_DC_BURST_RDMA_MASK	GENMASK(5, 4)
++#define X2000_DC_BURST_RDMA_16		(2 << 4)
++
++#define X2000_DC_DISP_IF_MASK		GENMASK(2, 0)
++#define X2000_DC_DISP_TFT		1
++
++#define X2000_DC_DITHER_ENABLE		BIT(4)
++
++#define X2000_DC_TFT_MODE_MASK		GENMASK(2, 0)
++#define X2000_DC_TFT_PARALLEL_565	2
++
++#define X2000_DC_COLOR_ODD_MASK		GENMASK(18, 16)
++#define X2000_DC_COLOR_EVEN_MASK	GENMASK(21, 19)
++
++#define X2000_DC_VSYNC_LOW		BIT(7)
++#define X2000_DC_SYNC_LOW		BIT(8)
++#define X2000_DC_DE_LOW			BIT(9)
++
++#define X2000_DC_CLEAR_ALL		0x01fffffe
++
++/*
++ * Mask every documented X2000 DPU interrupt source. Reserved INTC bits
++ * are left untouched instead of writing an all-ones value.
++ */
++#define X2000_DC_IRQ_ALL_MASKS		(BIT(31) | GENMASK(17, 6) | \
++					 BIT(2) | BIT(1))
++
++/*
++ * Direct-RDMA descriptor interrupt-mask bits. The channel itself is used
++ * without an IRQ handler; global DPU interrupts are masked as well.
++ */
++#define X2000_RDMA_IRQ_EOS_MASK		BIT(1)
++#define X2000_RDMA_IRQ_SOS_MASK		BIT(2)
++#define X2000_RDMA_IRQ_EOD_MASK		BIT(17)
++#define X2000_RDMA_IRQ_ALL_MASKS	(X2000_RDMA_IRQ_EOS_MASK | \
++					 X2000_RDMA_IRQ_SOS_MASK | \
++					 X2000_RDMA_IRQ_EOD_MASK)
++
++/*
++ * ChainCfg layout:
++ *
++ * bit 0       chain_end
++ * bit 1       change_2_cmp
++ * bits 16:18  color
++ * bits 19:22  format
++ *
++ * Ingenic's X2000 definitions encode RGB as 0 and the 32-bpp RGB888
++ * framebuffer input format as 4. The descriptor self-links, so both
++ * chain_end and change_2_cmp remain clear.
++ */
++#define X2000_RDMA_CHAIN_COLOR_SHIFT	16
++#define X2000_RDMA_CHAIN_FORMAT_SHIFT	19
++
++#define X2000_RDMA_CHAIN_COLOR_RGB	0
++#define X2000_RDMA_CHAIN_FORMAT_888	4
++
++#define X2000_RDMA_CHAIN_RGB888 \
++	((X2000_RDMA_CHAIN_COLOR_RGB << X2000_RDMA_CHAIN_COLOR_SHIFT) | \
++	 (X2000_RDMA_CHAIN_FORMAT_888 << X2000_RDMA_CHAIN_FORMAT_SHIFT))
++
++#define X2000_RDMA_DESC_ALIGN		8
++
++struct x2000_rdma_desc {
++	u32 next;
++	u32 framebuffer;
++	u32 stride;
++	u32 chain_cfg;
++	u32 interrupt_control;
++};
++
++static_assert(sizeof(struct x2000_rdma_desc) == 5 * sizeof(u32));
++static_assert(X2000_RDMA_CHAIN_RGB888 == 0x00200000);
++
++struct x2000_dpu {
++	struct device *dev;
++	void __iomem *base;
++	struct clk *clk;
++
++	const struct x2000_dpu_panel *panel;
++
++	struct fb_info *info;
++	void *fb_mem;
++	dma_addr_t fb_dma;
++	size_t fb_size;
++
++	struct x2000_rdma_desc *desc;
++	dma_addr_t desc_dma;
++
++	u32 pseudo_palette[16];
++
++	bool registered;
++	bool running;
++};
++
++static DEFINE_MUTEX(x2000_dpu_global_lock);
++
++static struct x2000_dpu *x2000_dpu_device;
++static const struct x2000_dpu_panel *x2000_registered_panel;
++
++static inline void x2000_dpu_write(struct x2000_dpu *dpu,
++				    unsigned int reg, u32 value)
++{
++	writel(value, dpu->base + reg);
++}
++
++static inline u32 x2000_dpu_read(struct x2000_dpu *dpu,
++				  unsigned int reg)
++{
++	return readl(dpu->base + reg);
++}
++
++static int x2000_dpu_quiesce(struct x2000_dpu *dpu)
++{
++	u32 status;
++	int ret;
++
++	x2000_dpu_write(dpu, X2000_DC_CTRL, X2000_DC_QCK_STP_RDMA);
++
++	ret = readl_poll_timeout(dpu->base + X2000_DC_ST,
++				 status,
++				 !(status & X2000_DC_SRD_WORKING),
++				 10, 100000);
++	if (ret)
++		dev_err(dpu->dev, "timed out stopping direct RDMA\n");
++
++	return ret;
++}
++
++static int x2000_dpu_stop(struct x2000_dpu *dpu)
++{
++	int ret;
++
++	if (!dpu->running)
++		return 0;
++
++	ret = x2000_dpu_quiesce(dpu);
++	if (ret)
++		return ret;
++
++	clk_disable_unprepare(dpu->clk);
++	dpu->running = false;
++
++	return 0;
++}
++
++static void x2000_dpu_program_timing(struct x2000_dpu *dpu)
++{
++	const struct x2000_dpu_panel *panel = dpu->panel;
++	u32 hps;
++	u32 hpe;
++	u32 hds;
++	u32 hde;
++	u32 vps;
++	u32 vpe;
++	u32 vds;
++	u32 vde;
++	u32 cfg;
++	u32 value;
++
++	hps = panel->hsync_len;
++	hpe = hps + panel->left_margin +
++	      panel->xres + panel->right_margin;
++
++	hds = panel->hsync_len + panel->left_margin;
++	hde = hds + panel->xres;
++
++	vps = panel->vsync_len;
++	vpe = vps + panel->upper_margin +
++	      panel->yres + panel->lower_margin;
++
++	vds = panel->vsync_len + panel->upper_margin;
++	vde = vds + panel->yres;
++
++	x2000_dpu_write(dpu, X2000_DC_TFT_HSYNC,
++			(hps << 16) | hpe);
++	x2000_dpu_write(dpu, X2000_DC_TFT_VSYNC,
++			(vps << 16) | vpe);
++	x2000_dpu_write(dpu, X2000_DC_TFT_HDE,
++			(hds << 16) | hde);
++	x2000_dpu_write(dpu, X2000_DC_TFT_VDE,
++			(vds << 16) | vde);
++
++	cfg = x2000_dpu_read(dpu, X2000_DC_TFT_CFG);
++
++	cfg &= ~(X2000_DC_TFT_MODE_MASK |
++		 X2000_DC_COLOR_ODD_MASK |
++		 X2000_DC_COLOR_EVEN_MASK |
++		 X2000_DC_DE_LOW |
++		 X2000_DC_SYNC_LOW |
++		 X2000_DC_VSYNC_LOW);
++
++	/*
++	 * RGB is encoded as zero for both odd and even lines, so clearing
++	 * the color-order fields above explicitly selects RGB.
++	 */
++	cfg |= X2000_DC_TFT_PARALLEL_565;
++
++	if (panel->de_low)
++		cfg |= X2000_DC_DE_LOW;
++
++	if (panel->sync_low)
++		cfg |= X2000_DC_SYNC_LOW;
++
++	if (panel->vsync_low)
++		cfg |= X2000_DC_VSYNC_LOW;
++
++	x2000_dpu_write(dpu, X2000_DC_TFT_CFG, cfg);
++
++	value = x2000_dpu_read(dpu, X2000_DC_DISP_COM);
++	value &= ~(X2000_DC_DISP_IF_MASK | X2000_DC_DITHER_ENABLE);
++	value |= X2000_DC_DISP_TFT;
++	x2000_dpu_write(dpu, X2000_DC_DISP_COM, value);
++
++	value = x2000_dpu_read(dpu, X2000_DC_COM_CONFIG);
++	value &= ~(X2000_DC_OUT_SEL_MASK | X2000_DC_BURST_RDMA_MASK);
++	value |= X2000_DC_OUT_SEL_RDMA | X2000_DC_BURST_RDMA_16;
++	x2000_dpu_write(dpu, X2000_DC_COM_CONFIG, value);
++
++	/*
++	 * Patch 13 deliberately has no IRQ handler. Mask all DPU interrupts
++	 * and clear any status inherited from firmware before RDMA starts.
++	 */
++	x2000_dpu_write(dpu, X2000_DC_INTC, X2000_DC_IRQ_ALL_MASKS);
++	x2000_dpu_write(dpu, X2000_DC_CLR_ST, X2000_DC_CLEAR_ALL);
++}
++
++static int x2000_dpu_start(struct x2000_dpu *dpu)
++{
++	int ret;
++
++	if (dpu->running)
++		return 0;
++
++	ret = clk_set_rate(dpu->clk, dpu->panel->pixelclock_hz);
++	if (ret) {
++		dev_err(dpu->dev, "failed to set LCD pixel clock: %d\n", ret);
++		return ret;
++	}
++
++	ret = clk_prepare_enable(dpu->clk);
++	if (ret) {
++		dev_err(dpu->dev, "failed to enable LCD clock: %d\n", ret);
++		return ret;
++	}
++
++	/*
++	 * Firmware may have left direct RDMA active. Stop it while the LCD
++	 * clock is running before replacing timing and descriptor state.
++	 */
++	ret = x2000_dpu_quiesce(dpu);
++	if (ret) {
++		clk_disable_unprepare(dpu->clk);
++		return ret;
++	}
++
++	x2000_dpu_program_timing(dpu);
++
++	if (dpu->panel->enable)
++		dpu->panel->enable(dpu->panel->data);
++
++	/*
++	 * Both the framebuffer and descriptor are coherent mappings. Make
++	 * descriptor stores visible before handing its DMA address to RDMA.
++	 */
++	dma_wmb();
++
++	x2000_dpu_write(dpu, X2000_DC_RDMA_CHAIN_ADDR,
++			(u32)dpu->desc_dma);
++	x2000_dpu_write(dpu, X2000_DC_RDMA_CHAIN_CTRL,
++			X2000_DC_RDMA_START);
++
++	dpu->running = true;
++
++	return 0;
++}
++
++static int x2000_dpu_check_var(struct fb_var_screeninfo *var,
++				struct fb_info *info)
++{
++	struct x2000_dpu *dpu = info->par;
++	const struct x2000_dpu_panel *panel = dpu->panel;
++
++	if (var->xres != panel->xres ||
++	    var->yres != panel->yres ||
++	    var->bits_per_pixel != X2000_DPU_BPP)
++		return -EINVAL;
++
++	if (var->xoffset || var->yoffset)
++		return -EINVAL;
++
++	var->xres_virtual = panel->xres;
++	var->yres_virtual = panel->yres;
++
++	var->xoffset = 0;
++	var->yoffset = 0;
++
++	var->left_margin = panel->left_margin;
++	var->right_margin = panel->right_margin;
++	var->upper_margin = panel->upper_margin;
++	var->lower_margin = panel->lower_margin;
++	var->hsync_len = panel->hsync_len;
++	var->vsync_len = panel->vsync_len;
++
++	var->pixclock = div_u64(1000000000000ULL,
++				panel->pixelclock_hz);
++	var->vmode = FB_VMODE_NONINTERLACED;
++	var->nonstd = 0;
++	var->grayscale = 0;
++
++	var->red.offset = 16;
++	var->red.length = 8;
++	var->red.msb_right = 0;
++
++	var->green.offset = 8;
++	var->green.length = 8;
++	var->green.msb_right = 0;
++
++	var->blue.offset = 0;
++	var->blue.length = 8;
++	var->blue.msb_right = 0;
++
++	var->transp.offset = 0;
++	var->transp.length = 0;
++	var->transp.msb_right = 0;
++
++	return 0;
++}
++
++static int x2000_dpu_set_par(struct fb_info *info)
++{
++	return x2000_dpu_check_var(&info->var, info);
++}
++
++static int x2000_dpu_setcolreg(unsigned int regno, unsigned int red,
++				unsigned int green, unsigned int blue,
++				unsigned int transp, struct fb_info *info)
++{
++	struct x2000_dpu *dpu = info->par;
++	u32 value;
++
++	if (regno >= ARRAY_SIZE(dpu->pseudo_palette))
++		return -EINVAL;
++
++	value = ((red & 0xff00) << 8) |
++		(green & 0xff00) |
++		((blue & 0xff00) >> 8);
++
++	dpu->pseudo_palette[regno] = value;
++
++	return 0;
++}
++
++static int x2000_dpu_blank(int blank, struct fb_info *info)
++{
++	struct x2000_dpu *dpu = info->par;
++
++	if (blank == FB_BLANK_UNBLANK)
++		return x2000_dpu_start(dpu);
++
++	return x2000_dpu_stop(dpu);
++}
++
++static int x2000_dpu_pan_display(struct fb_var_screeninfo *var,
++				  struct fb_info *info)
++{
++	if (var->xoffset || var->yoffset)
++		return -EINVAL;
++
++	/*
++	 * There is exactly one self-linked descriptor and one framebuffer.
++	 * Frame zero is already being scanned continuously.
++	 */
++	return 0;
++}
++
++static int x2000_dpu_mmap(struct fb_info *info,
++			   struct vm_area_struct *vma)
++{
++	struct x2000_dpu *dpu = info->par;
++	unsigned long size;
++
++	if (vma->vm_pgoff)
++		return -EINVAL;
++
++	size = vma->vm_end - vma->vm_start;
++	if (size > dpu->fb_size)
++		return -EINVAL;
++
++	return dma_mmap_coherent(dpu->dev, vma,
++				 dpu->fb_mem, dpu->fb_dma,
++				 dpu->fb_size);
++}
++
++static const struct fb_ops x2000_dpu_fb_ops = {
++	.owner		= THIS_MODULE,
++	.fb_check_var	= x2000_dpu_check_var,
++	.fb_set_par	= x2000_dpu_set_par,
++	.fb_setcolreg	= x2000_dpu_setcolreg,
++	.fb_blank	= x2000_dpu_blank,
++	.fb_pan_display	= x2000_dpu_pan_display,
++	.fb_fillrect	= cfb_fillrect,
++	.fb_copyarea	= cfb_copyarea,
++	.fb_imageblit	= cfb_imageblit,
++	.fb_mmap	= x2000_dpu_mmap,
++};
++
++static void x2000_dpu_init_fb_info(struct x2000_dpu *dpu)
++{
++	struct fb_info *info = dpu->info;
++	const struct x2000_dpu_panel *panel = dpu->panel;
++
++	strscpy(info->fix.id, "x2000-dpu", sizeof(info->fix.id));
++
++	info->fix.type = FB_TYPE_PACKED_PIXELS;
++	info->fix.visual = FB_VISUAL_TRUECOLOR;
++	info->fix.accel = FB_ACCEL_NONE;
++
++	info->fix.line_length =
++		panel->xres * X2000_DPU_BYTES_PER_PIXEL;
++	info->fix.smem_start = dpu->fb_dma;
++	info->fix.smem_len = dpu->fb_size;
++
++	info->var.xres = panel->xres;
++	info->var.yres = panel->yres;
++	info->var.xres_virtual = panel->xres;
++	info->var.yres_virtual = panel->yres;
++
++	info->var.xoffset = 0;
++	info->var.yoffset = 0;
++
++	info->var.bits_per_pixel = X2000_DPU_BPP;
++
++	info->var.red.offset = 16;
++	info->var.red.length = 8;
++
++	info->var.green.offset = 8;
++	info->var.green.length = 8;
++
++	info->var.blue.offset = 0;
++	info->var.blue.length = 8;
++
++	info->var.transp.offset = 0;
++	info->var.transp.length = 0;
++
++	info->var.left_margin = panel->left_margin;
++	info->var.right_margin = panel->right_margin;
++	info->var.upper_margin = panel->upper_margin;
++	info->var.lower_margin = panel->lower_margin;
++	info->var.hsync_len = panel->hsync_len;
++	info->var.vsync_len = panel->vsync_len;
++
++	info->var.pixclock =
++		div_u64(1000000000000ULL, panel->pixelclock_hz);
++
++	info->var.activate = FB_ACTIVATE_NOW;
++	info->var.vmode = FB_VMODE_NONINTERLACED;
++
++	info->fbops = &x2000_dpu_fb_ops;
++	info->pseudo_palette = dpu->pseudo_palette;
++
++	info->screen_base = (char __iomem *)dpu->fb_mem;
++	info->screen_size = dpu->fb_size;
++}
++
++static int x2000_dpu_validate_panel(const struct x2000_dpu_panel *panel)
++{
++	u32 htotal;
++	u32 vtotal;
++	u64 pixclock_ps;
++
++	if (!panel || !panel->pixelclock_hz ||
++	    !panel->xres || !panel->yres)
++		return -EINVAL;
++
++	htotal = panel->hsync_len + panel->left_margin +
++		 panel->xres + panel->right_margin;
++	vtotal = panel->vsync_len + panel->upper_margin +
++		 panel->yres + panel->lower_margin;
++
++	/*
++	 * All four TFT timing registers use 12-bit start/end fields.
++	 * Bounding the complete totals also bounds every intermediate point.
++	 */
++	if (htotal > 0xfff || vtotal > 0xfff)
++		return -ERANGE;
++
++	pixclock_ps = div_u64(1000000000000ULL, panel->pixelclock_hz);
++	if (!pixclock_ps || pixclock_ps > U32_MAX)
++		return -ERANGE;
++
++	return 0;
++}
++
++static int x2000_dpu_attach_panel(struct x2000_dpu *dpu,
++				   const struct x2000_dpu_panel *panel)
++{
++	struct fb_info *info;
++	int ret;
++
++	if (dpu->panel)
++		return -EBUSY;
++
++	ret = x2000_dpu_validate_panel(panel);
++	if (ret)
++		return ret;
++
++	dpu->panel = panel;
++
++	dpu->fb_size = (size_t)panel->xres * panel->yres *
++		       X2000_DPU_BYTES_PER_PIXEL;
++
++	dpu->fb_mem = dma_alloc_coherent(dpu->dev, dpu->fb_size,
++					 &dpu->fb_dma, GFP_KERNEL);
++	if (!dpu->fb_mem) {
++		ret = -ENOMEM;
++		goto err_panel;
++	}
++
++	dpu->desc = dma_alloc_coherent(dpu->dev, sizeof(*dpu->desc),
++				       &dpu->desc_dma, GFP_KERNEL);
++	if (!dpu->desc) {
++		ret = -ENOMEM;
++		goto err_fb;
++	}
++
++	if (dpu->desc_dma & (X2000_RDMA_DESC_ALIGN - 1)) {
++		dev_err(dpu->dev,
++			"direct-RDMA descriptor is not %u-byte aligned\n",
++			X2000_RDMA_DESC_ALIGN);
++		ret = -EINVAL;
++		goto err_desc;
++	}
++
++	memset(dpu->fb_mem, 0, dpu->fb_size);
++	memset(dpu->desc, 0, sizeof(*dpu->desc));
++
++	/*
++	 * One descriptor, permanently linked back to itself.
++	 *
++	 * Stride is expressed in pixels by the X2000 RDMA descriptor,
++	 * matching the vendor direct-RDMA setup path.
++	 */
++	dpu->desc->next = (u32)dpu->desc_dma;
++	dpu->desc->framebuffer = (u32)dpu->fb_dma;
++	dpu->desc->stride = panel->xres;
++	dpu->desc->chain_cfg = X2000_RDMA_CHAIN_RGB888;
++	dpu->desc->interrupt_control = X2000_RDMA_IRQ_ALL_MASKS;
++
++	info = framebuffer_alloc(0, dpu->dev);
++	if (!info) {
++		ret = -ENOMEM;
++		goto err_desc;
++	}
++
++	dpu->info = info;
++	info->par = dpu;
++
++	x2000_dpu_init_fb_info(dpu);
++
++	ret = register_framebuffer(info);
++	if (ret) {
++		dev_err(dpu->dev, "failed to register framebuffer: %d\n", ret);
++		goto err_info;
++	}
++
++	dpu->registered = true;
++
++	ret = x2000_dpu_start(dpu);
++	if (ret)
++		goto err_register;
++
++	dev_info(dpu->dev,
++		 "registered fb%d: %ux%u, 32-bpp RGB888 input, RGB565 output\n",
++		 info->node, panel->xres, panel->yres);
++
++	return 0;
++
++err_register:
++	unregister_framebuffer(info);
++	dpu->registered = false;
++err_info:
++	framebuffer_release(info);
++	dpu->info = NULL;
++err_desc:
++	dma_free_coherent(dpu->dev, sizeof(*dpu->desc),
++			  dpu->desc, dpu->desc_dma);
++	dpu->desc = NULL;
++err_fb:
++	dma_free_coherent(dpu->dev, dpu->fb_size,
++			  dpu->fb_mem, dpu->fb_dma);
++	dpu->fb_mem = NULL;
++err_panel:
++	dpu->panel = NULL;
++
++	return ret;
++}
++
++static int x2000_dpu_detach_panel(struct x2000_dpu *dpu)
++{
++	const struct x2000_dpu_panel *panel = dpu->panel;
++	int ret;
++
++	if (!panel)
++		return 0;
++
++	ret = x2000_dpu_stop(dpu);
++	if (ret)
++		return ret;
++
++	if (panel->disable)
++		panel->disable(panel->data);
++
++	if (dpu->registered) {
++		unregister_framebuffer(dpu->info);
++		dpu->registered = false;
++	}
++
++	if (dpu->info) {
++		framebuffer_release(dpu->info);
++		dpu->info = NULL;
++	}
++
++	if (dpu->desc) {
++		dma_free_coherent(dpu->dev, sizeof(*dpu->desc),
++				  dpu->desc, dpu->desc_dma);
++		dpu->desc = NULL;
++	}
++
++	if (dpu->fb_mem) {
++		dma_free_coherent(dpu->dev, dpu->fb_size,
++				  dpu->fb_mem, dpu->fb_dma);
++		dpu->fb_mem = NULL;
++	}
++
++	dpu->fb_size = 0;
++	dpu->panel = NULL;
++
++	return 0;
++}
++
++int x2000_dpu_register_panel(const struct x2000_dpu_panel *panel)
++{
++	int ret = 0;
++
++	if (!panel)
++		return -EINVAL;
++
++	mutex_lock(&x2000_dpu_global_lock);
++
++	if (x2000_registered_panel) {
++		ret = -EBUSY;
++		goto out;
++	}
++
++	x2000_registered_panel = panel;
++
++	if (x2000_dpu_device) {
++		ret = x2000_dpu_attach_panel(x2000_dpu_device, panel);
++		if (ret)
++			x2000_registered_panel = NULL;
++	}
++
++out:
++	mutex_unlock(&x2000_dpu_global_lock);
++
++	return ret;
++}
++EXPORT_SYMBOL_GPL(x2000_dpu_register_panel);
++
++int x2000_dpu_unregister_panel(const struct x2000_dpu_panel *panel)
++{
++	int ret = 0;
++
++	mutex_lock(&x2000_dpu_global_lock);
++
++	if (x2000_registered_panel != panel) {
++		ret = -EINVAL;
++		goto out;
++	}
++
++	if (x2000_dpu_device) {
++		ret = x2000_dpu_detach_panel(x2000_dpu_device);
++		if (ret)
++			goto out;
++	}
++
++	x2000_registered_panel = NULL;
++
++out:
++	mutex_unlock(&x2000_dpu_global_lock);
++
++	return ret;
++}
++EXPORT_SYMBOL_GPL(x2000_dpu_unregister_panel);
++
++static int x2000_dpu_probe(struct platform_device *pdev)
++{
++	struct device *dev = &pdev->dev;
++	struct x2000_dpu *dpu;
++	int ret;
++
++	dpu = devm_kzalloc(dev, sizeof(*dpu), GFP_KERNEL);
++	if (!dpu)
++		return -ENOMEM;
++
++	dpu->dev = dev;
++
++	ret = dma_set_mask_and_coherent(dev,
++					DMA_BIT_MASK(X2000_DPU_DMA_BITS));
++	if (ret)
++		return dev_err_probe(dev, ret,
++				     "32-bit coherent DMA unavailable\n");
++
++	dpu->base = devm_platform_ioremap_resource(pdev, 0);
++	if (IS_ERR(dpu->base))
++		return PTR_ERR(dpu->base);
++
++	dpu->clk = devm_clk_get(dev, "lcd");
++	if (IS_ERR(dpu->clk))
++		return dev_err_probe(dev, PTR_ERR(dpu->clk),
++				     "failed to get LCD clock\n");
++
++	platform_set_drvdata(pdev, dpu);
++
++	mutex_lock(&x2000_dpu_global_lock);
++
++	if (x2000_dpu_device) {
++		ret = -EBUSY;
++		goto err_unlock;
++	}
++
++	x2000_dpu_device = dpu;
++
++	if (x2000_registered_panel) {
++		ret = x2000_dpu_attach_panel(dpu, x2000_registered_panel);
++		if (ret) {
++			x2000_dpu_device = NULL;
++			goto err_unlock;
++		}
++	}
++
++	mutex_unlock(&x2000_dpu_global_lock);
++
++	return 0;
++
++err_unlock:
++	mutex_unlock(&x2000_dpu_global_lock);
++	platform_set_drvdata(pdev, NULL);
++
++	return ret;
++}
++
++static int x2000_dpu_remove(struct platform_device *pdev)
++{
++	struct x2000_dpu *dpu = platform_get_drvdata(pdev);
++	int ret;
++
++	mutex_lock(&x2000_dpu_global_lock);
++
++	ret = x2000_dpu_detach_panel(dpu);
++	if (!ret)
++		x2000_dpu_device = NULL;
++
++	mutex_unlock(&x2000_dpu_global_lock);
++
++	return ret;
++}
++
++static const struct of_device_id x2000_dpu_of_match[] = {
++	{ .compatible = "ingenic,x2000-dpu" },
++	{ }
++};
++MODULE_DEVICE_TABLE(of, x2000_dpu_of_match);
++
++static struct platform_driver x2000_dpu_driver = {
++	.probe = x2000_dpu_probe,
++	.remove = x2000_dpu_remove,
++	.driver = {
++		.name = "x2000-dpu-fb",
++		.of_match_table = x2000_dpu_of_match,
++	},
++};
++module_platform_driver(x2000_dpu_driver);
++
++MODULE_DESCRIPTION("Minimal Ingenic X2000 direct-RDMA framebuffer");
++MODULE_LICENSE("GPL");
+diff --git a/drivers/video/fbdev/x2000-dpu-fb.h b/drivers/video/fbdev/x2000-dpu-fb.h
+new file mode 100644
+index 0000000000000000000000000000000000000000..7ce0a8367485999ff91db30c17b8eca3db62e9e8
+--- /dev/null
++++ b/drivers/video/fbdev/x2000-dpu-fb.h
+@@ -0,0 +1,35 @@
++/* SPDX-License-Identifier: GPL-2.0-only */
++#ifndef __X2000_DPU_FB_H__
++#define __X2000_DPU_FB_H__
++
++#include <linux/types.h>
++
++struct x2000_dpu_panel {
++	const char *name;
++
++	u32 pixelclock_hz;
++
++	u16 xres;
++	u16 yres;
++
++	u16 hsync_len;
++	u16 left_margin;
++	u16 right_margin;
++
++	u16 vsync_len;
++	u16 upper_margin;
++	u16 lower_margin;
++
++	bool de_low;
++	bool sync_low;
++	bool vsync_low;
++
++	void (*enable)(void *data);
++	void (*disable)(void *data);
++	void *data;
++};
++
++int x2000_dpu_register_panel(const struct x2000_dpu_panel *panel);
++int x2000_dpu_unregister_panel(const struct x2000_dpu_panel *panel);
++
++#endif

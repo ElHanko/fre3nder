@@ -66,7 +66,7 @@ modify:
 - `arch/mips/mm/{c-r4k.c,sc-mips.c}`
 
 Repository artifact:
-- `research/patches/linux/0001-mips-ingenic-add-minimal-x2000-up-platform.patch`
+- `patches/linux/0001-mips-ingenic-add-minimal-x2000-up-platform.patch`
 
 Reference:
 - vendor `xburst2/core/{prom.c,sc.c}` and `soc-x2000/{setup.c,reset.c}`
@@ -296,7 +296,7 @@ new:
 - `arch/mips/ingenic/x2000-smp.c`
 
 Repository artifact:
-- `research/patches/linux/0008-mips-ingenic-add-x2000-smp-support.patch`
+- `patches/linux/0008-mips-ingenic-add-x2000-smp-support.patch`
 
 Reference:
 - vendor `xburst2/core/smp.c`, `core_base.h` and `ccu.h`

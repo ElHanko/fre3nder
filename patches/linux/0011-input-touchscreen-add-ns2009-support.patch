@@ -1,0 +1,318 @@
+diff --git a/Documentation/devicetree/bindings/input/touchscreen/nsiway,ns2009.yaml b/Documentation/devicetree/bindings/input/touchscreen/nsiway,ns2009.yaml
+new file mode 100644
+index 000000000..e6d27ca0b
+--- /dev/null
++++ b/Documentation/devicetree/bindings/input/touchscreen/nsiway,ns2009.yaml
+@@ -0,0 +1,54 @@
++# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
++%YAML 1.2
++---
++$id: http://devicetree.org/schemas/input/touchscreen/nsiway,ns2009.yaml#
++$schema: http://devicetree.org/meta-schemas/core.yaml#
++
++title: Nsiway NS2009 resistive touchscreen controller
++
++maintainers:
++  - Icenowy Zheng <icenowy@aosc.xyz>
++
++allOf:
++  - $ref: touchscreen.yaml#
++
++properties:
++  compatible:
++    const: nsiway,ns2009
++
++  reg:
++    enum: [0x48, 0x49]
++
++  pendown-gpios:
++    description:
++      Optional active-low GPIO connected to the controller's pen-down output.
++      When absent, the driver determines pen state from the Z1 measurement.
++    maxItems: 1
++
++  touchscreen-min-x: true
++  touchscreen-min-y: true
++  touchscreen-size-x: true
++  touchscreen-size-y: true
++  touchscreen-fuzz-x: true
++  touchscreen-fuzz-y: true
++  touchscreen-inverted-x: true
++  touchscreen-inverted-y: true
++  touchscreen-swapped-x-y: true
++
++required:
++  - compatible
++  - reg
++
++additionalProperties: false
++
++examples:
++  - |
++    i2c {
++      #address-cells = <1>;
++      #size-cells = <0>;
++
++      touchscreen@48 {
++        compatible = "nsiway,ns2009";
++        reg = <0x48>;
++      };
++    };
+diff --git a/drivers/input/touchscreen/Kconfig b/drivers/input/touchscreen/Kconfig
+index e3e232454..8d00473e2 100644
+--- a/drivers/input/touchscreen/Kconfig
++++ b/drivers/input/touchscreen/Kconfig
+@@ -1144,6 +1144,18 @@ config TOUCHSCREEN_TSC2005
+ 	  To compile this driver as a module, choose M here: the
+ 	  module will be called tsc2005.
+ 
++config TOUCHSCREEN_NS2009
++	tristate "Nsiway NS2009 based touchscreens"
++	depends on I2C
++	help
++	  Say Y here if you have a Nsiway NS2009 resistive touchscreen
++	  controller connected over I2C.
++
++	  If unsure, say N.
++
++	  To compile this driver as a module, choose M here: the
++	  module will be called ns2009.
++
+ config TOUCHSCREEN_TSC2007
+ 	tristate "TSC2007 based touchscreens"
+ 	depends on I2C
+diff --git a/drivers/input/touchscreen/Makefile b/drivers/input/touchscreen/Makefile
+index 62bd24f3a..29b2bc609 100644
+--- a/drivers/input/touchscreen/Makefile
++++ b/drivers/input/touchscreen/Makefile
+@@ -92,6 +92,7 @@ obj-$(CONFIG_TOUCHSCREEN_TOUCHRIGHT)	+= touchright.o
+ obj-$(CONFIG_TOUCHSCREEN_TOUCHWIN)	+= touchwin.o
+ obj-$(CONFIG_TOUCHSCREEN_TS4800)	+= ts4800-ts.o
+ obj-$(CONFIG_TOUCHSCREEN_TSC_SERIO)	+= tsc40.o
++obj-$(CONFIG_TOUCHSCREEN_NS2009)	+= ns2009.o
+ obj-$(CONFIG_TOUCHSCREEN_TSC200X_CORE)	+= tsc200x-core.o
+ obj-$(CONFIG_TOUCHSCREEN_TSC2004)	+= tsc2004.o
+ obj-$(CONFIG_TOUCHSCREEN_TSC2005)	+= tsc2005.o
+diff --git a/drivers/input/touchscreen/ns2009.c b/drivers/input/touchscreen/ns2009.c
+new file mode 100644
+index 000000000..29253b985
+--- /dev/null
++++ b/drivers/input/touchscreen/ns2009.c
+@@ -0,0 +1,217 @@
++// SPDX-License-Identifier: GPL-2.0-or-later
++/*
++ * Nsiway NS2009 resistive touchscreen controller driver
++ *
++ * Copyright (C) 2017 Icenowy Zheng <icenowy@aosc.xyz>
++ *
++ * Portions are based on silead.c:
++ * Copyright (C) 2014-2015 Intel Corporation
++ *
++ * Based on the original 2017 NS2009 Linux driver by Icenowy Zheng.
++ *
++ * Optional pendown GPIO support follows the Ender-3 V3 KE finding from
++ * coreflake1/NebulaOS-kernel commit
++ * 88a0e1ecc6ace7c9e4ad99d6fa49e272180fd5a9.
++ */
++
++#include <linux/gpio/consumer.h>
++#include <linux/i2c.h>
++#include <linux/input.h>
++#include <linux/input/touchscreen.h>
++#include <linux/kernel.h>
++#include <linux/module.h>
++
++#define NS2009_POLL_INTERVAL_MS			30
++#define NS2009_MAX_12BIT			0xfff
++
++#define NS2009_READ_X_LOW_POWER_12BIT		0xc0
++#define NS2009_READ_Y_LOW_POWER_12BIT		0xd0
++#define NS2009_READ_Z1_LOW_POWER_12BIT		0xe0
++
++#define NS2009_DEF_X_FUZZ			32
++#define NS2009_DEF_Y_FUZZ			16
++#define NS2009_PEN_UP_Z1_ERR			80
++
++struct ns2009_data {
++	struct i2c_client *client;
++	struct input_dev *input;
++	struct touchscreen_properties prop;
++	struct gpio_desc *pendown_gpio;
++	bool pen_down;
++};
++
++static int ns2009_read_data(struct ns2009_data *data, u8 command, u16 *value)
++{
++	u8 raw[2];
++	int ret;
++
++	ret = i2c_smbus_read_i2c_block_data(data->client, command,
++					    sizeof(raw), raw);
++	if (ret < 0)
++		return ret;
++
++	if (ret != sizeof(raw))
++		return -EIO;
++
++	if (raw[1] & 0xf)
++		return -EINVAL;
++
++	*value = (raw[0] << 4) | (raw[1] >> 4);
++
++	return 0;
++}
++
++static int ns2009_pen_is_down(struct ns2009_data *data, bool *pen_is_down)
++{
++	u16 z1;
++	int ret;
++
++	if (data->pendown_gpio) {
++		ret = gpiod_get_value_cansleep(data->pendown_gpio);
++		if (ret < 0)
++			return ret;
++
++		*pen_is_down = ret;
++		return 0;
++	}
++
++	ret = ns2009_read_data(data, NS2009_READ_Z1_LOW_POWER_12BIT, &z1);
++	if (ret)
++		return ret;
++
++	*pen_is_down = z1 >= NS2009_PEN_UP_Z1_ERR;
++
++	return 0;
++}
++
++static int ns2009_report(struct ns2009_data *data)
++{
++	bool pen_is_down;
++	u16 x, y;
++	int ret;
++
++	ret = ns2009_pen_is_down(data, &pen_is_down);
++	if (ret)
++		return ret;
++
++	if (!pen_is_down) {
++		if (data->pen_down) {
++			input_report_key(data->input, BTN_TOUCH, 0);
++			input_sync(data->input);
++			data->pen_down = false;
++		}
++
++		return 0;
++	}
++
++	ret = ns2009_read_data(data, NS2009_READ_X_LOW_POWER_12BIT, &x);
++	if (ret)
++		return ret;
++
++	ret = ns2009_read_data(data, NS2009_READ_Y_LOW_POWER_12BIT, &y);
++	if (ret)
++		return ret;
++
++	if (!data->pen_down) {
++		input_report_key(data->input, BTN_TOUCH, 1);
++		data->pen_down = true;
++	}
++
++	touchscreen_report_pos(data->input, &data->prop, x, y, false);
++	input_sync(data->input);
++
++	return 0;
++}
++
++static void ns2009_poll(struct input_dev *input)
++{
++	struct ns2009_data *data = input_get_drvdata(input);
++	int ret;
++
++	ret = ns2009_report(data);
++	if (ret)
++		dev_err(&input->dev, "failed to poll touchscreen: %d\n", ret);
++}
++
++static int ns2009_setup_input(struct ns2009_data *data)
++{
++	struct device *dev = &data->client->dev;
++	struct input_dev *input;
++	int ret;
++
++	input = devm_input_allocate_device(dev);
++	if (!input)
++		return -ENOMEM;
++
++	data->input = input;
++	input_set_drvdata(input, data);
++
++	input->name = "Nsiway NS2009 Touchscreen";
++	input->id.bustype = BUS_I2C;
++
++	input_set_abs_params(input, ABS_X, 0, NS2009_MAX_12BIT,
++			     NS2009_DEF_X_FUZZ, 0);
++	input_set_abs_params(input, ABS_Y, 0, NS2009_MAX_12BIT,
++			     NS2009_DEF_Y_FUZZ, 0);
++	input_set_capability(input, EV_KEY, BTN_TOUCH);
++
++	touchscreen_parse_properties(input, false, &data->prop);
++
++	ret = input_setup_polling(input, ns2009_poll);
++	if (ret)
++		return ret;
++
++	input_set_poll_interval(input, NS2009_POLL_INTERVAL_MS);
++
++	return input_register_device(input);
++}
++
++static int ns2009_probe(struct i2c_client *client)
++{
++	struct device *dev = &client->dev;
++	struct ns2009_data *data;
++
++	if (!i2c_check_functionality(client->adapter,
++				     I2C_FUNC_SMBUS_READ_I2C_BLOCK))
++		return dev_err_probe(dev, -ENXIO,
++				     "I2C block-read support required\n");
++
++	data = devm_kzalloc(dev, sizeof(*data), GFP_KERNEL);
++	if (!data)
++		return -ENOMEM;
++
++	data->client = client;
++
++	data->pendown_gpio = devm_gpiod_get_optional(dev, "pendown", GPIOD_IN);
++	if (IS_ERR(data->pendown_gpio))
++		return dev_err_probe(dev, PTR_ERR(data->pendown_gpio),
++				     "failed to get pendown GPIO\n");
++
++	return ns2009_setup_input(data);
++}
++
++static const struct i2c_device_id ns2009_id[] = {
++	{ "ns2009", 0 },
++	{ }
++};
++MODULE_DEVICE_TABLE(i2c, ns2009_id);
++
++static const struct of_device_id ns2009_of_match[] = {
++	{ .compatible = "nsiway,ns2009" },
++	{ }
++};
++MODULE_DEVICE_TABLE(of, ns2009_of_match);
++
++static struct i2c_driver ns2009_driver = {
++	.driver = {
++		.name = "ns2009",
++		.of_match_table = ns2009_of_match,
++	},
++	.probe = ns2009_probe,
++	.id_table = ns2009_id,
++};
++module_i2c_driver(ns2009_driver);
++
++MODULE_AUTHOR("Icenowy Zheng <icenowy@aosc.xyz>");
++MODULE_DESCRIPTION("Nsiway NS2009 resistive touchscreen controller");
++MODULE_LICENSE("GPL");

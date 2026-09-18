@@ -1,0 +1,254 @@
+diff --git a/Documentation/devicetree/bindings/display/panel/creality,ender-3-v3-ke.yaml b/Documentation/devicetree/bindings/display/panel/creality,ender-3-v3-ke.yaml
+new file mode 100644
+index 000000000..fa2e14f2f
+--- /dev/null
++++ b/Documentation/devicetree/bindings/display/panel/creality,ender-3-v3-ke.yaml
+@@ -0,0 +1,32 @@
++# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
++%YAML 1.2
++---
++$id: http://devicetree.org/schemas/display/panel/creality,ender-3-v3-ke.yaml#
++$schema: http://devicetree.org/meta-schemas/core.yaml#
++
++title: Creality Ender-3 V3 KE 480x272 TFT panel
++
++maintainers:
++  - ElHanko <71714066+ElHanko@users.noreply.github.com>
++
++description:
++  Fixed 480x272 parallel-RGB TFT panel fitted to the Creality
++  Ender-3 V3 KE display unit. The panel uses a dedicated active-low
++  reset signal; its fixed video timing is provided by the matching
++  panel driver.
++
++allOf:
++  - $ref: panel-common.yaml#
++
++properties:
++  compatible:
++    const: creality,ender-3-v3-ke-panel
++
++  reset-gpios:
++    maxItems: 1
++
++required:
++  - compatible
++  - reset-gpios
++
++unevaluatedProperties: false
+diff --git a/Documentation/devicetree/bindings/vendor-prefixes.yaml b/Documentation/devicetree/bindings/vendor-prefixes.yaml
+index 573578db9..baf3577ad 100644
+--- a/Documentation/devicetree/bindings/vendor-prefixes.yaml
++++ b/Documentation/devicetree/bindings/vendor-prefixes.yaml
+@@ -298,6 +298,8 @@ patternProperties:
+     description: Cosmic Circuits
+   "^crane,.*":
+     description: Crane Connectivity Solutions
++  "^creality,.*":
++    description: Shenzhen Creality 3D Technology Co., Ltd.
+   "^creative,.*":
+     description: Creative Technology Ltd
+   "^crystalfontz,.*":
+diff --git a/arch/mips/boot/dts/ingenic/ender3-v3-ke.dts b/arch/mips/boot/dts/ingenic/ender3-v3-ke.dts
+index fb0b89c65..763198ff2 100644
+--- a/arch/mips/boot/dts/ingenic/ender3-v3-ke.dts
++++ b/arch/mips/boot/dts/ingenic/ender3-v3-ke.dts
+@@ -39,7 +39,7 @@ beeper {
+ 	};
+ 
+ 	fre3nder_panel: panel {
+-		compatible = "fre3nder,ender3-v3-ke-480x272";
++		compatible = "creality,ender-3-v3-ke-panel";
+ 
+ 		/*
+ 		 * The qualified vendor-derived driver pulses PB16 low then high.
+diff --git a/drivers/video/fbdev/Kconfig b/drivers/video/fbdev/Kconfig
+index bccfbd20d..d87d79cdd 100644
+--- a/drivers/video/fbdev/Kconfig
++++ b/drivers/video/fbdev/Kconfig
+@@ -1756,6 +1756,20 @@ config FB_X2000_DPU
+ 	  To compile this driver as a module, choose M here: the module
+ 	  will be called x2000-dpu-fb.
+ 
++config FB_X2000_DPU_ENDER3_V3_KE
++	tristate "Creality Ender-3 V3 KE 480x272 panel"
++	depends on FB_X2000_DPU
++	depends on DT_ENDER3_V3_KE || COMPILE_TEST
++	depends on GPIOLIB && OF
++	help
++	  Board-specific panel description for the 480x272 parallel-RGB
++	  display fitted to the Creality Ender-3 V3 KE. It supplies the
++	  fixed timing and PB16 reset sequence to the X2000 direct-RDMA
++	  framebuffer driver.
++
++	  To compile this driver as a module, choose M here: the module
++	  will be called x2000-dpu-panel-ender3-v3-ke.
++
+ config FB_XILINX
+ 	tristate "Xilinx frame buffer support"
+ 	depends on FB && (MICROBLAZE || ARCH_ZYNQ || ARCH_ZYNQMP)
+diff --git a/drivers/video/fbdev/Makefile b/drivers/video/fbdev/Makefile
+index 916769678..231552286 100644
+--- a/drivers/video/fbdev/Makefile
++++ b/drivers/video/fbdev/Makefile
+@@ -106,6 +106,7 @@ obj-$(CONFIG_FB_SM501)            += sm501fb.o
+ obj-$(CONFIG_FB_UDL)		  += udlfb.o
+ obj-$(CONFIG_FB_SMSCUFX)	  += smscufx.o
+ obj-$(CONFIG_FB_X2000_DPU)       += x2000-dpu-fb.o
++obj-$(CONFIG_FB_X2000_DPU_ENDER3_V3_KE) += x2000-dpu-panel-ender3-v3-ke.o
+ obj-$(CONFIG_FB_XILINX)           += xilinxfb.o
+ obj-$(CONFIG_FB_SH_MOBILE_LCDC)	  += sh_mobile_lcdcfb.o
+ obj-y				  += omap/
+diff --git a/drivers/video/fbdev/x2000-dpu-panel-ender3-v3-ke.c b/drivers/video/fbdev/x2000-dpu-panel-ender3-v3-ke.c
+new file mode 100644
+index 000000000..da7002cdc
+--- /dev/null
++++ b/drivers/video/fbdev/x2000-dpu-panel-ender3-v3-ke.c
+@@ -0,0 +1,147 @@
++// SPDX-License-Identifier: GPL-2.0-only
++/*
++ * Creality Ender-3 V3 KE 480x272 panel for the Ingenic X2000 DPU
++ *
++ * The fixed 480x272 timing is derived from the stock display modules:
++ * all horizontal/vertical margins and sync widths are 20 pixels/lines,
++ * with the reference implementation using a 10753 kHz pixel clock.
++ *
++ * The stock running DPU was observed with DC_TFT_CFG = 0x00000102:
++ * parallel RGB565, RGB color order, DC_SYNC_DL set, and the remaining
++ * delay/polarity bits clear.
++ *
++ * PB16 is the panel reset. The 10 ms reset pulse and 10 ms settle delay
++ * are inherited from coreflake1/NebulaOS-kernel,
++ * panel-openke-general-480x272.c at commit
++ * 88a0e1ecc6ace7c9e4ad99d6fa49e272180fd5a9; those delay values are
++ * conservative and have not been independently characterized from a
++ * panel datasheet.
++ */
++
++#include <linux/delay.h>
++#include <linux/gpio/consumer.h>
++#include <linux/module.h>
++#include <linux/of.h>
++#include <linux/platform_device.h>
++#include <linux/slab.h>
++
++#include "x2000-dpu-fb.h"
++
++#define ENDER3_V3_KE_PIXELCLOCK_HZ	10753000
++
++#define ENDER3_V3_KE_XRES		480
++#define ENDER3_V3_KE_YRES		272
++
++#define ENDER3_V3_KE_HSYNC_LEN		20
++#define ENDER3_V3_KE_LEFT_MARGIN	20
++#define ENDER3_V3_KE_RIGHT_MARGIN	20
++
++#define ENDER3_V3_KE_VSYNC_LEN		20
++#define ENDER3_V3_KE_UPPER_MARGIN	20
++#define ENDER3_V3_KE_LOWER_MARGIN	20
++
++#define ENDER3_V3_KE_RESET_MS		10
++
++struct ender3_v3_ke_panel {
++	struct gpio_desc *reset;
++	struct x2000_dpu_panel dpu_panel;
++};
++
++static void ender3_v3_ke_panel_enable(void *data)
++{
++	struct ender3_v3_ke_panel *panel = data;
++
++	/*
++	 * reset-gpios is active-low. GPIO consumer values are logical:
++	 * 1 asserts reset (physical low), 0 releases it (physical high).
++	 */
++	gpiod_set_value_cansleep(panel->reset, 1);
++	msleep(ENDER3_V3_KE_RESET_MS);
++
++	gpiod_set_value_cansleep(panel->reset, 0);
++	msleep(ENDER3_V3_KE_RESET_MS);
++}
++
++static int ender3_v3_ke_panel_probe(struct platform_device *pdev)
++{
++	struct ender3_v3_ke_panel *panel;
++	int ret;
++
++	panel = devm_kzalloc(&pdev->dev, sizeof(*panel), GFP_KERNEL);
++	if (!panel)
++		return -ENOMEM;
++
++	/*
++	 * Start deasserted. The active-low flag from DT is handled by the
++	 * descriptor API, so logical zero corresponds to physical high.
++	 */
++	panel->reset = devm_gpiod_get(&pdev->dev, "reset", GPIOD_OUT_LOW);
++	if (IS_ERR(panel->reset))
++		return dev_err_probe(&pdev->dev, PTR_ERR(panel->reset),
++				     "failed to get panel reset GPIO\n");
++
++	panel->dpu_panel = (struct x2000_dpu_panel) {
++		.name = "ender3-v3-ke-480x272",
++
++		.pixelclock_hz = ENDER3_V3_KE_PIXELCLOCK_HZ,
++
++		.xres = ENDER3_V3_KE_XRES,
++		.yres = ENDER3_V3_KE_YRES,
++
++		.hsync_len = ENDER3_V3_KE_HSYNC_LEN,
++		.left_margin = ENDER3_V3_KE_LEFT_MARGIN,
++		.right_margin = ENDER3_V3_KE_RIGHT_MARGIN,
++
++		.vsync_len = ENDER3_V3_KE_VSYNC_LEN,
++		.upper_margin = ENDER3_V3_KE_UPPER_MARGIN,
++		.lower_margin = ENDER3_V3_KE_LOWER_MARGIN,
++
++		.de_low = false,
++
++		/*
++		 * This maps to DC_SYNC_DL in the X2000 DPU. Stock hardware
++		 * qualification observed this bit set in DC_TFT_CFG.
++		 */
++		.sync_low = true,
++
++		.vsync_low = false,
++
++		.enable = ender3_v3_ke_panel_enable,
++		.data = panel,
++	};
++
++	platform_set_drvdata(pdev, panel);
++
++	ret = x2000_dpu_register_panel(&panel->dpu_panel);
++	if (ret)
++		return dev_err_probe(&pdev->dev, ret,
++				     "failed to register X2000 panel\n");
++
++	return 0;
++}
++
++static int ender3_v3_ke_panel_remove(struct platform_device *pdev)
++{
++	struct ender3_v3_ke_panel *panel = platform_get_drvdata(pdev);
++
++	return x2000_dpu_unregister_panel(&panel->dpu_panel);
++}
++
++static const struct of_device_id ender3_v3_ke_panel_of_match[] = {
++	{ .compatible = "creality,ender-3-v3-ke-panel" },
++	{ }
++};
++MODULE_DEVICE_TABLE(of, ender3_v3_ke_panel_of_match);
++
++static struct platform_driver ender3_v3_ke_panel_driver = {
++	.probe = ender3_v3_ke_panel_probe,
++	.remove = ender3_v3_ke_panel_remove,
++	.driver = {
++		.name = "x2000-dpu-panel-ender3-v3-ke",
++		.of_match_table = ender3_v3_ke_panel_of_match,
++	},
++};
++module_platform_driver(ender3_v3_ke_panel_driver);
++
++MODULE_DESCRIPTION("Creality Ender-3 V3 KE X2000 480x272 panel");
++MODULE_LICENSE("GPL");
