@@ -1,0 +1,208 @@
+#!/bin/sh
+set -eu
+
+root=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+entrypoint=$root/build/x2000/entrypoint.sh
+inspector=$root/build/x2000/ximage-diagnostic/inspect_vmlinux.py
+wrapper=$root/scripts/build-x2000-kernel-ximage-diagnostic
+vendor=$root/build/x2000/ximage-diagnostic/vendor
+
+PYTHONDONTWRITEBYTECODE=1 python3 - "$inspector" <<'PY'
+import importlib.util
+import pathlib
+import struct
+import sys
+
+
+spec = importlib.util.spec_from_file_location("inspect_vmlinux", sys.argv[1])
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+
+
+def fixture(*, elf_class=1, endian=1, machine=8, entry=0x807D56E4,
+            symbol_entry=0x807D56E4, load_end=0x80800000):
+    ident = bytearray(b"\x7fELF" + bytes((elf_class, endian, 1)) + b"\0" * 9)
+    program_offset = 52
+    section_offset = 128
+    string_offset = section_offset + 3 * 40
+    strings = b"\0kernel_entry\0"
+    symbol_offset = string_offset + len(strings)
+    if symbol_offset % 4:
+        symbol_offset += 4 - symbol_offset % 4
+    size = symbol_offset + 2 * 16
+    data = bytearray(size)
+
+    header = struct.pack(
+        "<16sHHIIIIIHHHHHH",
+        bytes(ident), 2, machine, 1, entry, program_offset, section_offset,
+        0, 52, 32, 2, 40, 3, 1,
+    )
+    data[:52] = header
+    data[program_offset:program_offset + 32] = struct.pack(
+        "<IIIIIIII", 1, 0, 0x80100000, 0x80100000,
+        16, 0x100000, 5, 0x10000,
+    )
+    data[program_offset + 32:program_offset + 64] = struct.pack(
+        "<IIIIIIII", 1, 16, 0x80700000, 0x80700000,
+        16, load_end - 0x80700000, 6, 0x10000,
+    )
+    data[section_offset + 40:section_offset + 80] = struct.pack(
+        "<IIIIIIIIII", 0, 3, 0, 0, string_offset, len(strings), 0, 0, 1, 0,
+    )
+    data[section_offset + 80:section_offset + 120] = struct.pack(
+        "<IIIIIIIIII", 0, 2, 0, 0, symbol_offset, 32, 1, 0, 4, 16,
+    )
+    data[string_offset:string_offset + len(strings)] = strings
+    data[symbol_offset + 16:symbol_offset + 32] = struct.pack(
+        "<IIIBBH", 1, symbol_entry, 0, 0x10, 0, 1,
+    )
+    return bytes(data)
+
+
+document = module.inspect(fixture(), 0x80F00000)
+assert document["load_address"] == "0x80100000"
+assert document["elf_entry"] == "0x807d56e4"
+assert document["kernel_entry"] == "0x807d56e4"
+
+
+def must_fail(description, **changes):
+    try:
+        module.inspect(fixture(**changes), 0x80F00000)
+    except module.ContractError:
+        return
+    raise AssertionError(f"negative fixture passed: {description}")
+
+
+must_fail("ELF64", elf_class=2)
+must_fail("big-endian", endian=2)
+must_fail("non-MIPS", machine=3)
+must_fail("entry mismatch", symbol_entry=0x807D56E0)
+must_fail("entry in LOAD gap", entry=0x80300000, symbol_entry=0x80300000)
+must_fail("wrapper overlap", load_end=0x81000000)
+
+print("fre3nder-x2000 xImage ELF contracts: PASS")
+PY
+
+grep -Fxq 'kernel_ximage_diagnostic_out="$artifact_root/kernel-ximage-diagnostic"' \
+	"$entrypoint"
+grep -Fxq 'ximage_outer_load=0x80f00000' "$entrypoint"
+grep -Fxq 'ximage_expected_inner_load=0x80100000' "$entrypoint"
+grep -Fq 'build-kernel-ximage-diagnostic)' "$entrypoint"
+grep -Fq 'FRE3NDER_ARTIFACT_MODE=development' "$wrapper"
+grep -Fq 'build-kernel-ximage-diagnostic' "$wrapper"
+grep -Fq 'uzImage.bin dtbs' "$entrypoint"
+[ "$(grep -Fc 'uzImage.bin dtbs' "$entrypoint")" -eq 3 ]
+[ "$(grep -Fc 'arch/mips/boot/uzImage.bin' "$entrypoint")" -eq 2 ]
+grep -Fq 'hardware_validated": False' "$entrypoint"
+grep -Fq 'vmlinux_sha256_after' "$entrypoint"
+grep -Fq 'decompressed payload overlaps the xImage wrapper' "$entrypoint"
+grep -Fq "grep -Fq 'ingenic,halley5'" "$entrypoint"
+
+tmp=$(mktemp -d)
+cleanup() {
+	rm -rf -- "$tmp"
+}
+trap cleanup EXIT HUP INT TERM
+
+build_function=$tmp/build-ximage-wrapper.sh
+sed -n '/^build_ximage_wrapper() {$/,/^}$/p' "$entrypoint" > "$build_function"
+awk '
+	/trap remove_ximage_wrapper EXIT/ { trap_line = NR }
+	/^[[:space:]]*install_ximage_wrapper$/ { install_line = NR }
+	END { exit !(trap_line && install_line && trap_line < install_line) }
+' "$build_function"
+
+functions=$tmp/ximage-cleanup-functions.sh
+for function_name in install_ximage_wrapper remove_ximage_wrapper; do
+	sed -n "/^$function_name() {$/,/^}$/p" "$entrypoint"
+done > "$functions"
+
+fixture=$tmp/fixture
+kernel_source=$fixture/linux
+work=$fixture/work
+wrapper_source=$fixture/wrapper
+mkdir -p "$kernel_source/arch/mips/boot" "$work" "$wrapper_source"
+printf '%s\n' original > "$kernel_source/arch/mips/Makefile"
+cp "$kernel_source/arch/mips/Makefile" "$fixture/original-Makefile"
+for source in Makefile head.S misc.c ld.script dummy.c \
+	arch-mips-Makefile.fragment; do
+	printf '%s\n' "$source" > "$wrapper_source/$source"
+done
+
+fake_bin=$fixture/bin
+mkdir -p "$fake_bin"
+cat > "$fake_bin/cat" <<'EOF'
+#!/bin/sh
+: > "$XIMAGE_TEST_CAT_MARKER"
+sed -n '1p' "$1"
+exit 1
+EOF
+chmod 0755 "$fake_bin/cat"
+
+runner=$fixture/run-partial-install
+cat > "$runner" <<'EOF'
+#!/bin/sh
+set -eu
+. "$XIMAGE_TEST_FUNCTIONS"
+PATH="$XIMAGE_TEST_BIN:$PATH"
+ximage_wrapper_source=$XIMAGE_TEST_WRAPPER_SOURCE
+ximage_arch_makefile=$XIMAGE_TEST_KERNEL_SOURCE/arch/mips/Makefile
+ximage_arch_makefile_backup=$XIMAGE_TEST_WORK/fre3nder-ximage-arch-mips-Makefile
+ximage_wrapper_destination=$XIMAGE_TEST_KERNEL_SOURCE/arch/mips/boot/zcompressed
+ximage_arch_makefile_saved=false
+ximage_wrapper_destination_owned=false
+trap remove_ximage_wrapper EXIT
+trap 'exit 1' HUP INT TERM
+install_ximage_wrapper
+EOF
+chmod 0755 "$runner"
+
+if XIMAGE_TEST_FUNCTIONS="$functions" \
+	XIMAGE_TEST_BIN="$fake_bin" \
+	XIMAGE_TEST_WRAPPER_SOURCE="$wrapper_source" \
+	XIMAGE_TEST_KERNEL_SOURCE="$kernel_source" \
+	XIMAGE_TEST_WORK="$work" \
+	XIMAGE_TEST_CAT_MARKER="$fixture/cat-reached" \
+	"$runner" >/dev/null 2>&1; then
+	echo 'partial xImage wrapper installation unexpectedly succeeded' >&2
+	exit 1
+fi
+[ -f "$fixture/cat-reached" ]
+cmp -s "$fixture/original-Makefile" "$kernel_source/arch/mips/Makefile"
+[ ! -e "$kernel_source/arch/mips/boot/zcompressed" ]
+[ ! -L "$kernel_source/arch/mips/boot/zcompressed" ]
+[ ! -e "$work/fre3nder-ximage-arch-mips-Makefile" ]
+[ ! -L "$work/fre3nder-ximage-arch-mips-Makefile" ]
+
+python3 - "$vendor" <<'PY'
+import hashlib
+import pathlib
+import sys
+
+
+root = pathlib.Path(sys.argv[1])
+
+
+def sha(data):
+    return hashlib.sha256(data).hexdigest()
+
+
+head = (root / "head.S").read_bytes().split(b"\n", 1)[1]
+linker = (root / "ld.script").read_bytes().split(b"\n", 1)[1]
+dummy = (root / "dummy.c").read_bytes().split(b"\n", 1)[1]
+misc = (root / "misc.c").read_bytes().split(b"\n", 1)[1]
+misc = misc.replace(
+    b"#define UART0_IOBASE 0x10030000",
+    b"#include <soc/base.h>",
+    1,
+)
+
+assert sha(head) == "6814fdcc04d9458a22e86319a09113ff8173f3f08d6a4c284341b10fb88fdb96"
+assert sha(linker) == "4399a934ce0e2ca562322f375a6648e3212d48a1620bc036131dca21d1f247e5"
+assert sha(dummy) == "34699395223612a0fff8ec5da7757409f19fbfe3aad747126ebdc673ca9158ac"
+assert sha(misc) == "78a6bfe9f65d1894c80af186ba5cc5e31fae5de73d1f2a4301c87dd311ab41f3"
+
+print("fre3nder-x2000 xImage Vendor provenance: PASS")
+PY
+
+echo 'fre3nder-x2000 xImage diagnostic contracts: PASS'

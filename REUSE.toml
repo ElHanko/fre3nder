@@ -95,6 +95,12 @@ SPDX-FileCopyrightText = "NOASSERTION"
 SPDX-License-Identifier = "GPL-2.0-only"
 
 [[annotations]]
+path = "build/x2000/ximage-diagnostic/vendor/**"
+precedence = "closest"
+SPDX-FileCopyrightText = "NOASSERTION"
+SPDX-License-Identifier = "GPL-2.0-only"
+
+[[annotations]]
 path = "research/patches/klipper/**"
 precedence = "closest"
 SPDX-FileCopyrightText = "NOASSERTION"

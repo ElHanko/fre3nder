@@ -1,0 +1,11 @@
+# SPDX-License-Identifier: GPL-2.0-only
+# Isolated diagnostic target derived from the Ingenic SDK xImage rule.
+
+.PHONY: fre3nder-ximage-diagnostic
+fre3nder-ximage-diagnostic: $(vmlinux-32) FORCE
+	$(Q)$(MAKE) $(build)=arch/mips/boot/zcompressed \
+		VMLINUX=$(vmlinux-32) \
+		LOADADDR=$(FRE3NDER_XIMAGE_INNER_LOAD) \
+		KERNEL_ENTRY=$(FRE3NDER_XIMAGE_KERNEL_ENTRY) \
+		XIMAGE_LOADADDR=$(FRE3NDER_XIMAGE_OUTER_LOAD) \
+		KERNELRELEASE=$(KERNELRELEASE) xImage

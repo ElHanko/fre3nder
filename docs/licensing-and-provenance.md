@@ -52,6 +52,16 @@ derived material. The former Ingenic SDK/vendor kernel inputs are retained only
 under `research/` as historical qualification and clean-port research evidence;
 they are not productive build inputs.
 
+One explicitly development-only exception is the isolated Ingenic xImage
+diagnostic wrapper under `build/x2000/ximage-diagnostic/vendor/`. Its five
+wrapper source files and small Kbuild target derive from
+`Llixuma/ingenic-linux-kernel6.6-x2000-v1.0-20250221` commit
+`a98c2e1f22e4263ddd4153a4eca4db4dcfd2777b` and remain `GPL-2.0-only` Linux
+kernel material. This component supplies only the gzip decompressor and XBurst
+cache-flush handoff around the freshly built upstream Clean Port; it does not
+make the Vendor kernel, SDK toolchain, DTS, configuration, or drivers a build
+input. It is not part of the normal release path and is not hardware qualified.
+
 Kernel and RootFS are both built with the upstream Buildroot internal GCC
 13.4.0/binutils 2.43.1 toolchain. They remain separate compiler contracts:
 the kernel uses Kbuild's MIPS32r5/O32/soft-float/legacy-NaN flags through the

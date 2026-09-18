@@ -1,0 +1,27 @@
+#!/bin/sh
+set -eu
+
+root=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+version=$(cat "$root/VERSION")
+image="ender3-v3-ke-fre3nder-x2000:$version"
+runtime_user=$(id -u):$(id -g)
+work_root="$root/local/production/work/x2000"
+docker_cmd=${X2000_BUILD_DOCKER:-docker}
+
+if [ "$#" -ne 0 ]; then
+	echo "usage: $0" >&2
+	exit 2
+fi
+
+git -C "$root" check-ignore -q local/production
+"$docker_cmd" build -t "$image" "$root/build/x2000"
+mkdir -p "$work_root"
+"$docker_cmd" run --rm --user "$runtime_user" \
+	-v "$root:/project" \
+	-v "$work_root:/work" \
+	"$image" fetch-kernel
+"$docker_cmd" run --rm --network none --user "$runtime_user" \
+	-e FRE3NDER_ARTIFACT_MODE=development \
+	-v "$root:/project" \
+	-v "$work_root:/work" \
+	"$image" build-kernel-ximage-diagnostic

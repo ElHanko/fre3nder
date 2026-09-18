@@ -4,6 +4,7 @@ set -eu
 root=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
 orchestrator="$root/scripts/build-x2000"
 kernel_builder="$root/scripts/build-x2000-kernel"
+ximage_builder="$root/scripts/build-x2000-kernel-ximage-diagnostic"
 buildroot_builder="$root/scripts/build-x2000-buildroot"
 moonraker_builder="$root/scripts/build-x2000-moonraker"
 guppyscreen_builder="$root/scripts/build-x2000-guppyscreen"
@@ -36,6 +37,17 @@ grep -Fq 'build-kernel-only' "$docker_log"
 X2000_BUILD_DOCKER="$fake_docker" X2000_TEST_DOCKER_LOG="$docker_log" \
 	"$kernel_builder" --develop
 grep -Fq 'FRE3NDER_ARTIFACT_MODE=development' "$docker_log"
+
+: > "$docker_log"
+X2000_BUILD_DOCKER="$fake_docker" X2000_TEST_DOCKER_LOG="$docker_log" \
+	"$ximage_builder"
+grep -Fq 'fetch-kernel' "$docker_log"
+grep -Fq 'build-kernel-ximage-diagnostic' "$docker_log"
+grep -Fq 'FRE3NDER_ARTIFACT_MODE=development' "$docker_log"
+if grep -Fq 'build-kernel-only' "$docker_log"; then
+	echo 'xImage diagnostic wrapper invoked the production kernel path' >&2
+	exit 1
+fi
 
 : > "$docker_log"
 X2000_BUILD_DOCKER="$fake_docker" X2000_TEST_DOCKER_LOG="$docker_log" \

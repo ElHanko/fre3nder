@@ -260,7 +260,8 @@ grep -Fq 'KBUILD_BUILD_TIMESTAMP="$kernel_build_timestamp"' "$entrypoint"
 grep -Fq 'KBUILD_BUILD_VERSION="$kernel_build_version"' "$entrypoint"
 grep -Fq 'SOURCE_DATE_EPOCH="$kernel_commit_epoch"' "$entrypoint"
 [ "$(grep -Fc 'LOCALVERSION= \' "$entrypoint")" -eq 2 ]
-[ "$(grep -Fc 'uzImage.bin dtbs' "$entrypoint")" -eq 2 ]
+[ "$(grep -Fc "LOCALVERSION='' \\" "$entrypoint")" -eq 2 ]
+[ "$(grep -Fc 'uzImage.bin dtbs' "$entrypoint")" -eq 3 ]
 [ "$(grep -Fc 'arch/mips/boot/uzImage.bin' "$entrypoint")" -eq 2 ]
 grep -Fq 'check_kernel_boot_image() {' "$entrypoint"
 grep -Fq 'initramfs_build=$1' "$entrypoint"
@@ -289,7 +290,7 @@ for active_input in \
 	"$root/scripts/build-x2000-buildroot" \
 	"$root/scripts/x2000-build-input-sha256"; do
 	if grep -rEq \
-		'6\.6\.18-rt23|module_drivers|/work/sdk|xImage|kernel\.fragment|ke-(wlan|touch|display)\.patch|configs/x2000/ender3-v3-ke\.dts' \
+		'6\.6\.18-rt23|module_drivers|/work/sdk|kernel\.fragment|ke-(wlan|touch|display)\.patch|configs/x2000/ender3-v3-ke\.dts' \
 		"$active_input"; then
 		echo "active production input contains a legacy vendor-kernel dependency: $active_input" >&2
 		exit 1
@@ -357,13 +358,13 @@ if grep -Eq 'sdk|module_drivers|kernel\.fragment|x2000_halley5' \
 	exit 1
 fi
 
-[ "$(grep -Ec '^[[:space:]]*configure_kernel$' "$entrypoint")" -eq 2 ] || {
-	echo 'kernel configure step is not wired into both kernel build paths' >&2
+[ "$(grep -Ec '^[[:space:]]*configure_kernel$' "$entrypoint")" -eq 3 ] || {
+	echo 'kernel configure step is not wired into all kernel build paths' >&2
 	exit 1
 }
 
-[ "$(grep -Ec '^[[:space:]]*record_kernel_build "\$out" "\$brout"$' "$entrypoint")" -eq 2 ] || {
-	echo 'kernel provenance is not recorded in both kernel-producing paths' >&2
+[ "$(grep -Ec '^[[:space:]]*record_kernel_build "\$out" "\$brout"$' "$entrypoint")" -eq 3 ] || {
+	echo 'kernel provenance is not recorded in all kernel-producing paths' >&2
 	exit 1
 }
 

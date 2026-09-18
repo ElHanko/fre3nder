@@ -43,6 +43,7 @@ f005_firmware=${FRE3NDER_F005_FIRMWARE:-"$local_root/artifacts/x2000/f005/klippe
 artifact_root="$local_root/artifacts/x2000"
 full_out="$artifact_root/full"
 kernel_out="$artifact_root/kernel-only"
+kernel_ximage_diagnostic_out="$artifact_root/kernel-ximage-diagnostic"
 rootfs_out="$artifact_root/rootfs-only"
 kernel_url=https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git
 kernel_commit=d8a27ea2c98685cdaa5fa66c809c7069a4ff394b
@@ -53,6 +54,12 @@ kernel_build_user=fre3nder
 kernel_build_host=build
 kernel_build_version=1
 kernel_build_timestamp=
+ximage_wrapper_source="$project/build/x2000/ximage-diagnostic/vendor"
+ximage_inspector="$project/build/x2000/ximage-diagnostic/inspect_vmlinux.py"
+ximage_vendor_url=https://github.com/Llixuma/ingenic-linux-kernel6.6-x2000-v1.0-20250221.git
+ximage_vendor_commit=a98c2e1f22e4263ddd4153a4eca4db4dcfd2777b
+ximage_outer_load=0x80f00000
+ximage_expected_inner_load=0x80100000
 buildroot_url=https://gitlab.com/buildroot.org/buildroot.git
 buildroot_version=2025.02.18
 buildroot_commit=d030e36bbc9669230c015be971b14b6e062cfdde
@@ -1488,6 +1495,176 @@ check_kernel_boot_image() {
 	}
 }
 
+inspect_ximage_vmlinux() {
+	vmlinux=$1
+	contract=$2
+
+	if [ ! -f "$ximage_inspector" ] || [ -L "$ximage_inspector" ]; then
+		echo 'xImage vmlinux inspector is missing, non-regular, or a symlink' >&2
+		return 1
+	fi
+	if [ ! -f "$vmlinux" ] || [ -L "$vmlinux" ]; then
+		echo 'xImage input vmlinux is missing, non-regular, or a symlink' >&2
+		return 1
+	fi
+
+	python3 "$ximage_inspector" --outer-load "$ximage_outer_load" \
+		"$vmlinux" > "$contract"
+	ximage_inner_load=$(python3 - "$contract" <<'PY'
+import json
+import pathlib
+import sys
+
+print(json.loads(pathlib.Path(sys.argv[1]).read_text())["load_address"])
+PY
+	)
+	ximage_kernel_entry=$(python3 - "$contract" <<'PY'
+import json
+import pathlib
+import sys
+
+print(json.loads(pathlib.Path(sys.argv[1]).read_text())["kernel_entry"])
+PY
+	)
+
+	[ "$ximage_inner_load" = "$ximage_expected_inner_load" ] || {
+		echo "unexpected clean-port vmlinux load address: $ximage_inner_load" >&2
+		return 1
+	}
+	grep -Fxq 'CONFIG_SMP=y' "$kernel_build/.config"
+	grep -Fxq 'CONFIG_NR_CPUS=2' "$kernel_build/.config"
+	strings "$vmlinux" | grep -Fq 'Linux version 6.6.18-fre3nder'
+	strings "$vmlinux" | grep -Fq 'creality,ender-3-v3-ke'
+	if strings "$vmlinux" | grep -Fq 'ingenic,halley5'; then
+		echo 'xImage payload has Vendor-kernel identity' >&2
+		return 1
+	fi
+}
+
+install_ximage_wrapper() {
+	fragment="$ximage_wrapper_source/arch-mips-Makefile.fragment"
+
+	if [ -e "$ximage_wrapper_destination" ] || \
+		[ -L "$ximage_wrapper_destination" ]; then
+		echo 'unexpected pre-existing zcompressed wrapper directory' >&2
+		return 1
+	fi
+	for source in Makefile head.S misc.c ld.script dummy.c \
+		arch-mips-Makefile.fragment; do
+		if [ ! -f "$ximage_wrapper_source/$source" ] || \
+			[ -L "$ximage_wrapper_source/$source" ]; then
+			echo "xImage wrapper source missing or non-regular: $source" >&2
+			return 1
+		fi
+	done
+
+	rm -f -- "$ximage_arch_makefile_backup"
+	cp "$ximage_arch_makefile" "$ximage_arch_makefile_backup"
+	ximage_arch_makefile_saved=true
+	ximage_wrapper_destination_owned=true
+	install -d -m 0755 "$ximage_wrapper_destination"
+	install -m 0644 \
+		"$ximage_wrapper_source/Makefile" \
+		"$ximage_wrapper_source/head.S" \
+		"$ximage_wrapper_source/misc.c" \
+		"$ximage_wrapper_source/ld.script" \
+		"$ximage_wrapper_source/dummy.c" \
+		"$ximage_wrapper_destination/"
+	printf '\n' >> "$ximage_arch_makefile"
+	cat "$fragment" >> "$ximage_arch_makefile"
+}
+
+remove_ximage_wrapper() {
+	cleanup_failed=false
+
+	if [ "$ximage_wrapper_destination_owned" = true ]; then
+		if rm -rf -- "$ximage_wrapper_destination"; then
+			ximage_wrapper_destination_owned=false
+		else
+			echo 'failed to remove partial xImage wrapper directory' >&2
+			cleanup_failed=true
+		fi
+	fi
+
+	if [ "$ximage_arch_makefile_saved" = true ]; then
+		if [ -f "$ximage_arch_makefile_backup" ] && \
+			[ ! -L "$ximage_arch_makefile_backup" ] && \
+			mv -f -- "$ximage_arch_makefile_backup" \
+				"$ximage_arch_makefile"; then
+			ximage_arch_makefile_saved=false
+		else
+			echo 'failed to restore arch/mips/Makefile after xImage wrapper' >&2
+			cleanup_failed=true
+		fi
+	elif ! rm -f -- "$ximage_arch_makefile_backup"; then
+		echo 'failed to remove partial xImage Makefile backup' >&2
+		cleanup_failed=true
+	fi
+
+	[ "$cleanup_failed" = false ]
+}
+
+build_ximage_wrapper() {
+	jobs=$1
+	contract=$2
+	vmlinux="$kernel_build/vmlinux"
+	wrapper_build="$kernel_build/arch/mips/boot/zcompressed"
+	ximage_arch_makefile="$kernel_source/arch/mips/Makefile"
+	ximage_arch_makefile_backup="$work/fre3nder-ximage-arch-mips-Makefile"
+	ximage_wrapper_destination="$kernel_source/arch/mips/boot/zcompressed"
+	ximage_arch_makefile_saved=false
+	ximage_wrapper_destination_owned=false
+
+	inspect_ximage_vmlinux "$vmlinux" "$contract"
+	vmlinux_sha256_before=$(sha256sum "$vmlinux")
+	vmlinux_sha256_before=${vmlinux_sha256_before%% *}
+
+	trap remove_ximage_wrapper EXIT
+	trap 'exit 1' HUP INT TERM
+	install_ximage_wrapper
+	SOURCE_DATE_EPOCH="$kernel_commit_epoch" \
+	LOCALVERSION='' \
+	KBUILD_BUILD_USER="$kernel_build_user" \
+	KBUILD_BUILD_HOST="$kernel_build_host" \
+	KBUILD_BUILD_TIMESTAMP="$kernel_build_timestamp" \
+	KBUILD_BUILD_VERSION="$kernel_build_version" \
+	make -C "$kernel_source" O="$kernel_build" -j"$jobs" ARCH=mips \
+		CROSS_COMPILE="$kernel_cross_compile" CC="$kernel_cc" \
+		HOSTCFLAGS='-Wno-error=incompatible-pointer-types' \
+		FRE3NDER_XIMAGE_INNER_LOAD="$ximage_inner_load" \
+		FRE3NDER_XIMAGE_KERNEL_ENTRY="$ximage_kernel_entry" \
+		FRE3NDER_XIMAGE_OUTER_LOAD="$ximage_outer_load" \
+		fre3nder-ximage-diagnostic
+	remove_ximage_wrapper
+	trap - EXIT HUP INT TERM
+
+	vmlinux_sha256_after=$(sha256sum "$vmlinux")
+	vmlinux_sha256_after=${vmlinux_sha256_after%% *}
+	[ "$vmlinux_sha256_after" = "$vmlinux_sha256_before" ] || {
+		echo 'vmlinux changed while building the diagnostic wrapper' >&2
+		return 1
+	}
+
+	[ -f "$wrapper_build/vmlinux.bin" ] && \
+		[ ! -L "$wrapper_build/vmlinux.bin" ]
+	ximage_payload_size=$(stat -c '%s' "$wrapper_build/vmlinux.bin")
+	ximage_payload_end=$(python3 - "$ximage_inner_load" \
+		"$ximage_payload_size" <<'PY'
+import sys
+
+print(f"0x{int(sys.argv[1], 0) + int(sys.argv[2]):08x}")
+PY
+	)
+	python3 - "$ximage_payload_end" "$ximage_outer_load" <<'PY'
+import sys
+
+if int(sys.argv[1], 0) > int(sys.argv[2], 0):
+    raise SystemExit("decompressed payload overlaps the xImage wrapper")
+PY
+
+	[ -f "$wrapper_build/xImage" ] && [ ! -L "$wrapper_build/xImage" ]
+}
+
 write_kernel_final_diff() {
 	output=$1
 	temporary_index="${output}.index.$$"
@@ -1708,6 +1885,100 @@ kernel_build = {
 }
 
 manifest["kernel_build"] = kernel_build
+manifest_path.write_text(
+    json.dumps(manifest, indent=2, sort_keys=True) + "\n"
+)
+PY
+}
+
+record_ximage_diagnostic() {
+	out=$1
+	contract=$2
+	manifest="$out/build-manifest.json"
+
+	export XIMAGE_CONTRACT="$contract"
+	export XIMAGE_VMLINUX="$kernel_build/vmlinux"
+	export XIMAGE_OUTPUT="$out/kernel.uImage"
+	export XIMAGE_WRAPPER_SOURCE="$ximage_wrapper_source"
+	export XIMAGE_VENDOR_URL="$ximage_vendor_url"
+	export XIMAGE_VENDOR_COMMIT="$ximage_vendor_commit"
+	export XIMAGE_OUTER_LOAD="$ximage_outer_load"
+	export XIMAGE_PAYLOAD_SIZE="$ximage_payload_size"
+	export XIMAGE_PAYLOAD_END="$ximage_payload_end"
+	export XIMAGE_KERNEL_COMMIT="$kernel_commit"
+
+	python3 - "$manifest" "$project" <<'PY'
+import hashlib
+import json
+import os
+import pathlib
+import sys
+
+manifest_path = pathlib.Path(sys.argv[1])
+project = pathlib.Path(sys.argv[2])
+contract = json.loads(pathlib.Path(os.environ["XIMAGE_CONTRACT"]).read_text())
+manifest = json.loads(manifest_path.read_text())
+
+if manifest.get("artifact_mode") != "development":
+    raise SystemExit("xImage diagnostic manifest is not in development mode")
+
+vmlinux = pathlib.Path(os.environ["XIMAGE_VMLINUX"])
+image = pathlib.Path(os.environ["XIMAGE_OUTPUT"])
+source_root = pathlib.Path(os.environ["XIMAGE_WRAPPER_SOURCE"])
+source_names = (
+    "Makefile",
+    "head.S",
+    "misc.c",
+    "ld.script",
+    "dummy.c",
+    "arch-mips-Makefile.fragment",
+)
+
+source_files = {}
+for name in source_names:
+    source = source_root / name
+    if source.is_symlink() or not source.is_file():
+        raise SystemExit(f"invalid xImage wrapper source: {source}")
+    source_files[
+        source.relative_to(project).as_posix()
+    ] = hashlib.sha256(source.read_bytes()).hexdigest()
+
+vmlinux_sha256 = hashlib.sha256(vmlinux.read_bytes()).hexdigest()
+image_sha256 = hashlib.sha256(image.read_bytes()).hexdigest()
+if manifest.get("kernel_build", {}).get("vmlinux_sha256") != vmlinux_sha256:
+    raise SystemExit("diagnostic vmlinux disagrees with kernel provenance")
+if manifest.get("artifacts", {}).get("kernel.uImage") != image_sha256:
+    raise SystemExit("diagnostic image disagrees with artifact provenance")
+
+manifest["ximage_diagnostic"] = {
+    "mode": "development-diagnostic",
+    "hardware_validated": False,
+    "upstream_kernel_commit": os.environ["XIMAGE_KERNEL_COMMIT"],
+    "vmlinux": {
+        "sha256": vmlinux_sha256,
+        "elf_load_address": contract["load_address"],
+        "elf_entry": contract["elf_entry"],
+        "kernel_entry": contract["kernel_entry"],
+        "load_file_end": contract["load_file_end"],
+        "load_memory_end": contract["load_memory_end"],
+        "payload_binary_size": int(os.environ["XIMAGE_PAYLOAD_SIZE"]),
+        "payload_decompression_end": os.environ["XIMAGE_PAYLOAD_END"],
+    },
+    "ximage": {
+        "outer_load_address": os.environ["XIMAGE_OUTER_LOAD"],
+        "outer_entry": os.environ["XIMAGE_OUTER_LOAD"],
+        "kernel_uimage_sha256": image_sha256,
+    },
+    "wrapper": {
+        "role": "Ingenic gzip decompressor and XBurst cache-flush handoff only",
+        "source_repository": os.environ["XIMAGE_VENDOR_URL"],
+        "vendor_source_commit": os.environ["XIMAGE_VENDOR_COMMIT"],
+        "vendor_source_path": "arch/mips/boot/zcompressed",
+        "license": "GPL-2.0-only",
+        "source_files": source_files,
+    },
+}
+
 manifest_path.write_text(
     json.dumps(manifest, indent=2, sort_keys=True) + "\n"
 )
@@ -2375,6 +2646,60 @@ build_kernel_only() {
 	strings "$kernel_build/vmlinux" | grep -q 'creality,ender-3-v3-ke'
 }
 
+build_kernel_ximage_diagnostic() {
+	[ "$artifact_mode" = development ] || {
+		echo 'xImage diagnostic build requires FRE3NDER_ARTIFACT_MODE=development' >&2
+		return 1
+	}
+
+	jobs=${JOBS:-4}
+	prepare_buildroot
+	brout="$work/buildroot-output-fre3nder"
+	configure_buildroot "$brout"
+	make -C "$buildroot" O="$brout" -j"$jobs" toolchain
+	write_buildroot_toolchain_fingerprint "$brout"
+	make -C "$buildroot" O="$brout" -j"$jobs" linux-firmware
+	stage_kernel_firmware "$brout"
+	kernel_cross_compile="$brout/host/bin/mipsel-buildroot-linux-gnu-"
+	kernel_cc="${kernel_cross_compile}gcc.br_real"
+	[ -x "$kernel_cc" ]
+	prepare_kernel
+	configure_kernel
+	SOURCE_DATE_EPOCH="$kernel_commit_epoch" \
+	LOCALVERSION='' \
+	KBUILD_BUILD_USER="$kernel_build_user" \
+	KBUILD_BUILD_HOST="$kernel_build_host" \
+	KBUILD_BUILD_TIMESTAMP="$kernel_build_timestamp" \
+	KBUILD_BUILD_VERSION="$kernel_build_version" \
+	make -C "$kernel_source" O="$kernel_build" -j"$jobs" ARCH=mips \
+		CROSS_COMPILE="$kernel_cross_compile" CC="$kernel_cc" \
+		HOSTCFLAGS='-Wno-error=incompatible-pointer-types' uzImage.bin dtbs
+	check_default_initramfs "$kernel_build"
+	check_kernel_dtb "$kernel_source" "$kernel_build"
+
+	ximage_contract="$work/fre3nder-ximage-vmlinux-contract.json"
+	build_ximage_wrapper "$jobs" "$ximage_contract"
+
+	out="$kernel_ximage_diagnostic_out"
+	rm -rf -- "$out"
+	mkdir -p "$out"
+	cp "$kernel_build/arch/mips/boot/zcompressed/xImage" "$out/kernel.uImage"
+	cp "$kernel_build/arch/mips/boot/dts/ingenic/ender3-v3-ke.dtb" \
+		"$out/ender3-v3-ke.dtb"
+	cp "$kernel_build/.config" "$out/effective-kernel-config"
+	write_build_manifest "$out" \
+		kernel.uImage ender3-v3-ke.dtb effective-kernel-config
+	record_kernel_build "$out" "$brout"
+	record_ximage_diagnostic "$out" "$ximage_contract"
+	(cd "$out" && sha256sum build-manifest.json kernel.uImage \
+		ender3-v3-ke.dtb effective-kernel-config) > "$out/SHA256SUMS"
+	(cd "$out" && sha256sum -c SHA256SUMS)
+
+	[ "$(find "$out" -maxdepth 1 -type f | wc -l)" -eq 5 ]
+	file "$out/kernel.uImage" "$out/ender3-v3-ke.dtb"
+	check_kernel_boot_image "$out/kernel.uImage"
+}
+
 build_rootfs_only() {
 	prepare_buildroot
 	prepare_klipper_overlay
@@ -2423,9 +2748,10 @@ case "${1:-build}" in
 	fetch-guppyscreen) "$project/build/x2000/guppyscreen-component.sh" fetch ;;
 	build) prepare_artifact_provenance; build ;;
 	build-kernel-only) prepare_artifact_provenance; build_kernel_only ;;
+	build-kernel-ximage-diagnostic) prepare_artifact_provenance; build_kernel_ximage_diagnostic ;;
 	build-rootfs-only) prepare_artifact_provenance; build_rootfs_only ;;
 	build-moonraker-component) build_moonraker_component ;;
 	build-guppyscreen-component) "$project/build/x2000/guppyscreen-component.sh" build ;;
 	prepare-buildroot-toolchain) prepare_buildroot_toolchain ;;
-	*) echo 'usage: fre3nder-x2000 {fetch-kernel|fetch-rootfs|fetch-buildroot|fetch-moonraker|fetch-guppyscreen|build|build-kernel-only|build-rootfs-only|build-moonraker-component|build-guppyscreen-component|prepare-buildroot-toolchain}' >&2; exit 2 ;;
+	*) echo 'usage: fre3nder-x2000 {fetch-kernel|fetch-rootfs|fetch-buildroot|fetch-moonraker|fetch-guppyscreen|build|build-kernel-only|build-kernel-ximage-diagnostic|build-rootfs-only|build-moonraker-component|build-guppyscreen-component|prepare-buildroot-toolchain}' >&2; exit 2 ;;
 esac

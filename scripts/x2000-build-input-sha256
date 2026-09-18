@@ -20,6 +20,7 @@ BUILD_INPUTS = (
     "scripts/build-x2000-buildroot",
     "scripts/build-x2000-guppyscreen",
     "scripts/build-x2000-kernel",
+    "scripts/build-x2000-kernel-ximage-diagnostic",
     "scripts/build-x2000-moonraker",
     "scripts/x2000-build-input-sha256",
 )
