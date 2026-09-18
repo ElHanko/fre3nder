@@ -24,6 +24,7 @@ class ContractError(Exception):
 root = pathlib.Path(sys.argv[1])
 sources_path = root / "configs/x2000/sources.json"
 series_path = root / "configs/x2000/kernel-patches.series"
+defconfig_path = root / "configs/x2000/kernel-clean-port.defconfig"
 patch_directory = pathlib.PurePosixPath("patches/linux")
 
 
@@ -81,13 +82,59 @@ require(sources.get("sdk", {}).get("production_active") is False,
         "legacy SDK kernel source must not remain active during Phase 2")
 require(sources.get("clean_port_kernel_source") == {
     "name": "upstream Linux stable",
-    "role": "active clean-port kernel source; configuration pending Phase 3",
+    "role": "active clean-port kernel source and configuration",
     "url": "https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git",
     "version": "v6.6.18",
     "commit": "d8a27ea2c98685cdaa5fa66c809c7069a4ff394b",
     "patch_series": "configs/x2000/kernel-patches.series",
+    "defconfig": "configs/x2000/kernel-clean-port.defconfig",
     "production_active": True,
 }, "clean-port kernel source contract mismatch")
+
+require(sources.get("kernel", {}).get("kernel_version") == "6.6.18",
+        "clean-port kernel version mismatch")
+require(sources.get("kernel", {}).get("kernel_localversion") == "-fre3nder",
+        "clean-port kernel localversion mismatch")
+require(sources.get("kernel", {}).get("kernel_release") == "6.6.18-fre3nder",
+        "clean-port kernel release mismatch")
+
+require(defconfig_path.is_file() and not defconfig_path.is_symlink(),
+        "clean-port kernel defconfig must be a regular file")
+defconfig_text = defconfig_path.read_text(encoding="utf-8")
+require(defconfig_text.endswith("\n"),
+        "clean-port kernel defconfig must end with a newline")
+
+for setting in (
+    'CONFIG_LOCALVERSION="-fre3nder"',
+    'CONFIG_MACH_INGENIC_SOC=y',
+    'CONFIG_DT_ENDER3_V3_KE=y',
+    'CONFIG_CPU_MIPS32_R5=y',
+    'CONFIG_SMP=y',
+    'CONFIG_NR_CPUS=2',
+    'CONFIG_HZ_100=y',
+    'CONFIG_BRCMFMAC=y',
+    'CONFIG_TOUCHSCREEN_NS2009=y',
+    'CONFIG_SERIAL_8250_INGENIC=y',
+    'CONFIG_I2C_JZ4780=y',
+    'CONFIG_SPI_GPIO=y',
+    'CONFIG_USB_VIDEO_CLASS=y',
+    'CONFIG_FB_X2000_DPU=y',
+    'CONFIG_FB_X2000_DPU_ENDER3_V3_KE=y',
+    'CONFIG_USB=y',
+    'CONFIG_USB_DWC2=y',
+    'CONFIG_PWM_X2000=y',
+    'CONFIG_SQUASHFS=y',
+    'CONFIG_SQUASHFS_XZ=y',
+):
+    require(setting in defconfig_text.splitlines(),
+            f"clean-port kernel defconfig missing {setting}")
+
+require("CONFIG_EXTRA_FIRMWARE_DIR=" not in defconfig_text,
+        "clean-port defconfig must not pin EXTRA_FIRMWARE_DIR")
+require(not re.search(
+    r"halley5|ttyS4|6\.6\.18-rt23|FB_INGENIC|STAGE_ENDER|BCMDHD",
+    defconfig_text,
+), "clean-port defconfig contains stale vendor identity")
 
 series_text = series_path.read_text(encoding="utf-8")
 validate_series(root, series_text)
@@ -149,6 +196,8 @@ grep -Fxq 'kernel_commit=d8a27ea2c98685cdaa5fa66c809c7069a4ff394b' \
 	"$entrypoint"
 grep -Fxq 'kernel_patch_series="$project/configs/x2000/kernel-patches.series"' \
 	"$entrypoint"
+grep -Fxq 'kernel_defconfig="$project/configs/x2000/kernel-clean-port.defconfig"' \
+	"$entrypoint"
 grep -Fq 'make -C "$k" O="$kernel_build"' "$entrypoint"
 grep -Fq 'check_default_initramfs "$kernel_build"' "$entrypoint"
 grep -Fq 'check_kernel_dtb "$k" "$kernel_build"' "$entrypoint"
@@ -174,7 +223,9 @@ for function_name in \
 	verify_kernel_source \
 	fetch_kernel_inputs \
 	validate_kernel_patch_series \
-	prepare_kernel; do
+	prepare_kernel \
+	check_kernel_config \
+	configure_kernel; do
 	sed -n "/^$function_name() {$/,/^}$/p" "$entrypoint"
 done > "$functions"
 
@@ -201,6 +252,25 @@ if grep -Eq 'sdk|module_drivers|ke-(wlan|display|touch)|ender3-v3-ke\.dts|x2000_
 	echo 'kernel prepare function still contains a legacy vendor integration path' >&2
 	exit 1
 fi
+
+configure_function=$tmp/configure-kernel.sh
+sed -n '/^configure_kernel() {$/,/^}$/p' "$entrypoint" > "$configure_function"
+grep -Fq 'cp "$kernel_defconfig" "$kernel_build/.config"' "$configure_function"
+grep -Fq 'savedefconfig' "$configure_function"
+grep -Fq 'cmp -s "$kernel_build/defconfig" "$kernel_defconfig"' "$configure_function"
+grep -Fq 'EXTRA_FIRMWARE_DIR "$kernel_firmware_dir"' "$configure_function"
+grep -Fq 'check_kernel_config "$kernel_build/.config"' "$configure_function"
+
+if grep -Eq 'sdk|module_drivers|kernel\.fragment|x2000_halley5' \
+	"$configure_function"; then
+	echo 'kernel configure function contains a legacy vendor integration path' >&2
+	exit 1
+fi
+
+[ "$(grep -Ec '^[[:space:]]*configure_kernel$' "$entrypoint")" -eq 2 ] || {
+	echo 'kernel configure step is not wired into both kernel build paths' >&2
+	exit 1
+}
 
 prepare_runner=$tmp/run-prepare
 cat > "$prepare_runner" <<'EOF'

@@ -47,6 +47,7 @@ rootfs_out="$artifact_root/rootfs-only"
 kernel_url=https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git
 kernel_commit=d8a27ea2c98685cdaa5fa66c809c7069a4ff394b
 kernel_patch_series="$project/configs/x2000/kernel-patches.series"
+kernel_defconfig="$project/configs/x2000/kernel-clean-port.defconfig"
 buildroot_url=https://gitlab.com/buildroot.org/buildroot.git
 buildroot_version=2025.02.18
 buildroot_commit=d030e36bbc9669230c015be971b14b6e062cfdde
@@ -1235,6 +1236,207 @@ prepare_kernel() {
 	git -C "$kernel_source" diff --check
 }
 
+check_kernel_config() {
+	config=$1
+
+	required_y='
+MACH_INGENIC_SOC
+DT_ENDER3_V3_KE
+CPU_LITTLE_ENDIAN
+CPU_MIPS32_R5
+SMP
+HZ_100
+PREEMPT
+HIGH_RES_TIMERS
+NO_HZ_IDLE
+MMC
+MMC_BLOCK
+MMC_SDHCI
+MMC_SDHCI_PLTFM
+MMC_SDHCI_INGENIC
+PWRSEQ_SIMPLE
+SQUASHFS
+SQUASHFS_XZ
+OVERLAY_FS
+EXT4_FS
+SERIAL_8250
+SERIAL_8250_INGENIC
+SERIAL_OF_PLATFORM
+I2C
+I2C_JZ4780
+TOUCHSCREEN_NS2009
+PWM
+PWM_X2000
+USB_SUPPORT
+USB
+USB_DWC2
+USB_DWC2_HOST
+USB_ROLE_SWITCH
+PHY_INGENIC_USB
+USB_STORAGE
+USB_USBNET
+USB_NET_AX88179_178A
+USB_NET_CDC_NCM
+USB_NET_CDCETHER
+BRCMFMAC
+BRCMFMAC_SDIO
+REGULATOR_FIXED_VOLTAGE
+SPI_GPIO
+SPI_SPIDEV
+VFAT_FS
+USB_VIDEO_CLASS
+FB
+FB_X2000_DPU
+FB_X2000_DPU_ENDER3_V3_KE
+BACKLIGHT_GPIO
+'
+
+	for symbol in $required_y; do
+		grep -Fxq "CONFIG_${symbol}=y" "$config" || {
+			echo "required kernel option is not enabled: CONFIG_${symbol}" >&2
+			return 1
+		}
+	done
+
+	required_n='
+CPU_BIG_ENDIAN
+PREEMPT_RT
+HZ_250
+NETWORK_FILESYSTEMS
+USB_DWC2_PERIPHERAL
+USB_DWC2_DUAL_ROLE
+USB_GADGET
+USB_LIBCOMPOSITE
+USB_CONFIGFS
+BRCMFMAC_USB
+IIO
+MTD
+SOUND
+WATCHDOG
+BACKLIGHT_PWM
+LOCALVERSION_AUTO
+'
+
+	for symbol in $required_n; do
+		if grep -Eq "^CONFIG_${symbol}=(y|m)$" "$config"; then
+			echo "forbidden kernel option is active: CONFIG_${symbol}" >&2
+			return 1
+		fi
+	done
+
+	legacy='
+DT_HALLEY5_V30
+FB_INGENIC
+FB_INGENIC_STAGE
+STAGE_ENDER3_V3_KE_480X272
+SERIAL_INGENIC
+SERIAL_INGENIC_UART
+SERIAL_INGENIC_CONSOLE
+I2C_INGENIC
+PWM_INGENIC_V2
+PINCTRL_INGENIC_V2
+BCMDHD
+SND_ASOC_INGENIC
+VIDEOBUF2_DMA_CONTIG_INGENIC
+INGENIC_SPI
+INGENIC_SFC
+INGENIC_RSA
+VIDEO_INGENIC_ISP
+VIDEO_INGENIC_ROTATE
+VIDEO_INGENIC_VCODEC
+HALLEY5_CAMERA_BOARD
+RD_X2000_HALLEY5_CAMERA_4V3
+INGENIC_ISP_CAMERA_OV2735A
+TOUCHSCREEN_GT9XX
+INGENIC_MAC
+INGENIC_WDT
+'
+
+	for symbol in $legacy; do
+		if grep -Eq "^CONFIG_${symbol}=(y|m)$" "$config"; then
+			echo "legacy vendor kernel option is active: CONFIG_${symbol}" >&2
+			return 1
+		fi
+	done
+
+	grep -Fxq 'CONFIG_NR_CPUS=2' "$config"
+	grep -Fxq 'CONFIG_MMC_BLOCK_MINORS=16' "$config"
+	grep -Fxq 'CONFIG_INITRAMFS_SOURCE=""' "$config"
+	grep -Fxq 'CONFIG_LOCALVERSION="-fre3nder"' "$config"
+	grep -Fxq \
+		'CONFIG_EXTRA_FIRMWARE="brcm/brcmfmac43430-sdio.bin brcm/brcmfmac43430-sdio.clm_blob brcm/brcmfmac43430-sdio.txt"' \
+		"$config"
+	grep -Fxq \
+		"CONFIG_EXTRA_FIRMWARE_DIR=\"$kernel_firmware_dir\"" \
+		"$config"
+
+	if grep -Eq \
+		'ttyS4|halley5|6\.6\.18-rt23|STAGE_ENDER|FB_INGENIC' \
+		"$config"; then
+		echo 'stale vendor kernel identity remains in effective config' >&2
+		return 1
+	fi
+}
+
+configure_kernel() {
+	if [ ! -f "$kernel_defconfig" ] || [ -L "$kernel_defconfig" ]; then
+		echo 'clean-port kernel defconfig is missing, non-regular, or a symlink' >&2
+		return 1
+	fi
+	[ -x "$kernel_source/scripts/config" ]
+	[ -x "$kernel_cc" ]
+	[ -d "$kernel_firmware_dir" ]
+
+	cp "$kernel_defconfig" "$kernel_build/.config"
+
+	make -C "$kernel_source" O="$kernel_build" \
+		ARCH=mips CROSS_COMPILE="$kernel_cross_compile" CC="$kernel_cc" \
+		HOSTCFLAGS='-Wno-error=incompatible-pointer-types' olddefconfig
+
+	# The repository defconfig must already be the canonical savedefconfig
+	# for the pinned clean-port tree.
+	make -s -C "$kernel_source" O="$kernel_build" \
+		ARCH=mips CROSS_COMPILE="$kernel_cross_compile" CC="$kernel_cc" \
+		HOSTCFLAGS='-Wno-error=incompatible-pointer-types' savedefconfig
+	cmp -s "$kernel_build/defconfig" "$kernel_defconfig" || {
+		echo 'clean-port kernel defconfig is not canonical for the pinned tree' >&2
+		return 1
+	}
+	rm -f -- "$kernel_build/defconfig"
+
+	base_config="$work/fre3nder-kernel-config.base"
+	base_normalized="$work/fre3nder-kernel-config.base.normalized"
+	final_normalized="$work/fre3nder-kernel-config.final.normalized"
+
+	cp "$kernel_build/.config" "$base_config"
+
+	"$kernel_source/scripts/config" \
+		--file "$kernel_build/.config" \
+		--set-str EXTRA_FIRMWARE_DIR "$kernel_firmware_dir"
+
+	make -C "$kernel_source" O="$kernel_build" \
+		ARCH=mips CROSS_COMPILE="$kernel_cross_compile" CC="$kernel_cc" \
+		HOSTCFLAGS='-Wno-error=incompatible-pointer-types' olddefconfig
+
+	# EXTRA_FIRMWARE_DIR is the only dynamic Kconfig value permitted.
+	sed \
+		's|^CONFIG_EXTRA_FIRMWARE_DIR=.*$|CONFIG_EXTRA_FIRMWARE_DIR="<dynamic>"|' \
+		"$base_config" > "$base_normalized"
+	sed \
+		's|^CONFIG_EXTRA_FIRMWARE_DIR=.*$|CONFIG_EXTRA_FIRMWARE_DIR="<dynamic>"|' \
+		"$kernel_build/.config" > "$final_normalized"
+
+	cmp -s "$base_normalized" "$final_normalized" || {
+		echo 'dynamic firmware path changed additional kernel options' >&2
+		diff -u "$base_normalized" "$final_normalized" >&2 || true
+		return 1
+	}
+
+	rm -f -- "$base_config" "$base_normalized" "$final_normalized"
+
+	check_kernel_config "$kernel_build/.config"
+}
+
 check_kernel_dtb() {
 	ksource=$1
 	kbuild=$2
@@ -1793,6 +1995,7 @@ build() {
 	kernel_cc="${kernel_cross_compile}gcc.br_real"
 	[ -x "$kernel_cc" ]
 	prepare_kernel
+	configure_kernel
 	k="$kernel_source"
 	make -C "$k" O="$kernel_build" -j"$jobs" ARCH=mips \
 		CROSS_COMPILE="$kernel_cross_compile" CC="$kernel_cc" \
@@ -1852,6 +2055,7 @@ build_kernel_only() {
 	kernel_cc="${kernel_cross_compile}gcc.br_real"
 	[ -x "$kernel_cc" ]
 	prepare_kernel
+	configure_kernel
 	k="$kernel_source"
 	make -C "$k" O="$kernel_build" -j"$jobs" ARCH=mips \
 		CROSS_COMPILE="$kernel_cross_compile" CC="$kernel_cc" \
