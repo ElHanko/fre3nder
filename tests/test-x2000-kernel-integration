@@ -146,6 +146,7 @@ for setting in (
     'CONFIG_SMP=y',
     'CONFIG_NR_CPUS=2',
     'CONFIG_HZ_100=y',
+    'CONFIG_ZBOOT_LOAD_ADDRESS=0x80F00000',
     'CONFIG_BRCMFMAC=y',
     'CONFIG_TOUCHSCREEN_NS2009=y',
     'CONFIG_SERIAL_8250_INGENIC=y',
@@ -246,6 +247,13 @@ grep -Fq 'KBUILD_BUILD_USER="$kernel_build_user"' "$entrypoint"
 grep -Fq 'KBUILD_BUILD_HOST="$kernel_build_host"' "$entrypoint"
 grep -Fq 'KBUILD_BUILD_TIMESTAMP="$kernel_build_timestamp"' "$entrypoint"
 grep -Fq 'KBUILD_BUILD_VERSION="$kernel_build_version"' "$entrypoint"
+grep -Fq 'SOURCE_DATE_EPOCH="$kernel_commit_epoch"' "$entrypoint"
+[ "$(grep -Fc 'LOCALVERSION= \' "$entrypoint")" -eq 2 ]
+[ "$(grep -Fc 'uzImage.bin dtbs' "$entrypoint")" -eq 2 ]
+[ "$(grep -Fc 'arch/mips/boot/uzImage.bin' "$entrypoint")" -eq 2 ]
+grep -Fq 'check_kernel_boot_image() {' "$entrypoint"
+grep -Fq 'initramfs_build=$1' "$entrypoint"
+grep -Fq 'CONFIG_ZBOOT_LOAD_ADDRESS=0x80F00000' "$entrypoint"
 grep -Fq 'KERNEL_FINAL_DIFF_SHA256' "$entrypoint"
 grep -Fq 'KERNEL_VMLINUX_SHA256' "$entrypoint"
 grep -Fq '"kernel_build"' "$entrypoint"
@@ -255,6 +263,11 @@ grep -Fq 'check_kernel_dtb "$k" "$kernel_build"' "$entrypoint"
 grep -Fq 'arch/mips/boot/dts/ingenic/ender3-v3-ke.dtb' "$entrypoint"
 if grep -Eq 'kernel/kernel-6\.6|module_drivers/dts|6\.6\.18-rt23' "$entrypoint"; then
 	echo 'active entrypoint still contains a legacy vendor kernel path' >&2
+	exit 1
+fi
+if grep -Fq 'xImage dtbs' "$entrypoint" ||
+   grep -Fq 'arch/mips/boot/compressed/xImage' "$entrypoint"; then
+	echo 'active entrypoint still references vendor xImage' >&2
 	exit 1
 fi
 "$fingerprint" --list-inputs | grep -Fxq 'patches/linux'

@@ -1268,6 +1268,7 @@ HZ_100
 PREEMPT
 HIGH_RES_TIMERS
 NO_HZ_IDLE
+SYS_SUPPORTS_ZBOOT
 MMC
 MMC_BLOCK
 MMC_SDHCI
@@ -1382,6 +1383,7 @@ INGENIC_WDT
 	grep -Fxq 'CONFIG_MMC_BLOCK_MINORS=16' "$config"
 	grep -Fxq 'CONFIG_INITRAMFS_SOURCE=""' "$config"
 	grep -Fxq 'CONFIG_LOCALVERSION="-fre3nder"' "$config"
+	grep -Fxq 'CONFIG_ZBOOT_LOAD_ADDRESS=0x80F00000' "$config"
 	grep -Fxq \
 		'CONFIG_EXTRA_FIRMWARE="brcm/brcmfmac43430-sdio.bin brcm/brcmfmac43430-sdio.clm_blob brcm/brcmfmac43430-sdio.txt"' \
 		"$config"
@@ -1456,6 +1458,35 @@ configure_kernel() {
 	check_kernel_config "$kernel_build/.config"
 }
 
+
+check_kernel_boot_image() {
+	image=$1
+
+	if [ ! -f "$image" ] || [ -L "$image" ]; then
+		echo "kernel boot image missing, non-regular, or symlink: $image" >&2
+		return 1
+	fi
+
+	image_info=$(dumpimage -l "$image") || return 1
+	printf '%s\n' "$image_info"
+
+	printf '%s\n' "$image_info" |
+		grep -Eq '^Image Name:[[:space:]]+Linux-6\.6\.18-fre3nder$'
+
+	printf '%s\n' "$image_info" |
+		grep -Eq '^Image Type:[[:space:]]+MIPS Linux Kernel Image \(uncompressed\)$'
+
+	printf '%s\n' "$image_info" |
+		grep -Eiq '^Load Address:[[:space:]]+80f00000$'
+
+	printf '%s\n' "$image_info" |
+		grep -Eiq '^Entry Point:[[:space:]]+80f00000$'
+
+	[ "$(stat -c '%s' "$image")" -lt 8388608 ] || {
+		echo 'kernel boot image is not strictly smaller than 8 MiB' >&2
+		return 1
+	}
+}
 
 write_kernel_final_diff() {
 	output=$1
@@ -1739,8 +1770,8 @@ check_kernel_dtb() {
 	rm -f -- "$decoded"
 }
 check_default_initramfs() {
-	k=$1
-	archive="$k/usr/initramfs_data.cpio"
+	initramfs_build=$1
+	archive="$initramfs_build/usr/initramfs_data.cpio"
 	[ -f "$archive" ]
 	entries=$(cpio -it < "$archive" 2>/dev/null)
 	[ "$(printf '%s\n' "$entries" | sed '/^$/d' | wc -l)" -eq 3 ]
@@ -1748,7 +1779,7 @@ check_default_initramfs() {
 	printf '%s\n' "$entries" | grep -Fxq dev/console
 	printf '%s\n' "$entries" | grep -Fxq root
 	! printf '%s\n' "$entries" | grep -Eq '(^|/)init$'
-	nm -C --defined-only "$k/vmlinux" | awk '{print $3}' | grep -Fxq '__initramfs_size'
+	nm -C --defined-only "$initramfs_build/vmlinux" | awk '{print $3}' | grep -Fxq '__initramfs_size'
 }
 
 check_rootfs() {
@@ -2243,13 +2274,15 @@ build() {
 	prepare_kernel
 	configure_kernel
 	k="$kernel_source"
+	SOURCE_DATE_EPOCH="$kernel_commit_epoch" \
+	LOCALVERSION= \
 	KBUILD_BUILD_USER="$kernel_build_user" \
 	KBUILD_BUILD_HOST="$kernel_build_host" \
 	KBUILD_BUILD_TIMESTAMP="$kernel_build_timestamp" \
 	KBUILD_BUILD_VERSION="$kernel_build_version" \
 	make -C "$k" O="$kernel_build" -j"$jobs" ARCH=mips \
 		CROSS_COMPILE="$kernel_cross_compile" CC="$kernel_cc" \
-		HOSTCFLAGS='-Wno-error=incompatible-pointer-types' xImage dtbs
+		HOSTCFLAGS='-Wno-error=incompatible-pointer-types' uzImage.bin dtbs
 	check_default_initramfs "$kernel_build"
 	check_kernel_dtb "$k" "$kernel_build"
 
@@ -2261,7 +2294,7 @@ build() {
 
 	rm -rf -- "$out"
 	mkdir -p "$out"
-	cp "$kernel_build/arch/mips/boot/compressed/xImage" "$out/kernel.uImage"
+	cp "$kernel_build/arch/mips/boot/uzImage.bin" "$out/kernel.uImage"
 	cp "$brout/images/rootfs.squashfs" "$out/rootfs.squashfs"
 	cp "$kernel_build/arch/mips/boot/dts/ingenic/ender3-v3-ke.dtb" "$out/ender3-v3-ke.dtb"
 	cp "$kernel_build/.config" "$out/effective-kernel-config"
@@ -2283,10 +2316,9 @@ build() {
 	[ "$(find "$out" -maxdepth 1 -type f | wc -l)" -eq 7 ]
 	file "$out/kernel.uImage" "$out/rootfs.squashfs" "$out/ender3-v3-ke.dtb"
 	file "$out/rootfs.squashfs" | grep -q ', xz compressed,'
-	dumpimage -l "$out/kernel.uImage"
+	check_kernel_boot_image "$out/kernel.uImage"
 	fdtdump "$out/ender3-v3-ke.dtb" 2>&1 | grep -E \
 		'ender-3-v3-ke|root=/dev/mmcblk0p8|wifi-bt-power|wlan-reg-on-gpios'
-	[ "$(stat -c '%s' "$out/kernel.uImage")" -lt 8388608 ]
 	[ "$(stat -c '%s' "$out/rootfs.squashfs")" -lt 524288000 ]
 	unsquashfs -ll "$out/rootfs.squashfs" | grep -q '/dev/pts$'
 	! strings "$kernel_build/vmlinux" | grep -q 'ingenic,halley5'
@@ -2308,20 +2340,22 @@ build_kernel_only() {
 	prepare_kernel
 	configure_kernel
 	k="$kernel_source"
+	SOURCE_DATE_EPOCH="$kernel_commit_epoch" \
+	LOCALVERSION= \
 	KBUILD_BUILD_USER="$kernel_build_user" \
 	KBUILD_BUILD_HOST="$kernel_build_host" \
 	KBUILD_BUILD_TIMESTAMP="$kernel_build_timestamp" \
 	KBUILD_BUILD_VERSION="$kernel_build_version" \
 	make -C "$k" O="$kernel_build" -j"$jobs" ARCH=mips \
 		CROSS_COMPILE="$kernel_cross_compile" CC="$kernel_cc" \
-		HOSTCFLAGS='-Wno-error=incompatible-pointer-types' xImage dtbs
+		HOSTCFLAGS='-Wno-error=incompatible-pointer-types' uzImage.bin dtbs
 	check_default_initramfs "$kernel_build"
 	check_kernel_dtb "$k" "$kernel_build"
 
 	out="$kernel_out"
 	rm -rf -- "$out"
 	mkdir -p "$out"
-	cp "$kernel_build/arch/mips/boot/compressed/xImage" "$out/kernel.uImage"
+	cp "$kernel_build/arch/mips/boot/uzImage.bin" "$out/kernel.uImage"
 	cp "$kernel_build/arch/mips/boot/dts/ingenic/ender3-v3-ke.dtb" "$out/ender3-v3-ke.dtb"
 	cp "$kernel_build/.config" "$out/effective-kernel-config"
 	write_build_manifest "$out" \
@@ -2334,8 +2368,7 @@ build_kernel_only() {
 
 	[ "$(find "$out" -maxdepth 1 -type f | wc -l)" -eq 5 ]
 	file "$out/kernel.uImage" "$out/ender3-v3-ke.dtb"
-	dumpimage -l "$out/kernel.uImage"
-	[ "$(stat -c '%s' "$out/kernel.uImage")" -lt 8388608 ]
+	check_kernel_boot_image "$out/kernel.uImage"
 	if strings "$kernel_build/vmlinux" | grep -q 'ingenic,halley5'; then
 		exit 1
 	fi
