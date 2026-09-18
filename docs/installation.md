@@ -120,6 +120,12 @@ The newly written p6/p8 pair subsequently booted successfully with Linux
 Klipper, and hostname `fre3nder`. The selector was finally restored to
 `STOCK_A` while Fre3nder remained active on p8.
 
-This qualifies the complete current-main kernel-plus-RootFS installation on
-the investigated reference system. The build remains an untagged current-main
-qualification build and is not a new public `2026.1` release.
+This qualifies the complete then-current-main vendor-kernel-plus-RootFS
+installation on the investigated reference system. The build remains an
+untagged qualification build from that then-current-main state and is not a
+new public `2026.1` release.
+
+This section records the former `6.6.18-rt23` vendor-kernel installation. The
+current productive upstream-v6.6.18 clean port is released as
+`6.6.18-fre3nder`; its offline integration is complete, but it has not been
+installed or hardware-qualified.

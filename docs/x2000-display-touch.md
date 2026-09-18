@@ -1,10 +1,14 @@
 # X2000 integrated display and touch hardware
 
-This document records the productive Fre3nder hardware implementation and
-qualification of the integrated Ender-3 V3 KE display, backlight, and
-touchscreen on the investigated reference system.
+This document records the Fre3nder implementation and qualification evidence
+for the integrated Ender-3 V3 KE display, backlight, and touchscreen on the
+investigated reference system.
 
-The hardware path was qualified on real hardware on 2026-09-12.
+The hardware path was qualified on real hardware on 2026-09-12 using the former
+`6.6.18-rt23` vendor-kernel implementation. The current productive
+`6.6.18-fre3nder` clean port carries the same required board behavior through
+upstream Linux plus P01-P14, but has completed offline integration only and has
+not been hardware-qualified.
 
 This qualification covers the Linux kernel, Device Tree, framebuffer,
 backlight, I2C touchscreen, pendown detection, and Linux input-device path.
@@ -12,9 +16,9 @@ backlight, I2C touchscreen, pendown detection, and Linux input-device path.
 It does not qualify a local printer UI. Local presentation is a separate
 application-layer concern above this hardware interface.
 
-## Qualified architecture
+## Hardware-qualified legacy architecture
 
-The productive Fre3nder display hardware path is:
+The vendor-kernel path used for the hardware qualification was:
 
 ~~~text
 X2000 DPU
@@ -41,7 +45,8 @@ I2C4 on GPC25/GPC26
         `-- /dev/input/event0
 ~~~
 
-UART3 is disabled in the productive Device Tree because UART3 and I2C4 share
+UART3 is disabled in both the qualified legacy and current clean-port Device
+Trees because UART3 and I2C4 share
 GPC25/GPC26 on this hardware. Static ownership is assigned to I2C4 for the
 touchscreen.
 
@@ -82,12 +87,21 @@ reference system.
 
 ## Display panel
 
-Fre3nder uses the Ingenic vendor fbdev/fb_stage display path rather than DRM.
+The hardware qualification used the Ingenic vendor fbdev/fb_stage display path
+rather than DRM. The current clean port replaces it with the reduced
+`FB_X2000_DPU` direct-RDMA framebuffer implementation in P13 and the KE panel
+driver in P14.
 
-The productive panel identity is:
+The qualified legacy panel identity was:
 
 ~~~text
 fre3nder,ender3-v3-ke-480x272
+~~~
+
+The current clean-port panel identity is:
+
+~~~text
+creality,ender-3-v3-ke-panel
 ~~~
 
 with panel reset on PB16.
@@ -218,7 +232,7 @@ to the local presentation/input layer.
 The X2000 pinctrl definitions assign both UART3 and I2C4 to GPC25/GPC26 using
 different mux functions.
 
-The productive Fre3nder Device Tree therefore disables UART3:
+Both Fre3nder Device Trees therefore disable UART3:
 
 ~~~dts
 &uart3 {
@@ -233,38 +247,41 @@ UART3 was not registered.
 
 ## Build integration
 
-The productive X2000 kernel build contains:
+The productive X2000 kernel build uses:
 
 ~~~text
-configs/x2000/ke-display.patch
-configs/x2000/ke-touch.patch
-configs/x2000/ender3-v3-ke.dts
-configs/x2000/kernel.fragment
+upstream Linux v6.6.18 @ d8a27ea2c98685cdaa5fa66c809c7069a4ff394b
+configs/x2000/kernel-patches.series (P01-P14)
+configs/x2000/kernel-clean-port.defconfig
 ~~~
 
-`build/x2000/entrypoint.sh` applies and validates the display and touch patches
-during kernel preparation.
+`build/x2000/entrypoint.sh` validates and applies the complete hash-pinned patch
+series during kernel preparation. P06 carries the board Device Tree, P11 the
+NS2009 driver, P13 the reduced X2000 DPU framebuffer path, and P14 the KE panel
+support.
 
 The effective kernel configuration is checked fail-closed for:
 
 ~~~text
 CONFIG_FB=y
-CONFIG_FB_INGENIC=y
-CONFIG_FB_INGENIC_STAGE=y
-CONFIG_STAGE_ENDER3_V3_KE_480X272=y
-CONFIG_INPUT_TOUCHSCREEN=y
+CONFIG_FB_X2000_DPU=y
+CONFIG_FB_X2000_DPU_ENDER3_V3_KE=y
 CONFIG_TOUCHSCREEN_NS2009=y
 ~~~
 
 ## Provenance
 
-The kernel base used by these patches is the pinned public Ingenic SDK:
+The productive kernel base is upstream Linux:
 
 ~~~text
-Llixuma/ingenic-linux-kernel6.6-x2000-v1.0-20250221
-commit a98c2e1f22e4263ddd4153a4eca4db4dcfd2777b
-Linux 6.6.18-rt23
+Linux v6.6.18
+commit d8a27ea2c98685cdaa5fa66c809c7069a4ff394b
+release 6.6.18-fre3nder
 ~~~
+
+The former vendor-kernel DTS, fragment, and display/touch patches remain under
+`research/configs/x2000-vendor-kernel/` as historical qualification and
+clean-port provenance evidence. They are not productive build inputs.
 
 The open display and touchscreen reference material was inspected from:
 
@@ -273,8 +290,8 @@ coreflake1/NebulaOS-kernel
 commit 88a0e1ecc6ace7c9e4ad99d6fa49e272180fd5a9
 ~~~
 
-The exact source paths, revisions, roles, and licenses are recorded in
-`configs/x2000/sources.json`.
+The active kernel source, patch series, configuration, release, and
+hardware-validation state are recorded in `configs/x2000/sources.json`.
 
 The display-derived kernel material is recorded as GPL-2.0-only.
 
@@ -283,7 +300,11 @@ The NS2009-derived kernel material is recorded as GPL-2.0-or-later.
 No proprietary Creality display or touchscreen binary is part of this
 productive implementation.
 
-## Qualification evidence
+## Historical hardware qualification evidence
+
+The following build, deployment, and runtime evidence belongs to the former
+vendor-kernel implementation. It establishes the board behavior ported to the
+current kernel, but does not qualify the clean port.
 
 The kernel-only build completed successfully with:
 

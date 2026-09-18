@@ -12,13 +12,36 @@ precedence = "override"
 SPDX-FileCopyrightText = "2026 Fre3nder contributors"
 SPDX-License-Identifier = "MIT"
 
+# Historical project-authored configuration retains the productive-tree
+# license that applied before it moved under research/.
+[[annotations]]
+path = [
+    "research/configs/x2000-vendor-kernel/ender3-v3-ke.dts",
+    "research/configs/x2000-vendor-kernel/kernel.fragment",
+]
+precedence = "closest"
+SPDX-FileCopyrightText = "2026 Fre3nder contributors"
+SPDX-License-Identifier = "AGPL-3.0-or-later"
+
 # Derived material keeps file-level upstream notices. NOASSERTION is used only
 # when the file contains no copyright notice.
 [[annotations]]
-path = "configs/x2000/ke-wlan.patch"
+path = [
+    "research/configs/x2000-vendor-kernel/ke-display.patch",
+    "research/configs/x2000-vendor-kernel/ke-wlan.patch",
+]
 precedence = "closest"
 SPDX-FileCopyrightText = "NOASSERTION"
 SPDX-License-Identifier = "GPL-2.0-only"
+
+[[annotations]]
+path = "research/configs/x2000-vendor-kernel/ke-touch.patch"
+precedence = "closest"
+SPDX-FileCopyrightText = [
+    "2017 Icenowy Zheng <icenowy@aosc.xyz>",
+    "2014-2015 Intel Corporation",
+]
+SPDX-License-Identifier = "GPL-2.0-or-later"
 
 [[annotations]]
 path = "patches/buildroot/**"

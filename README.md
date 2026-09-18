@@ -17,6 +17,15 @@ GuppyScreen, and a documented path back to Stock. The `2026.2` usable-system
 scope is hardware-qualified on the investigated reference system. See the
 [changelog](CHANGELOG.md) for release history.
 
+The current productive kernel input is upstream Linux `v6.6.18` at
+`d8a27ea2c98685cdaa5fa66c809c7069a4ff394b`, plus the P01-P14 series in
+[`patches/linux`](patches/linux) and
+[`kernel-clean-port.defconfig`](configs/x2000/kernel-clean-port.defconfig). It
+produces release `6.6.18-fre3nder` and exports upstream `uzImage.bin` as
+`kernel.uImage`. This clean-port path has completed offline integration but has
+not been hardware-qualified; the `2026.2` hardware results were obtained with
+the preceding vendor-kernel path and do not qualify the clean port.
+
 The important boundaries remain:
 
 - software-only Fre3nder -> Stock: **REQUIRES QUALIFICATION**;

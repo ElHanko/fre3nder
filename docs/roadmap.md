@@ -73,11 +73,13 @@ and must never imply silent F005 firmware flashing.
 
 ### Mainline Linux
 
-Move toward a kernel based as far as practical on mainline Linux. Identify the
-required X2000 and printer-hardware support, isolate the current vendor patches,
-reduce remaining Ingenic dependencies, and upstream suitable work where
-possible. Select a concrete kernel only after this investigation, then qualify
-the resulting path on hardware.
+The productive kernel has moved to upstream Linux `v6.6.18` plus the reviewed
+Fre3nder P01-P14 X2000/board delta and `kernel-clean-port.defconfig`. The
+vendor SDK and vendor kernel are no longer productive build inputs, and the
+Phase-5 offline integration is complete. Next, qualify release
+`6.6.18-fre3nder` on the investigated hardware before treating earlier
+vendor-kernel qualification as applicable to it. Reduce or upstream the
+remaining delta later where that materially improves maintainability.
 
 ### Internal persistence backend
 

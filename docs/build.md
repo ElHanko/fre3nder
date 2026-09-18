@@ -10,18 +10,25 @@ configuration under [`configs/x2000`](../configs/x2000). The container recipe
 is [`build/x2000`](../build/x2000), and the source manifest is
 [`configs/x2000/sources.json`](../configs/x2000/sources.json).
 
-The resulting host image uses Linux 6.6.18-rt23, a read-only SquashFS RootFS,
+The resulting host image uses upstream Linux `v6.6.18` at commit
+`d8a27ea2c98685cdaa5fa66c809c7069a4ff394b`, the P01-P14 series under
+[`patches/linux`](../patches/linux), and
+[`kernel-clean-port.defconfig`](../configs/x2000/kernel-clean-port.defconfig).
+Its release is `6.6.18-fre3nder`; upstream `uzImage.bin` is exported as
+`kernel.uImage`. The image also contains a read-only SquashFS RootFS with
 `root=/dev/mmcblk0p8`, upstream Klipper at the pinned revision, and the
 project's passive-UART patch. The public board-specific Radxa AZW372 WLAN NVRAM
 is vendored unchanged; no Creality WLAN file remains a build input.
 Credentials remain outside the repository and are never embedded
-automatically.
+automatically. Phase-5 offline integration is complete, but this clean-port
+kernel has not been hardware-qualified.
 
 The productive source and configuration layers are separated as follows:
 
 ```text
-Ingenic SDK
-└── Kernel 6.6.18-rt23 source
+Upstream Linux v6.6.18
+└── Fre3nder P01-P14 + kernel-clean-port.defconfig
+    └── Linux 6.6.18-fre3nder / uzImage.bin
 
 Upstream Buildroot 2025.02.18
 └── internal GCC 13.4.0 / binutils 2.43.1 / glibc toolchain
@@ -49,9 +56,9 @@ NaN2008, using Linux 6.6 headers. The XBurst II target retains upstream
 Buildroot's `-ffp-contract=off` XBurst workaround for userspace. The kernel uses the same Buildroot toolchain
 family through the underlying `gcc.br_real`, but Kbuild supplies its separate
 MIPS32r5/O32/soft-float/legacy-NaN target contract. The userspace wrapper flags
-are not applied to the kernel. The Ingenic SDK remains only the separately
-pinned source of the vendor kernel. Buildroot package downloads are retained
-outside its Git checkout so source-tree cleanup does
+are not applied to the kernel. Neither the Ingenic SDK nor its vendor kernel is
+a productive build input. Buildroot package downloads are retained outside its
+Git checkout so source-tree cleanup does
 not discard the offline-build cache. See
 [`buildroot-maintenance.md`](buildroot-maintenance.md) for the LTS update
 policy.
@@ -93,8 +100,8 @@ input or `local/production/inputs/wifi` path is used.
 The linux-firmware binary differs from the firmware used for the previous
 integrated WLAN qualification. Its internal identity is `7.45.98.118` / FWID
 `01-32059766`; it is not the NebulaOS-qualified Infineon `7.45.98.125` / FWID
-`01-f420b81d` firmware. On 2026-09-14 the complete production WLAN path was
-hardware-qualified on the investigated reference Ender-3 V3 KE. The
+`01-f420b81d` firmware. On 2026-09-14 the then-productive vendor-kernel WLAN
+path was hardware-qualified on the investigated reference Ender-3 V3 KE. The
 development build `scripts/build-x2000 --kernel-build --develop` integrated
 the official linux-firmware `.bin` and `.clm_blob` and the exact vendored Radxa
 NVRAM into Kernel SHA-256
@@ -105,16 +112,18 @@ Both artifacts passed deployment readback, Fre3nder B booted from
 `/dev/mmcblk0p8`, the runtime NVRAM matched its pinned SHA-256, and WPA,
 DHCP, and 10/10 gateway ICMP packets passed. The Ethernet default path remained
 unchanged. This qualification covers WLAN only; Bluetooth was not qualified.
+It is historical vendor-kernel evidence and does not qualify the current clean
+port.
 
-Kernel embedding remains required. `CONFIG_BRCMFMAC=y` registers `brcmfmac`
-as a device initcall, and the KE WLAN patch exposes the SDIO card during a late
-initcall. That card insertion immediately reaches `brcmf_sdio_probe()` and
-`request_firmware_nowait()`. The pinned kernel runs all initcalls before
-`prepare_namespace()` mounts the real SquashFS RootFS, so RootFS-only firmware
-cannot reliably satisfy the first SDIO probe. The Kernel therefore embeds the
-Buildroot-selected `.bin` and matching `.clm_blob` plus the vendored Radxa
-`.txt` through `CONFIG_EXTRA_FIRMWARE`; the same three runtime files remain in
-the RootFS for later requests.
+Kernel embedding remains required. `CONFIG_BRCMFMAC=y` builds the driver into
+the clean-port kernel, while P06/P07 describe and support the non-removable
+MSC1 SDIO device with generic regulator and power-sequence bindings. Firmware
+must therefore be available for the initial built-in probe before the real
+SquashFS RootFS is mounted. The Kernel embeds the Buildroot-selected `.bin` and
+matching `.clm_blob` plus the vendored Radxa `.txt` through
+`CONFIG_EXTRA_FIRMWARE`; the same three runtime files remain in the RootFS for
+later requests. The former vendor-specific manual-insertion late initcall is
+retained only as historical Research evidence and is not part of this path.
 
 Normal builds are marked as `release` artifacts and retain the strict clean-tree
 deployment checks. Add `--develop` explicitly to create a `development`

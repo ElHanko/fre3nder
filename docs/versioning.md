@@ -19,6 +19,11 @@ the subject-specific documentation. Temporary requirement and qualification
 documents may be removed after their release evidence has been incorporated
 into those durable locations.
 
+The released hardware milestones below used the former `6.6.18-rt23`
+vendor-kernel path. The current productive `6.6.18-fre3nder` clean port has
+completed offline integration but is not yet hardware-qualified; historical
+release evidence does not qualify that new kernel.
+
 Build manifests record the canonical `version`, numeric `release_year` and
 `release_number`, the normalized `release_stage` (`alpha`, `beta`, `rc`, or
 `final`), and `release_scope`. Built RootFS images expose the same canonical
@@ -35,7 +40,7 @@ whole roadmap or Gate 1 is complete. It requires reliable open-host boot,
 required SMP/CPU and filesystem operation, at least one qualified administrative
 network path, stable IP configuration, reliable SSH administration, persistent SSH
 host identity, and network/SSH usable after normal reboot, and a reliable real
-Mainline-F005 print without stock Klippy. The current hardware-validated
+Mainline-F005 print without stock Klippy. The hardware-validated `2026.1`
 Production path uses an external AX88179B/CDC-NCM Ethernet adapter first and
 provisioned SDIO WLAN as boot-time fallback.
 

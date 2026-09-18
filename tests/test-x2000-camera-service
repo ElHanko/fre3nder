@@ -3,7 +3,7 @@ set -eu
 
 root=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
 service=$root/configs/x2000/rootfs-overlay/etc/init.d/S63fre3nder-camera
-fragment=$root/configs/x2000/kernel.fragment
+kernel_defconfig=$root/configs/x2000/kernel-clean-port.defconfig
 buildroot_fragment=$root/configs/x2000/buildroot.fragment
 sources=$root/configs/x2000/sources.json
 entrypoint=$root/build/x2000/entrypoint.sh
@@ -81,36 +81,17 @@ grep -Fq 'port=8080' "$service"
 
 for setting in \
 	CONFIG_MEDIA_SUPPORT=y \
-	CONFIG_MEDIA_SUPPORT_FILTER=y \
 	CONFIG_MEDIA_CAMERA_SUPPORT=y \
-	CONFIG_VIDEO_DEV=y \
 	CONFIG_MEDIA_USB_SUPPORT=y \
 	CONFIG_USB_VIDEO_CLASS=y; do
-	grep -Fxq "$setting" "$fragment"
+	grep -Fxq "$setting" "$kernel_defconfig"
 done
-for setting in \
-	CONFIG_MEDIA_ANALOG_TV_SUPPORT \
-	CONFIG_MEDIA_DIGITAL_TV_SUPPORT \
-	CONFIG_MEDIA_RADIO_SUPPORT \
-	CONFIG_MEDIA_SDR_SUPPORT \
-	CONFIG_MEDIA_PLATFORM_SUPPORT \
-	CONFIG_MEDIA_TEST_SUPPORT \
-	CONFIG_USB_VIDEO_CLASS_INPUT_EVDEV \
-	CONFIG_MEDIA_PLATFORM_DRIVERS \
-	CONFIG_V4L_PLATFORM_DRIVERS \
-	CONFIG_V4L_MEM2MEM_DRIVERS \
-	CONFIG_VIDEOBUF2_DMA_CONTIG \
-	CONFIG_VIDEOBUF2_DMA_SG \
-	CONFIG_VIDEOBUF2_DMA_CONTIG_INGENIC \
-	CONFIG_VIDEO_INGENIC_ISP \
-	CONFIG_VIDEO_INGENIC_ROTATE \
-	CONFIG_VIDEO_INGENIC_VCODEC \
-	CONFIG_HALLEY5_CAMERA_BOARD \
-	CONFIG_RD_X2000_HALLEY5_CAMERA_4V3 \
-	CONFIG_INGENIC_ISP_CAMERA_OV2735A; do
-	grep -Fxq "# $setting is not set" "$fragment"
-done
-grep -Fxq 'CONFIG_MEDIA_CONTROLLER=y' "$fragment"
+if grep -Eq \
+	'^CONFIG_(VIDEO_INGENIC|HALLEY5_CAMERA|RD_X2000_HALLEY5|INGENIC_ISP_CAMERA)' \
+	"$kernel_defconfig"; then
+	echo 'clean-port defconfig enables a legacy vendor camera path' >&2
+	exit 1
+fi
 grep -Fxq 'BR2_PACKAGE_MJPG_STREAMER=y' "$buildroot_fragment"
 python3 - "$sources" <<'PY'
 import json

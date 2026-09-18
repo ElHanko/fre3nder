@@ -31,6 +31,14 @@ This target does not require preserving Creality UI services, WebRTC,
 AI middleware, `cam_app`, or proprietary binary extensions. It requires their
 needed printer-facing functions to have open replacements.
 
+The current productive kernel implementation is upstream Linux `v6.6.18` at
+`d8a27ea2c98685cdaa5fa66c809c7069a4ff394b` plus Fre3nder P01-P14 and
+`kernel-clean-port.defconfig`. Phase-5 offline integration is complete, but
+release `6.6.18-fre3nder` has not been hardware-qualified. Unless a row states
+otherwise, the hardware results below were obtained with the preceding
+`6.6.18-rt23` vendor-kernel implementation and establish hardware requirements,
+not clean-port qualification.
+
 ## Status of the architecture
 
 - `PROVEN`: a reference-system observation or offline capture directly
@@ -44,9 +52,9 @@ needed printer-facing functions to have open replacements.
 | Area | Status | Architecture consequence |
 | --- | --- | --- |
 | Main F005 path | PROVEN | Mainline Klipper communicates with the investigated F005 over `/dev/ttyS1` at 230400. Retain this contract; do not redesign it in Phase 3. |
-| X2000 CPU, RAM, eMMC | PROVEN | An X2000 Linux appliance is the hardware target; Phase 3.2 selected the Ingenic Linux 6.6.18 X2000 SDK source basis. |
+| X2000 CPU, RAM, eMMC | PROVEN | An X2000 Linux appliance is the hardware target. The current production source basis is upstream Linux v6.6.18 plus P01-P14; its X2000 path is offline-integrated but not yet hardware-qualified. |
 | Lower boot chain | LIKELY | Preserve the existing pre-p1 loader boundary unless evidence requires replacement. Exact normal BootROM/SPL/U-Boot handoff remains UNKNOWN. |
-| LTS kernel + DT | PROVEN | The pinned Ingenic Linux 6.6.18 X2000 SDK mirror, project KE DTS, and minimal patch series boot the bounded `2026.1.a` Slot-B baseline. Long-term maintenance and peripheral completion remain separate work. |
+| LTS kernel + DT | LEGACY PATH PROVEN / CLEAN PORT OFFLINE | The former pinned Ingenic Linux 6.6.18 vendor-kernel path booted the bounded `2026.1.a` Slot-B baseline and later qualified the required peripherals. The productive upstream-v6.6.18 P01-P14 clean port has completed offline integration only. |
 | Minimal Buildroot root filesystem | PERSISTENCE HARDWARE QUALIFIED | The bounded `2026.1.a` system runs its immutable Buildroot SquashFS RootFS from p8. The former single-volume `/persist` Development adapter was qualified through a normal Develop-B -> Develop-B reboot and is now superseded. The `2026.2` implementation resolves separate external ext4 filesystems labelled `FRE3NDERSYS` and `FRE3NDERHOME`, builds a writable root OverlayFS, exposes the immutable lower at `/rom`, and mounts userdata at `/home`. Normal persistence, the marker-authorized system reset retaining `/home`, and fail-closed degraded boots for missing or invalid system and userdata backends are qualified on the investigated reference system. |
 | Network/SSH | PROVEN | The Production S20 -> S40 -> S50 path is hardware-validated on the investigated reference system: USB provisioning, CDC-NCM Ethernet-first operation, WLAN fallback, public-key login, and interactive SSH PTY allocation and shell operation all succeeded. The image embeds no user credentials. A persistent Dropbear host key was reused over a normal Develop-B -> Develop-B reboot and verified as both Dropbear's configured key and the key presented over SSH; SSH became available again afterward. This qualification is limited to the Development USB-adapter path; runtime/hotplug failover remains open. |
 | Moonraker | NORMAL AND RECOVERY LIFECYCLE HARDWARE QUALIFIED | The RootFS build stages the pinned stable Git checkout under `/opt/fre3nder/moonraker` and a system-site-packages-enabled environment under `/opt/fre3nder/moonraker-env`. Persistent state remains in `/home`; PID/status/socket remain in `/run`. Runtime, Klippy/API, LAN-proxied HTTP, real WebSocket behavior, normal-reboot state retention, and OverlayFS baseline recovery are hardware-qualified on the investigated reference system. Self-update and automatic post-update restart are deferred beyond `2026.2`. |
@@ -162,10 +170,11 @@ a separate update strategy, but Phase 3.1 does not select storage ownership.
 1. **3.1 Hardware + Boot Contract — complete.** Record only the REQUIRED
    interfaces and compatibility constraints in
    [x2000-hardware-contract.md](x2000-hardware-contract.md).
-2. **3.2 Kernel / Device-Tree feasibility — complete.** The bounded result is
+2. **3.2 Kernel / Device-Tree feasibility — historical result complete.** The bounded result is
    [x2000-kernel-dt-feasibility.md](../research/docs/x2000-kernel-dt-feasibility.md): the pinned
-   Ingenic Linux 6.6.18 X2000 SDK mirror is selected over a large upstream-6.12
-   forward port. NebulaOS is KE prior art only, not an adopted distribution.
+   Ingenic Linux 6.6.18 X2000 SDK mirror was selected for the initial qualified
+   system. That source choice is superseded for production by the v6.6.18 clean
+   port. NebulaOS remains KE prior art only, not an adopted distribution.
 3. **3.3 A/B bring-up qualification — complete for `2026.1.a`.** The selected
    Slot-B kernel/DT/rootfs, bounded network administration path, and one-shot
    return-to-Stock-A sequence are proven. The RAM-only prototype remains a
@@ -216,6 +225,11 @@ a separate update strategy, but Phase 3.1 does not select storage ownership.
 10. **3.9 Persistent deployment / update model.** Design and validate persistence,
    image activation, rollback, and configuration migration only after the
    preceding non-persistent result.
+11. **Clean-port kernel integration — OFFLINE COMPLETE / HARDWARE OPEN.** The
+    productive kernel now comes from upstream Linux `v6.6.18`, P01-P14, and
+    `kernel-clean-port.defconfig`; it produces `6.6.18-fre3nder` and exports
+    `uzImage.bin` as `kernel.uImage`. The vendor SDK/kernel is no longer a
+    productive build input. Hardware qualification remains the next gate.
 
 The display/UI, Moonraker recovery, persistence, and integrated user-facing
 stack required by `2026.2` are qualified. Application self-update automation

@@ -35,7 +35,7 @@ Policy:
 - publish modifications according to the applicable upstream license;
 - prefer patches or clearly maintained source history.
 
-## Buildroot and Ingenic SDK
+## Buildroot, upstream Linux, and historical Ingenic SDK evidence
 
 The productive RootFS is built from the official upstream Buildroot 2025.02.18
 LTS source. Its exact release and commit are pinned in
@@ -45,13 +45,19 @@ The RootFS uses an XBurst II target patch against upstream Buildroot and an
 internal Buildroot toolchain. The patch records its exact Ingenic SDK and
 upstream Buildroot provenance; no Ingenic userspace toolchain is redistributed.
 
-The separately pinned public Ingenic SDK supplies only the vendor kernel
-source. Kernel and RootFS are both built with the upstream Buildroot internal
-GCC 13.4.0/binutils 2.43.1 toolchain. They remain separate compiler contracts:
+The productive kernel source is upstream Linux `v6.6.18` at commit
+`d8a27ea2c98685cdaa5fa66c809c7069a4ff394b`. The hash-pinned P01-P14 series
+under `patches/linux/` records the exact source provenance for its imported or
+derived material. The former Ingenic SDK/vendor kernel inputs are retained only
+under `research/` as historical qualification and clean-port research evidence;
+they are not productive build inputs.
+
+Kernel and RootFS are both built with the upstream Buildroot internal GCC
+13.4.0/binutils 2.43.1 toolchain. They remain separate compiler contracts:
 the kernel uses Kbuild's MIPS32r5/O32/soft-float/legacy-NaN flags through the
 underlying real cross-GCC, while userspace uses Buildroot's
-MIPS32r2/O32/hard-float/FPXX/NaN2008 wrapper contract. Buildroot is no longer
-sourced from the SDK, and no Ingenic toolchain is a productive build input.
+MIPS32r2/O32/hard-float/FPXX/NaN2008 wrapper contract. Neither Buildroot, the
+kernel, nor the productive toolchain is sourced from the SDK.
 The F005 build reuses that same Buildroot userspace wrapper for its X2000
 `c_helper.so`; its separate `arm-none-eabi` toolchain targets only the
 GD32F303 bare-metal MCU.

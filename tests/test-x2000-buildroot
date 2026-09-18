@@ -5,6 +5,7 @@ root=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
 entrypoint="$root/build/x2000/entrypoint.sh"
 base="$root/configs/x2000/buildroot.defconfig"
 fragment="$root/configs/x2000/buildroot.fragment"
+kernel_defconfig="$root/configs/x2000/kernel-clean-port.defconfig"
 sources="$root/configs/x2000/sources.json"
 build_script="$root/scripts/build-x2000"
 kernel_build_script="$root/scripts/build-x2000-kernel"
@@ -23,9 +24,6 @@ post_build="$root/configs/x2000/rootfs-post-build.sh"
 nvram="$root/configs/x2000/rootfs-overlay/lib/firmware/brcm/brcmfmac43430-sdio.txt"
 nvram_license="$root/configs/x2000/rootfs-overlay/usr/share/licenses/radxa-rkwifibt/LICENSE"
 reuse="$root/REUSE.toml"
-sdk_source=${X2000_SDK_SOURCE:-$root/local/production/work/x2000/sdk}
-sdk_commit=a98c2e1f22e4263ddd4153a4eca4db4dcfd2777b
-wlan_patch=$root/configs/x2000/ke-wlan.patch
 
 python3 - "$sources" <<'PY'
 import json
@@ -133,7 +131,8 @@ assert data["wlan_nvram"] == {
         "source and binary redistribution permitted under BSD-3-Clause"),
     "upstream_modified": False,
     "content_hardware_validated": True,
-    "build_integration_hardware_validated": True,
+    "legacy_vendor_kernel_build_integration_hardware_validated": True,
+    "clean_port_build_integration_hardware_validated": False,
     "hardware_evidence": {
         "date": "2026-09-14",
         "scope": (
@@ -148,7 +147,7 @@ assert data["wlan_nvram"] == {
         "previous_nvram_restore_association": "PASS",
     },
 }
-assert data["wlan_hardware_qualification"] == {
+assert data["legacy_vendor_kernel_wlan_hardware_qualification"] == {
     "date": "2026-09-14",
     "scope": (
         "complete linux-firmware 20250211 plus Radxa AZW372 WLAN production "
@@ -181,6 +180,15 @@ assert data["wlan_hardware_qualification"] == {
     "ethernet_default_path_unchanged": "PASS",
     "overall_gate": "PASS",
     "bluetooth_hardware_validated": False,
+    "evidence_scope": "legacy_vendor_kernel",
+    "kernel_source": {
+        "repository": (
+            "https://github.com/Llixuma/"
+            "ingenic-linux-kernel6.6-x2000-v1.0-20250221"),
+        "commit": "a98c2e1f22e4263ddd4153a4eca4db4dcfd2777b",
+        "release": "6.6.18-rt23",
+    },
+    "qualifies_clean_port": False,
 }
 assert data["userspace"]["moonraker"] == {
     "repository": "https://github.com/Arksine/moonraker.git",
@@ -346,7 +354,7 @@ grep -Fq '7.45.98.125' "$root/docs/buildroot-maintenance.md"
 grep -Fq '01-f420b81d' "$root/docs/buildroot-maintenance.md"
 grep -Fq '84f625bd0984a9eb8511eec27af7d35e55f5c9202f3f572c8da74df55ed81d33' \
 	"$root/docs/buildroot-maintenance.md"
-grep -Fq 'QUALIFIED ON DEVICE (WLAN ONLY)' \
+grep -Fq 'QUALIFIED ON LEGACY KERNEL (WLAN ONLY)' \
 	"$root/docs/x2000-hardware-contract.md"
 grep -Fq 'Bluetooth was not tested or qualified' \
 	"$root/docs/buildroot-maintenance.md" "$root/docs/x2000-hardware-contract.md"
@@ -365,56 +373,8 @@ grep -Fxq '# BR2_PACKAGE_I2C_TOOLS is not set' "$fragment"
 grep -Fxq '# BR2_PACKAGE_BASH is not set' "$fragment"
 
 for setting in CONFIG_SPI=y CONFIG_SPI_GPIO=y CONFIG_SPI_SPIDEV=y; do
-	grep -Fxq "$setting" "$root/configs/x2000/kernel.fragment"
+	grep -Fxq "$setting" "$kernel_defconfig"
 done
-grep -Fxq '# CONFIG_INGENIC_SPI is not set' \
-	"$root/configs/x2000/kernel.fragment"
-! grep -Fxq 'CONFIG_SPI_MASTER=y' "$root/configs/x2000/kernel.fragment"
-python3 - "$root/configs/x2000/ender3-v3-ke.dts" "$wlan_patch" <<'PY'
-import pathlib
-import re
-import sys
-
-text = pathlib.Path(sys.argv[1]).read_text(encoding="utf-8")
-for required in (
-        "wifi_bt_power: wifi-bt-power {",
-        'compatible = "regulator-fixed";',
-        'regulator-name = "wifi_bt_power";',
-        "regulator-min-microvolt = <3300000>;",
-        "regulator-max-microvolt = <3300000>;",
-        "gpio = <&gpa 1 GPIO_ACTIVE_LOW INGENIC_GPIO_NOBIAS>;",
-        "regulator-always-on;",
-        "regulator-boot-on;",
-        "vmmc-supply = <&wifi_bt_power>;",
-        "wlan-reg-on-gpios = <&gpd 4 GPIO_ACTIVE_HIGH INGENIC_GPIO_NOBIAS>;",
-        "&aliases {",
-        "spi2 = &adxl_spi;",
-        'compatible = "spi-gpio";',
-        "sck-gpios = <&gpe 16 GPIO_ACTIVE_HIGH INGENIC_GPIO_NOBIAS>;",
-        "mosi-gpios = <&gpe 17 GPIO_ACTIVE_HIGH INGENIC_GPIO_NOBIAS>;",
-        "miso-gpios = <&gpe 18 GPIO_ACTIVE_HIGH INGENIC_GPIO_NOBIAS>;",
-        "cs-gpios = <&gpe 21 GPIO_ACTIVE_LOW INGENIC_GPIO_NOBIAS>;",
-        "num-chipselects = <1>;",
-        'compatible = "rohm,dh2228fv";',
-        "spi-max-frequency = <2000000>;",
-):
-    assert required in text
-assert text.count("spi2 = &adxl_spi;") == 1
-assert text.count("spidev@0 {") == 1
-assert text.count("num-chipselects = <1>;") == 1
-assert "spidev@1" not in text
-for forbidden in ("bl24c16", "eeprom@", "plr"):
-    assert forbidden not in text.lower()
-
-patch = pathlib.Path(sys.argv[2]).read_text(encoding="utf-8")
-paths = re.findall(r"^diff --git a/(\S+) b/(\S+)$", patch, re.MULTILINE)
-assert paths == [
-    ("kernel/kernel-6.6/module_drivers/drivers/mmc/host/ingenic_sdio.c",) * 2,
-    ("kernel/kernel-6.6/module_drivers/drivers/mmc/host/sdhci-ingenic.c",) * 2,
-    ("kernel/kernel-6.6/module_drivers/drivers/mmc/host/sdhci-ingenic.h",) * 2,
-]
-assert "ender3-v3-ke.dts" not in patch
-PY
 
 python3 - \
 	"$root/configs/x2000/rootfs-overlay/etc/init.d/S59fre3nder-klipper-mcu" \
@@ -1028,26 +988,6 @@ cache_log=$(prepare_buildroot_output "$cache_output")
 [ "$cache_log" = \
 	'Buildroot development cache: ADOPTED (legacy output without fingerprint)' ]
 [ -f "$cache_output/$buildroot_toolchain_marker" ]
-
-# Reproduce the prepare_kernel ordering against the exact pinned SDK sources:
-# stage the canonical board DTS first, then check only the driver patch.
-[ "$(git -C "$sdk_source" rev-parse HEAD)" = "$sdk_commit" ]
-sdk_stage=$tmp/sdk
-mkdir -p "$sdk_stage/kernel/kernel-6.6/module_drivers/dts/x2000"
-for path in \
-	kernel/kernel-6.6/module_drivers/drivers/mmc/host/ingenic_sdio.c \
-	kernel/kernel-6.6/module_drivers/drivers/mmc/host/sdhci-ingenic.c \
-	kernel/kernel-6.6/module_drivers/drivers/mmc/host/sdhci-ingenic.h; do
-	mkdir -p "$sdk_stage/${path%/*}"
-	GIT_NO_LAZY_FETCH=1 git -C "$sdk_source" show \
-		"$sdk_commit:$path" > "$sdk_stage/$path"
-done
-cp "$root/configs/x2000/ender3-v3-ke.dts" \
-	"$sdk_stage/kernel/kernel-6.6/module_drivers/dts/x2000/ender3-v3-ke.dts"
-(
-	cd "$sdk_stage"
-	git apply --check "$wlan_patch"
-)
 
 # The qualified F005 image is staged into the immutable RootFS overlay from the
 # release-manifest-validated local artifact.

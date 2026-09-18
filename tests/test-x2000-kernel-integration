@@ -26,6 +26,13 @@ sources_path = root / "configs/x2000/sources.json"
 series_path = root / "configs/x2000/kernel-patches.series"
 defconfig_path = root / "configs/x2000/kernel-clean-port.defconfig"
 patch_directory = pathlib.PurePosixPath("patches/linux")
+obsolete_production_inputs = (
+    "kernel.fragment",
+    "ender3-v3-ke.dts",
+    "ke-wlan.patch",
+    "ke-touch.patch",
+    "ke-display.patch",
+)
 
 
 def require(condition, message):
@@ -134,6 +141,9 @@ require(
 
 require(defconfig_path.is_file() and not defconfig_path.is_symlink(),
         "clean-port kernel defconfig must be a regular file")
+for obsolete_name in obsolete_production_inputs:
+    require(not (root / "configs/x2000" / obsolete_name).exists(),
+            f"obsolete vendor-kernel production input returned: {obsolete_name}")
 defconfig_text = defconfig_path.read_text(encoding="utf-8")
 require(defconfig_text.endswith("\n"),
         "clean-port kernel defconfig must end with a newline")
@@ -152,6 +162,7 @@ for setting in (
     'CONFIG_SERIAL_8250_INGENIC=y',
     'CONFIG_I2C_JZ4780=y',
     'CONFIG_SPI_GPIO=y',
+    'CONFIG_SPI_SPIDEV=y',
     'CONFIG_USB_VIDEO_CLASS=y',
     'CONFIG_FB_X2000_DPU=y',
     'CONFIG_FB_X2000_DPU_ENDER3_V3_KE=y',
@@ -270,6 +281,20 @@ if grep -Fq 'xImage dtbs' "$entrypoint" ||
 	echo 'active entrypoint still references vendor xImage' >&2
 	exit 1
 fi
+
+for active_input in \
+	"$root/build/x2000" \
+	"$root/scripts/build-x2000" \
+	"$root/scripts/build-x2000-kernel" \
+	"$root/scripts/build-x2000-buildroot" \
+	"$root/scripts/x2000-build-input-sha256"; do
+	if grep -rEq \
+		'6\.6\.18-rt23|module_drivers|/work/sdk|xImage|kernel\.fragment|ke-(wlan|touch|display)\.patch|configs/x2000/ender3-v3-ke\.dts' \
+		"$active_input"; then
+		echo "active production input contains a legacy vendor-kernel dependency: $active_input" >&2
+		exit 1
+	fi
+done
 "$fingerprint" --list-inputs | grep -Fxq 'patches/linux'
 if "$fingerprint" --list-inputs | grep -Fxq 'research/patches/linux'; then
 	echo 'research kernel patches are still part of the production build inputs' >&2

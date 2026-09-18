@@ -50,8 +50,8 @@ NebulaOS used a different NVRAM file with that pair. Its external qualification
 therefore does not qualify Fre3nder's selected firmware/CLM/NVRAM integration.
 
 The KISS choice retains the regular Buildroot/linux-firmware path. Fre3nder
-hardware-qualified that path on 2026-09-14 with the complete Kernel/NVRAM/
-RootFS integration described below. A separate Infineon fetch and pin would add
+hardware-qualified that path on 2026-09-14 with the then-productive vendor
+Kernel/NVRAM/RootFS integration described below. A separate Infineon fetch and pin would add
 project-owned download, hash, license, and update logic and remains only an
 evidence-backed fallback if a later update regresses the selected path.
 
@@ -83,7 +83,10 @@ The driver detected `BCM43430/1` and reported firmware
 10/10 gateway packets passed without loss. The Ethernet default path remained
 unchanged and the final selector was `STOCK_A`. This qualifies the exact
 official linux-firmware `.bin` and `.clm_blob`, vendored Radxa NVRAM, Kernel,
-and RootFS together for WLAN. Bluetooth was not tested or qualified.
+and RootFS together for WLAN. That result is historical vendor-kernel evidence;
+the same firmware and NVRAM remain productive inputs, but their integration
+with the current clean-port kernel is not hardware-qualified. Bluetooth was not
+tested or qualified.
 
 A move to a new LTS line, such as `2027.02`, is a separate migration requiring
 its own qualification. Buildroot may rename MIPS or internal-toolchain Kconfig
