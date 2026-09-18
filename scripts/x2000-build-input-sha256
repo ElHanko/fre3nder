@@ -15,6 +15,7 @@ BUILD_INPUTS = (
     "configs/klipper-f005",
     "patches/buildroot",
     "patches/klipper",
+    "patches/linux",
     "scripts/build-x2000",
     "scripts/build-x2000-buildroot",
     "scripts/build-x2000-guppyscreen",

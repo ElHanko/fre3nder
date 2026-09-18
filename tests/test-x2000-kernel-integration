@@ -1,7 +1,11 @@
 #!/bin/sh
+# shellcheck disable=SC2016
 set -eu
 
 root=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+entrypoint=$root/build/x2000/entrypoint.sh
+fingerprint=$root/scripts/x2000-build-input-sha256
+upstream=${FRE3NDER_X2000_UPSTREAM_FIXTURE:-$root/local/research/x2000-kernel/linux-upstream}
 
 python3 - "$root" <<'PY'
 import hashlib
@@ -73,16 +77,16 @@ def validate_series(repository_root, manifest_text):
 
 sources = json.loads(sources_path.read_text(encoding="utf-8"))
 require(sources.get("schema") == 1, "unexpected sources manifest schema")
-require(sources.get("sdk", {}).get("production_active") is True,
-        "legacy SDK production source must remain active during Phase 1")
+require(sources.get("sdk", {}).get("production_active") is False,
+        "legacy SDK kernel source must not remain active during Phase 2")
 require(sources.get("clean_port_kernel_source") == {
     "name": "upstream Linux stable",
-    "role": "prepared future production kernel source",
+    "role": "active clean-port kernel source; configuration pending Phase 3",
     "url": "https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git",
     "version": "v6.6.18",
     "commit": "d8a27ea2c98685cdaa5fa66c809c7069a4ff394b",
     "patch_series": "configs/x2000/kernel-patches.series",
-    "production_active": False,
+    "production_active": True,
 }, "clean-port kernel source contract mismatch")
 
 series_text = series_path.read_text(encoding="utf-8")
@@ -136,3 +140,234 @@ with tempfile.TemporaryDirectory() as temporary:
 
 print("fre3nder-x2000 kernel integration contracts: PASS")
 PY
+
+grep -Fxq 'kernel_source="$work/linux-v6.6.18"' "$entrypoint"
+grep -Fxq 'kernel_build="$work/linux-build-fre3nder"' "$entrypoint"
+grep -Fxq 'kernel_url=https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git' \
+	"$entrypoint"
+grep -Fxq 'kernel_commit=d8a27ea2c98685cdaa5fa66c809c7069a4ff394b' \
+	"$entrypoint"
+grep -Fxq 'kernel_patch_series="$project/configs/x2000/kernel-patches.series"' \
+	"$entrypoint"
+grep -Fq 'make -C "$k" O="$kernel_build"' "$entrypoint"
+grep -Fq 'check_default_initramfs "$kernel_build"' "$entrypoint"
+grep -Fq 'check_kernel_dtb "$k" "$kernel_build"' "$entrypoint"
+grep -Fq 'arch/mips/boot/dts/ingenic/ender3-v3-ke.dtb' "$entrypoint"
+if grep -Eq 'kernel/kernel-6\.6|module_drivers/dts|6\.6\.18-rt23' "$entrypoint"; then
+	echo 'active entrypoint still contains a legacy vendor kernel path' >&2
+	exit 1
+fi
+"$fingerprint" --list-inputs | grep -Fxq 'patches/linux'
+if "$fingerprint" --list-inputs | grep -Fxq 'research/patches/linux'; then
+	echo 'research kernel patches are still part of the production build inputs' >&2
+	exit 1
+fi
+
+tmp=$(mktemp -d)
+cleanup() {
+	rm -rf -- "$tmp"
+}
+trap cleanup EXIT HUP INT TERM
+
+functions=$tmp/kernel-functions.sh
+for function_name in \
+	verify_kernel_source \
+	fetch_kernel_inputs \
+	validate_kernel_patch_series \
+	prepare_kernel; do
+	sed -n "/^$function_name() {$/,/^}$/p" "$entrypoint"
+done > "$functions"
+
+fetch_function=$tmp/fetch-kernel-inputs.sh
+sed -n '/^fetch_kernel_inputs() {$/,/^}$/p' "$entrypoint" > "$fetch_function"
+grep -Fq 'git clone --filter=blob:none --no-checkout "$kernel_url" "$kernel_source"' \
+	"$fetch_function"
+grep -Fq 'git -C "$kernel_source" fetch --no-tags origin "$kernel_commit"' \
+	"$fetch_function"
+if grep -Eq 'sdk|kernel/kernel-6\.6' "$fetch_function"; then
+	echo 'kernel fetch function still contains an SDK kernel fallback' >&2
+	exit 1
+fi
+
+prepare_function=$tmp/prepare-kernel.sh
+sed -n '/^prepare_kernel() {$/,/^}$/p' "$entrypoint" > "$prepare_function"
+grep -Fq 'validate_kernel_patch_series' "$prepare_function"
+grep -Fq 'git -C "$kernel_source" apply --check "$patch"' "$prepare_function"
+grep -Fq 'git -C "$kernel_source" apply "$patch"' "$prepare_function"
+grep -Fq 'git -C "$kernel_source" apply --reverse --check "$patch"' \
+	"$prepare_function"
+if grep -Eq 'sdk|module_drivers|ke-(wlan|display|touch)|ender3-v3-ke\.dts|x2000_halley5|kernel\.fragment' \
+	"$prepare_function"; then
+	echo 'kernel prepare function still contains a legacy vendor integration path' >&2
+	exit 1
+fi
+
+prepare_runner=$tmp/run-prepare
+cat > "$prepare_runner" <<'EOF'
+#!/bin/sh
+set -eu
+. "$FUNCTIONS"
+project=$PROJECT
+work=$WORK
+kernel_source=$KERNEL_SOURCE
+kernel_build=$KERNEL_BUILD
+kernel_url=$KERNEL_URL
+kernel_commit=$KERNEL_COMMIT
+kernel_patch_series=$KERNEL_PATCH_SERIES
+prepare_kernel
+EOF
+chmod 0755 "$prepare_runner"
+
+fetch_runner=$tmp/run-fetch
+cat > "$fetch_runner" <<'EOF'
+#!/bin/sh
+set -eu
+. "$FUNCTIONS"
+kernel_source=$KERNEL_SOURCE
+kernel_url=$KERNEL_URL
+kernel_commit=$KERNEL_COMMIT
+fetch_buildroot_inputs() {
+	:
+}
+fetch_kernel_inputs
+EOF
+chmod 0755 "$fetch_runner"
+
+# Exercise the real fetch function against a local fixture remote only.
+fetch_remote=$tmp/fetch-remote
+git init -q "$fetch_remote"
+git -C "$fetch_remote" config user.name 'Kernel fetch fixture'
+git -C "$fetch_remote" config user.email 'kernel-fetch-fixture@fre3nder.invalid'
+printf '%s\n' base > "$fetch_remote/content"
+git -C "$fetch_remote" add content
+git -C "$fetch_remote" commit -q -m base
+fetch_commit=$(git -C "$fetch_remote" rev-parse HEAD)
+fetch_source=$tmp/fetched-linux
+FUNCTIONS=$functions KERNEL_SOURCE=$fetch_source KERNEL_URL=$fetch_remote \
+	KERNEL_COMMIT=$fetch_commit "$fetch_runner"
+[ "$(git -C "$fetch_source" rev-parse HEAD)" = "$fetch_commit" ]
+[ -z "$(git -C "$fetch_source" status --porcelain=v1)" ]
+git -C "$fetch_source" remote set-url origin "$tmp/wrong-remote"
+if FUNCTIONS=$functions KERNEL_SOURCE=$fetch_source KERNEL_URL=$fetch_remote \
+	KERNEL_COMMIT=$fetch_commit "$fetch_runner" >/dev/null 2>&1; then
+	echo 'kernel fetch accepted the wrong origin URL' >&2
+	exit 1
+fi
+
+# Apply the production series to a writable clone of the canonical local tree
+# when that local-only research fixture is available. /local is intentionally
+# not part of the repository, so its absence must not make the portable
+# contract test fail.
+kernel_url=https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git
+kernel_commit=d8a27ea2c98685cdaa5fa66c809c7069a4ff394b
+
+if [ ! -d "$upstream/.git" ]; then
+	echo "fre3nder-x2000 real upstream apply fixture: SKIP ($upstream unavailable)"
+	echo 'fre3nder-x2000 portable kernel integration fixtures: PASS'
+	exit 0
+fi
+
+[ "$(git -C "$upstream" rev-parse HEAD)" = "$kernel_commit" ] || {
+	echo 'canonical local upstream fixture is not at the pinned kernel commit' >&2
+	exit 1
+}
+
+[ -z "$(git -C "$upstream" status --porcelain=v1)" ] || {
+	echo 'canonical local upstream fixture is not clean' >&2
+	exit 1
+}
+
+kernel_source=$tmp/linux-v6.6.18
+kernel_build=$tmp/linux-build-fre3nder
+kernel_work=$tmp/work
+mkdir -p "$kernel_work"
+git clone -q --shared --no-checkout "$upstream" "$kernel_source"
+git -C "$kernel_source" remote set-url origin "$kernel_url"
+git -C "$kernel_source" checkout -q --detach "$kernel_commit"
+
+run_prepare() {
+	FUNCTIONS=$functions \
+	PROJECT=$1 \
+	WORK=$kernel_work \
+	KERNEL_SOURCE=$kernel_source \
+	KERNEL_BUILD=$kernel_build \
+	KERNEL_URL=$kernel_url \
+	KERNEL_COMMIT=$kernel_commit \
+	KERNEL_PATCH_SERIES=$1/configs/x2000/kernel-patches.series \
+		"$prepare_runner"
+}
+
+run_prepare "$root"
+[ "$(git -C "$kernel_source" rev-parse HEAD)" = "$kernel_commit" ]
+[ -d "$kernel_build" ]
+[ -n "$(git -C "$kernel_source" status --porcelain=v1)" ]
+git -C "$kernel_source" diff --check
+
+# A wrong checked-out basis is rejected before reset or patch application.
+# Do not assume the canonical local upstream clone contains kernel_commit^;
+# a synthetic commit in this temporary fixture is sufficient to prove that
+# prepare_kernel() rejects any HEAD other than the pinned kernel base.
+git -C "$kernel_source" reset -q --hard "$kernel_commit"
+git -C "$kernel_source" clean -q -fdx
+git -C "$kernel_source" \
+	-c user.name='Kernel basis fixture' \
+	-c user.email='kernel-basis-fixture@fre3nder.invalid' \
+	commit -q --allow-empty -m 'wrong kernel base fixture'
+wrong_commit=$(git -C "$kernel_source" rev-parse HEAD)
+[ "$wrong_commit" != "$kernel_commit" ]
+if run_prepare "$root" >/dev/null 2>&1; then
+	echo 'kernel prepare accepted the wrong base commit' >&2
+	exit 1
+fi
+[ "$(git -C "$kernel_source" rev-parse HEAD)" = "$wrong_commit" ]
+git -C "$kernel_source" reset -q --hard "$kernel_commit"
+git -C "$kernel_source" clean -q -fdx
+
+fixture_project=$tmp/project
+mkdir -p "$fixture_project/configs/x2000" "$fixture_project/patches"
+cp "$root/configs/x2000/kernel-patches.series" \
+	"$fixture_project/configs/x2000/kernel-patches.series"
+cp -a "$root/patches/linux" "$fixture_project/patches/linux"
+
+# A hash mismatch is rejected before any patch is applied.
+sed -i '1s/^./0/' "$fixture_project/configs/x2000/kernel-patches.series"
+if run_prepare "$fixture_project" >/dev/null 2>&1; then
+	echo 'kernel prepare accepted a patch hash mismatch' >&2
+	exit 1
+fi
+[ -z "$(git -C "$kernel_source" status --porcelain=v1)" ]
+
+# Manifest order is enforced by the production parser.
+cp "$root/configs/x2000/kernel-patches.series" \
+	"$fixture_project/configs/x2000/kernel-patches.series"
+python3 - "$fixture_project/configs/x2000/kernel-patches.series" <<'PY'
+import pathlib
+import sys
+
+path = pathlib.Path(sys.argv[1])
+lines = path.read_text(encoding="utf-8").splitlines()
+lines[0], lines[1] = lines[1], lines[0]
+path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+PY
+if run_prepare "$fixture_project" >/dev/null 2>&1; then
+	echo 'kernel prepare accepted an out-of-order patch series' >&2
+	exit 1
+fi
+[ -z "$(git -C "$kernel_source" status --porcelain=v1)" ]
+
+# A syntactically valid, correctly hashed patch that cannot apply is fatal.
+cp "$root/configs/x2000/kernel-patches.series" \
+	"$fixture_project/configs/x2000/kernel-patches.series"
+first_patch=$fixture_project/patches/linux/0001-mips-ingenic-add-minimal-x2000-up-platform.patch
+sed -i 's|arch/mips/Makefile|arch/mips/Makefile.missing|g' "$first_patch"
+bad_digest=$(sha256sum "$first_patch")
+bad_digest=${bad_digest%% *}
+sed -i "1s/^[0-9a-f]\{64\}/$bad_digest/" \
+	"$fixture_project/configs/x2000/kernel-patches.series"
+if run_prepare "$fixture_project" >/dev/null 2>&1; then
+	echo 'kernel prepare accepted an unapplicable patch' >&2
+	exit 1
+fi
+[ -z "$(git -C "$kernel_source" status --porcelain=v1)" ]
+
+echo 'fre3nder-x2000 kernel source and apply fixtures: PASS'

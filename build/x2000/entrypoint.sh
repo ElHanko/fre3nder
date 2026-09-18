@@ -26,7 +26,8 @@ case "$version_tail" in
 *) release_stage=final ;;
 esac
 release_scope=usable-system
-sdk="$work/sdk"
+kernel_source="$work/linux-v6.6.18"
+kernel_build="$work/linux-build-fre3nder"
 buildroot="$work/buildroot"
 buildroot_dl="$work/buildroot-dl"
 buildroot_external="$project/configs/x2000/buildroot-external"
@@ -43,8 +44,9 @@ artifact_root="$local_root/artifacts/x2000"
 full_out="$artifact_root/full"
 kernel_out="$artifact_root/kernel-only"
 rootfs_out="$artifact_root/rootfs-only"
-sdk_url=https://github.com/Llixuma/ingenic-linux-kernel6.6-x2000-v1.0-20250221.git
-sdk_commit=a98c2e1f22e4263ddd4153a4eca4db4dcfd2777b
+kernel_url=https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git
+kernel_commit=d8a27ea2c98685cdaa5fa66c809c7069a4ff394b
+kernel_patch_series="$project/configs/x2000/kernel-patches.series"
 buildroot_url=https://gitlab.com/buildroot.org/buildroot.git
 buildroot_version=2025.02.18
 buildroot_commit=d030e36bbc9669230c015be971b14b6e062cfdde
@@ -61,7 +63,6 @@ guppyscreen_overlay="$work/fre3nder-guppyscreen-overlay"
 moonraker_component="$artifact_root/moonraker"
 guppyscreen_component="$artifact_root/guppyscreen"
 development_marker="$klipper_overlay/usr/share/fre3nder/DEVELOPMENT"
-firmware_names='brcm/brcmfmac43430-sdio.bin brcm/brcmfmac43430-sdio.clm_blob brcm/brcmfmac43430-sdio.txt'
 artifact_mode=${FRE3NDER_ARTIFACT_MODE:-release}
 project_commit=
 project_worktree_status=
@@ -685,15 +686,23 @@ fetch_buildroot_inputs() {
 	make -C "$buildroot" O="$brfetch" source
 }
 
+verify_kernel_source() {
+	[ -d "$kernel_source/.git" ]
+	[ "$(git -C "$kernel_source" remote get-url origin)" = "$kernel_url" ]
+	[ "$(git -C "$kernel_source" cat-file -t "$kernel_commit")" = commit ]
+	[ "$(git -C "$kernel_source" rev-parse HEAD)" = "$kernel_commit" ]
+	[ -z "$(git -C "$kernel_source" status --porcelain=v1)" ]
+}
+
 fetch_kernel_inputs() {
-	[ -d "$sdk/.git" ] || git clone --filter=blob:none --no-checkout "$sdk_url" "$sdk"
-	[ "$(git -C "$sdk" remote get-url origin)" = "$sdk_url" ]
-	git -C "$sdk" fetch origin "$sdk_commit"
-	git -C "$sdk" reset --hard "$sdk_commit"
-	git -C "$sdk" clean -fdx
-	git -C "$sdk" sparse-checkout set kernel/kernel-6.6
-	git -C "$sdk" checkout --detach "$sdk_commit"
-	[ "$(git -C "$sdk" rev-parse HEAD)" = "$sdk_commit" ]
+	[ -d "$kernel_source/.git" ] ||
+		git clone --filter=blob:none --no-checkout "$kernel_url" "$kernel_source"
+	[ "$(git -C "$kernel_source" remote get-url origin)" = "$kernel_url" ]
+	git -C "$kernel_source" fetch --no-tags origin "$kernel_commit"
+	git -C "$kernel_source" checkout --detach "$kernel_commit"
+	git -C "$kernel_source" reset --hard "$kernel_commit"
+	git -C "$kernel_source" clean -fdx
+	verify_kernel_source
 
 	fetch_buildroot_inputs
 }
@@ -1117,158 +1126,170 @@ stage_kernel_firmware() {
 		"$kernel_firmware_dir/brcm/brcmfmac43430-sdio.txt"
 }
 
+validate_kernel_patch_series() {
+	validated_series="$work/fre3nder-kernel-patches.validated"
+	available_series="$work/fre3nder-kernel-patches.available"
+	patch_directory="$project/patches/linux"
+	rm -f -- "$validated_series" "$available_series"
+
+	if [ ! -f "$kernel_patch_series" ] || [ -L "$kernel_patch_series" ]; then
+		echo 'kernel patch series is missing, non-regular, or a symlink' >&2
+		return 1
+	fi
+	[ "$(tail -c 1 "$kernel_patch_series")" = '' ] || {
+		echo 'kernel patch series must end with a newline' >&2
+		return 1
+	}
+	[ -d "$patch_directory" ] || {
+		echo 'kernel patch directory is missing' >&2
+		return 1
+	}
+
+	awk '
+		function fail(message) {
+			failed = 1
+			print message > "/dev/stderr"
+			exit 1
+		}
+		{
+			digest = substr($0, 1, 64)
+			separator = substr($0, 65, 2)
+			path = substr($0, 67)
+			if (length(digest) != 64 || digest ~ /[^0-9a-f]/)
+				fail("invalid kernel patch SHA256 at line " NR)
+			if (separator != "  ")
+				fail("invalid kernel patch separator at line " NR)
+			if (path !~ /^patches\/linux\/[0-9][0-9][0-9][0-9]-[a-z0-9-]+\.patch$/)
+				fail("invalid kernel patch path at line " NR)
+			name = path
+			sub(/^patches\/linux\//, "", name)
+			if (index(name, sprintf("%04d-", NR)) != 1)
+				fail("kernel patch series is out of order at line " NR)
+			if (seen[path]++)
+				fail("duplicate kernel patch path at line " NR)
+			printf "%s\t%s\n", digest, path
+		}
+		END {
+			if (!failed && NR != 14)
+				fail("kernel patch series must contain exactly 14 entries")
+		}
+	' "$kernel_patch_series" > "$validated_series"
+
+	find "$patch_directory" -mindepth 1 -maxdepth 1 -name '*.patch' \
+		-printf 'patches/linux/%f\n' | LC_ALL=C sort > "$available_series"
+	cut -f2 "$validated_series" | LC_ALL=C sort | cmp -s - "$available_series" || {
+		echo 'kernel patch series does not match patches/linux' >&2
+		return 1
+	}
+
+	tab=$(printf '\t')
+	while IFS="$tab" read -r expected_digest relative_patch; do
+		patch="$project/$relative_patch"
+		if [ ! -f "$patch" ] || [ -L "$patch" ]; then
+			echo "kernel patch is missing, non-regular, or a symlink: $relative_patch" >&2
+			return 1
+		fi
+		actual_digest=$(sha256sum "$patch")
+		actual_digest=${actual_digest%% *}
+		[ "$actual_digest" = "$expected_digest" ] || {
+			echo "kernel patch SHA256 mismatch: $relative_patch" >&2
+			return 1
+		}
+	done < "$validated_series"
+
+	rm -f -- "$available_series"
+}
+
 prepare_kernel() {
-	cross_compile=$1
-	cc=$2
-	k="$sdk/kernel/kernel-6.6"
-	git -C "$sdk" clean -fdx kernel/kernel-6.6
-	git -C "$sdk" reset --hard "$sdk_commit"
-	cp "$project/configs/x2000/ender3-v3-ke.dts" \
-		"$k/module_drivers/dts/x2000/ender3-v3-ke.dts"
-	git -C "$sdk" apply --check "$project/configs/x2000/ke-wlan.patch"
-	git -C "$sdk" apply "$project/configs/x2000/ke-wlan.patch"
-	git -C "$sdk" apply --reverse --check "$project/configs/x2000/ke-wlan.patch"
-	git -C "$sdk" apply --check "$project/configs/x2000/ke-display.patch"
-	git -C "$sdk" apply "$project/configs/x2000/ke-display.patch"
-	git -C "$sdk" apply --reverse --check "$project/configs/x2000/ke-display.patch"
-	git -C "$sdk" apply --check "$project/configs/x2000/ke-touch.patch"
-	git -C "$sdk" apply "$project/configs/x2000/ke-touch.patch"
-	git -C "$sdk" apply --reverse --check "$project/configs/x2000/ke-touch.patch"
+	[ -d "$kernel_source/.git" ]
+	[ "$(git -C "$kernel_source" remote get-url origin)" = "$kernel_url" ]
+	[ "$(git -C "$kernel_source" cat-file -t "$kernel_commit")" = commit ]
+	[ "$(git -C "$kernel_source" rev-parse HEAD)" = "$kernel_commit" ] || {
+		echo 'kernel source is not at the pinned base commit' >&2
+		return 1
+	}
+	git -C "$kernel_source" reset --hard "$kernel_commit"
+	git -C "$kernel_source" clean -fdx
+	verify_kernel_source
 
-	if ! grep -q '^dtb-$(CONFIG_DT_ENDER3_V3_KE)' "$k/module_drivers/dts/Makefile"; then
-		sed -i '/^obj-$(CONFIG_BUILTIN_DTB)/i dtb-$(CONFIG_DT_ENDER3_V3_KE) += x2000/ender3-v3-ke.dtb' "$k/module_drivers/dts/Makefile"
-	fi
-	if ! grep -q '^config DT_ENDER3_V3_KE$' "$k/arch/mips/xburst2/soc-x2000/Kconfig.DT"; then
-		sed -i '/^endchoice$/i config DT_ENDER3_V3_KE\n\tbool "Ender-3 V3 KE"\n' "$k/arch/mips/xburst2/soc-x2000/Kconfig.DT"
-	fi
+	rm -rf -- "$kernel_build"
+	install -d -m 0755 "$kernel_build"
+	validate_kernel_patch_series
 
-	make -C "$k" ARCH=mips CROSS_COMPILE="$cross_compile" CC="$cc" \
-		x2000_halley5_v30_linux_defconfig
-	cat "$project/configs/x2000/kernel.fragment" >> "$k/.config"
-	cat >> "$k/.config" <<EOF
-CONFIG_DT_ENDER3_V3_KE=y
-CONFIG_EXTRA_FIRMWARE="$firmware_names"
-CONFIG_EXTRA_FIRMWARE_DIR="$kernel_firmware_dir"
-EOF
-	make -C "$k" ARCH=mips CROSS_COMPILE="$cross_compile" CC="$cc" \
-		olddefconfig
+	tab=$(printf '\t')
+	while IFS="$tab" read -r expected_digest relative_patch; do
+		patch="$project/$relative_patch"
+		actual_digest=$(sha256sum "$patch")
+		actual_digest=${actual_digest%% *}
+		[ "$actual_digest" = "$expected_digest" ] || {
+			echo "kernel patch changed before apply: $relative_patch" >&2
+			return 1
+		}
+		git -C "$kernel_source" apply --check "$patch"
+		git -C "$kernel_source" apply "$patch"
+		git -C "$kernel_source" apply --reverse --check "$patch"
+	done < "$validated_series"
+	rm -f -- "$validated_series"
 
-	grep -Fxq '# CONFIG_DT_HALLEY5_V30 is not set' "$k/.config"
-	grep -Fxq 'CONFIG_DT_ENDER3_V3_KE=y' "$k/.config"
-	grep -Fxq 'CONFIG_PREEMPT=y' "$k/.config"
-	grep -Fxq '# CONFIG_PREEMPT_RT is not set' "$k/.config"
-	grep -Fxq 'CONFIG_BLK_DEV_INITRD=y' "$k/.config"
-	grep -Fxq 'CONFIG_INITRAMFS_SOURCE=""' "$k/.config"
-	grep -Fxq 'CONFIG_OVERLAY_FS=y' "$k/.config"
-	grep -Fxq 'CONFIG_DEVTMPFS=y' "$k/.config"
-	grep -Fxq 'CONFIG_DEVTMPFS_MOUNT=y' "$k/.config"
-	grep -Fxq 'CONFIG_BRCMFMAC=y' "$k/.config"
-	grep -Fxq 'CONFIG_BRCMFMAC_SDIO=y' "$k/.config"
-	grep -Fxq '# CONFIG_BCMDHD is not set' "$k/.config"
-	grep -Fxq '# CONFIG_SND_ASOC_INGENIC is not set' "$k/.config"
-	grep -Fxq '# CONFIG_VIDEOBUF2_DMA_CONTIG_INGENIC is not set' "$k/.config"
-	grep -Fxq '# CONFIG_INGENIC_SPI is not set' "$k/.config"
-	grep -Fxq 'CONFIG_SPI=y' "$k/.config"
-	grep -Fxq 'CONFIG_SPI_MASTER=y' "$k/.config"
-	grep -Fxq 'CONFIG_SPI_BITBANG=y' "$k/.config"
-	grep -Fxq 'CONFIG_SPI_GPIO=y' "$k/.config"
-	grep -Fxq 'CONFIG_SPI_SPIDEV=y' "$k/.config"
-	grep -Fxq '# CONFIG_INGENIC_SFC is not set' "$k/.config"
-	grep -Fxq '# CONFIG_INGENIC_RSA is not set' "$k/.config"
-	grep -Fxq '# CONFIG_SPINLOCK_TEST is not set' "$k/.config"
-	grep -Fxq 'CONFIG_MEDIA_SUPPORT=y' "$k/.config"
-	grep -Fxq 'CONFIG_MEDIA_SUPPORT_FILTER=y' "$k/.config"
-	grep -Fxq 'CONFIG_MEDIA_CAMERA_SUPPORT=y' "$k/.config"
-	grep -Fxq 'CONFIG_VIDEO_DEV=y' "$k/.config"
-	grep -Fxq 'CONFIG_MEDIA_CONTROLLER=y' "$k/.config"
-	grep -Fxq 'CONFIG_MEDIA_USB_SUPPORT=y' "$k/.config"
-	grep -Fxq 'CONFIG_USB_VIDEO_CLASS=y' "$k/.config"
-	grep -Fxq 'CONFIG_UVC_COMMON=y' "$k/.config"
-	grep -Fxq 'CONFIG_VIDEOBUF2_CORE=y' "$k/.config"
-	grep -Fxq 'CONFIG_VIDEOBUF2_V4L2=y' "$k/.config"
-	grep -Fxq 'CONFIG_VIDEOBUF2_MEMOPS=y' "$k/.config"
-	grep -Fxq 'CONFIG_VIDEOBUF2_VMALLOC=y' "$k/.config"
-	for setting in \
-		CONFIG_MEDIA_ANALOG_TV_SUPPORT \
-		CONFIG_MEDIA_DIGITAL_TV_SUPPORT \
-		CONFIG_MEDIA_RADIO_SUPPORT \
-		CONFIG_MEDIA_SDR_SUPPORT \
-		CONFIG_MEDIA_PLATFORM_SUPPORT \
-		CONFIG_MEDIA_TEST_SUPPORT \
-		CONFIG_USB_VIDEO_CLASS_INPUT_EVDEV \
-		CONFIG_VIDEO_INGENIC_ISP \
-		CONFIG_VIDEO_INGENIC_ROTATE \
-		CONFIG_VIDEO_INGENIC_VCODEC; do
-		grep -Fxq "# $setting is not set" "$k/.config"
-	done
-	! grep -Eq '^CONFIG_(VIDEO_INGENIC|INGENIC_ISP_CAMERA|HALLEY5_CAMERA|RD_X2000_HALLEY5_CAMERA).*=' \
-		"$k/.config"
-	! grep -Eq '^CONFIG_(MEDIA_PLATFORM_DRIVERS|V4L_PLATFORM_DRIVERS|V4L_MEM2MEM_DRIVERS|VIDEOBUF2_DMA_CONTIG|VIDEOBUF2_DMA_SG|V4L2_MEM2MEM_DEV|V4L2_FWNODE|V4L2_ASYNC)=' \
-		"$k/.config"
-	grep -Fxq '# CONFIG_SOUND is not set' "$k/.config"
-	grep -Fxq 'CONFIG_FB=y' "$k/.config"
-	grep -Fxq 'CONFIG_FB_INGENIC=y' "$k/.config"
-	grep -Fxq 'CONFIG_FB_INGENIC_STAGE=y' "$k/.config"
-	grep -Fxq 'CONFIG_STAGE_ENDER3_V3_KE_480X272=y' "$k/.config"
-	grep -Fxq '# CONFIG_IIO is not set' "$k/.config"
-	grep -Fxq 'CONFIG_INPUT_TOUCHSCREEN=y' "$k/.config"
-	grep -Fxq 'CONFIG_TOUCHSCREEN_NS2009=y' "$k/.config"
-	grep -Fxq 'CONFIG_INPUT_MISC=y' "$k/.config"
-	grep -Fxq 'CONFIG_INPUT_PWM_BEEPER=y' "$k/.config"
-	grep -Fxq 'CONFIG_USB_STORAGE=y' "$k/.config"
-	grep -Fxq 'CONFIG_MII=y' "$k/.config"
-	grep -Fxq 'CONFIG_USB_NET_DRIVERS=y' "$k/.config"
-	grep -Fxq 'CONFIG_USB_USBNET=y' "$k/.config"
-	grep -Fxq 'CONFIG_USB_NET_AX88179_178A=y' "$k/.config"
-	grep -Fxq 'CONFIG_USB_NET_CDC_NCM=y' "$k/.config"
-	grep -Fxq 'CONFIG_USB_NET_CDCETHER=y' "$k/.config"
-	! grep -Eq '^CONFIG_USB_LIBCOMPOSITE=y$' "$k/.config"
-	grep -Fxq 'CONFIG_FAT_FS=y' "$k/.config"
-	grep -Fxq 'CONFIG_VFAT_FS=y' "$k/.config"
-	grep -Fxq "CONFIG_EXTRA_FIRMWARE=\"$firmware_names\"" "$k/.config"
-	grep -Fxq "CONFIG_EXTRA_FIRMWARE_DIR=\"$kernel_firmware_dir\"" "$k/.config"
+	[ "$(git -C "$kernel_source" rev-parse HEAD)" = "$kernel_commit" ]
+	git -C "$kernel_source" diff --check
 }
 
 check_kernel_dtb() {
-	k=$1
-	dts="$k/module_drivers/dts/x2000/ender3-v3-ke.dts"
-	dtb="$k/module_drivers/dts/x2000/ender3-v3-ke.dtb"
+	ksource=$1
+	kbuild=$2
+	dts="$ksource/arch/mips/boot/dts/ingenic/ender3-v3-ke.dts"
+	dtb="$kbuild/arch/mips/boot/dts/ingenic/ender3-v3-ke.dtb"
 	decoded="$work/fre3nder-x2000-kernel-only.dts"
 
-	grep -Fq 'bootargs = "console=ttyS4,115200 root=/dev/mmcblk0p8 rootwait rootfstype=squashfs ro";' "$dts"
-	grep -Fq 'ingenic,drvvbus-gpio = <&gpc 9 GPIO_ACTIVE_HIGH INGENIC_GPIO_NOBIAS>;' "$dts"
-	grep -Fq 'ingenic,vbus-dete-gpio = <&gpd 17 GPIO_ACTIVE_LOW INGENIC_GPIO_NOBIAS>;' "$dts"
+	[ -f "$dts" ]
+	[ -f "$dtb" ]
+
+	grep -Fq 'compatible = "creality,ender-3-v3-ke", "ingenic,x2000";' "$dts"
+	grep -Fq 'bootargs = "root=/dev/mmcblk0p8 rootwait rootfstype=squashfs ro";' "$dts"
 	grep -Fq 'compatible = "pwm-beeper";' "$dts"
-	grep -Fq 'pwms = <&pwm 3 1000000>;' "$dts"
-	grep -Fq 'pinctrl-0 = <&pwm3_pc>;' "$dts"
-	awk '
-		$0 == "&otg {" { in_node = 1; next }
-		in_node && $0 == "};" { exit !okay }
-		in_node && /status = "okay";/ { okay = 1 }
-		END { exit !okay }
-	' "$dts"
-	awk '
-		$0 == "&otg_phy {" { in_node = 1; next }
-		in_node && $0 == "};" { exit !okay }
-		in_node && /status = "okay";/ { okay = 1 }
-		END { exit !okay }
-	' "$dts"
+	grep -Fq 'pwms = <&pwm 3 1000000 0>;' "$dts"
+	grep -Fq 'compatible = "creality,ender-3-v3-ke-panel";' "$dts"
+	grep -Fq 'reset-gpios = <&gpb 16 GPIO_ACTIVE_LOW>;' "$dts"
+	grep -Fq 'vmmc-supply = <&wifi_bt_power>;' "$dts"
+	grep -Fq 'mmc-pwrseq = <&wlan_pwrseq>;' "$dts"
+	grep -Fq 'post-power-on-delay-ms = <100>;' "$dts"
+	grep -Fq 'dr_mode = "host";' "$dts"
+	grep -Fq 'vbus-supply = <&usb_vbus>;' "$dts"
+	grep -Fq 'compatible = "spi-gpio";' "$dts"
+	grep -Fq 'compatible = "rohm,dh2228fv";' "$dts"
+
+	if grep -Eq \
+		'wlan-reg-on-gpios|ingenic,drvvbus-gpio|ingenic,vbus-dete-gpio' \
+		"$dts"; then
+		echo 'legacy vendor DT properties remain in clean-port DTS' >&2
+		return 1
+	fi
+
 	dtc -I dtb -O dts -o "$decoded" "$dtb"
+
 	grep -Fq 'creality,ender-3-v3-ke' "$decoded"
+	grep -Fq 'creality,ender-3-v3-ke-panel' "$decoded"
 	grep -Fq 'compatible = "pwm-beeper";' "$decoded"
 	grep -Fq 'root=/dev/mmcblk0p8' "$decoded"
-	grep -Fq 'wifi-bt-power' "$decoded"
+	grep -Fq 'regulator-wifi-bt' "$decoded"
 	grep -Fq 'vmmc-supply' "$decoded"
-	grep -Fq 'wlan-reg-on-gpios' "$decoded"
-	grep -Fq 'ingenic,drvvbus-gpio' "$decoded"
-	grep -Fq 'ingenic,vbus-dete-gpio' "$decoded"
+	grep -Fq 'mmc-pwrseq' "$decoded"
+	grep -Fq 'dr_mode = "host";' "$decoded"
 	grep -Fq 'spi2 = "/spi-gpio-adxl345";' "$decoded"
 	grep -Fq 'compatible = "spi-gpio";' "$decoded"
 	grep -Fq 'compatible = "rohm,dh2228fv";' "$decoded"
 	grep -Fq 'spi-max-frequency = <0x1e8480>;' "$decoded"
+
+	if grep -Eq \
+		'wlan-reg-on-gpios|ingenic,drvvbus-gpio|ingenic,vbus-dete-gpio' \
+		"$decoded"; then
+		echo 'legacy vendor DT properties remain in compiled clean-port DTB' >&2
+		return 1
+	fi
+
 	rm -f -- "$decoded"
 }
-
 check_default_initramfs() {
 	k=$1
 	archive="$k/usr/initramfs_data.cpio"
@@ -1771,15 +1792,13 @@ build() {
 	kernel_cross_compile="$brout/host/bin/mipsel-buildroot-linux-gnu-"
 	kernel_cc="${kernel_cross_compile}gcc.br_real"
 	[ -x "$kernel_cc" ]
-	prepare_kernel "$kernel_cross_compile" "$kernel_cc"
-	k="$sdk/kernel/kernel-6.6"
-	make -C "$k" -j"$jobs" ARCH=mips \
+	prepare_kernel
+	k="$kernel_source"
+	make -C "$k" O="$kernel_build" -j"$jobs" ARCH=mips \
 		CROSS_COMPILE="$kernel_cross_compile" CC="$kernel_cc" \
 		HOSTCFLAGS='-Wno-error=incompatible-pointer-types' xImage dtbs
-	check_default_initramfs "$k"
-	check_kernel_dtb "$k"
-	[ "$(make -s -C "$k" ARCH=mips CROSS_COMPILE="$kernel_cross_compile" \
-		CC="$kernel_cc" kernelrelease)" = 6.6.18-rt23 ]
+	check_default_initramfs "$kernel_build"
+	check_kernel_dtb "$k" "$kernel_build"
 
 	out="$full_out"
 	build_klipper_chelper "$brout"
@@ -1789,10 +1808,10 @@ build() {
 
 	rm -rf -- "$out"
 	mkdir -p "$out"
-	cp "$k/arch/mips/boot/compressed/xImage" "$out/kernel.uImage"
+	cp "$kernel_build/arch/mips/boot/compressed/xImage" "$out/kernel.uImage"
 	cp "$brout/images/rootfs.squashfs" "$out/rootfs.squashfs"
-	cp "$k/module_drivers/dts/x2000/ender3-v3-ke.dtb" "$out/ender3-v3-ke.dtb"
-	cp "$k/.config" "$out/effective-kernel-config"
+	cp "$kernel_build/arch/mips/boot/dts/ingenic/ender3-v3-ke.dtb" "$out/ender3-v3-ke.dtb"
+	cp "$kernel_build/.config" "$out/effective-kernel-config"
 	cp "$brout/.config" "$out/buildroot.config"
 
 	write_build_manifest "$out" \
@@ -1816,8 +1835,8 @@ build() {
 	[ "$(stat -c '%s' "$out/kernel.uImage")" -lt 8388608 ]
 	[ "$(stat -c '%s' "$out/rootfs.squashfs")" -lt 524288000 ]
 	unsquashfs -ll "$out/rootfs.squashfs" | grep -q '/dev/pts$'
-	! strings "$k/vmlinux" | grep -q 'ingenic,halley5'
-	strings "$k/vmlinux" | grep -q 'creality,ender-3-v3-ke'
+	! strings "$kernel_build/vmlinux" | grep -q 'ingenic,halley5'
+	strings "$kernel_build/vmlinux" | grep -q 'creality,ender-3-v3-ke'
 }
 
 build_kernel_only() {
@@ -1832,22 +1851,20 @@ build_kernel_only() {
 	kernel_cross_compile="$brout/host/bin/mipsel-buildroot-linux-gnu-"
 	kernel_cc="${kernel_cross_compile}gcc.br_real"
 	[ -x "$kernel_cc" ]
-	prepare_kernel "$kernel_cross_compile" "$kernel_cc"
-	k="$sdk/kernel/kernel-6.6"
-	make -C "$k" -j"$jobs" ARCH=mips \
+	prepare_kernel
+	k="$kernel_source"
+	make -C "$k" O="$kernel_build" -j"$jobs" ARCH=mips \
 		CROSS_COMPILE="$kernel_cross_compile" CC="$kernel_cc" \
 		HOSTCFLAGS='-Wno-error=incompatible-pointer-types' xImage dtbs
-	check_default_initramfs "$k"
-	[ "$(make -s -C "$k" ARCH=mips CROSS_COMPILE="$kernel_cross_compile" \
-		CC="$kernel_cc" kernelrelease)" = 6.6.18-rt23 ]
-	check_kernel_dtb "$k"
+	check_default_initramfs "$kernel_build"
+	check_kernel_dtb "$k" "$kernel_build"
 
 	out="$kernel_out"
 	rm -rf -- "$out"
 	mkdir -p "$out"
-	cp "$k/arch/mips/boot/compressed/xImage" "$out/kernel.uImage"
-	cp "$k/module_drivers/dts/x2000/ender3-v3-ke.dtb" "$out/ender3-v3-ke.dtb"
-	cp "$k/.config" "$out/effective-kernel-config"
+	cp "$kernel_build/arch/mips/boot/compressed/xImage" "$out/kernel.uImage"
+	cp "$kernel_build/arch/mips/boot/dts/ingenic/ender3-v3-ke.dtb" "$out/ender3-v3-ke.dtb"
+	cp "$kernel_build/.config" "$out/effective-kernel-config"
 	write_build_manifest "$out" \
 		kernel.uImage ender3-v3-ke.dtb effective-kernel-config
 	(cd "$out" && sha256sum build-manifest.json kernel.uImage \
@@ -1859,10 +1876,10 @@ build_kernel_only() {
 	file "$out/kernel.uImage" "$out/ender3-v3-ke.dtb"
 	dumpimage -l "$out/kernel.uImage"
 	[ "$(stat -c '%s' "$out/kernel.uImage")" -lt 8388608 ]
-	if strings "$k/vmlinux" | grep -q 'ingenic,halley5'; then
+	if strings "$kernel_build/vmlinux" | grep -q 'ingenic,halley5'; then
 		exit 1
 	fi
-	strings "$k/vmlinux" | grep -q 'creality,ender-3-v3-ke'
+	strings "$kernel_build/vmlinux" | grep -q 'creality,ender-3-v3-ke'
 }
 
 build_rootfs_only() {
