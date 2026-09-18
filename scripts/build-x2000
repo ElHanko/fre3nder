@@ -84,9 +84,58 @@ for directory, names in (
 
 kernel_manifest = json.loads((kernel_dir / "build-manifest.json").read_text())
 rootfs_manifest = json.loads((rootfs_dir / "build-manifest.json").read_text())
-for field in ("artifact_mode", "project_commit", "project_worktree_status", "build_input_sha256"):
-    if kernel_manifest.get(field, "") != rootfs_manifest.get(field, ""):
-        raise SystemExit(f"component manifests disagree on {field}")
+
+dynamic_fields = {
+    "artifacts",
+    "kernel_build",
+    "rootfs_components",
+}
+
+kernel_static = {
+    key: value
+    for key, value in kernel_manifest.items()
+    if key not in dynamic_fields
+}
+rootfs_static = {
+    key: value
+    for key, value in rootfs_manifest.items()
+    if key not in dynamic_fields
+}
+if kernel_static != rootfs_static:
+    raise SystemExit("component manifests disagree on static provenance")
+
+kernel_build = kernel_manifest.get("kernel_build")
+if not isinstance(kernel_build, dict):
+    raise SystemExit("kernel component manifest lacks kernel_build provenance")
+
+if "kernel_build" in rootfs_manifest:
+    raise SystemExit(
+        "rootfs-only manifest must not claim an executed kernel build"
+    )
+
+required_kernel_build_fields = {
+    "base_commit",
+    "base_tree",
+    "patch_series",
+    "final_diff_sha256",
+    "defconfig",
+    "effective_config_sha256",
+    "kernelrelease",
+    "compiler",
+    "buildroot_toolchain_fingerprint",
+    "kbuild",
+    "vmlinux_sha256",
+    "artifacts",
+}
+missing_kernel_build_fields = (
+    required_kernel_build_fields - kernel_build.keys()
+)
+if missing_kernel_build_fields:
+    raise SystemExit(
+        "kernel_build provenance missing fields: "
+        + ", ".join(sorted(missing_kernel_build_fields))
+    )
+
 for directory, manifest, names in (
     (kernel_dir, kernel_manifest, ("kernel.uImage", "ender3-v3-ke.dtb", "effective-kernel-config")),
     (rootfs_dir, rootfs_manifest, ("rootfs.squashfs", "buildroot.config")),
@@ -96,6 +145,20 @@ for directory, manifest, names in (
         actual = hashlib.sha256((directory / name).read_bytes()).hexdigest()
         if artifacts.get(name) != actual:
             raise SystemExit(f"component manifest checksum mismatch: {directory / name}")
+
+kernel_artifact_names = (
+    "kernel.uImage",
+    "ender3-v3-ke.dtb",
+    "effective-kernel-config",
+)
+expected_kernel_artifacts = {
+    name: kernel_manifest["artifacts"][name]
+    for name in kernel_artifact_names
+}
+if kernel_build.get("artifacts") != expected_kernel_artifacts:
+    raise SystemExit(
+        "kernel_build artifact provenance disagrees with kernel manifest"
+    )
 
 full_dir.parent.mkdir(parents=True, exist_ok=True)
 stage = pathlib.Path(tempfile.mkdtemp(prefix=".full.", dir=full_dir.parent))
@@ -110,6 +173,7 @@ try:
         shutil.copyfile(source, stage / name)
 
     manifest = dict(rootfs_manifest)
+    manifest["kernel_build"] = kernel_build
     manifest["artifacts"] = {
         path.name: hashlib.sha256(path.read_bytes()).hexdigest()
         for path in sorted(stage.iterdir())

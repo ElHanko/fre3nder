@@ -48,6 +48,11 @@ kernel_url=https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git
 kernel_commit=d8a27ea2c98685cdaa5fa66c809c7069a4ff394b
 kernel_patch_series="$project/configs/x2000/kernel-patches.series"
 kernel_defconfig="$project/configs/x2000/kernel-clean-port.defconfig"
+kernel_release=6.6.18-fre3nder
+kernel_build_user=fre3nder
+kernel_build_host=build
+kernel_build_version=1
+kernel_build_timestamp=
 buildroot_url=https://gitlab.com/buildroot.org/buildroot.git
 buildroot_version=2025.02.18
 buildroot_commit=d030e36bbc9669230c015be971b14b6e062cfdde
@@ -1213,6 +1218,20 @@ prepare_kernel() {
 	git -C "$kernel_source" clean -fdx
 	verify_kernel_source
 
+	kernel_commit_epoch=$(
+		git -C "$kernel_source" show -s --format=%ct "$kernel_commit"
+	)
+	case "$kernel_commit_epoch" in
+	''|*[!0-9]*)
+		echo 'invalid pinned kernel commit timestamp' >&2
+		return 1
+		;;
+	esac
+	kernel_build_timestamp=$(
+		date -u -d "@$kernel_commit_epoch" '+%Y-%m-%d %H:%M:%S +0000'
+	)
+	[ -n "$kernel_build_timestamp" ]
+
 	rm -rf -- "$kernel_build"
 	install -d -m 0755 "$kernel_build"
 	validate_kernel_patch_series
@@ -1435,6 +1454,233 @@ configure_kernel() {
 	rm -f -- "$base_config" "$base_normalized" "$final_normalized"
 
 	check_kernel_config "$kernel_build/.config"
+}
+
+
+write_kernel_final_diff() {
+	output=$1
+	temporary_index="${output}.index.$$"
+
+	rm -f -- "$output" "$temporary_index"
+
+	if ! GIT_INDEX_FILE="$temporary_index" \
+		git -C "$kernel_source" read-tree "$kernel_commit"; then
+		rm -f -- "$temporary_index"
+		return 1
+	fi
+
+	if ! GIT_INDEX_FILE="$temporary_index" \
+		git -C "$kernel_source" add -A -- .; then
+		rm -f -- "$temporary_index"
+		return 1
+	fi
+
+	if ! LC_ALL=C GIT_INDEX_FILE="$temporary_index" \
+		git -C "$kernel_source" diff \
+			--cached --binary --full-index --no-ext-diff \
+			"$kernel_commit" -- > "$output"; then
+		rm -f -- "$output" "$temporary_index"
+		return 1
+	fi
+
+	rm -f -- "$temporary_index"
+
+	[ -s "$output" ] || {
+		echo 'kernel final patch-result diff is empty' >&2
+		return 1
+	}
+}
+
+record_kernel_build() {
+	out=$1
+	buildroot_output=$2
+	manifest="$out/build-manifest.json"
+
+	for file in \
+		"$manifest" \
+		"$kernel_build/vmlinux" \
+		"$kernel_build/.config" \
+		"$kernel_build/include/config/kernel.release" \
+		"$out/kernel.uImage" \
+		"$out/ender3-v3-ke.dtb" \
+		"$out/effective-kernel-config"; do
+		if [ ! -f "$file" ] || [ -L "$file" ]; then
+			echo "kernel provenance input missing or non-regular: $file" >&2
+			return 1
+		fi
+	done
+
+	actual_base_commit=$(git -C "$kernel_source" rev-parse HEAD)
+	[ "$actual_base_commit" = "$kernel_commit" ] || {
+		echo 'kernel provenance base commit mismatch' >&2
+		return 1
+	}
+
+	actual_base_tree=$(
+		git -C "$kernel_source" rev-parse "${kernel_commit}^{tree}"
+	)
+	[ -n "$actual_base_tree" ]
+
+	patch_series_sha256=$(sha256sum "$kernel_patch_series")
+	patch_series_sha256=${patch_series_sha256%% *}
+
+	defconfig_sha256=$(sha256sum "$kernel_defconfig")
+	defconfig_sha256=${defconfig_sha256%% *}
+
+	effective_config_sha256=$(sha256sum "$kernel_build/.config")
+	effective_config_sha256=${effective_config_sha256%% *}
+
+	actual_kernel_release=$(cat "$kernel_build/include/config/kernel.release")
+	[ "$actual_kernel_release" = "$kernel_release" ] || {
+		echo "unexpected kernel release: $actual_kernel_release" >&2
+		return 1
+	}
+
+	compiler_target=$("$kernel_cc" -dumpmachine)
+	compiler_version=$("$kernel_cc" -dumpfullversion)
+	compiler_identity=$("$kernel_cc" --version | sed -n '1p')
+
+	[ -n "$compiler_target" ]
+	[ -n "$compiler_version" ]
+	[ -n "$compiler_identity" ]
+
+	toolchain_fingerprint=$(
+		read_buildroot_toolchain_fingerprint "$buildroot_output"
+	) || {
+		echo 'kernel toolchain fingerprint missing or invalid' >&2
+		return 1
+	}
+
+	final_diff="$work/fre3nder-kernel-final.diff"
+	write_kernel_final_diff "$final_diff"
+	final_diff_sha256=$(sha256sum "$final_diff")
+	final_diff_sha256=${final_diff_sha256%% *}
+	rm -f -- "$final_diff"
+
+	vmlinux_sha256=$(sha256sum "$kernel_build/vmlinux")
+	vmlinux_sha256=${vmlinux_sha256%% *}
+
+	export KERNEL_BASE_COMMIT="$actual_base_commit"
+	export KERNEL_BASE_TREE="$actual_base_tree"
+	export KERNEL_PATCH_SERIES_SHA256="$patch_series_sha256"
+	export KERNEL_FINAL_DIFF_SHA256="$final_diff_sha256"
+	export KERNEL_DEFCONFIG_SHA256="$defconfig_sha256"
+	export KERNEL_EFFECTIVE_CONFIG_SHA256="$effective_config_sha256"
+	export KERNEL_RELEASE="$actual_kernel_release"
+	export KERNEL_COMPILER_TARGET="$compiler_target"
+	export KERNEL_COMPILER_VERSION="$compiler_version"
+	export KERNEL_COMPILER_IDENTITY="$compiler_identity"
+	export KERNEL_TOOLCHAIN_FINGERPRINT="$toolchain_fingerprint"
+	export KERNEL_VMLINUX_SHA256="$vmlinux_sha256"
+	export KERNEL_BUILD_USER="$kernel_build_user"
+	export KERNEL_BUILD_HOST="$kernel_build_host"
+	export KERNEL_BUILD_TIMESTAMP="$kernel_build_timestamp"
+	export KERNEL_BUILD_VERSION="$kernel_build_version"
+	export KERNEL_CC="$kernel_cc"
+
+	python3 - "$manifest" "$kernel_patch_series" "$project" <<'PY'
+import hashlib
+import json
+import os
+import pathlib
+import sys
+
+manifest_path = pathlib.Path(sys.argv[1])
+series_path = pathlib.Path(sys.argv[2])
+project = pathlib.Path(sys.argv[3])
+
+manifest = json.loads(manifest_path.read_text())
+series_sha256 = hashlib.sha256(series_path.read_bytes()).hexdigest()
+
+if series_sha256 != os.environ["KERNEL_PATCH_SERIES_SHA256"]:
+    raise SystemExit("kernel patch-series SHA256 changed during provenance capture")
+
+patches = []
+for line in series_path.read_text().splitlines():
+    digest, relative_text = line.split("  ", 1)
+    relative = pathlib.PurePosixPath(relative_text)
+    patch = project.joinpath(*relative.parts)
+    actual = hashlib.sha256(patch.read_bytes()).hexdigest()
+    if actual != digest:
+        raise SystemExit(f"kernel patch changed during provenance capture: {relative}")
+    patches.append({
+        "path": relative.as_posix(),
+        "sha256": actual,
+    })
+
+artifacts = manifest.get("artifacts", {})
+kernel_artifact_names = (
+    "kernel.uImage",
+    "ender3-v3-ke.dtb",
+    "effective-kernel-config",
+)
+
+missing = [
+    name
+    for name in kernel_artifact_names
+    if name not in artifacts
+]
+if missing:
+    raise SystemExit(
+        "kernel manifest missing artifact hashes: " + ", ".join(missing)
+    )
+
+if artifacts["effective-kernel-config"] != os.environ[
+    "KERNEL_EFFECTIVE_CONFIG_SHA256"
+]:
+    raise SystemExit(
+        "exported effective kernel config differs from Kbuild .config"
+    )
+
+try:
+    series_relative = series_path.relative_to(project).as_posix()
+except ValueError:
+    raise SystemExit("kernel patch-series path is outside the project")
+
+kernel_build = {
+    "base_commit": os.environ["KERNEL_BASE_COMMIT"],
+    "base_tree": os.environ["KERNEL_BASE_TREE"],
+    "patch_series": {
+        "path": series_relative,
+        "sha256": os.environ["KERNEL_PATCH_SERIES_SHA256"],
+        "patches": patches,
+    },
+    "final_diff_sha256": os.environ["KERNEL_FINAL_DIFF_SHA256"],
+    "defconfig": {
+        "path": "configs/x2000/kernel-clean-port.defconfig",
+        "sha256": os.environ["KERNEL_DEFCONFIG_SHA256"],
+    },
+    "effective_config_sha256": os.environ[
+        "KERNEL_EFFECTIVE_CONFIG_SHA256"
+    ],
+    "kernelrelease": os.environ["KERNEL_RELEASE"],
+    "compiler": {
+        "binary": pathlib.Path(os.environ["KERNEL_CC"]).name,
+        "target": os.environ["KERNEL_COMPILER_TARGET"],
+        "version": os.environ["KERNEL_COMPILER_VERSION"],
+        "identity": os.environ["KERNEL_COMPILER_IDENTITY"],
+    },
+    "buildroot_toolchain_fingerprint": os.environ[
+        "KERNEL_TOOLCHAIN_FINGERPRINT"
+    ],
+    "kbuild": {
+        "build_user": os.environ["KERNEL_BUILD_USER"],
+        "build_host": os.environ["KERNEL_BUILD_HOST"],
+        "build_timestamp": os.environ["KERNEL_BUILD_TIMESTAMP"],
+        "build_version": int(os.environ["KERNEL_BUILD_VERSION"]),
+    },
+    "vmlinux_sha256": os.environ["KERNEL_VMLINUX_SHA256"],
+    "artifacts": {
+        name: artifacts[name]
+        for name in kernel_artifact_names
+    },
+}
+
+manifest["kernel_build"] = kernel_build
+manifest_path.write_text(
+    json.dumps(manifest, indent=2, sort_keys=True) + "\n"
+)
+PY
 }
 
 check_kernel_dtb() {
@@ -1997,6 +2243,10 @@ build() {
 	prepare_kernel
 	configure_kernel
 	k="$kernel_source"
+	KBUILD_BUILD_USER="$kernel_build_user" \
+	KBUILD_BUILD_HOST="$kernel_build_host" \
+	KBUILD_BUILD_TIMESTAMP="$kernel_build_timestamp" \
+	KBUILD_BUILD_VERSION="$kernel_build_version" \
 	make -C "$k" O="$kernel_build" -j"$jobs" ARCH=mips \
 		CROSS_COMPILE="$kernel_cross_compile" CC="$kernel_cc" \
 		HOSTCFLAGS='-Wno-error=incompatible-pointer-types' xImage dtbs
@@ -2023,6 +2273,7 @@ build() {
 		ender3-v3-ke.dtb \
 		kernel.uImage \
 		rootfs.squashfs
+	record_kernel_build "$out" "$brout"
 	record_rootfs_components "$out"
 	(cd "$out" && sha256sum build-manifest.json buildroot.config \
 		effective-kernel-config ender3-v3-ke.dtb kernel.uImage rootfs.squashfs) \
@@ -2057,6 +2308,10 @@ build_kernel_only() {
 	prepare_kernel
 	configure_kernel
 	k="$kernel_source"
+	KBUILD_BUILD_USER="$kernel_build_user" \
+	KBUILD_BUILD_HOST="$kernel_build_host" \
+	KBUILD_BUILD_TIMESTAMP="$kernel_build_timestamp" \
+	KBUILD_BUILD_VERSION="$kernel_build_version" \
 	make -C "$k" O="$kernel_build" -j"$jobs" ARCH=mips \
 		CROSS_COMPILE="$kernel_cross_compile" CC="$kernel_cc" \
 		HOSTCFLAGS='-Wno-error=incompatible-pointer-types' xImage dtbs
@@ -2071,6 +2326,7 @@ build_kernel_only() {
 	cp "$kernel_build/.config" "$out/effective-kernel-config"
 	write_build_manifest "$out" \
 		kernel.uImage ender3-v3-ke.dtb effective-kernel-config
+	record_kernel_build "$out" "$brout"
 	(cd "$out" && sha256sum build-manifest.json kernel.uImage \
 		ender3-v3-ke.dtb effective-kernel-config) \
 		> "$out/SHA256SUMS"

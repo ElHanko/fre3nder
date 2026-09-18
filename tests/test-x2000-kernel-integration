@@ -78,25 +78,59 @@ def validate_series(repository_root, manifest_text):
 
 sources = json.loads(sources_path.read_text(encoding="utf-8"))
 require(sources.get("schema") == 1, "unexpected sources manifest schema")
-require(sources.get("sdk", {}).get("production_active") is False,
-        "legacy SDK kernel source must not remain active during Phase 2")
-require(sources.get("clean_port_kernel_source") == {
+
+for obsolete in (
+    "sdk",
+    "clean_port_kernel_source",
+    "patch_set",
+    "display_patch_set",
+    "touch_patch_set",
+    "wlan_hardware_qualification",
+):
+    require(obsolete not in sources,
+            f"obsolete production source metadata remains: {obsolete}")
+
+require(sources.get("kernel") == {
     "name": "upstream Linux stable",
-    "role": "active clean-port kernel source and configuration",
     "url": "https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git",
     "version": "v6.6.18",
     "commit": "d8a27ea2c98685cdaa5fa66c809c7069a4ff394b",
     "patch_series": "configs/x2000/kernel-patches.series",
     "defconfig": "configs/x2000/kernel-clean-port.defconfig",
+    "localversion": "-fre3nder",
+    "release": "6.6.18-fre3nder",
+    "preemption_model": "PREEMPT",
+    "preempt_rt_enabled": False,
     "production_active": True,
+    "hardware_validated": False,
 }, "clean-port kernel source contract mismatch")
 
-require(sources.get("kernel", {}).get("kernel_version") == "6.6.18",
-        "clean-port kernel version mismatch")
-require(sources.get("kernel", {}).get("kernel_localversion") == "-fre3nder",
-        "clean-port kernel localversion mismatch")
-require(sources.get("kernel", {}).get("kernel_release") == "6.6.18-fre3nder",
-        "clean-port kernel release mismatch")
+legacy_wlan = sources.get(
+    "legacy_vendor_kernel_wlan_hardware_qualification"
+)
+require(isinstance(legacy_wlan, dict),
+        "legacy vendor-kernel WLAN qualification missing")
+require(legacy_wlan.get("evidence_scope") == "legacy_vendor_kernel",
+        "legacy WLAN evidence scope is ambiguous")
+require(legacy_wlan.get("qualifies_clean_port") is False,
+        "legacy WLAN evidence must not qualify the clean port")
+require(
+    legacy_wlan.get("kernel_source", {}).get("release") == "6.6.18-rt23",
+    "legacy WLAN evidence lost its vendor-kernel release identity",
+)
+
+require(
+    sources.get("wlan_nvram", {}).get(
+        "legacy_vendor_kernel_build_integration_hardware_validated"
+    ) is True,
+    "historical NVRAM build-integration evidence missing",
+)
+require(
+    sources.get("wlan_nvram", {}).get(
+        "clean_port_build_integration_hardware_validated"
+    ) is False,
+    "clean-port NVRAM build integration must remain unqualified",
+)
 
 require(defconfig_path.is_file() and not defconfig_path.is_symlink(),
         "clean-port kernel defconfig must be a regular file")
@@ -198,6 +232,23 @@ grep -Fxq 'kernel_patch_series="$project/configs/x2000/kernel-patches.series"' \
 	"$entrypoint"
 grep -Fxq 'kernel_defconfig="$project/configs/x2000/kernel-clean-port.defconfig"' \
 	"$entrypoint"
+grep -Fxq 'kernel_release=6.6.18-fre3nder' "$entrypoint"
+grep -Fxq 'kernel_build_user=fre3nder' "$entrypoint"
+grep -Fxq 'kernel_build_host=build' "$entrypoint"
+grep -Fxq 'kernel_build_version=1' "$entrypoint"
+grep -Fq "date -u -d \"@\$kernel_commit_epoch\"" "$entrypoint"
+grep -Fq 'write_kernel_final_diff() {' "$entrypoint"
+grep -Fq 'record_kernel_build() {' "$entrypoint"
+grep -Fq 'GIT_INDEX_FILE="$temporary_index"' "$entrypoint"
+grep -Fq 'git -C "$kernel_source" add -A -- .' "$entrypoint"
+grep -Fq -- '--cached --binary --full-index --no-ext-diff' "$entrypoint"
+grep -Fq 'KBUILD_BUILD_USER="$kernel_build_user"' "$entrypoint"
+grep -Fq 'KBUILD_BUILD_HOST="$kernel_build_host"' "$entrypoint"
+grep -Fq 'KBUILD_BUILD_TIMESTAMP="$kernel_build_timestamp"' "$entrypoint"
+grep -Fq 'KBUILD_BUILD_VERSION="$kernel_build_version"' "$entrypoint"
+grep -Fq 'KERNEL_FINAL_DIFF_SHA256' "$entrypoint"
+grep -Fq 'KERNEL_VMLINUX_SHA256' "$entrypoint"
+grep -Fq '"kernel_build"' "$entrypoint"
 grep -Fq 'make -C "$k" O="$kernel_build"' "$entrypoint"
 grep -Fq 'check_default_initramfs "$kernel_build"' "$entrypoint"
 grep -Fq 'check_kernel_dtb "$k" "$kernel_build"' "$entrypoint"
@@ -225,7 +276,8 @@ for function_name in \
 	validate_kernel_patch_series \
 	prepare_kernel \
 	check_kernel_config \
-	configure_kernel; do
+	configure_kernel \
+	write_kernel_final_diff; do
 	sed -n "/^$function_name() {$/,/^}$/p" "$entrypoint"
 done > "$functions"
 
@@ -272,6 +324,11 @@ fi
 	exit 1
 }
 
+[ "$(grep -Ec '^[[:space:]]*record_kernel_build "\$out" "\$brout"$' "$entrypoint")" -eq 2 ] || {
+	echo 'kernel provenance is not recorded in both kernel-producing paths' >&2
+	exit 1
+}
+
 prepare_runner=$tmp/run-prepare
 cat > "$prepare_runner" <<'EOF'
 #!/bin/sh
@@ -287,6 +344,17 @@ kernel_patch_series=$KERNEL_PATCH_SERIES
 prepare_kernel
 EOF
 chmod 0755 "$prepare_runner"
+
+diff_runner=$tmp/run-final-diff
+cat > "$diff_runner" <<'EOF'
+#!/bin/sh
+set -eu
+. "$FUNCTIONS"
+kernel_source=$KERNEL_SOURCE
+kernel_commit=$KERNEL_COMMIT
+write_kernel_final_diff "$OUTPUT"
+EOF
+chmod 0755 "$diff_runner"
 
 fetch_runner=$tmp/run-fetch
 cat > "$fetch_runner" <<'EOF'
@@ -372,6 +440,63 @@ run_prepare "$root"
 [ -d "$kernel_build" ]
 [ -n "$(git -C "$kernel_source" status --porcelain=v1)" ]
 git -C "$kernel_source" diff --check
+
+# The provenance diff must represent the complete P01-P14 result,
+# including files added by git apply that are still untracked.
+untracked=$tmp/kernel-untracked
+
+git -C "$kernel_source" \
+	ls-files --others --exclude-standard |
+	LC_ALL=C sort > "$untracked"
+
+[ -s "$untracked" ] || {
+	echo 'production patch series unexpectedly creates no untracked files' >&2
+	exit 1
+}
+
+final_diff_a=$tmp/kernel-final-a.diff
+final_diff_b=$tmp/kernel-final-b.diff
+
+FUNCTIONS=$functions \
+KERNEL_SOURCE=$kernel_source \
+KERNEL_COMMIT=$kernel_commit \
+OUTPUT=$final_diff_a \
+	"$diff_runner"
+
+FUNCTIONS=$functions \
+KERNEL_SOURCE=$kernel_source \
+KERNEL_COMMIT=$kernel_commit \
+OUTPUT=$final_diff_b \
+	"$diff_runner"
+
+cmp -s "$final_diff_a" "$final_diff_b" || {
+	echo 'kernel final-diff provenance is not deterministic' >&2
+	exit 1
+}
+
+while IFS= read -r relative; do
+	grep -Fq "+++ b/$relative" "$final_diff_a" || {
+		echo "kernel final diff omitted added file: $relative" >&2
+		exit 1
+	}
+done < "$untracked"
+
+tracked_only=$tmp/kernel-tracked-only.diff
+
+LC_ALL=C git -C "$kernel_source" diff \
+	--binary --full-index --no-ext-diff \
+	"$kernel_commit" -- > "$tracked_only"
+
+[ "$(wc -c < "$final_diff_a")" -gt \
+  "$(wc -c < "$tracked_only")" ] || {
+	echo 'complete final diff did not extend tracked-only diff' >&2
+	exit 1
+}
+
+printf 'kernel final diff SHA256: '
+sha256sum "$final_diff_a" | awk '{print $1}'
+
+echo 'fre3nder-x2000 complete kernel final-diff provenance: PASS'
 
 # A wrong checked-out basis is rejected before reset or patch application.
 # Do not assume the canonical local upstream clone contains kernel_commit^;

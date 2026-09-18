@@ -1,29 +1,19 @@
 {
   "schema": 1,
   "profile": "fre3nder-x2000",
-  "sdk": {
-    "role": "public source mirror",
-    "url": "https://github.com/Llixuma/ingenic-linux-kernel6.6-x2000-v1.0-20250221",
-    "release_identity": "ingenic-linux-kernel6.6-x2000-v1.0-20250221",
-    "commit": "a98c2e1f22e4263ddd4153a4eca4db4dcfd2777b",
-    "production_active": false
-  },
-  "clean_port_kernel_source": {
+  "kernel": {
     "name": "upstream Linux stable",
-    "role": "active clean-port kernel source and configuration",
     "url": "https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git",
     "version": "v6.6.18",
     "commit": "d8a27ea2c98685cdaa5fa66c809c7069a4ff394b",
     "patch_series": "configs/x2000/kernel-patches.series",
     "defconfig": "configs/x2000/kernel-clean-port.defconfig",
-    "production_active": true
-  },
-  "kernel": {
-    "kernel_version": "6.6.18",
-    "kernel_localversion": "-fre3nder",
-    "kernel_release": "6.6.18-fre3nder",
+    "localversion": "-fre3nder",
+    "release": "6.6.18-fre3nder",
     "preemption_model": "PREEMPT",
-    "preempt_rt_enabled": false
+    "preempt_rt_enabled": false,
+    "production_active": true,
+    "hardware_validated": false
   },
   "buildroot": {
     "version": "2025.02.18",
@@ -128,13 +118,6 @@
     "relationship": "same toolchain family as userspace, with separate Kbuild target flags",
     "hardware_validated": true
   },
-  "patch_set": {
-    "identity": "fre3nder-x2000-ke-wlan-v1",
-    "file": "configs/x2000/ke-wlan.patch",
-    "basis": "hardware-validated 2026.1.a KE WLAN power/reset/detect sequence",
-    "source_commit": "a98c2e1f22e4263ddd4153a4eca4db4dcfd2777b",
-    "license": "GPL-2.0-only"
-  },
   "klipper_patch_set": {
     "identity": "x2000-passive-uart-opt-in-v2",
     "file": "patches/klipper/0004-x2000-passive-uart-opt-in.patch",
@@ -208,7 +191,6 @@
     "redistribution": "source and binary redistribution permitted under BSD-3-Clause",
     "upstream_modified": false,
     "content_hardware_validated": true,
-    "build_integration_hardware_validated": true,
     "hardware_evidence": {
       "date": "2026-09-14",
       "scope": "unmodified NVRAM content on the investigated reference system",
@@ -220,9 +202,13 @@
       "dhcp": "PASS",
       "gateway_icmp": "10/10 replies, 0 percent loss",
       "previous_nvram_restore_association": "PASS"
-    }
+    },
+    "legacy_vendor_kernel_build_integration_hardware_validated": true,
+    "clean_port_build_integration_hardware_validated": false
   },
-  "wlan_hardware_qualification": {
+  "credential_free": true,
+  "selector_write": false,
+  "legacy_vendor_kernel_wlan_hardware_qualification": {
     "date": "2026-09-14",
     "scope": "complete linux-firmware 20250211 plus Radxa AZW372 WLAN production path on the investigated reference system",
     "build_command": "scripts/build-x2000 --kernel-build --develop",
@@ -248,34 +234,13 @@
     "wlan_gateway_icmp": "10/10 replies, 0 percent loss",
     "ethernet_default_path_unchanged": "PASS",
     "overall_gate": "PASS",
-    "bluetooth_hardware_validated": false
-  },
-  "credential_free": true,
-  "selector_write": false,
-  "display_patch_set": {
-    "identity": "fre3nder-x2000-ender3-v3-ke-display-v1",
-    "file": "configs/x2000/ke-display.patch",
-    "source_commit": "a98c2e1f22e4263ddd4153a4eca4db4dcfd2777b",
-    "license": "GPL-2.0-only",
-    "derived_from": {
-      "repository": "https://github.com/coreflake1/NebulaOS-kernel",
-      "commit": "88a0e1ecc6ace7c9e4ad99d6fa49e272180fd5a9",
-      "file": "kernel/kernel-6.6/module_drivers/drivers/video/fbdev/ingenic/displays/panel-openke-general-480x272.c",
-      "license": "GPL-2.0-only"
+    "bluetooth_hardware_validated": false,
+    "evidence_scope": "legacy_vendor_kernel",
+    "kernel_source": {
+      "repository": "https://github.com/Llixuma/ingenic-linux-kernel6.6-x2000-v1.0-20250221",
+      "commit": "a98c2e1f22e4263ddd4153a4eca4db4dcfd2777b",
+      "release": "6.6.18-rt23"
     },
-    "role": "Ender 3 V3 KE 480x272 parallel-RGB panel support for Ingenic fb_stage"
-  },
-  "touch_patch_set": {
-    "identity": "fre3nder-x2000-ender3-v3-ke-touch-v1",
-    "file": "configs/x2000/ke-touch.patch",
-    "source_commit": "a98c2e1f22e4263ddd4153a4eca4db4dcfd2777b",
-    "license": "GPL-2.0-or-later",
-    "derived_from": {
-      "repository": "https://github.com/coreflake1/NebulaOS-kernel",
-      "commit": "88a0e1ecc6ace7c9e4ad99d6fa49e272180fd5a9",
-      "file": "kernel/kernel-6.6/drivers/input/touchscreen/ns2009.c",
-      "license": "GPL-2.0-or-later"
-    },
-    "role": "Ender 3 V3 KE NS2009 touchscreen support on I2C4 with PC15 pendown detection"
+    "qualifies_clean_port": false
   }
 }

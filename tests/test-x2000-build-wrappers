@@ -157,8 +157,63 @@ printf config > "$dir/effective-kernel-config"
 kernel_hash=$(sha256sum "$dir/kernel.uImage" | awk '{print $1}')
 dtb_hash=$(sha256sum "$dir/ender3-v3-ke.dtb" | awk '{print $1}')
 config_hash=$(sha256sum "$dir/effective-kernel-config" | awk '{print $1}')
-printf '{"artifact_mode":"release","project_commit":"fixture","project_worktree_status":"clean","build_input_sha256":"","artifacts":{"kernel.uImage":"%s","ender3-v3-ke.dtb":"%s","effective-kernel-config":"%s"}}\n' \
-	"$kernel_hash" "$dtb_hash" "$config_hash" > "$dir/build-manifest.json"
+python3 - "$dir" "$kernel_hash" "$dtb_hash" "$config_hash" <<'PY'
+import json
+import pathlib
+import sys
+
+directory = pathlib.Path(sys.argv[1])
+kernel_hash, dtb_hash, config_hash = sys.argv[2:]
+
+artifacts = {
+    "kernel.uImage": kernel_hash,
+    "ender3-v3-ke.dtb": dtb_hash,
+    "effective-kernel-config": config_hash,
+}
+
+manifest = {
+    "artifact_mode": "release",
+    "project_commit": "fixture",
+    "project_worktree_status": "clean",
+    "build_input_sha256": "",
+    "artifacts": artifacts,
+    "kernel_build": {
+        "base_commit": "0" * 40,
+        "base_tree": "1" * 40,
+        "patch_series": {
+            "path": "configs/x2000/kernel-patches.series",
+            "sha256": "2" * 64,
+            "patches": [],
+        },
+        "final_diff_sha256": "3" * 64,
+        "defconfig": {
+            "path": "configs/x2000/kernel-clean-port.defconfig",
+            "sha256": "4" * 64,
+        },
+        "effective_config_sha256": config_hash,
+        "kernelrelease": "6.6.18-fre3nder",
+        "compiler": {
+            "binary": "mipsel-buildroot-linux-gnu-gcc.br_real",
+            "target": "mipsel-buildroot-linux-gnu",
+            "version": "13.4.0",
+            "identity": "fixture compiler",
+        },
+        "buildroot_toolchain_fingerprint": "5" * 64,
+        "kbuild": {
+            "build_user": "fre3nder",
+            "build_host": "build",
+            "build_timestamp": "2024-02-16 00:00:00 +0000",
+            "build_version": 1,
+        },
+        "vmlinux_sha256": "6" * 64,
+        "artifacts": artifacts,
+    },
+}
+
+(directory / "build-manifest.json").write_text(
+    json.dumps(manifest, separators=(",", ":")) + "\n"
+)
+PY
 EOF
 cat > "$fixture/scripts/build-x2000-buildroot" <<'EOF'
 #!/bin/sh
@@ -212,6 +267,14 @@ printf '%s\n' \
 	'guppyscreen ' \
 	'buildroot --assemble default' | cmp -s - "$tmp/wrapper.log"
 [ ! -e "$fixture/local/production/artifacts/x2000/full" ]
+python3 - "$fixture/local/production/artifacts/x2000/rootfs-only/build-manifest.json" <<'PY'
+import json
+import pathlib
+import sys
+
+manifest = json.loads(pathlib.Path(sys.argv[1]).read_text())
+assert "kernel_build" not in manifest
+PY
 
 run_orchestrator --develop
 printf '%s\n' \
@@ -237,6 +300,24 @@ import sys
 
 directory = pathlib.Path(sys.argv[1])
 manifest = json.loads((directory / "build-manifest.json").read_text())
+
+kernel_build = manifest["kernel_build"]
+assert kernel_build["kernelrelease"] == "6.6.18-fre3nder"
+assert kernel_build["kbuild"] == {
+    "build_user": "fre3nder",
+    "build_host": "build",
+    "build_timestamp": "2024-02-16 00:00:00 +0000",
+    "build_version": 1,
+}
+assert kernel_build["artifacts"] == {
+    name: manifest["artifacts"][name]
+    for name in (
+        "kernel.uImage",
+        "ender3-v3-ke.dtb",
+        "effective-kernel-config",
+    )
+}
+
 for name, digest in manifest["artifacts"].items():
     assert hashlib.sha256((directory / name).read_bytes()).hexdigest() == digest
 
