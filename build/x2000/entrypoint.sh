@@ -1725,7 +1725,7 @@ check_kernel_dtb() {
 	[ -f "$dtb" ]
 
 	grep -Fq 'compatible = "creality,ender-3-v3-ke", "ingenic,x2000";' "$dts"
-	grep -Fq 'bootargs = "root=/dev/mmcblk0p8 rootwait rootfstype=squashfs ro";' "$dts"
+	grep -Fq 'bootargs = "console=ttyS4,115200 root=/dev/mmcblk0p8 rootwait rootfstype=squashfs ro";' "$dts"
 	grep -Fq 'compatible = "pwm-beeper";' "$dts"
 	grep -Fq 'pwms = <&pwm 3 1000000 0>;' "$dts"
 	grep -Fq 'compatible = "creality,ender-3-v3-ke-panel";' "$dts"

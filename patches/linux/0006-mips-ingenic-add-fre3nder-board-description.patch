@@ -50,7 +50,7 @@ index 000000000..fb0b89c65
 +	};
 +
 +	chosen {
-+		bootargs = "root=/dev/mmcblk0p8 rootwait rootfstype=squashfs ro";
++		bootargs = "console=ttyS4,115200 root=/dev/mmcblk0p8 rootwait rootfstype=squashfs ro";
 +	};
 +
 +	memory@0 {

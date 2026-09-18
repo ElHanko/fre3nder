@@ -3,9 +3,27 @@
 # Clean-port patch for upstream Linux v6.6.18.
 # Upstream source: https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git
 # Upstream commit: d8a27ea2c98685cdaa5fa66c809c7069a4ff394b
-# Hardware-semantics reference: public Ingenic X2000 Linux SDK
-# https://github.com/Llixuma/ingenic-linux-kernel6.6-x2000-v1.0-20250221
-# Ingenic SDK commit: a98c2e1f22e4263ddd4153a4eca4db4dcfd2777b
+#
+# XBurst2 CPU and cache implementation reference:
+# Source: https://github.com/Ingenic-community/linux
+# Commit: 91fe78280ac7dd0dae0f58cb271e821bd39ba97e
+# Paths: arch/mips/include/asm/cpu.h, arch/mips/include/asm/cpu-type.h,
+#        arch/mips/kernel/cpu-probe.c, arch/mips/kernel/idle.c,
+#        arch/mips/mm/c-ingenic.c, arch/mips/mm/dma-noncoherent.c,
+#        arch/mips/mm/tlbex.c
+# License: GPL-2.0; c-ingenic.c copyright (C) 2020 Zhou Yanjie.
+#
+# X2000 behavior cross-check:
+# Source: https://github.com/Llixuma/ingenic-linux-kernel6.6-x2000-v1.0-20250221
+# Commit: a98c2e1f22e4263ddd4153a4eca4db4dcfd2777b
+# Paths: kernel/kernel-6.6/arch/mips/kernel/cpu-probe.c,
+#        kernel/kernel-6.6/arch/mips/mm/c-r4k.c,
+#        kernel/kernel-6.6/arch/mips/xburst2/core/sc.c
+# License: GPL-2.0 kernel subtree; sc.c copyright (C) 2006 Chris Dearman.
+#
+# Hardware-semantics references: Ingenic X2000 Programming Manual and
+# XBurst2 Core Programming Manual from Ingenic-community/datasheets at
+# commit 91be0d800c0626618443f64c16fec36038445456.
 diff --git a/arch/mips/Makefile b/arch/mips/Makefile
 --- a/arch/mips/Makefile
 +++ b/arch/mips/Makefile
@@ -75,6 +93,54 @@ diff --git a/arch/mips/generic/board-ingenic.c b/arch/mips/generic/board-ingenic
  	default:
  		break;
  	}
+@@ -188,7 +229,8 @@ static const struct platform_suspend_ops ingenic_pm_ops = {
+ 
+ static int __init ingenic_pm_init(void)
+ {
+-	if (boot_cpu_type() == CPU_XBURST) {
++	if (boot_cpu_type() == CPU_XBURST ||
++	    boot_cpu_type() == CPU_XBURST2) {
+ 		if (IS_ENABLED(CONFIG_PM_SLEEP))
+ 			suspend_set_ops(&ingenic_pm_ops);
+ 		_machine_halt = ingenic_halt;
+diff --git a/arch/mips/include/asm/cpu-type.h b/arch/mips/include/asm/cpu-type.h
+--- a/arch/mips/include/asm/cpu-type.h
++++ b/arch/mips/include/asm/cpu-type.h
+@@ -57,6 +57,7 @@ static inline int __pure __get_cpu_type(const int cpu_type)
+ #ifdef CONFIG_SYS_HAS_CPU_MIPS32_R5
+ 	case CPU_M5150:
+ 	case CPU_P5600:
++	case CPU_XBURST2:
+ #endif
+ 
+ #if defined(CONFIG_SYS_HAS_CPU_MIPS32_R2) || \
+diff --git a/arch/mips/include/asm/cpu.h b/arch/mips/include/asm/cpu.h
+--- a/arch/mips/include/asm/cpu.h
++++ b/arch/mips/include/asm/cpu.h
+@@ -313,7 +313,8 @@ enum cpu_type_enum {
+ 	 */
+ 	CPU_4KC, CPU_4KEC, CPU_4KSC, CPU_24K, CPU_34K, CPU_1004K, CPU_74K,
+ 	CPU_ALCHEMY, CPU_PR4450, CPU_BMIPS32, CPU_BMIPS3300, CPU_BMIPS4350,
+-	CPU_BMIPS4380, CPU_BMIPS5000, CPU_XBURST, CPU_LOONGSON32, CPU_M14KC,
++	CPU_BMIPS4380, CPU_BMIPS5000, CPU_XBURST, CPU_XBURST2, CPU_LOONGSON32,
++	CPU_M14KC,
+ 	CPU_M14KEC, CPU_INTERAPTIV, CPU_P5600, CPU_PROAPTIV, CPU_1074K,
+ 	CPU_M5150, CPU_I6400, CPU_P6600, CPU_M6250,
+ 
+diff --git a/arch/mips/include/asm/mach-ingenic/cpu-feature-overrides.h b/arch/mips/include/asm/mach-ingenic/cpu-feature-overrides.h
+--- a/arch/mips/include/asm/mach-ingenic/cpu-feature-overrides.h
++++ b/arch/mips/include/asm/mach-ingenic/cpu-feature-overrides.h
+@@ -27,10 +27,8 @@
+ #define cpu_has_mips3d 0
+ #define cpu_has_smartmips 0
+ #define kernel_uses_llsc	1
+-#define cpu_has_vtag_icache	1
+ #define cpu_has_dc_aliases	0
+ #define cpu_has_ic_fills_f_dc	0
+-#define cpu_has_pindexed_dcache 0
+ #define cpu_has_mips32r1	1
+ #define cpu_has_mips64r1	0
+ #define cpu_has_mips64r2	0
 diff --git a/arch/mips/ingenic/Kconfig b/arch/mips/ingenic/Kconfig
 --- a/arch/mips/ingenic/Kconfig
 +++ b/arch/mips/ingenic/Kconfig
@@ -93,21 +159,69 @@ diff --git a/arch/mips/ingenic/Kconfig b/arch/mips/ingenic/Kconfig
 +
 +config MACH_X2000
 +	bool
-+	select MIPS_CPU_SCACHE
++	select BOARD_SCACHE
 +	select SYS_HAS_CPU_MIPS32_R1
 +	select SYS_HAS_CPU_MIPS32_R2
 +	select SYS_HAS_CPU_MIPS32_R5
 +	select SYS_SUPPORTS_HIGHMEM
 +	select WEAK_ORDERING
 +	select WEAK_REORDERING_BEYOND_LLSC
+diff --git a/arch/mips/kernel/cpu-probe.c b/arch/mips/kernel/cpu-probe.c
+--- a/arch/mips/kernel/cpu-probe.c
++++ b/arch/mips/kernel/cpu-probe.c
+@@ -1755,9 +1755,6 @@ static inline void cpu_probe_ingenic(struct cpuinfo_mips *c, unsigned int cpu)
+ 	c->options &= ~MIPS_CPU_COUNTER;
+ 	BUG_ON(__builtin_constant_p(cpu_has_counter) && cpu_has_counter);
+ 
+-	/* XBurst has virtually tagged icache */
+-	c->icache.flags |= MIPS_CACHE_VTAG;
+-
+ 	switch (c->processor_id & PRID_IMP_MASK) {
+ 
+ 	/* XBurst®1 with MXU1.0/MXU1.1 SIMD ISA */
+@@ -1811,12 +1808,13 @@ static inline void cpu_probe_ingenic(struct cpuinfo_mips *c, unsigned int cpu)
+ 		/* Ingenic uses the WA bit to achieve write-combine memory writes */
+ 		c->writecombine = _CACHE_CACHABLE_WA;
+ 		c->cputype = CPU_XBURST;
++		c->icache.flags |= MIPS_CACHE_VTAG;
+ 		__cpu_name[cpu] = "Ingenic XBurst";
+ 		break;
+ 
+ 	/* XBurst®2 with MXU2.1 SIMD ISA */
+ 	case PRID_IMP_XBURST2:
+-		c->cputype = CPU_XBURST;
++		c->cputype = CPU_XBURST2;
+ 		__cpu_name[cpu] = "Ingenic XBurst II";
+ 		break;
+ 
+diff --git a/arch/mips/kernel/idle.c b/arch/mips/kernel/idle.c
+--- a/arch/mips/kernel/idle.c
++++ b/arch/mips/kernel/idle.c
+@@ -164,6 +164,7 @@ void __init check_wait(void)
+ 	case CPU_CAVIUM_OCTEON2:
+ 	case CPU_CAVIUM_OCTEON3:
+ 	case CPU_XBURST:
++	case CPU_XBURST2:
+ 	case CPU_LOONGSON32:
+ 		cpu_wait = r4k_wait;
+ 		break;
+diff --git a/arch/mips/mm/Makefile b/arch/mips/mm/Makefile
+--- a/arch/mips/mm/Makefile
++++ b/arch/mips/mm/Makefile
+@@ -37,6 +37,7 @@ obj-$(CONFIG_CPU_R4K_CACHE_TLB) += c-r4k.o cex-gen.o tlb-r4k.o
+ obj-$(CONFIG_CPU_R3000)		+= c-r3k.o
+ obj-$(CONFIG_CPU_SB1)		+= c-r4k.o cerr-sb1.o cex-sb1.o tlb-r4k.o
+ obj-$(CONFIG_CPU_CAVIUM_OCTEON) += c-octeon.o cex-oct.o tlb-r4k.o
++obj-$(CONFIG_MACH_X2000)	+= sc-xburst2.o
+ 
+ obj-$(CONFIG_IP22_CPU_SCACHE)	+= sc-ip22.o
+ obj-$(CONFIG_R5000_CPU_SCACHE)	+= sc-r5k.o
 diff --git a/arch/mips/mm/c-r4k.c b/arch/mips/mm/c-r4k.c
 --- a/arch/mips/mm/c-r4k.c
 +++ b/arch/mips/mm/c-r4k.c
-@@ -848,4 +848,16 @@ static void r4k_dma_cache_inv(unsigned long addr, unsigned long size)
+@@ -848,4 +848,14 @@ static void r4k_dma_cache_inv(unsigned long addr, unsigned long size)
  		R4600_HIT_CACHEOP_WAR_IMPL;
-+		if (IS_ENABLED(CONFIG_MACH_X2000) &&
-+		    (current_cpu_data.processor_id & PRID_IMP_MASK) ==
-+		    PRID_IMP_XBURST2) {
++		if (current_cpu_type() == CPU_XBURST2) {
 +			unsigned long lsize = cpu_dcache_line_size();
 +			unsigned long almask = ~(lsize - 1);
 +
@@ -120,25 +234,204 @@ diff --git a/arch/mips/mm/c-r4k.c b/arch/mips/mm/c-r4k.c
  		blast_inv_dcache_range(addr, addr + size);
  	}
  	preempt_enable();
-diff --git a/arch/mips/mm/sc-mips.c b/arch/mips/mm/sc-mips.c
---- a/arch/mips/mm/sc-mips.c
-+++ b/arch/mips/mm/sc-mips.c
-@@ -7,6 +7,7 @@
- #include <linux/sched.h>
- #include <linux/mm.h>
+@@ -1249,6 +1259,12 @@ static void probe_pcache(void)
+ 	 * with that for us so we don't need to take care ourselves.
+ 	 */
+ 	switch (current_cpu_type()) {
++	case CPU_XBURST2:
++		c->icache.flags &= ~MIPS_CACHE_VTAG;
++		c->icache.flags |= MIPS_CACHE_PINDEX;
++		c->dcache.flags |= MIPS_CACHE_PINDEX;
++		break;
++
+ 	case CPU_20KC:
+ 	case CPU_25KF:
+ 	case CPU_I6400:
+@@ -1488,6 +1504,9 @@ static void loongson3_sc_init(void)
+ extern int r5k_sc_init(void);
+ extern int rm7k_sc_init(void);
+ extern int mips_sc_init(void);
++#ifdef CONFIG_MACH_X2000
++extern int xburst2_sc_init(void);
++#endif
  
-+#include <asm/cpu.h>
- #include <asm/cpu-type.h>
- #include <asm/mipsregs.h>
- #include <asm/bcache.h>
-@@ -216,7 +217,9 @@ static inline int mips_sc_probe(void)
- 		return 0;
+ static void setup_scache(void)
+ {
+@@ -1542,6 +1561,18 @@ static void setup_scache(void)
+ 		loongson3_sc_init();
+ 		return;
  
- 	tmp = (config2 >> 0) & 0x0f;
--	if (tmp <= 7)
-+	if (tmp <= 7 ||
-+	    (IS_ENABLED(CONFIG_MACH_X2000) && tmp == 15 &&
-+	     (c->processor_id & PRID_IMP_MASK) == PRID_IMP_XBURST2))
- 		c->scache.ways = tmp + 1;
- 	else
- 		return 0;
++	case CPU_XBURST2:
++#ifdef CONFIG_MACH_X2000
++		if (xburst2_sc_init()) {
++			scache_size = c->scache.ways * c->scache.sets *
++				      c->scache.linesz;
++			pr_info("XBurst2 secondary cache %ldkB, %s, linesize %d bytes.\n",
++				scache_size >> 10, way_string[c->scache.ways],
++				c->scache.linesz);
++		}
++#endif
++		return;
++
+ 	case CPU_CAVIUM_OCTEON3:
+ 		/* don't need to worry about L2, fully coherent */
+ 		return;
+diff --git a/arch/mips/mm/dma-noncoherent.c b/arch/mips/mm/dma-noncoherent.c
+--- a/arch/mips/mm/dma-noncoherent.c
++++ b/arch/mips/mm/dma-noncoherent.c
+@@ -33,6 +33,7 @@ static inline bool cpu_needs_post_dma_flush(void)
+ 	case CPU_BMIPS5000:
+ 	case CPU_LOONGSON2EF:
+ 	case CPU_XBURST:
++	case CPU_XBURST2:
+ 		return true;
+ 	default:
+ 		/*
+diff --git a/arch/mips/mm/sc-xburst2.c b/arch/mips/mm/sc-xburst2.c
+new file mode 100644
+--- /dev/null
++++ b/arch/mips/mm/sc-xburst2.c
+@@ -0,0 +1,132 @@
++// SPDX-License-Identifier: GPL-2.0
++/*
++ * Ingenic XBurst2 secondary cache support
++ *
++ * Derived from Ingenic-community/linux arch/mips/mm/c-ingenic.c at
++ * commit 91fe78280ac7dd0dae0f58cb271e821bd39ba97e and checked against
++ * the Ingenic X2000 Linux SDK arch/mips/xburst2/core/sc.c at commit
++ * a98c2e1f22e4263ddd4153a4eca4db4dcfd2777b.
++ *
++ * Copyright (C) 2006 Chris Dearman (chris@mips.com)
++ * Copyright (C) 2020 周琰杰 (Zhou Yanjie) <zhouyanjie@wanyeetech.com>
++ */
++
++#include <linux/bitops.h>
++#include <linux/io.h>
++#include <linux/kernel.h>
++
++#include <asm/addrspace.h>
++#include <asm/bcache.h>
++#include <asm/cacheops.h>
++#include <asm/cpu-type.h>
++#include <asm/mipsregs.h>
++#include <asm/r4kcache.h>
++
++#define X2000_CCU_MSCR_PHYS	0x12200060
++#define X2000_CCU_MSCR_DISL2C	BIT(0)
++
++static unsigned long xburst2_scache_size __read_mostly;
++
++static u32 xburst2_read_mscr(void)
++{
++	void __iomem *mscr = (void __iomem *)CKSEG1ADDR(X2000_CCU_MSCR_PHYS);
++
++	return readl(mscr);
++}
++
++static void xburst2_blast_scache(void)
++{
++	switch (cpu_scache_line_size()) {
++	case 32:
++		blast_scache32();
++		break;
++	case 64:
++		blast_scache64();
++		break;
++	case 128:
++		blast_scache128();
++		break;
++	default:
++		WARN_ON_ONCE(1);
++		break;
++	}
++}
++
++static void xburst2_sc_wback_inv(unsigned long addr, unsigned long size)
++{
++	if (size >= xburst2_scache_size)
++		xburst2_blast_scache();
++	else
++		blast_scache_range(addr, addr + size);
++}
++
++static void xburst2_sc_inv(unsigned long addr, unsigned long size)
++{
++	unsigned long lsize = cpu_scache_line_size();
++	unsigned long almask = ~(lsize - 1);
++
++	if (size >= xburst2_scache_size) {
++		xburst2_blast_scache();
++		return;
++	}
++
++	cache_op(Hit_Writeback_Inv_SD, addr & almask);
++	cache_op(Hit_Writeback_Inv_SD, (addr + size - 1) & almask);
++	blast_inv_scache_range(addr, addr + size);
++}
++
++static void xburst2_sc_noop(void)
++{
++}
++
++static struct bcache_ops xburst2_sc_ops = {
++	.bc_enable = xburst2_sc_noop,
++	.bc_disable = xburst2_sc_noop,
++	.bc_wback_inv = xburst2_sc_wback_inv,
++	.bc_inv = xburst2_sc_inv,
++};
++
++int xburst2_sc_init(void)
++{
++	struct cpuinfo_mips *c = &current_cpu_data;
++	unsigned int config1, config2, tmp;
++
++	c->scache.flags |= MIPS_CACHE_NOT_PRESENT;
++
++	if (current_cpu_type() != CPU_XBURST2)
++		return 0;
++
++	if (xburst2_read_mscr() & X2000_CCU_MSCR_DISL2C)
++		return 0;
++
++	config1 = read_c0_config1();
++	if (!(config1 & MIPS_CONF_M))
++		return 0;
++
++	config2 = read_c0_config2();
++
++	tmp = (config2 >> 4) & 0x0f;
++	if (!tmp || tmp > 7)
++		return 0;
++	c->scache.linesz = 2 << tmp;
++
++	tmp = (config2 >> 8) & 0x0f;
++	if (tmp > 7)
++		return 0;
++	c->scache.sets = 64 << tmp;
++
++	tmp = config2 & 0x0f;
++	if (tmp != 7 && tmp != 15)
++		return 0;
++	c->scache.ways = tmp + 1;
++
++	c->scache.waysize = c->scache.sets * c->scache.linesz;
++	c->scache.waybit = __ffs(c->scache.waysize);
++	c->scache.flags &= ~MIPS_CACHE_NOT_PRESENT;
++	c->scache.flags |= MIPS_CACHE_PINDEX;
++
++	xburst2_scache_size = c->scache.ways * c->scache.waysize;
++	bcops = &xburst2_sc_ops;
++
++	return 1;
++}
+diff --git a/arch/mips/mm/tlbex.c b/arch/mips/mm/tlbex.c
+--- a/arch/mips/mm/tlbex.c
++++ b/arch/mips/mm/tlbex.c
+@@ -587,6 +587,7 @@ void build_tlb_write_entry(u32 **p, struct uasm_label **l,
+ 		break;
+ 
+ 	case CPU_XBURST:
++	case CPU_XBURST2:
+ 		tlbw(p);
+ 		uasm_i_nop(p);
+ 		break;

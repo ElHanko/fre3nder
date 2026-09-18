@@ -1,9 +1,9 @@
-aeded28309d0c69e4b2ba13971c9392ed98e349df0ef4d9bc23257252dadd992  patches/linux/0001-mips-ingenic-add-minimal-x2000-up-platform.patch
+f6be30ea04aefe2d6535e4a6d7ee7b27242086fe8426dc05694ad96fc924da2a  patches/linux/0001-mips-ingenic-add-minimal-x2000-up-platform.patch
 0ba5fe7e929d62dd35af5cbcdf42d04a428289a46052dc4487574a133f19e70c  patches/linux/0002-clk-ingenic-add-x2000-clock-provider.patch
 5d7f12eac63fb13df9ef9612d49d6983e3362f32197d86bc9f9f03cc62509f5b  patches/linux/0003-irqchip-ingenic-add-x2000-interrupt-controller.patch
 82d1d92f15f7d95161ef4c204b86143108c27aff89e9c49b07c56876efb2e755  patches/linux/0004-clocksource-ingenic-add-x2000-core-ost.patch
 027571bc9da5d2fa2d1ca6d0c44d30e2f81129b8e9b0f48ad8043340ac89b2f4  patches/linux/0005-mips-ingenic-add-reduced-x2000-soc-description.patch
-f28faf5d422860e46d18f590f88cec682854a4c96d9f0c4e028338096ffa93e5  patches/linux/0006-mips-ingenic-add-fre3nder-board-description.patch
+83acf5af1536a06fb734f1aac1b59aca779f266a12cbd56d4a03261ca5d856a6  patches/linux/0006-mips-ingenic-add-fre3nder-board-description.patch
 d10c2c45a29e05d821f541626727a72680b95f6de146ed3ae3d3f55f8912f1c5  patches/linux/0007-mmc-sdhci-ingenic-add-x2000-support.patch
 95b7c1aeb03c7e8a75254f72ce8d5dbc769a6e5be2438c55e7ce968135713baf  patches/linux/0008-mips-ingenic-add-x2000-smp-support.patch
 6b3ab11e5afcd1124acb340f75dd18c54e0e1c4c7eb9a9dc2ef83f2ab8db6f3b  patches/linux/0009-serial-8250-ingenic-add-x2000-uart-support.patch
