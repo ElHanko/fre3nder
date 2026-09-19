@@ -15,56 +15,75 @@
       "commit": "fc3c8f4093aa9e32e67a51ba5eebd7338195b746",
       "tree": "16880e7cebe5db9273d0ad7fbac7f86fec2585b2"
     },
-    "vendor_delta": {
-      "source_repository": "https://github.com/Llixuma/ingenic-linux-kernel6.6-x2000-v1.0-20250221",
-      "source_commit": "a98c2e1f22e4263ddd4153a4eca4db4dcfd2777b",
-      "result_tree": "30cd72f68ffa1739f7f5b8d1158aad5f7d5a97f8",
-      "patch": "patches/kernel/0001-ingenic-x2000-vendor-delta-v6.6.18-rt23.patch",
-      "patch_sha256": "c0da10973471db5b47d6af6151c65fe6025b46e15a9f22c221a47832fc582e73"
-    },
     "kernel_version": "6.6.18",
     "kernel_localversion": "-fre3nder",
     "kernel_release": "6.6.18-rt23-fre3nder",
     "preemption_model": "PREEMPT",
     "preempt_rt_enabled": false,
-    "vendor_pruning": [
-      {
-        "round": 1,
-        "scope": "unused Vendor device trees only",
-        "input_tree": "30cd72f68ffa1739f7f5b8d1158aad5f7d5a97f8",
-        "result_tree": "70240a8b33c471156106fbad5a22a3e3b5127a73",
-        "patch": "patches/kernel/0002-prune-unused-vendor-dts.patch",
-        "patch_sha256": "b0858afd5fa64c9ea5401dc1f37452810d5eb6f6c043e4447a5ef95f0d4f8ae4",
-        "deleted_files": 86
+    "direct_delta": {
+      "role": "productive Fre3nder X2000 kernel delta",
+      "baseline_commit": "fc3c8f4093aa9e32e67a51ba5eebd7338195b746",
+      "result_tree": "0163ea31f80116753af8de0bb7574247d34965c0",
+      "patch": "patches/kernel/0001-fre3nder-x2000-direct-delta-v6.6.18-rt23.patch",
+      "patch_sha256": "4fa9baebb56e2700defa77ddfe8eb5ef65a9fd551bc36ff1b3b1d81866c987ee",
+      "derived_from_vendor_repository": "https://github.com/Llixuma/ingenic-linux-kernel6.6-x2000-v1.0-20250221",
+      "derived_from_vendor_commit": "a98c2e1f22e4263ddd4153a4eca4db4dcfd2777b"
+    },
+    "migration_history": {
+      "documentation": "research/x2000-kernel/vendor-baseline-port/README.md",
+      "reference": "research/x2000-kernel/vendor-baseline-port/REFERENCE.txt",
+      "original_vendor_delta": {
+        "source_repository": "https://github.com/Llixuma/ingenic-linux-kernel6.6-x2000-v1.0-20250221",
+        "source_commit": "a98c2e1f22e4263ddd4153a4eca4db4dcfd2777b",
+        "result_tree": "30cd72f68ffa1739f7f5b8d1158aad5f7d5a97f8",
+        "patch": "research/x2000-kernel/vendor-baseline-port/history/0001-ingenic-x2000-vendor-delta-v6.6.18-rt23.patch",
+        "patch_sha256": "c0da10973471db5b47d6af6151c65fe6025b46e15a9f22c221a47832fc582e73"
       },
-      {
-        "round": 2,
-        "scope": "unused Vendor subsystems and their audited Kconfig/Kbuild hooks",
-        "input_tree": "70240a8b33c471156106fbad5a22a3e3b5127a73",
-        "result_tree": "2255f2cd3048897a627f58ddf693c1f7249e444c",
-        "patch": "patches/kernel/0003-prune-unused-vendor-subsystems.patch",
-        "patch_sha256": "49d07c49a2c25ce1d336a6602fdba6b9fb44726b367b527266141ca3bd25c4f0",
-        "deleted_files": 2233,
-        "modified_hook_files": 9
-      },
-      {
-        "round": 3,
-        "scope": "Ender-3 V3 KE-specific Vendor pruning, restoration of unused RT23 modifications, and restoration of Vendor-deleted RT23 baseline files",
-        "input_tree": "2255f2cd3048897a627f58ddf693c1f7249e444c",
-        "result_tree": "b837270f06fae68e4721ff8b71ef74f475129434",
-        "patch": "patches/kernel/0004-prune-ender3-v3-ke-vendor-delta.patch",
-        "patch_sha256": "98feb4c4f42184e05d76c15581d7752265e4b150492440004c453b51bcf25c12",
-        "removed_vendor_added_files": 262,
-        "restored_vendor_modified_files": 115,
-        "restored_vendor_deleted_files": 14,
-        "remaining_delta": {
-          "added": 272,
-          "modified": 96,
-          "deleted": 0,
-          "total": 368
+      "vendor_pruning": [
+        {
+          "round": 1,
+          "scope": "unused Vendor device trees only",
+          "input_tree": "30cd72f68ffa1739f7f5b8d1158aad5f7d5a97f8",
+          "result_tree": "70240a8b33c471156106fbad5a22a3e3b5127a73",
+          "patch": "research/x2000-kernel/vendor-baseline-port/history/0002-prune-unused-vendor-dts.patch",
+          "patch_sha256": "b0858afd5fa64c9ea5401dc1f37452810d5eb6f6c043e4447a5ef95f0d4f8ae4",
+          "deleted_files": 86
+        },
+        {
+          "round": 2,
+          "scope": "unused Vendor subsystems and their audited Kconfig/Kbuild hooks",
+          "input_tree": "70240a8b33c471156106fbad5a22a3e3b5127a73",
+          "result_tree": "2255f2cd3048897a627f58ddf693c1f7249e444c",
+          "patch": "research/x2000-kernel/vendor-baseline-port/history/0003-prune-unused-vendor-subsystems.patch",
+          "patch_sha256": "49d07c49a2c25ce1d336a6602fdba6b9fb44726b367b527266141ca3bd25c4f0",
+          "deleted_files": 2233,
+          "modified_hook_files": 9
+        },
+        {
+          "round": 3,
+          "scope": "Ender-3 V3 KE-specific Vendor pruning, restoration of unused RT23 modifications, and restoration of Vendor-deleted RT23 baseline files",
+          "input_tree": "2255f2cd3048897a627f58ddf693c1f7249e444c",
+          "result_tree": "b837270f06fae68e4721ff8b71ef74f475129434",
+          "patch": "research/x2000-kernel/vendor-baseline-port/history/0004-prune-ender3-v3-ke-vendor-delta.patch",
+          "patch_sha256": "98feb4c4f42184e05d76c15581d7752265e4b150492440004c453b51bcf25c12",
+          "removed_vendor_added_files": 262,
+          "restored_vendor_modified_files": 115,
+          "restored_vendor_deleted_files": 14,
+          "remaining_delta": {
+            "added": 272,
+            "modified": 96,
+            "deleted": 0,
+            "total": 368
+          }
         }
-      }
-    ]
+      ],
+      "printer_integration": [
+        "research/x2000-kernel/vendor-baseline-port/history/ender3-v3-ke.dts",
+        "research/x2000-kernel/vendor-baseline-port/history/ke-wlan.patch",
+        "research/x2000-kernel/vendor-baseline-port/history/ke-display.patch",
+        "research/x2000-kernel/vendor-baseline-port/history/ke-touch.patch"
+      ]
+    }
   },
   "buildroot": {
     "version": "2025.02.18",

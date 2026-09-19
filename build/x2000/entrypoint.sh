@@ -47,18 +47,9 @@ kernel_url=https://github.com/hexagon-geo-surv/linux-stable-rt.git
 kernel_tag=v6.6.18-rt23
 kernel_commit=fc3c8f4093aa9e32e67a51ba5eebd7338195b746
 kernel_baseline_tree=16880e7cebe5db9273d0ad7fbac7f86fec2585b2
-kernel_vendor_tree=30cd72f68ffa1739f7f5b8d1158aad5f7d5a97f8
-kernel_vendor_patch="$project/patches/kernel/0001-ingenic-x2000-vendor-delta-v6.6.18-rt23.patch"
-kernel_vendor_patch_sha256=c0da10973471db5b47d6af6151c65fe6025b46e15a9f22c221a47832fc582e73
-kernel_pruned_tree=70240a8b33c471156106fbad5a22a3e3b5127a73
-kernel_prune_patch="$project/patches/kernel/0002-prune-unused-vendor-dts.patch"
-kernel_prune_patch_sha256=b0858afd5fa64c9ea5401dc1f37452810d5eb6f6c043e4447a5ef95f0d4f8ae4
-kernel_pruned_tree_round2=2255f2cd3048897a627f58ddf693c1f7249e444c
-kernel_prune_patch_round2="$project/patches/kernel/0003-prune-unused-vendor-subsystems.patch"
-kernel_prune_patch_round2_sha256=49d07c49a2c25ce1d336a6602fdba6b9fb44726b367b527266141ca3bd25c4f0
-kernel_pruned_tree_round3=b837270f06fae68e4721ff8b71ef74f475129434
-kernel_prune_patch_round3="$project/patches/kernel/0004-prune-ender3-v3-ke-vendor-delta.patch"
-kernel_prune_patch_round3_sha256=98feb4c4f42184e05d76c15581d7752265e4b150492440004c453b51bcf25c12
+kernel_fre3nder_tree=0163ea31f80116753af8de0bb7574247d34965c0
+kernel_fre3nder_patch="$project/patches/kernel/0001-fre3nder-x2000-direct-delta-v6.6.18-rt23.patch"
+kernel_fre3nder_patch_sha256=4fa9baebb56e2700defa77ddfe8eb5ef65a9fd551bc36ff1b3b1d81866c987ee
 kernel_release=6.6.18-rt23-fre3nder
 buildroot_url=https://gitlab.com/buildroot.org/buildroot.git
 buildroot_version=2025.02.18
@@ -1149,132 +1140,35 @@ prepare_kernel() {
 	[ "$(git -C "$k" rev-parse HEAD)" = "$kernel_commit" ]
 	[ "$(git -C "$k" rev-parse HEAD^{tree})" = "$kernel_baseline_tree" ]
 
-	actual_patch_sha256=$(sha256sum "$kernel_vendor_patch" | awk '{print $1}')
-	[ "$actual_patch_sha256" = "$kernel_vendor_patch_sha256" ] || {
-		echo "Ingenic vendor delta SHA256 mismatch" >&2
+	actual_patch_sha256=$(sha256sum "$kernel_fre3nder_patch" | awk '{print $1}')
+	[ "$actual_patch_sha256" = "$kernel_fre3nder_patch_sha256" ] || {
+		echo "Fre3nder X2000 direct delta SHA256 mismatch" >&2
 		return 1
 	}
 
-	actual_prune_patch_sha256=$(sha256sum "$kernel_prune_patch" | awk '{print $1}')
-	[ "$actual_prune_patch_sha256" = "$kernel_prune_patch_sha256" ] || {
-		echo "X2000 prune patch SHA256 mismatch" >&2
-		return 1
-	}
+	fre3nder_index="$work/kernel-fre3nder-index"
+	rm -f -- "$fre3nder_index"
 
-	actual_prune_patch_round2_sha256=$(
-		sha256sum "$kernel_prune_patch_round2" | awk '{print $1}'
-	)
-	[ "$actual_prune_patch_round2_sha256" = "$kernel_prune_patch_round2_sha256" ] || {
-		echo "X2000 round-2 prune patch SHA256 mismatch" >&2
-		return 1
-	}
+	GIT_INDEX_FILE="$fre3nder_index" git -C "$k" read-tree "$kernel_commit"
+	GIT_INDEX_FILE="$fre3nder_index" git -C "$k" apply \
+		--cached --whitespace=nowarn --check "$kernel_fre3nder_patch"
+	GIT_INDEX_FILE="$fre3nder_index" git -C "$k" apply \
+		--cached --whitespace=nowarn "$kernel_fre3nder_patch"
 
-	actual_prune_patch_round3_sha256=$(
-		sha256sum "$kernel_prune_patch_round3" | awk '{print $1}'
-	)
-	[ "$actual_prune_patch_round3_sha256" = "$kernel_prune_patch_round3_sha256" ] || {
-		echo "X2000 round-3 prune patch SHA256 mismatch" >&2
-		return 1
-	}
-
-	vendor_index="$work/kernel-vendor-index"
-	rm -f -- "$vendor_index"
-
-	GIT_INDEX_FILE="$vendor_index" git -C "$k" read-tree "$kernel_commit"
-	GIT_INDEX_FILE="$vendor_index" git -C "$k" apply --cached --check \
-		"$kernel_vendor_patch"
-	GIT_INDEX_FILE="$vendor_index" git -C "$k" apply --cached \
-		"$kernel_vendor_patch"
-
-	actual_vendor_tree=$(
-		GIT_INDEX_FILE="$vendor_index" git -C "$k" write-tree
+	actual_fre3nder_tree=$(
+		GIT_INDEX_FILE="$fre3nder_index" git -C "$k" write-tree
 	)
 
-	[ "$actual_vendor_tree" = "$kernel_vendor_tree" ] || {
-		echo "Ingenic vendor tree mismatch: $actual_vendor_tree" >&2
-		rm -f -- "$vendor_index"
+	rm -f -- "$fre3nder_index"
+
+	[ "$actual_fre3nder_tree" = "$kernel_fre3nder_tree" ] || {
+		echo "Fre3nder X2000 tree mismatch: $actual_fre3nder_tree" >&2
 		return 1
 	}
 
-	GIT_INDEX_FILE="$vendor_index" git -C "$k" apply --cached --check \
-		"$kernel_prune_patch"
-	GIT_INDEX_FILE="$vendor_index" git -C "$k" apply --cached \
-		"$kernel_prune_patch"
-
-	actual_pruned_tree=$(
-		GIT_INDEX_FILE="$vendor_index" git -C "$k" write-tree
-	)
-
-	[ "$actual_pruned_tree" = "$kernel_pruned_tree" ] || {
-		echo "X2000 pruned tree mismatch: $actual_pruned_tree" >&2
-		rm -f -- "$vendor_index"
-		return 1
-	}
-
-	GIT_INDEX_FILE="$vendor_index" git -C "$k" apply --cached --check \
-		"$kernel_prune_patch_round2"
-	GIT_INDEX_FILE="$vendor_index" git -C "$k" apply --cached \
-		"$kernel_prune_patch_round2"
-
-	actual_pruned_tree_round2=$(
-		GIT_INDEX_FILE="$vendor_index" git -C "$k" write-tree
-	)
-
-	[ "$actual_pruned_tree_round2" = "$kernel_pruned_tree_round2" ] || {
-		echo "X2000 round-2 pruned tree mismatch: $actual_pruned_tree_round2" >&2
-		rm -f -- "$vendor_index"
-		return 1
-	}
-
-	GIT_INDEX_FILE="$vendor_index" git -C "$k" apply --cached --check \
-		"$kernel_prune_patch_round3"
-	GIT_INDEX_FILE="$vendor_index" git -C "$k" apply --cached \
-		"$kernel_prune_patch_round3"
-
-	actual_pruned_tree_round3=$(
-		GIT_INDEX_FILE="$vendor_index" git -C "$k" write-tree
-	)
-
-	rm -f -- "$vendor_index"
-
-	[ "$actual_pruned_tree_round3" = "$kernel_pruned_tree_round3" ] || {
-		echo "X2000 round-3 pruned tree mismatch: $actual_pruned_tree_round3" >&2
-		return 1
-	}
-
-	git -C "$k" apply --check "$kernel_vendor_patch"
-	git -C "$k" apply "$kernel_vendor_patch"
-
-	git -C "$k" apply --check "$kernel_prune_patch"
-	git -C "$k" apply "$kernel_prune_patch"
-
-	git -C "$k" apply --check "$kernel_prune_patch_round2"
-	git -C "$k" apply "$kernel_prune_patch_round2"
-
-	git -C "$k" apply --check "$kernel_prune_patch_round3"
-	git -C "$k" apply "$kernel_prune_patch_round3"
-
-	cp "$project/configs/x2000/ender3-v3-ke.dts" \
-		"$k/module_drivers/dts/x2000/ender3-v3-ke.dts"
-
-	git -C "$k" apply -p3 --check "$project/configs/x2000/ke-wlan.patch"
-	git -C "$k" apply -p3 "$project/configs/x2000/ke-wlan.patch"
-	git -C "$k" apply -p3 --reverse --check "$project/configs/x2000/ke-wlan.patch"
-
-	git -C "$k" apply -p3 --check "$project/configs/x2000/ke-display.patch"
-	git -C "$k" apply -p3 "$project/configs/x2000/ke-display.patch"
-	git -C "$k" apply -p3 --reverse --check "$project/configs/x2000/ke-display.patch"
-
-	git -C "$k" apply -p3 --check "$project/configs/x2000/ke-touch.patch"
-	git -C "$k" apply -p3 "$project/configs/x2000/ke-touch.patch"
-	git -C "$k" apply -p3 --reverse --check "$project/configs/x2000/ke-touch.patch"
-
-	if ! grep -q '^dtb-$(CONFIG_DT_ENDER3_V3_KE)' "$k/module_drivers/dts/Makefile"; then
-		sed -i '/^obj-$(CONFIG_BUILTIN_DTB)/i dtb-$(CONFIG_DT_ENDER3_V3_KE) += x2000/ender3-v3-ke.dtb' "$k/module_drivers/dts/Makefile"
-	fi
-	if ! grep -q '^config DT_ENDER3_V3_KE$' "$k/arch/mips/xburst2/soc-x2000/Kconfig.DT"; then
-		sed -i '/^endchoice$/i config DT_ENDER3_V3_KE\n\tbool "Ender-3 V3 KE"\n' "$k/arch/mips/xburst2/soc-x2000/Kconfig.DT"
-	fi
+	git -C "$k" apply --whitespace=nowarn --check "$kernel_fre3nder_patch"
+	git -C "$k" apply --whitespace=nowarn "$kernel_fre3nder_patch"
+	git -C "$k" apply --reverse --check "$kernel_fre3nder_patch"
 
 	cp "$project/configs/x2000/kernel-fre3nder.defconfig" "$k/.config"
 	cat "$project/configs/x2000/kernel.fragment" >> "$k/.config"

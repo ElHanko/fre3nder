@@ -76,3 +76,9 @@ path = "patches/kernel/**"
 precedence = "closest"
 SPDX-FileCopyrightText = "NOASSERTION"
 SPDX-License-Identifier = "GPL-2.0-only"
+
+[[annotations]]
+path = "research/x2000-kernel/vendor-baseline-port/history/**"
+precedence = "closest"
+SPDX-FileCopyrightText = "NOASSERTION"
+SPDX-License-Identifier = "GPL-2.0-only"
