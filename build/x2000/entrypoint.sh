@@ -1276,8 +1276,7 @@ prepare_kernel() {
 		sed -i '/^endchoice$/i config DT_ENDER3_V3_KE\n\tbool "Ender-3 V3 KE"\n' "$k/arch/mips/xburst2/soc-x2000/Kconfig.DT"
 	fi
 
-	LOCALVERSION= make -C "$k" ARCH=mips CROSS_COMPILE="$cross_compile" CC="$cc" \
-		x2000_halley5_v30_linux_defconfig
+	cp "$project/configs/x2000/kernel-fre3nder.defconfig" "$k/.config"
 	cat "$project/configs/x2000/kernel.fragment" >> "$k/.config"
 	cat >> "$k/.config" <<EOF
 CONFIG_DT_ENDER3_V3_KE=y

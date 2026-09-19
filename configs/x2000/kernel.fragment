@@ -1,4 +1,4 @@
-# Fre3nder X2000 additions to x2000_halley5_v30_linux_defconfig.
+# Fre3nder X2000 kernel configuration additions.
 CONFIG_PREEMPT=y
 # CONFIG_PREEMPT_RT is not set
 CONFIG_LOCALVERSION="-fre3nder"
