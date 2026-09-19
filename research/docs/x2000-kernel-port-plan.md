@@ -370,3 +370,121 @@ Migration to a newer suitable LTS kernel remains a later project phase.
 
 Hardware deployment, partition writes and boot-selector changes remain separate
 explicitly authorized operations.
+
+## Current stable 6.6.y migration
+
+Status: passed on 2026-09-20.
+
+After the plain upstream `v6.6.18` port was built and qualified on the
+reference Ender-3 V3 KE, the productive kernel baseline was advanced to current
+Linux stable `v6.6.157`.
+
+The pinned upstream reference is:
+
+* repository:
+  `https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git`
+* tag:
+  `v6.6.157`
+* commit:
+  `79643295eba17affbd16ca97f3ef04c90266b28c`
+* tree:
+  `e2963aecbdc92c10a52434a5ae11a82522dc38d5`
+
+The productive Fre3nder delta is stored as:
+
+`patches/kernel/0001-fre3nder-x2000-direct-delta-v6.6.157.patch`
+
+SHA256:
+
+`3d44d87703ffd6889c515a6010b23d8c83411c905c3c289b8b6db57030147795`
+
+Applying the direct delta to the pinned `v6.6.157` baseline produces exactly:
+
+`40d8b5cee4341505c12373e9bb1386e80241f0d6`
+
+The resulting kernel release is:
+
+`6.6.157-fre3nder`
+
+The migration retained the existing Ender-3 V3 KE hardware support while
+adapting the remaining out-of-tree X2000 delta to Stable changes between
+`v6.6.18` and `v6.6.157`.
+
+Required porting changes were limited to concrete observed incompatibilities:
+
+* adapt the OF `of_property_for_each_u32()` iterator users to the current
+  three-argument API;
+* adapt the Ingenic pinctrl GPIO direction helpers from global GPIO numbering to
+  the current `gpio_chip` plus offset API;
+* remove a Stable-added DWC2 `PCGCTL` wakeup sequence that conflicted with the
+  already qualified Fre3nder DWC2 delta where that register path is intentionally
+  absent;
+* repair two missing closing braces introduced while resolving the overlapping
+  Stable/Fre3nder SDHCI changes;
+* remove three obsolete Kconfig entries that no longer exist in the
+  `v6.6.157` configuration space.
+
+The managed kernel cache checkout was also changed to use a forced detached
+checkout before reset and clean. This allows a previously patched managed cache
+to transition reproducibly between pinned kernel baselines without requiring
+manual cache removal.
+
+### Build validation
+
+The final kernel-only development build completed successfully.
+
+Qualified artifacts:
+
+* `kernel.uImage`
+  SHA256:
+  `485194f9d95168afcbc1da69eaf505354f1884c01010eaa5f388054d180e6258`
+* `ender3-v3-ke.dtb`
+  SHA256:
+  `efe233868ed8c612557c3363242cab19801afdbf3ffd0bb32fa3d6b8366efd4b`
+* `effective-kernel-config`
+  SHA256:
+  `93f7d6c3799c5707b9f24dda6909d7dfab6c91b8fa8b36b0531a85a59c0b667b`
+* `build-manifest.json`
+  SHA256:
+  `c6d64d8b42bc7c98662c96156a04c09270cf64a335db450f9f4d67ad626bb136`
+
+The generated uImage identifies itself as `Linux-6.6.157-fre3nder`, uses the
+established MIPS load and entry address `0x80f00000`, and remains below the p6
+kernel-slot size limit.
+
+The Ender-3 V3 KE DTB remains byte-identical to the already qualified
+`v6.6.18-fre3nder` DTB.
+
+### Hardware qualification
+
+The final `6.6.157-fre3nder` kernel was deployed to kernel slot p6 using the
+established kernel-only A/B deployment procedure.
+
+Deployment validation established:
+
+* the p6 kernel write completed and exact artifact readback passed;
+* stock kernel slot p5 remained unchanged;
+* stock RootFS slot p7 remained unchanged;
+* existing Fre3nder RootFS slot p8 was not rewritten;
+* the reference printer booted successfully from p6 + p8;
+* the existing Fre3nder runtime reached normal operation;
+* network and SSH access remained available;
+* the boot selector was restored to `STOCK_A` after qualification.
+
+The runtime kernel identified itself as:
+
+`Linux fre3nder 6.6.157-fre3nder #1 SMP PREEMPT Sat Sep 19 22:06:01 UTC 2026 mips GNU/Linux`
+
+This demonstrates on the reference system that the Fre3nder X2000 hardware
+delta is no longer technically tied to Linux `v6.6.18` or the earlier
+Vendor/RT23 baseline.
+
+The qualification establishes bootability and operation of the existing
+Fre3nder p8 runtime, including the validated network and SSH access path. It
+does not by itself establish equivalence for every possible peripheral,
+workload, latency characteristic, or hardware revision.
+
+Future 6.6.y updates should therefore follow the same incremental process:
+
+upstream baseline update → direct-delta apply/port → Kconfig and API validation
+→ kernel build → targeted hardware qualification.

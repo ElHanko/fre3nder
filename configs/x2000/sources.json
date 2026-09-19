@@ -11,21 +11,21 @@
     "source": {
       "role": "productive upstream Linux baseline",
       "url": "https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git",
-      "tag": "v6.6.18",
-      "commit": "d8a27ea2c98685cdaa5fa66c809c7069a4ff394b",
-      "tree": "7dcc6dd2e2f286a81498146dab92bb4b847d2f12"
+      "tag": "v6.6.157",
+      "commit": "79643295eba17affbd16ca97f3ef04c90266b28c",
+      "tree": "e2963aecbdc92c10a52434a5ae11a82522dc38d5"
     },
-    "kernel_version": "6.6.18",
+    "kernel_version": "6.6.157",
     "kernel_localversion": "-fre3nder",
-    "kernel_release": "6.6.18-fre3nder",
+    "kernel_release": "6.6.157-fre3nder",
     "preemption_model": "PREEMPT",
     "preempt_rt_enabled": false,
     "direct_delta": {
-      "role": "productive Fre3nder X2000 kernel delta on upstream Linux v6.6.18",
-      "baseline_commit": "d8a27ea2c98685cdaa5fa66c809c7069a4ff394b",
-      "result_tree": "7895b886ea7720311150a8d2dbedf80ea1838ad8",
-      "patch": "patches/kernel/0001-fre3nder-x2000-direct-delta-v6.6.18.patch",
-      "patch_sha256": "640e8e31c0006d165939781aa67e730b7f0ea8fc4910b400d53c2ed7083be91e",
+      "role": "productive Fre3nder X2000 kernel delta on upstream Linux v6.6.157",
+      "baseline_commit": "79643295eba17affbd16ca97f3ef04c90266b28c",
+      "result_tree": "40d8b5cee4341505c12373e9bb1386e80241f0d6",
+      "patch": "patches/kernel/0001-fre3nder-x2000-direct-delta-v6.6.157.patch",
+      "patch_sha256": "3d44d87703ffd6889c515a6010b23d8c83411c905c3c289b8b6db57030147795",
       "derived_from_vendor_repository": "https://github.com/Llixuma/ingenic-linux-kernel6.6-x2000-v1.0-20250221",
       "derived_from_vendor_commit": "a98c2e1f22e4263ddd4153a4eca4db4dcfd2777b"
     },

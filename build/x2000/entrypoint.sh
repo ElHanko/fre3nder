@@ -44,13 +44,13 @@ full_out="$artifact_root/full"
 kernel_out="$artifact_root/kernel-only"
 rootfs_out="$artifact_root/rootfs-only"
 kernel_url=https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git
-kernel_tag=v6.6.18
-kernel_commit=d8a27ea2c98685cdaa5fa66c809c7069a4ff394b
-kernel_baseline_tree=7dcc6dd2e2f286a81498146dab92bb4b847d2f12
-kernel_fre3nder_tree=7895b886ea7720311150a8d2dbedf80ea1838ad8
-kernel_fre3nder_patch="$project/patches/kernel/0001-fre3nder-x2000-direct-delta-v6.6.18.patch"
-kernel_fre3nder_patch_sha256=640e8e31c0006d165939781aa67e730b7f0ea8fc4910b400d53c2ed7083be91e
-kernel_release=6.6.18-fre3nder
+kernel_tag=v6.6.157
+kernel_commit=79643295eba17affbd16ca97f3ef04c90266b28c
+kernel_baseline_tree=e2963aecbdc92c10a52434a5ae11a82522dc38d5
+kernel_fre3nder_tree=40d8b5cee4341505c12373e9bb1386e80241f0d6
+kernel_fre3nder_patch="$project/patches/kernel/0001-fre3nder-x2000-direct-delta-v6.6.157.patch"
+kernel_fre3nder_patch_sha256=3d44d87703ffd6889c515a6010b23d8c83411c905c3c289b8b6db57030147795
+kernel_release=6.6.157-fre3nder
 buildroot_url=https://gitlab.com/buildroot.org/buildroot.git
 buildroot_version=2025.02.18
 buildroot_commit=d030e36bbc9669230c015be971b14b6e062cfdde
@@ -699,7 +699,7 @@ fetch_kernel_inputs() {
 	git -C "$kernel" fetch --no-tags origin "$kernel_commit"
 	git -C "$kernel" fetch --no-tags origin \
 		"refs/tags/$kernel_tag:refs/tags/$kernel_tag"
-	git -C "$kernel" checkout --detach "$kernel_commit"
+	git -C "$kernel" checkout -f --detach "$kernel_commit"
 	git -C "$kernel" reset --hard "$kernel_commit"
 	git -C "$kernel" clean -fdx
 
