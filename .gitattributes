@@ -2,3 +2,4 @@ research/configs/x2000-prototype/slot-b-network-smoke-kernel.patch -whitespace
 configs/x2000/ke-wlan.patch -whitespace
 patches/buildroot/0001-mips-add-ingenic-xburst2-target.patch -whitespace
 research/patches/linux/*.patch -whitespace
+patches/kernel/*.patch -whitespace

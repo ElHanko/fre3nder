@@ -45,13 +45,23 @@ The RootFS uses an XBurst II target patch against upstream Buildroot and an
 internal Buildroot toolchain. The patch records its exact Ingenic SDK and
 upstream Buildroot provenance; no Ingenic userspace toolchain is redistributed.
 
-The separately pinned public Ingenic SDK supplies only the vendor kernel
-source. Kernel and RootFS are both built with the upstream Buildroot internal
-GCC 13.4.0/binutils 2.43.1 toolchain. They remain separate compiler contracts:
+The productive kernel source is reconstructed from the pinned public Linux
+`v6.6.18-rt23` baseline at commit
+`fc3c8f4093aa9e32e67a51ba5eebd7338195b746`. Fre3nder applies the complete
+Ingenic kernel delta recorded in
+`patches/kernel/0001-ingenic-x2000-vendor-delta-v6.6.18-rt23.patch`. The
+resulting source tree is verified against Ingenic vendor tree
+`30cd72f68ffa1739f7f5b8d1158aad5f7d5a97f8`, derived from public Ingenic SDK
+commit `a98c2e1f22e4263ddd4153a4eca4db4dcfd2777b`. The Ingenic SDK is therefore
+vendor-delta provenance and reference material rather than a productive kernel
+source checkout.
+
+Kernel and RootFS are both built with the upstream Buildroot internal GCC
+13.4.0/binutils 2.43.1 toolchain. They remain separate compiler contracts:
 the kernel uses Kbuild's MIPS32r5/O32/soft-float/legacy-NaN flags through the
 underlying real cross-GCC, while userspace uses Buildroot's
-MIPS32r2/O32/hard-float/FPXX/NaN2008 wrapper contract. Buildroot is no longer
-sourced from the SDK, and no Ingenic toolchain is a productive build input.
+MIPS32r2/O32/hard-float/FPXX/NaN2008 wrapper contract. Buildroot is not sourced
+from the SDK, and no Ingenic toolchain is a productive build input.
 The F005 build reuses that same Buildroot userspace wrapper for its X2000
 `c_helper.so`; its separate `arm-none-eabi` toolchain targets only the
 GD32F303 bare-metal MCU.

@@ -2,15 +2,29 @@
   "schema": 1,
   "profile": "fre3nder-x2000",
   "sdk": {
-    "role": "public source mirror",
+    "role": "vendor delta provenance only",
     "url": "https://github.com/Llixuma/ingenic-linux-kernel6.6-x2000-v1.0-20250221",
     "release_identity": "ingenic-linux-kernel6.6-x2000-v1.0-20250221",
     "commit": "a98c2e1f22e4263ddd4153a4eca4db4dcfd2777b"
   },
   "kernel": {
+    "source": {
+      "role": "productive RT baseline",
+      "url": "https://github.com/hexagon-geo-surv/linux-stable-rt.git",
+      "tag": "v6.6.18-rt23",
+      "commit": "fc3c8f4093aa9e32e67a51ba5eebd7338195b746",
+      "tree": "16880e7cebe5db9273d0ad7fbac7f86fec2585b2"
+    },
+    "vendor_delta": {
+      "source_repository": "https://github.com/Llixuma/ingenic-linux-kernel6.6-x2000-v1.0-20250221",
+      "source_commit": "a98c2e1f22e4263ddd4153a4eca4db4dcfd2777b",
+      "result_tree": "30cd72f68ffa1739f7f5b8d1158aad5f7d5a97f8",
+      "patch": "patches/kernel/0001-ingenic-x2000-vendor-delta-v6.6.18-rt23.patch",
+      "patch_sha256": "c0da10973471db5b47d6af6151c65fe6025b46e15a9f22c221a47832fc582e73"
+    },
     "kernel_version": "6.6.18",
-    "kernel_localversion": "-rt23",
-    "kernel_release": "6.6.18-rt23",
+    "kernel_localversion": "-fre3nder",
+    "kernel_release": "6.6.18-rt23-fre3nder",
     "preemption_model": "PREEMPT",
     "preempt_rt_enabled": false
   },

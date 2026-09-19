@@ -70,3 +70,9 @@ path = "research/patches/klipper/**"
 precedence = "closest"
 SPDX-FileCopyrightText = "NOASSERTION"
 SPDX-License-Identifier = "GPL-3.0-only"
+
+[[annotations]]
+path = "patches/kernel/**"
+precedence = "closest"
+SPDX-FileCopyrightText = "NOASSERTION"
+SPDX-License-Identifier = "GPL-2.0-only"

@@ -14,6 +14,7 @@ BUILD_INPUTS = (
     "configs/x2000",
     "configs/klipper-f005",
     "patches/buildroot",
+    "patches/kernel",
     "patches/klipper",
     "scripts/build-x2000",
     "scripts/build-x2000-buildroot",

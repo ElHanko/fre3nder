@@ -1,0 +1,339 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [ "$#" -ne 3 ]; then
+    echo "Usage:"
+    echo "  $0 <baseline-kernel-tree> <vendor-kernel-tree> <output-dir>"
+    exit 2
+fi
+
+BASE=$1
+VENDOR=$2
+OUT=$3
+
+for cmd in git realpath sha256sum mktemp; do
+    if ! command -v "$cmd" >/dev/null 2>&1; then
+        echo "ERROR: required command not found: $cmd" >&2
+        exit 1
+    fi
+done
+
+BASE=$(realpath "$BASE")
+VENDOR=$(realpath "$VENDOR")
+
+if [ ! -d "$BASE" ]; then
+    echo "ERROR: baseline tree not found: $BASE" >&2
+    exit 1
+fi
+
+if [ ! -d "$VENDOR" ]; then
+    echo "ERROR: vendor tree not found: $VENDOR" >&2
+    exit 1
+fi
+
+BASE_TOP=$(git -C "$BASE" rev-parse --show-toplevel)
+VENDOR_TOP=$(git -C "$VENDOR" rev-parse --show-toplevel)
+
+BASE_HEAD=$(git -C "$BASE" rev-parse HEAD)
+VENDOR_HEAD=$(git -C "$VENDOR" rev-parse HEAD)
+
+BASE_REL=$(realpath --relative-to="$BASE_TOP" "$BASE")
+VENDOR_REL=$(realpath --relative-to="$VENDOR_TOP" "$VENDOR")
+
+tree_for_path() {
+    local repo=$1
+    local head=$2
+    local rel=$3
+
+    if [ "$rel" = "." ]; then
+        git -C "$repo" rev-parse "${head}^{tree}"
+    else
+        git -C "$repo" rev-parse "${head}:${rel}"
+    fi
+}
+
+BASE_TREE=$(tree_for_path "$BASE_TOP" "$BASE_HEAD" "$BASE_REL")
+VENDOR_TREE=$(tree_for_path "$VENDOR_TOP" "$VENDOR_HEAD" "$VENDOR_REL")
+
+BASE_GIT_DIR=$(git -C "$BASE_TOP" rev-parse --absolute-git-dir)
+VENDOR_GIT_DIR=$(git -C "$VENDOR_TOP" rev-parse --absolute-git-dir)
+
+BASE_OBJECTS="$BASE_GIT_DIR/objects"
+VENDOR_OBJECTS="$VENDOR_GIT_DIR/objects"
+
+BASE_FORMAT=$(git -C "$BASE_TOP" rev-parse --show-object-format)
+VENDOR_FORMAT=$(git -C "$VENDOR_TOP" rev-parse --show-object-format)
+
+if [ "$BASE_FORMAT" != "$VENDOR_FORMAT" ]; then
+    echo "ERROR: Git object formats differ:" >&2
+    echo "  baseline: $BASE_FORMAT" >&2
+    echo "  vendor:   $VENDOR_FORMAT" >&2
+    exit 1
+fi
+
+if [ -e "$OUT" ]; then
+    if [ ! -d "$OUT" ]; then
+        echo "ERROR: output exists and is not a directory: $OUT" >&2
+        exit 1
+    fi
+
+    if [ -n "$(find "$OUT" -mindepth 1 -maxdepth 1 -print -quit)" ]; then
+        echo "ERROR: output directory is not empty:" >&2
+        echo "  $OUT" >&2
+        echo "Nothing was changed."
+        exit 1
+    fi
+else
+    mkdir -p "$OUT"
+fi
+
+OUT=$(realpath "$OUT")
+
+PATCH="$OUT/0001-ingenic-vendor-complete-delta.patch"
+NAME_STATUS="$OUT/name-status.txt"
+DIFFSTAT="$OUT/diffstat.txt"
+META="$OUT/source-info.txt"
+
+TMP=$(mktemp -d)
+trap 'rm -rf "$TMP"' EXIT
+
+#
+# Run the cross-repository diff inside the Vendor repository itself.
+#
+# The Vendor checkout is a Git partial clone (promisor, blob:none).
+# Running Git in that repository preserves its lazy-fetch capability for
+# missing Vendor blobs.
+#
+# The official RT23 baseline objects are made available read-only through
+# Git's alternate-object mechanism.
+#
+
+if [ -n "${GIT_ALTERNATE_OBJECT_DIRECTORIES:-}" ]; then
+    export GIT_ALTERNATE_OBJECT_DIRECTORIES="${BASE_OBJECTS}:${GIT_ALTERNATE_OBJECT_DIRECTORIES}"
+else
+    export GIT_ALTERNATE_OBJECT_DIRECTORIES="$BASE_OBJECTS"
+fi
+
+echo "=== SOURCE ==="
+echo
+echo "Baseline:"
+echo "  input:    $BASE"
+echo "  git root: $BASE_TOP"
+echo "  relative: $BASE_REL"
+echo "  HEAD:     $BASE_HEAD"
+echo "  tree:     $BASE_TREE"
+echo
+echo "Vendor:"
+echo "  input:    $VENDOR"
+echo "  git root: $VENDOR_TOP"
+echo "  relative: $VENDOR_REL"
+echo "  HEAD:     $VENDOR_HEAD"
+echo "  tree:     $VENDOR_TREE"
+echo
+
+#
+# Confirm that both target trees are accessible before generating anything.
+#
+
+git -C "$VENDOR_TOP" cat-file -e "${BASE_TREE}^{tree}"
+git -C "$VENDOR_TOP" cat-file -e "${VENDOR_TREE}^{tree}"
+
+echo "Generating complete Vendor delta..."
+
+git \
+    -C "$VENDOR_TOP" \
+    -c core.quotePath=false \
+    diff \
+    --binary \
+    --full-index \
+    --no-renames \
+    --no-ext-diff \
+    --no-textconv \
+    --src-prefix=a/ \
+    --dst-prefix=b/ \
+    "$BASE_TREE" \
+    "$VENDOR_TREE" \
+    > "$PATCH"
+
+git \
+    -C "$VENDOR_TOP" \
+    -c core.quotePath=false \
+    diff \
+    --name-status \
+    --no-renames \
+    "$BASE_TREE" \
+    "$VENDOR_TREE" \
+    > "$NAME_STATUS"
+
+git \
+    -C "$VENDOR_TOP" \
+    diff \
+    --stat \
+    --no-renames \
+    "$BASE_TREE" \
+    "$VENDOR_TREE" \
+    > "$DIFFSTAT"
+
+ADDED=$(awk '$1 == "A" { n++ } END { print n+0 }' "$NAME_STATUS")
+MODIFIED=$(awk '$1 == "M" { n++ } END { print n+0 }' "$NAME_STATUS")
+DELETED=$(awk '$1 == "D" { n++ } END { print n+0 }' "$NAME_STATUS")
+TYPE_CHANGED=$(awk '$1 == "T" { n++ } END { print n+0 }' "$NAME_STATUS")
+TOTAL=$((ADDED + MODIFIED + DELETED + TYPE_CHANGED))
+
+PATCH_SHA256=$(sha256sum "$PATCH" | awk '{print $1}')
+
+cat > "$META" <<INFO
+Baseline input: $BASE
+Baseline Git root: $BASE_TOP
+Baseline relative path: $BASE_REL
+Baseline HEAD: $BASE_HEAD
+Baseline tree: $BASE_TREE
+
+Vendor input: $VENDOR
+Vendor Git root: $VENDOR_TOP
+Vendor relative path: $VENDOR_REL
+Vendor HEAD: $VENDOR_HEAD
+Vendor tree: $VENDOR_TREE
+
+Git object format: $BASE_FORMAT
+
+Patch: 0001-ingenic-vendor-complete-delta.patch
+Patch SHA256: $PATCH_SHA256
+
+Added: $ADDED
+Modified: $MODIFIED
+Deleted: $DELETED
+Type changed: $TYPE_CHANGED
+Total changed paths: $TOTAL
+INFO
+
+echo
+echo "=== GENERATED DELTA ==="
+echo "Added:        $ADDED"
+echo "Modified:     $MODIFIED"
+echo "Deleted:      $DELETED"
+echo "Type changed: $TYPE_CHANGED"
+echo "Total:        $TOTAL"
+echo
+echo "Patch:"
+echo "  $PATCH"
+echo "SHA256:"
+echo "  $PATCH_SHA256"
+echo
+
+#
+# Verification repository.
+#
+# It receives the baseline TREE directly into its index.
+# No source repository is modified and no commit is created.
+#
+
+VERIFY="$TMP/verify"
+
+git init -q "$VERIFY"
+
+VERIFY_GIT_DIR=$(git -C "$VERIFY" rev-parse --absolute-git-dir)
+
+mkdir -p "$VERIFY_GIT_DIR/objects/info"
+
+#
+# The verification repository needs read-only access to both source
+# object stores:
+#
+# - Baseline objects are needed to populate the initial index.
+# - Vendor objects are needed for the final tree comparison and possible
+#   mismatch diagnostics.
+#
+printf '%s\n%s\n' \
+    "$BASE_OBJECTS" \
+    "$VENDOR_OBJECTS" \
+    > "$VERIFY_GIT_DIR/objects/info/alternates"
+
+echo "Loading baseline tree into temporary index..."
+
+git -C "$VERIFY" read-tree "$BASE_TREE"
+
+echo "Checking patch application against baseline index..."
+
+git -C "$VERIFY" apply \
+    --cached \
+    --check \
+    "$PATCH"
+
+echo "Applying patch to temporary index..."
+
+git -C "$VERIFY" apply \
+    --cached \
+    "$PATCH"
+
+ACTUAL_TREE=$(git -C "$VERIFY" write-tree)
+
+echo
+echo "=== TREE VERIFICATION ==="
+echo "Expected Vendor tree:"
+echo "  $VENDOR_TREE"
+echo "Patched baseline tree:"
+echo "  $ACTUAL_TREE"
+echo
+
+if [ "$ACTUAL_TREE" != "$VENDOR_TREE" ]; then
+    echo "FAIL: patched baseline tree differs from Vendor tree."
+
+    git -C "$VERIFY" \
+        -c core.quotePath=false \
+        diff \
+        --name-status \
+        --no-renames \
+        "$ACTUAL_TREE" \
+        "$VENDOR_TREE" \
+        > "$OUT/verification-mismatch.txt"
+
+    echo
+    echo "Mismatch list:"
+    echo "  $OUT/verification-mismatch.txt"
+    exit 1
+fi
+
+cat > "$OUT/verification.txt" <<INFO
+RESULT=PASS
+
+Baseline HEAD:
+$BASE_HEAD
+
+Baseline tree:
+$BASE_TREE
+
+Vendor HEAD:
+$VENDOR_HEAD
+
+Expected Vendor kernel tree:
+$VENDOR_TREE
+
+Patched baseline tree:
+$ACTUAL_TREE
+
+Patch SHA256:
+$PATCH_SHA256
+
+Changed paths:
+$TOTAL
+
+Added:
+$ADDED
+
+Modified:
+$MODIFIED
+
+Deleted:
+$DELETED
+
+Type changed:
+$TYPE_CHANGED
+INFO
+
+echo "PASS: patched v6.6.18-rt23 tree is exactly identical to the Vendor kernel tree."
+echo
+echo "Verification:"
+echo "  $OUT/verification.txt"
+echo
+echo "=== ENDE ==="

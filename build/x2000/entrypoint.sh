@@ -26,7 +26,7 @@ case "$version_tail" in
 *) release_stage=final ;;
 esac
 release_scope=usable-system
-sdk="$work/sdk"
+kernel="$work/kernel"
 buildroot="$work/buildroot"
 buildroot_dl="$work/buildroot-dl"
 buildroot_external="$project/configs/x2000/buildroot-external"
@@ -43,8 +43,14 @@ artifact_root="$local_root/artifacts/x2000"
 full_out="$artifact_root/full"
 kernel_out="$artifact_root/kernel-only"
 rootfs_out="$artifact_root/rootfs-only"
-sdk_url=https://github.com/Llixuma/ingenic-linux-kernel6.6-x2000-v1.0-20250221.git
-sdk_commit=a98c2e1f22e4263ddd4153a4eca4db4dcfd2777b
+kernel_url=https://github.com/hexagon-geo-surv/linux-stable-rt.git
+kernel_tag=v6.6.18-rt23
+kernel_commit=fc3c8f4093aa9e32e67a51ba5eebd7338195b746
+kernel_baseline_tree=16880e7cebe5db9273d0ad7fbac7f86fec2585b2
+kernel_vendor_tree=30cd72f68ffa1739f7f5b8d1158aad5f7d5a97f8
+kernel_vendor_patch="$project/patches/kernel/0001-ingenic-x2000-vendor-delta-v6.6.18-rt23.patch"
+kernel_vendor_patch_sha256=c0da10973471db5b47d6af6151c65fe6025b46e15a9f22c221a47832fc582e73
+kernel_release=6.6.18-rt23-fre3nder
 buildroot_url=https://gitlab.com/buildroot.org/buildroot.git
 buildroot_version=2025.02.18
 buildroot_commit=d030e36bbc9669230c015be971b14b6e062cfdde
@@ -686,14 +692,20 @@ fetch_buildroot_inputs() {
 }
 
 fetch_kernel_inputs() {
-	[ -d "$sdk/.git" ] || git clone --filter=blob:none --no-checkout "$sdk_url" "$sdk"
-	[ "$(git -C "$sdk" remote get-url origin)" = "$sdk_url" ]
-	git -C "$sdk" fetch origin "$sdk_commit"
-	git -C "$sdk" reset --hard "$sdk_commit"
-	git -C "$sdk" clean -fdx
-	git -C "$sdk" sparse-checkout set kernel/kernel-6.6
-	git -C "$sdk" checkout --detach "$sdk_commit"
-	[ "$(git -C "$sdk" rev-parse HEAD)" = "$sdk_commit" ]
+	[ -d "$kernel/.git" ] ||
+		git clone --filter=blob:none --no-checkout --no-tags "$kernel_url" "$kernel"
+	[ "$(git -C "$kernel" remote get-url origin)" = "$kernel_url" ]
+
+	git -C "$kernel" fetch --no-tags origin "$kernel_commit"
+	git -C "$kernel" fetch --no-tags origin \
+		"refs/tags/$kernel_tag:refs/tags/$kernel_tag"
+	git -C "$kernel" checkout --detach "$kernel_commit"
+	git -C "$kernel" reset --hard "$kernel_commit"
+	git -C "$kernel" clean -fdx
+
+	[ "$(git -C "$kernel" rev-parse HEAD)" = "$kernel_commit" ]
+	[ "$(git -C "$kernel" rev-parse HEAD^{tree})" = "$kernel_baseline_tree" ]
+	[ "$(git -C "$kernel" rev-parse "refs/tags/${kernel_tag}^{}")" = "$kernel_commit" ]
 
 	fetch_buildroot_inputs
 }
@@ -1120,20 +1132,57 @@ stage_kernel_firmware() {
 prepare_kernel() {
 	cross_compile=$1
 	cc=$2
-	k="$sdk/kernel/kernel-6.6"
-	git -C "$sdk" clean -fdx kernel/kernel-6.6
-	git -C "$sdk" reset --hard "$sdk_commit"
+	k="$kernel"
+
+	git -C "$k" clean -fdx
+	git -C "$k" reset --hard "$kernel_commit"
+
+	[ "$(git -C "$k" rev-parse HEAD)" = "$kernel_commit" ]
+	[ "$(git -C "$k" rev-parse HEAD^{tree})" = "$kernel_baseline_tree" ]
+
+	actual_patch_sha256=$(sha256sum "$kernel_vendor_patch" | awk '{print $1}')
+	[ "$actual_patch_sha256" = "$kernel_vendor_patch_sha256" ] || {
+		echo "Ingenic vendor delta SHA256 mismatch" >&2
+		return 1
+	}
+
+	vendor_index="$work/kernel-vendor-index"
+	rm -f -- "$vendor_index"
+
+	GIT_INDEX_FILE="$vendor_index" git -C "$k" read-tree "$kernel_commit"
+	GIT_INDEX_FILE="$vendor_index" git -C "$k" apply --cached --check \
+		"$kernel_vendor_patch"
+	GIT_INDEX_FILE="$vendor_index" git -C "$k" apply --cached \
+		"$kernel_vendor_patch"
+
+	actual_vendor_tree=$(
+		GIT_INDEX_FILE="$vendor_index" git -C "$k" write-tree
+	)
+
+	rm -f -- "$vendor_index"
+
+	[ "$actual_vendor_tree" = "$kernel_vendor_tree" ] || {
+		echo "Ingenic vendor tree mismatch: $actual_vendor_tree" >&2
+		return 1
+	}
+
+	git -C "$k" apply --check "$kernel_vendor_patch"
+	git -C "$k" apply "$kernel_vendor_patch"
+
 	cp "$project/configs/x2000/ender3-v3-ke.dts" \
 		"$k/module_drivers/dts/x2000/ender3-v3-ke.dts"
-	git -C "$sdk" apply --check "$project/configs/x2000/ke-wlan.patch"
-	git -C "$sdk" apply "$project/configs/x2000/ke-wlan.patch"
-	git -C "$sdk" apply --reverse --check "$project/configs/x2000/ke-wlan.patch"
-	git -C "$sdk" apply --check "$project/configs/x2000/ke-display.patch"
-	git -C "$sdk" apply "$project/configs/x2000/ke-display.patch"
-	git -C "$sdk" apply --reverse --check "$project/configs/x2000/ke-display.patch"
-	git -C "$sdk" apply --check "$project/configs/x2000/ke-touch.patch"
-	git -C "$sdk" apply "$project/configs/x2000/ke-touch.patch"
-	git -C "$sdk" apply --reverse --check "$project/configs/x2000/ke-touch.patch"
+
+	git -C "$k" apply -p3 --check "$project/configs/x2000/ke-wlan.patch"
+	git -C "$k" apply -p3 "$project/configs/x2000/ke-wlan.patch"
+	git -C "$k" apply -p3 --reverse --check "$project/configs/x2000/ke-wlan.patch"
+
+	git -C "$k" apply -p3 --check "$project/configs/x2000/ke-display.patch"
+	git -C "$k" apply -p3 "$project/configs/x2000/ke-display.patch"
+	git -C "$k" apply -p3 --reverse --check "$project/configs/x2000/ke-display.patch"
+
+	git -C "$k" apply -p3 --check "$project/configs/x2000/ke-touch.patch"
+	git -C "$k" apply -p3 "$project/configs/x2000/ke-touch.patch"
+	git -C "$k" apply -p3 --reverse --check "$project/configs/x2000/ke-touch.patch"
 
 	if ! grep -q '^dtb-$(CONFIG_DT_ENDER3_V3_KE)' "$k/module_drivers/dts/Makefile"; then
 		sed -i '/^obj-$(CONFIG_BUILTIN_DTB)/i dtb-$(CONFIG_DT_ENDER3_V3_KE) += x2000/ender3-v3-ke.dtb' "$k/module_drivers/dts/Makefile"
@@ -1142,7 +1191,7 @@ prepare_kernel() {
 		sed -i '/^endchoice$/i config DT_ENDER3_V3_KE\n\tbool "Ender-3 V3 KE"\n' "$k/arch/mips/xburst2/soc-x2000/Kconfig.DT"
 	fi
 
-	make -C "$k" ARCH=mips CROSS_COMPILE="$cross_compile" CC="$cc" \
+	LOCALVERSION= make -C "$k" ARCH=mips CROSS_COMPILE="$cross_compile" CC="$cc" \
 		x2000_halley5_v30_linux_defconfig
 	cat "$project/configs/x2000/kernel.fragment" >> "$k/.config"
 	cat >> "$k/.config" <<EOF
@@ -1150,7 +1199,7 @@ CONFIG_DT_ENDER3_V3_KE=y
 CONFIG_EXTRA_FIRMWARE="$firmware_names"
 CONFIG_EXTRA_FIRMWARE_DIR="$kernel_firmware_dir"
 EOF
-	make -C "$k" ARCH=mips CROSS_COMPILE="$cross_compile" CC="$cc" \
+	LOCALVERSION= make -C "$k" ARCH=mips CROSS_COMPILE="$cross_compile" CC="$cc" \
 		olddefconfig
 
 	grep -Fxq '# CONFIG_DT_HALLEY5_V30 is not set' "$k/.config"
@@ -1772,14 +1821,14 @@ build() {
 	kernel_cc="${kernel_cross_compile}gcc.br_real"
 	[ -x "$kernel_cc" ]
 	prepare_kernel "$kernel_cross_compile" "$kernel_cc"
-	k="$sdk/kernel/kernel-6.6"
-	make -C "$k" -j"$jobs" ARCH=mips \
+	k="$kernel"
+	LOCALVERSION= make -C "$k" -j"$jobs" ARCH=mips \
 		CROSS_COMPILE="$kernel_cross_compile" CC="$kernel_cc" \
 		HOSTCFLAGS='-Wno-error=incompatible-pointer-types' xImage dtbs
 	check_default_initramfs "$k"
 	check_kernel_dtb "$k"
-	[ "$(make -s -C "$k" ARCH=mips CROSS_COMPILE="$kernel_cross_compile" \
-		CC="$kernel_cc" kernelrelease)" = 6.6.18-rt23 ]
+	[ "$(LOCALVERSION= make -s -C "$k" ARCH=mips CROSS_COMPILE="$kernel_cross_compile" \
+		CC="$kernel_cc" kernelrelease)" = "$kernel_release" ]
 
 	out="$full_out"
 	build_klipper_chelper "$brout"
@@ -1833,13 +1882,13 @@ build_kernel_only() {
 	kernel_cc="${kernel_cross_compile}gcc.br_real"
 	[ -x "$kernel_cc" ]
 	prepare_kernel "$kernel_cross_compile" "$kernel_cc"
-	k="$sdk/kernel/kernel-6.6"
-	make -C "$k" -j"$jobs" ARCH=mips \
+	k="$kernel"
+	LOCALVERSION= make -C "$k" -j"$jobs" ARCH=mips \
 		CROSS_COMPILE="$kernel_cross_compile" CC="$kernel_cc" \
 		HOSTCFLAGS='-Wno-error=incompatible-pointer-types' xImage dtbs
 	check_default_initramfs "$k"
-	[ "$(make -s -C "$k" ARCH=mips CROSS_COMPILE="$kernel_cross_compile" \
-		CC="$kernel_cc" kernelrelease)" = 6.6.18-rt23 ]
+	[ "$(LOCALVERSION= make -s -C "$k" ARCH=mips CROSS_COMPILE="$kernel_cross_compile" \
+		CC="$kernel_cc" kernelrelease)" = "$kernel_release" ]
 	check_kernel_dtb "$k"
 
 	out="$kernel_out"

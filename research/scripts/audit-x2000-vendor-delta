@@ -1,0 +1,1467 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+    cat <<'USAGE'
+Usage:
+  audit-x2000-vendor-delta \
+    <baseline-tree> \
+    <vendor-tree> \
+    <community-tree> \
+    <datasheets-tree> \
+    <prior-fre3nder-audit.md> \
+    <output-dir>
+
+Example:
+  research/scripts/audit-x2000-vendor-delta \
+    local/research/x2000-kernel/linux-6.6.18-rt23 \
+    local/research/x2000-kernel/vendor-6.6/sdk/kernel/kernel-6.6 \
+    local/research/x2000-kernel/ingenic-community-linux-6.1 \
+    local/research/x2000-kernel/ingenic-datasheets \
+    local/research/x2000-kernel/prior-audit/x2000-fre3nder-required-kernel-delta.md \
+    local/research/x2000-kernel/vendor-delta-audit
+
+Input sources are read-only.
+
+Kernel source inventories are read directly from the Git object database.
+The physical completeness of the checked-out worktrees is irrelevant.
+
+Only the output directory is created/modified.
+
+Optional:
+  AUDIT_EXTRACT_PDF_TEXT=1
+USAGE
+}
+
+if [ "$#" -ne 6 ]; then
+    usage
+    exit 2
+fi
+
+BASE=$1
+VENDOR=$2
+COMMUNITY=$3
+DATASHEETS=$4
+PRIOR_AUDIT=$5
+OUT=$6
+
+for cmd in git python3 realpath; do
+    if ! command -v "$cmd" >/dev/null 2>&1; then
+        echo "ERROR: required command not found: $cmd" >&2
+        exit 1
+    fi
+done
+
+check_kernel_tree() {
+    local label=$1
+    local tree=$2
+
+    if [ ! -d "$tree" ]; then
+        echo "ERROR: $label tree does not exist: $tree" >&2
+        exit 1
+    fi
+
+    if [ ! -f "$tree/Makefile" ]; then
+        echo "ERROR: $label does not look like a Linux kernel tree: $tree" >&2
+        exit 1
+    fi
+
+    if ! git -C "$tree" rev-parse --git-dir >/dev/null 2>&1; then
+        echo "ERROR: $label is not backed by a Git repository: $tree" >&2
+        exit 1
+    fi
+}
+
+check_kernel_tree "baseline" "$BASE"
+check_kernel_tree "vendor" "$VENDOR"
+check_kernel_tree "community" "$COMMUNITY"
+
+if [ ! -d "$DATASHEETS" ]; then
+    echo "ERROR: datasheets tree does not exist: $DATASHEETS" >&2
+    exit 1
+fi
+
+if ! git -C "$DATASHEETS" rev-parse --git-dir >/dev/null 2>&1; then
+    echo "ERROR: datasheets tree is not backed by Git: $DATASHEETS" >&2
+    exit 1
+fi
+
+if [ ! -f "$PRIOR_AUDIT" ]; then
+    echo "ERROR: prior Fre3nder audit does not exist: $PRIOR_AUDIT" >&2
+    exit 1
+fi
+
+BASE=$(realpath "$BASE")
+VENDOR=$(realpath "$VENDOR")
+COMMUNITY=$(realpath "$COMMUNITY")
+DATASHEETS=$(realpath "$DATASHEETS")
+PRIOR_AUDIT=$(realpath "$PRIOR_AUDIT")
+
+mkdir -p "$OUT"
+OUT=$(realpath "$OUT")
+
+case "$OUT" in
+    "$BASE"|"$BASE"/*|\
+    "$VENDOR"|"$VENDOR"/*|\
+    "$COMMUNITY"|"$COMMUNITY"/*|\
+    "$DATASHEETS"|"$DATASHEETS"/*|\
+    /)
+        echo "ERROR: unsafe output directory: $OUT" >&2
+        exit 1
+        ;;
+esac
+
+rm -rf \
+    "$OUT/categories" \
+    "$OUT/datasheets-text"
+
+rm -f \
+    "$OUT/source-info.txt" \
+    "$OUT/file-manifest.tsv" \
+    "$OUT/name-status.txt" \
+    "$OUT/diffstat.txt" \
+    "$OUT/rename-candidates.tsv" \
+    "$OUT/all-changed-paths.txt" \
+    "$OUT/community-x2000-xburst-paths.txt" \
+    "$OUT/audit-matrix.tsv" \
+    "$OUT/change-summary.txt" \
+    "$OUT/datasheet-inventory.tsv" \
+    "$OUT/README.md"
+
+mkdir -p \
+    "$OUT/categories" \
+    "$OUT/datasheets-text"
+
+kernel_version() {
+    local tree=$1
+
+    awk '
+        /^VERSION =/      { version=$3 }
+        /^PATCHLEVEL =/   { patchlevel=$3 }
+        /^SUBLEVEL =/     { sublevel=$3 }
+        /^EXTRAVERSION =/ { extraversion=$3 }
+
+        END {
+            printf "%s.%s.%s%s",
+                version,
+                patchlevel,
+                sublevel,
+                extraversion
+        }
+    ' "$tree/Makefile"
+
+    if [ -f "$tree/localversion-rt" ]; then
+        tr -d '\r\n' < "$tree/localversion-rt"
+    fi
+}
+
+git_head() {
+    git -C "$1" rev-parse HEAD
+}
+
+git_toplevel() {
+    git -C "$1" rev-parse --show-toplevel
+}
+
+git_describe() {
+    git -C "$1" describe --tags --always 2>/dev/null \
+        || git -C "$1" rev-parse --short HEAD
+}
+
+git_object_format() {
+    git -C "$1" rev-parse --show-object-format
+}
+
+git_tree_count() {
+    git -C "$1" ls-tree -r --name-only HEAD | wc -l
+}
+
+BASE_VERSION=$(kernel_version "$BASE")
+VENDOR_VERSION=$(kernel_version "$VENDOR")
+COMMUNITY_VERSION=$(kernel_version "$COMMUNITY")
+
+BASE_HEAD=$(git_head "$BASE")
+VENDOR_HEAD=$(git_head "$VENDOR")
+COMMUNITY_HEAD=$(git_head "$COMMUNITY")
+DATASHEETS_HEAD=$(git_head "$DATASHEETS")
+
+BASE_TOPLEVEL=$(git_toplevel "$BASE")
+VENDOR_TOPLEVEL=$(git_toplevel "$VENDOR")
+COMMUNITY_TOPLEVEL=$(git_toplevel "$COMMUNITY")
+DATASHEETS_TOPLEVEL=$(git_toplevel "$DATASHEETS")
+
+BASE_DESCRIBE=$(git_describe "$BASE")
+VENDOR_DESCRIBE=$(git_describe "$VENDOR")
+COMMUNITY_DESCRIBE=$(git_describe "$COMMUNITY")
+DATASHEETS_DESCRIBE=$(git_describe "$DATASHEETS")
+
+BASE_FORMAT=$(git_object_format "$BASE")
+VENDOR_FORMAT=$(git_object_format "$VENDOR")
+COMMUNITY_FORMAT=$(git_object_format "$COMMUNITY")
+
+BASE_TREE_COUNT=$(git_tree_count "$BASE")
+VENDOR_TREE_COUNT=$(git_tree_count "$VENDOR")
+COMMUNITY_TREE_COUNT=$(git_tree_count "$COMMUNITY")
+
+echo "=== X2000 VENDOR DELTA AUDIT ==="
+echo
+echo "Baseline:"
+echo "  input:    $BASE"
+echo "  git root: $BASE_TOPLEVEL"
+echo "  version:  $BASE_VERSION"
+echo "  HEAD:     $BASE_HEAD"
+echo "  describe: $BASE_DESCRIBE"
+echo "  files:    $BASE_TREE_COUNT"
+echo "  objects:  $BASE_FORMAT"
+echo
+echo "Vendor:"
+echo "  input:    $VENDOR"
+echo "  git root: $VENDOR_TOPLEVEL"
+echo "  version:  $VENDOR_VERSION"
+echo "  HEAD:     $VENDOR_HEAD"
+echo "  describe: $VENDOR_DESCRIBE"
+echo "  files:    $VENDOR_TREE_COUNT"
+echo "  objects:  $VENDOR_FORMAT"
+echo
+echo "Community:"
+echo "  input:    $COMMUNITY"
+echo "  git root: $COMMUNITY_TOPLEVEL"
+echo "  version:  $COMMUNITY_VERSION"
+echo "  HEAD:     $COMMUNITY_HEAD"
+echo "  describe: $COMMUNITY_DESCRIBE"
+echo "  files:    $COMMUNITY_TREE_COUNT"
+echo "  objects:  $COMMUNITY_FORMAT"
+echo
+echo "Datasheets:"
+echo "  $DATASHEETS"
+echo "  HEAD:     $DATASHEETS_HEAD"
+echo "  describe: $DATASHEETS_DESCRIBE"
+echo
+echo "Prior Fre3nder audit:"
+echo "  $PRIOR_AUDIT"
+echo
+echo "Output:"
+echo "  $OUT"
+echo
+
+cat > "$OUT/source-info.txt" <<INFO
+Baseline input: $BASE
+Baseline Git root: $BASE_TOPLEVEL
+Baseline version: $BASE_VERSION
+Baseline HEAD: $BASE_HEAD
+Baseline describe: $BASE_DESCRIBE
+Baseline Git tree files: $BASE_TREE_COUNT
+Baseline object format: $BASE_FORMAT
+
+Vendor input: $VENDOR
+Vendor Git root: $VENDOR_TOPLEVEL
+Vendor version: $VENDOR_VERSION
+Vendor HEAD: $VENDOR_HEAD
+Vendor describe: $VENDOR_DESCRIBE
+Vendor Git tree files: $VENDOR_TREE_COUNT
+Vendor object format: $VENDOR_FORMAT
+
+Community input: $COMMUNITY
+Community Git root: $COMMUNITY_TOPLEVEL
+Community version: $COMMUNITY_VERSION
+Community HEAD: $COMMUNITY_HEAD
+Community describe: $COMMUNITY_DESCRIBE
+Community Git tree files: $COMMUNITY_TREE_COUNT
+Community object format: $COMMUNITY_FORMAT
+
+Datasheets tree: $DATASHEETS
+Datasheets Git root: $DATASHEETS_TOPLEVEL
+Datasheets HEAD: $DATASHEETS_HEAD
+Datasheets describe: $DATASHEETS_DESCRIBE
+
+Prior Fre3nder audit:
+$PRIOR_AUDIT
+INFO
+
+echo "Comparing baseline and vendor Git trees..."
+
+BASE="$BASE" \
+VENDOR="$VENDOR" \
+COMMUNITY="$COMMUNITY" \
+DATASHEETS="$DATASHEETS" \
+PRIOR_AUDIT="$PRIOR_AUDIT" \
+OUT="$OUT" \
+BASE_FORMAT="$BASE_FORMAT" \
+VENDOR_FORMAT="$VENDOR_FORMAT" \
+COMMUNITY_FORMAT="$COMMUNITY_FORMAT" \
+python3 <<'PY'
+from pathlib import Path
+from collections import Counter, defaultdict
+import csv
+import hashlib
+import os
+import re
+import subprocess
+
+base = Path(os.environ["BASE"]).resolve()
+vendor = Path(os.environ["VENDOR"]).resolve()
+community = Path(os.environ["COMMUNITY"]).resolve()
+datasheets = Path(os.environ["DATASHEETS"]).resolve()
+prior_audit = Path(os.environ["PRIOR_AUDIT"]).resolve()
+out = Path(os.environ["OUT"]).resolve()
+
+base_format = os.environ["BASE_FORMAT"]
+vendor_format = os.environ["VENDOR_FORMAT"]
+community_format = os.environ["COMMUNITY_FORMAT"]
+
+
+def git(*args, repo):
+    return subprocess.run(
+        [
+            "git",
+            "-C",
+            str(repo),
+            *args,
+        ],
+        check=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    ).stdout
+
+
+def git_tree(repo):
+    """
+    Return the complete versioned HEAD tree.
+
+    This reads Git objects, not the materialized worktree.
+    Paths are relative to the supplied source-tree directory.
+    """
+
+    raw = git(
+        "ls-tree",
+        "-r",
+        "-z",
+        "HEAD",
+        repo=repo,
+    )
+
+    entries = {}
+
+    for record in raw.split(b"\0"):
+        if not record:
+            continue
+
+        meta, raw_path = record.split(
+            b"\t",
+            1,
+        )
+
+        mode, obj_type, oid = (
+            meta.decode("ascii").split()
+        )
+
+        path = raw_path.decode(
+            "utf-8",
+            errors="surrogateescape",
+        )
+
+        entries[path] = {
+            "mode": mode,
+            "type": obj_type,
+            "oid": oid,
+        }
+
+    return entries
+
+
+def classify(path):
+    rules = [
+        (
+            "DEVICE_TREE",
+            r"(^|/)(dts|dtsi)(/|$)|\.dts$|\.dtsi$",
+        ),
+        (
+            "CLOCK_CGU_PLL",
+            r"^drivers/clk/|(^|/)(clk|clock|cgu|pll)[^/]*",
+        ),
+        (
+            "IRQ_INTC",
+            r"^drivers/irqchip/|(^|/)(irq|intc)[^/]*",
+        ),
+        (
+            "TIMER_OST_CLOCKSOURCE",
+            r"^drivers/clocksource/|(^|/)(ost|timer|clocksource)[^/]*",
+        ),
+        (
+            "SERIAL_UART",
+            r"^drivers/tty/serial/|(^|/)(serial|uart|8250)[^/]*",
+        ),
+        (
+            "MMC_SDHCI",
+            r"^drivers/mmc/|(^|/)(mmc|sdhci|msc)[^/]*",
+        ),
+        (
+            "PINCTRL_GPIO",
+            r"^drivers/pinctrl/|^drivers/gpio/|(^|/)(pinctrl|gpio)[^/]*",
+        ),
+        (
+            "DMA",
+            r"^drivers/dma/|(^|/)dma[^/]*",
+        ),
+        (
+            "I2C",
+            r"^drivers/i2c/|(^|/)i2c[^/]*",
+        ),
+        (
+            "PWM",
+            r"^drivers/pwm/|(^|/)pwm[^/]*",
+        ),
+        (
+            "WATCHDOG_RESET",
+            r"^drivers/watchdog/|^drivers/reset/|(^|/)(watchdog|wdt|reset)[^/]*",
+        ),
+        (
+            "POWER_PM_CPUFREQ",
+            r"^drivers/(cpufreq|power|soc)/|(^|/)(pm|suspend|cpufreq)[^/]*",
+        ),
+        (
+            "DISPLAY_VIDEO",
+            r"^drivers/(gpu|video)/|(^|/)(display|panel|fbdev|lcd|dpu)[^/]*",
+        ),
+        (
+            "INPUT_TOUCH",
+            r"^drivers/input/|(^|/)(touch|touchscreen|ns2009)[^/]*",
+        ),
+        (
+            "SMP",
+            r"(^|/)(smp|platsmp)[^/]*|arch/mips/.*/smp",
+        ),
+        (
+            "SOC_X2000",
+            r"^arch/mips/(ingenic|xburst2)/|x2000",
+        ),
+        (
+            "ARCH_XBURST2",
+            r"^arch/mips/(kernel|mm|include/asm)/|xburst",
+        ),
+        (
+            "KCONFIG_KBUILD",
+            r"(^|/)(Kconfig[^/]*|Makefile)$|defconfig$",
+        ),
+    ]
+
+    for category, pattern in rules:
+        if re.search(
+            pattern,
+            path,
+            flags=re.IGNORECASE,
+        ):
+            return category
+
+    return "OTHER"
+
+
+def doc_hint(category):
+    return {
+        "ARCH_XBURST2":
+            "Core/*; X/X2000_PM_20220909.pdf",
+
+        "SOC_X2000":
+            "Core/*; X/X2000_PM_20220909.pdf",
+
+        "CLOCK_CGU_PLL":
+            "X/X2000_PM_20220909.pdf",
+
+        "IRQ_INTC":
+            "X/X2000_PM_20220909.pdf",
+
+        "TIMER_OST_CLOCKSOURCE":
+            "X/X2000_PM_20220909.pdf",
+
+        "SMP":
+            "Core/*; X/X2000_PM_20220909.pdf",
+
+        "SERIAL_UART":
+            "X/X2000_PM_20220909.pdf",
+
+        "MMC_SDHCI":
+            "X/X2000_PM_20220909.pdf",
+
+        "PINCTRL_GPIO":
+            "X/X2000_PM_20220909.pdf; X/X2000_DS_v1.40.pdf",
+
+        "DMA":
+            "X/X2000_PM_20220909.pdf",
+
+        "I2C":
+            "X/X2000_PM_20220909.pdf",
+
+        "PWM":
+            "X/X2000_PM_20220909.pdf",
+
+        "WATCHDOG_RESET":
+            "X/X2000_PM_20220909.pdf",
+
+        "POWER_PM_CPUFREQ":
+            "X/X2000_PM_20220909.pdf",
+
+        "DISPLAY_VIDEO":
+            "X/X2000_PM_20220909.pdf; X/X2000_DS_v1.40.pdf",
+
+        "DEVICE_TREE":
+            "X/X2000_DS_v1.40.pdf; X/X2000_Hardware_Design_Guide_V1.1.pdf",
+
+        "INPUT_TOUCH":
+            "X/X2000_DS_v1.40.pdf; peripheral documentation",
+    }.get(category, "")
+
+
+prior_lines = prior_audit.read_text(
+    encoding="utf-8",
+    errors="replace",
+).splitlines()
+
+generic_basenames = {
+    "Makefile",
+    "Kconfig",
+    ".gitignore",
+    "README",
+    "README.md",
+    "COPYING",
+}
+
+
+def extract_prior_classifications(lines):
+    text = "\n".join(lines)
+
+    result = set()
+
+    checks = [
+        (
+            "CURRENT VENDOR TREE — TRANSITIVE REQUIRED",
+            r"CURRENT VENDOR TREE\s+[—-]\s+TRANSITIVE REQUIRED",
+        ),
+        (
+            "CURRENT VENDOR CONFIG/LINK DEPENDENCY ONLY",
+            r"CURRENT VENDOR CONFIG/LINK DEPENDENCY ONLY",
+        ),
+        (
+            "NOT REQUIRED IN CLEAN PORT",
+            r"NOT REQUIRED IN CLEAN PORT",
+        ),
+        (
+            "X2000 ONLY",
+            r"X2000 ONLY",
+        ),
+        (
+            "RT ONLY",
+            r"RT ONLY",
+        ),
+        (
+            "UNCLEAR",
+            r"\bUNCLEAR\b",
+        ),
+    ]
+
+    for name, pattern in checks:
+        if re.search(
+            pattern,
+            text,
+            flags=re.IGNORECASE,
+        ):
+            result.add(name)
+
+    if re.search(
+        r"\*\*NOT REQUIRED\*\*",
+        text,
+        flags=re.IGNORECASE,
+    ):
+        result.add("NOT REQUIRED")
+
+    if re.search(
+        r"\*\*REQUIRED\*\*",
+        text,
+        flags=re.IGNORECASE,
+    ):
+        result.add("REQUIRED")
+
+    return sorted(result)
+
+
+def prior_lookup(path):
+    basename = Path(path).name
+
+    exact = []
+    basename_only = []
+
+    for line in prior_lines:
+        stripped = line.strip()
+
+        if path in stripped:
+            exact.append(stripped)
+
+        elif (
+            basename
+            and basename not in generic_basenames
+            and basename in stripped
+        ):
+            basename_only.append(stripped)
+
+    if exact:
+        relation = "exact-path"
+        hits = exact
+
+    elif basename_only:
+        relation = "basename-only"
+        hits = basename_only
+
+    else:
+        return "no-hit", "", ""
+
+    classes = extract_prior_classifications(
+        hits
+    )
+
+    context = " | ".join(
+        hits[:3]
+    )
+
+    if len(hits) > 3:
+        context += " | ..."
+
+    return (
+        relation,
+        ";".join(classes),
+        context,
+    )
+
+
+print("Reading Git trees...")
+
+base_tree = git_tree(base)
+vendor_tree = git_tree(vendor)
+community_tree = git_tree(community)
+
+print(
+    f"Baseline Git objects:  {len(base_tree)}"
+)
+print(
+    f"Vendor Git objects:    {len(vendor_tree)}"
+)
+print(
+    f"Community Git objects: {len(community_tree)}"
+)
+
+
+#
+# Baseline -> Vendor comparison
+#
+
+all_paths = sorted(
+    set(base_tree)
+    | set(vendor_tree)
+)
+
+changes = []
+status_counter = Counter()
+
+for path in all_paths:
+    b = base_tree.get(path)
+    v = vendor_tree.get(path)
+
+    if b is None:
+        status = "A"
+
+    elif v is None:
+        status = "D"
+
+    elif b["type"] != v["type"]:
+        status = "T"
+
+    elif (
+        b["oid"] != v["oid"]
+        or b["mode"] != v["mode"]
+    ):
+        status = "M"
+
+    else:
+        continue
+
+    status_counter[status] += 1
+
+    changes.append(
+        {
+            "status": status,
+            "path": path,
+
+            "baseline_mode":
+                "" if b is None else b["mode"],
+
+            "baseline_type":
+                "" if b is None else b["type"],
+
+            "baseline_oid":
+                "" if b is None else b["oid"],
+
+            "vendor_mode":
+                "" if v is None else v["mode"],
+
+            "vendor_type":
+                "" if v is None else v["type"],
+
+            "vendor_oid":
+                "" if v is None else v["oid"],
+        }
+    )
+
+
+with (out / "file-manifest.tsv").open(
+    "w",
+    encoding="utf-8",
+    newline="",
+) as fh:
+    fields = [
+        "status",
+        "path",
+        "baseline_mode",
+        "baseline_type",
+        "baseline_oid",
+        "vendor_mode",
+        "vendor_type",
+        "vendor_oid",
+    ]
+
+    writer = csv.DictWriter(
+        fh,
+        fieldnames=fields,
+        delimiter="\t",
+    )
+
+    writer.writeheader()
+    writer.writerows(changes)
+
+
+with (out / "name-status.txt").open(
+    "w",
+    encoding="utf-8",
+) as fh:
+    for row in changes:
+        fh.write(
+            f'{row["status"]}\t{row["path"]}\n'
+        )
+
+
+#
+# Exact-content rename candidates.
+#
+# Only valid directly when both repositories use the same object format.
+#
+
+with (out / "rename-candidates.tsv").open(
+    "w",
+    encoding="utf-8",
+    newline="",
+) as fh:
+    writer = csv.writer(
+        fh,
+        delimiter="\t",
+    )
+
+    writer.writerow(
+        [
+            "object_id",
+            "baseline_path",
+            "vendor_path",
+        ]
+    )
+
+    if base_format == vendor_format:
+        deleted = defaultdict(list)
+        added = defaultdict(list)
+
+        for row in changes:
+            if (
+                row["status"] == "D"
+                and row["baseline_oid"]
+            ):
+                deleted[
+                    row["baseline_oid"]
+                ].append(
+                    row["path"]
+                )
+
+            elif (
+                row["status"] == "A"
+                and row["vendor_oid"]
+            ):
+                added[
+                    row["vendor_oid"]
+                ].append(
+                    row["path"]
+                )
+
+        for oid in sorted(
+            set(deleted)
+            & set(added)
+        ):
+            for old_path in deleted[oid]:
+                for new_path in added[oid]:
+                    writer.writerow(
+                        [
+                            oid,
+                            old_path,
+                            new_path,
+                        ]
+                    )
+
+
+#
+# Community path indexes
+#
+
+community_by_basename = defaultdict(list)
+
+for path in community_tree:
+    community_by_basename[
+        Path(path).name
+    ].append(path)
+
+community_x2000 = sorted(
+    path
+    for path in community_tree
+    if re.search(
+        r"x2000|xburst",
+        path,
+        flags=re.IGNORECASE,
+    )
+)
+
+(out / "community-x2000-xburst-paths.txt").write_text(
+    "".join(
+        f"{path}\n"
+        for path in community_x2000
+    ),
+    encoding="utf-8",
+)
+
+
+#
+# Main five-source matrix
+#
+
+rows = []
+
+for change in changes:
+    path = change["path"]
+    category = classify(path)
+
+    vendor_entry = vendor_tree.get(path)
+    community_entry = community_tree.get(
+        path
+    )
+
+    if community_entry is None:
+        community_exact = "no"
+        community_relation = (
+            "no-exact-community-path"
+        )
+
+    else:
+        community_exact = "yes"
+
+        if vendor_entry is None:
+            community_relation = (
+                "community-present/vendor-deleted"
+            )
+
+        elif (
+            vendor_format == community_format
+            and vendor_entry["oid"]
+            == community_entry["oid"]
+        ):
+            if (
+                vendor_entry["mode"]
+                == community_entry["mode"]
+            ):
+                community_relation = (
+                    "byte-identical"
+                )
+            else:
+                community_relation = (
+                    "same-content-different-mode"
+                )
+
+        else:
+            community_relation = "different"
+
+    basename = Path(path).name
+
+    candidates = []
+
+    if basename not in generic_basenames:
+        candidates = [
+            candidate
+            for candidate
+            in community_by_basename.get(
+                basename,
+                [],
+            )
+            if candidate != path
+        ]
+
+    if len(candidates) > 12:
+        candidate_text = (
+            ";".join(candidates[:12])
+            + ";..."
+        )
+    else:
+        candidate_text = ";".join(
+            candidates
+        )
+
+    (
+        prior_relation,
+        prior_classification,
+        prior_context,
+    ) = prior_lookup(path)
+
+    rows.append(
+        {
+            "status":
+                change["status"],
+
+            "path":
+                path,
+
+            "category":
+                category,
+
+            "baseline_oid":
+                change["baseline_oid"],
+
+            "vendor_oid":
+                change["vendor_oid"],
+
+            "community_exact_path":
+                community_exact,
+
+            "community_relation":
+                community_relation,
+
+            "community_same_basename_count":
+                str(len(candidates)),
+
+            "community_same_basename_candidates":
+                candidate_text,
+
+            "documentation_hint":
+                doc_hint(category),
+
+            "prior_audit_relation":
+                prior_relation,
+
+            "prior_audit_classification":
+                prior_classification,
+
+            "prior_audit_context":
+                prior_context,
+        }
+    )
+
+
+matrix_fields = [
+    "status",
+    "path",
+    "category",
+    "baseline_oid",
+    "vendor_oid",
+    "community_exact_path",
+    "community_relation",
+    "community_same_basename_count",
+    "community_same_basename_candidates",
+    "documentation_hint",
+    "prior_audit_relation",
+    "prior_audit_classification",
+    "prior_audit_context",
+]
+
+with (out / "audit-matrix.tsv").open(
+    "w",
+    encoding="utf-8",
+    newline="",
+) as fh:
+    writer = csv.DictWriter(
+        fh,
+        fieldnames=matrix_fields,
+        delimiter="\t",
+    )
+
+    writer.writeheader()
+    writer.writerows(rows)
+
+
+changed_paths = sorted(
+    row["path"]
+    for row in rows
+)
+
+(out / "all-changed-paths.txt").write_text(
+    "".join(
+        f"{path}\n"
+        for path in changed_paths
+    ),
+    encoding="utf-8",
+)
+
+
+#
+# Category inventories
+#
+
+categories = defaultdict(list)
+
+for row in rows:
+    categories[
+        row["category"]
+    ].append(
+        row["path"]
+    )
+
+for category, paths in categories.items():
+    filename = (
+        category
+        .lower()
+        .replace("_", "-")
+        .replace("/", "-")
+    )
+
+    (
+        out
+        / "categories"
+        / f"{filename}.txt"
+    ).write_text(
+        "".join(
+            f"{path}\n"
+            for path in sorted(set(paths))
+        ),
+        encoding="utf-8",
+    )
+
+
+#
+# Change summary
+#
+
+with (out / "change-summary.txt").open(
+    "w",
+    encoding="utf-8",
+) as fh:
+    for key, label in (
+        ("A", "Added"),
+        ("D", "Deleted"),
+        ("M", "Modified"),
+        ("T", "Type changed"),
+    ):
+        fh.write(
+            f"{label:12s} "
+            f"{status_counter.get(key, 0)}\n"
+        )
+
+
+#
+# Datasheet inventory
+#
+
+documents = []
+
+for root, dirs, files in os.walk(
+    datasheets
+):
+    if ".git" in dirs:
+        dirs.remove(".git")
+
+    root_path = Path(root)
+
+    for name in files:
+        if not name.lower().endswith(
+            ".pdf"
+        ):
+            continue
+
+        full = root_path / name
+        rel = full.relative_to(
+            datasheets
+        ).as_posix()
+
+        if not (
+            rel.startswith("Core/")
+            or "x2000" in rel.lower()
+            or "xburst" in rel.lower()
+        ):
+            continue
+
+        documents.append(
+            (
+                rel,
+                full,
+            )
+        )
+
+documents.sort(
+    key=lambda item:
+        item[0].lower()
+)
+
+with (out / "datasheet-inventory.tsv").open(
+    "w",
+    encoding="utf-8",
+    newline="",
+) as fh:
+    writer = csv.writer(
+        fh,
+        delimiter="\t",
+    )
+
+    writer.writerow(
+        [
+            "path",
+            "size_bytes",
+            "sha256",
+        ]
+    )
+
+    for rel, full in documents:
+        digest = hashlib.sha256()
+
+        with full.open("rb") as src:
+            while True:
+                chunk = src.read(
+                    1024 * 1024
+                )
+
+                if not chunk:
+                    break
+
+                digest.update(chunk)
+
+        writer.writerow(
+            [
+                rel,
+                full.stat().st_size,
+                digest.hexdigest(),
+            ]
+        )
+
+
+#
+# Summary
+#
+
+category_counter = Counter(
+    row["category"]
+    for row in rows
+)
+
+community_exact_count = sum(
+    row["community_exact_path"]
+    == "yes"
+    for row in rows
+)
+
+community_identical_count = sum(
+    row["community_relation"]
+    == "byte-identical"
+    for row in rows
+)
+
+community_different_count = sum(
+    row["community_relation"]
+    == "different"
+    for row in rows
+)
+
+prior_exact_count = sum(
+    row["prior_audit_relation"]
+    == "exact-path"
+    for row in rows
+)
+
+prior_basename_count = sum(
+    row["prior_audit_relation"]
+    == "basename-only"
+    for row in rows
+)
+
+
+with (out / "diffstat.txt").open(
+    "w",
+    encoding="utf-8",
+) as fh:
+    fh.write(
+        f"Baseline Git tree: {len(base_tree)}\n"
+    )
+    fh.write(
+        f"Vendor Git tree:   {len(vendor_tree)}\n"
+    )
+    fh.write(
+        f"Changed paths:      {len(rows)}\n"
+    )
+    fh.write(
+        f"Added:              {status_counter['A']}\n"
+    )
+    fh.write(
+        f"Deleted:            {status_counter['D']}\n"
+    )
+    fh.write(
+        f"Modified:           {status_counter['M']}\n"
+    )
+    fh.write(
+        f"Type changed:       {status_counter['T']}\n"
+    )
+
+
+with (out / "README.md").open(
+    "w",
+    encoding="utf-8",
+) as fh:
+    fh.write(
+        "# X2000 vendor delta audit\n\n"
+    )
+
+    fh.write(
+        "The kernel comparison is based on Git HEAD trees, "
+        "not on materialized worktree files.\n\n"
+    )
+
+    fh.write(
+        "## Evidence sources\n\n"
+        "1. Linux 6.6.18-rt23 baseline\n"
+        "2. Ingenic vendor Linux 6.6.18-rt23\n"
+        "3. Ingenic-community Linux\n"
+        "4. Ingenic X2000/XBurst hardware documentation\n"
+        "5. Previous Fre3nder clean-port audit\n\n"
+    )
+
+    fh.write(
+        "## Vendor delta\n\n"
+    )
+    fh.write(
+        f"- Baseline Git-tree objects: **{len(base_tree)}**\n"
+    )
+    fh.write(
+        f"- Vendor Git-tree objects: **{len(vendor_tree)}**\n"
+    )
+    fh.write(
+        f"- Changed paths: **{len(rows)}**\n"
+    )
+    fh.write(
+        f"- Added: **{status_counter['A']}**\n"
+    )
+    fh.write(
+        f"- Deleted: **{status_counter['D']}**\n"
+    )
+    fh.write(
+        f"- Modified: **{status_counter['M']}**\n"
+    )
+    fh.write(
+        f"- Type changed: **{status_counter['T']}**\n\n"
+    )
+
+    fh.write(
+        "## Community cross-reference\n\n"
+    )
+    fh.write(
+        f"- Exact path present: **{community_exact_count}**\n"
+    )
+    fh.write(
+        f"- Byte-identical to Vendor: **{community_identical_count}**\n"
+    )
+    fh.write(
+        f"- Present but different: **{community_different_count}**\n\n"
+    )
+
+    fh.write(
+        "## Previous Fre3nder audit\n\n"
+    )
+    fh.write(
+        f"- Exact path matches: **{prior_exact_count}**\n"
+    )
+    fh.write(
+        f"- Basename-only matches: **{prior_basename_count}**\n\n"
+    )
+
+    fh.write(
+        "## Mechanical categories\n\n"
+    )
+    fh.write(
+        "| Category | Paths |\n"
+        "|---|---:|\n"
+    )
+
+    for category in sorted(
+        category_counter
+    ):
+        fh.write(
+            f"| `{category}` | "
+            f"{category_counter[category]} |\n"
+        )
+
+    fh.write(
+        "\n## Hardware documentation\n\n"
+    )
+    fh.write(
+        f"- Relevant PDFs: **{len(documents)}**\n\n"
+    )
+
+    fh.write(
+        "## Interpretation\n\n"
+        "All classifications are evidence only. "
+        "A Community match or a previous Fre3nder classification "
+        "does not automatically establish that code must be ported. "
+        "Disagreements must be resolved from source behaviour and "
+        "hardware documentation.\n"
+    )
+PY
+
+if [ "${AUDIT_EXTRACT_PDF_TEXT:-0}" = "1" ]; then
+    if command -v pdftotext >/dev/null 2>&1; then
+        echo "Extracting searchable datasheet text..."
+
+        while IFS=$'\t' read -r path size sha; do
+            if [ "$path" = "path" ]; then
+                continue
+            fi
+
+            src="$DATASHEETS/$path"
+            dst="$OUT/datasheets-text/${path%.pdf}.txt"
+
+            mkdir -p "$(dirname "$dst")"
+
+            pdftotext \
+                -layout \
+                "$src" \
+                "$dst"
+
+        done < "$OUT/datasheet-inventory.tsv"
+    else
+        echo
+        echo "WARNING: pdftotext is not installed."
+    fi
+fi
+
+echo
+echo "=== RESULT ==="
+echo
+
+cat "$OUT/change-summary.txt"
+
+echo
+echo "=== DIFFSTAT ==="
+cat "$OUT/diffstat.txt"
+
+echo
+echo "=== CATEGORIES ==="
+
+awk -F '\t' '
+    NR == 1 {
+        next
+    }
+
+    {
+        count[$3]++
+    }
+
+    END {
+        for (category in count)
+            printf "%-28s %6d\n", category, count[category]
+    }
+' "$OUT/audit-matrix.tsv" \
+    | sort
+
+echo
+echo "=== COMMUNITY CROSS-REFERENCE ==="
+
+awk -F '\t' '
+    NR == 1 {
+        next
+    }
+
+    $6 == "yes" {
+        exact++
+    }
+
+    $7 == "byte-identical" {
+        identical++
+    }
+
+    $7 == "different" {
+        different++
+    }
+
+    END {
+        printf "Exact paths:     %d\n", exact
+        printf "Byte-identical:  %d\n", identical
+        printf "Different:       %d\n", different
+    }
+' "$OUT/audit-matrix.tsv"
+
+echo
+echo "=== PRIOR FRE3NDER AUDIT ==="
+
+awk -F '\t' '
+    NR == 1 {
+        next
+    }
+
+    $11 == "exact-path" {
+        exact++
+    }
+
+    $11 == "basename-only" {
+        basename++
+    }
+
+    $12 != "" {
+        classified++
+    }
+
+    END {
+        printf "Exact paths:     %d\n", exact
+        printf "Basename-only:   %d\n", basename
+        printf "Classified:      %d\n", classified
+    }
+' "$OUT/audit-matrix.tsv"
+
+echo
+echo "=== DOCUMENTATION ==="
+
+awk -F '\t' '
+    NR > 1 {
+        count++
+    }
+
+    END {
+        printf "Relevant PDFs:   %d\n", count
+    }
+' "$OUT/datasheet-inventory.tsv"
+
+echo
+echo "=== REPORTS ==="
+echo
+echo "Summary:"
+echo "  $OUT/README.md"
+echo
+echo "Main audit matrix:"
+echo "  $OUT/audit-matrix.tsv"
+echo
+echo "Vendor delta:"
+echo "  $OUT/file-manifest.tsv"
+echo "  $OUT/diffstat.txt"
+echo "  $OUT/name-status.txt"
+echo "  $OUT/rename-candidates.tsv"
+echo
+echo "Community reference:"
+echo "  $OUT/community-x2000-xburst-paths.txt"
+echo
+echo "Hardware documentation:"
+echo "  $OUT/datasheet-inventory.tsv"
+echo
+echo "Categories:"
+echo "  $OUT/categories/"
+echo
+echo "Input sources were not modified."
