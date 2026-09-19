@@ -17,17 +17,15 @@ index 531cf344b..a5f204c80 100644
  	tristate "lcd panel st7701s_dx3.95ips"
  	depends on FB_INGENIC_DISPLAYS_STAGE
 diff --git a/kernel/kernel-6.6/module_drivers/drivers/video/fbdev/ingenic/displays/Makefile b/kernel/kernel-6.6/module_drivers/drivers/video/fbdev/ingenic/displays/Makefile
-index ec5079414..c531d5eda 100644
+index c678fb1d8a08a82ecbb1f8ffe592a93021c040ba..fca392d6829baefbfa4b7fa40016a10d32e50d1a 100644
 --- a/kernel/kernel-6.6/module_drivers/drivers/video/fbdev/ingenic/displays/Makefile
 +++ b/kernel/kernel-6.6/module_drivers/drivers/video/fbdev/ingenic/displays/Makefile
-@@ -10,6 +10,7 @@ obj-$(CONFIG_STAGE_JD9365) += jd9365/panel-jd9365.o
- obj-$(CONFIG_STAGE_ST7701S) += panel-st7701s.o
+@@ -1,4 +1,5 @@
+ obj-$(CONFIG_STAGE_JD9365D) += jd9365d/panel-jd9365d.o
+ obj-$(CONFIG_STAGE_JD9365) += jd9365/panel-jd9365.o
  obj-$(CONFIG_STAGE_ST7701S_DX) += st7701s_dx3.95ips/panel-st7701sdx.o
- obj-$(CONFIG_STAGE_ST7701S_RGB666) += panel-st7701s-rgb666.o
 +obj-$(CONFIG_STAGE_ENDER3_V3_KE_480X272) += panel-ender3-v3-ke-480x272.o
- obj-$(CONFIG_STAGE_YTS500XLAI) += panel-yts500xlai.o
- obj-$(CONFIG_STAGE_YLYM286A) += panel-ylym286a.o
- obj-$(CONFIG_STAGE_KD035HVFBD037)	+= panel-kd035hvfbd037.o
+ obj-$(CONFIG_STAGE_ZC50289HSHD02) += panel-zc50289hshd02.o
 diff --git a/kernel/kernel-6.6/module_drivers/drivers/video/fbdev/ingenic/displays/panel-ender3-v3-ke-480x272.c b/kernel/kernel-6.6/module_drivers/drivers/video/fbdev/ingenic/displays/panel-ender3-v3-ke-480x272.c
 new file mode 100644
 index 000000000..4cc14e8dd
