@@ -53,6 +53,9 @@ kernel_vendor_patch_sha256=c0da10973471db5b47d6af6151c65fe6025b46e15a9f22c221a47
 kernel_pruned_tree=70240a8b33c471156106fbad5a22a3e3b5127a73
 kernel_prune_patch="$project/patches/kernel/0002-prune-unused-vendor-dts.patch"
 kernel_prune_patch_sha256=b0858afd5fa64c9ea5401dc1f37452810d5eb6f6c043e4447a5ef95f0d4f8ae4
+kernel_pruned_tree_round2=2255f2cd3048897a627f58ddf693c1f7249e444c
+kernel_prune_patch_round2="$project/patches/kernel/0003-prune-unused-vendor-subsystems.patch"
+kernel_prune_patch_round2_sha256=49d07c49a2c25ce1d336a6602fdba6b9fb44726b367b527266141ca3bd25c4f0
 kernel_release=6.6.18-rt23-fre3nder
 buildroot_url=https://gitlab.com/buildroot.org/buildroot.git
 buildroot_version=2025.02.18
@@ -1155,6 +1158,14 @@ prepare_kernel() {
 		return 1
 	}
 
+	actual_prune_patch_round2_sha256=$(
+		sha256sum "$kernel_prune_patch_round2" | awk '{print $1}'
+	)
+	[ "$actual_prune_patch_round2_sha256" = "$kernel_prune_patch_round2_sha256" ] || {
+		echo "X2000 round-2 prune patch SHA256 mismatch" >&2
+		return 1
+	}
+
 	vendor_index="$work/kernel-vendor-index"
 	rm -f -- "$vendor_index"
 
@@ -1183,10 +1194,25 @@ prepare_kernel() {
 		GIT_INDEX_FILE="$vendor_index" git -C "$k" write-tree
 	)
 
-	rm -f -- "$vendor_index"
-
 	[ "$actual_pruned_tree" = "$kernel_pruned_tree" ] || {
 		echo "X2000 pruned tree mismatch: $actual_pruned_tree" >&2
+		rm -f -- "$vendor_index"
+		return 1
+	}
+
+	GIT_INDEX_FILE="$vendor_index" git -C "$k" apply --cached --check \
+		"$kernel_prune_patch_round2"
+	GIT_INDEX_FILE="$vendor_index" git -C "$k" apply --cached \
+		"$kernel_prune_patch_round2"
+
+	actual_pruned_tree_round2=$(
+		GIT_INDEX_FILE="$vendor_index" git -C "$k" write-tree
+	)
+
+	rm -f -- "$vendor_index"
+
+	[ "$actual_pruned_tree_round2" = "$kernel_pruned_tree_round2" ] || {
+		echo "X2000 round-2 pruned tree mismatch: $actual_pruned_tree_round2" >&2
 		return 1
 	}
 
@@ -1195,6 +1221,9 @@ prepare_kernel() {
 
 	git -C "$k" apply --check "$kernel_prune_patch"
 	git -C "$k" apply "$kernel_prune_patch"
+
+	git -C "$k" apply --check "$kernel_prune_patch_round2"
+	git -C "$k" apply "$kernel_prune_patch_round2"
 
 	cp "$project/configs/x2000/ender3-v3-ke.dts" \
 		"$k/module_drivers/dts/x2000/ender3-v3-ke.dts"
@@ -1240,16 +1269,16 @@ EOF
 	grep -Fxq 'CONFIG_DEVTMPFS_MOUNT=y' "$k/.config"
 	grep -Fxq 'CONFIG_BRCMFMAC=y' "$k/.config"
 	grep -Fxq 'CONFIG_BRCMFMAC_SDIO=y' "$k/.config"
-	grep -Fxq '# CONFIG_BCMDHD is not set' "$k/.config"
-	grep -Fxq '# CONFIG_SND_ASOC_INGENIC is not set' "$k/.config"
-	grep -Fxq '# CONFIG_VIDEOBUF2_DMA_CONTIG_INGENIC is not set' "$k/.config"
-	grep -Fxq '# CONFIG_INGENIC_SPI is not set' "$k/.config"
+	! grep -Eq '^CONFIG_BCMDHD=' "$k/.config"
+	! grep -Eq '^CONFIG_SND_ASOC_INGENIC=' "$k/.config"
+	! grep -Eq '^CONFIG_VIDEOBUF2_DMA_CONTIG_INGENIC=' "$k/.config"
+	! grep -Eq '^CONFIG_INGENIC_SPI=' "$k/.config"
 	grep -Fxq 'CONFIG_SPI=y' "$k/.config"
 	grep -Fxq 'CONFIG_SPI_MASTER=y' "$k/.config"
 	grep -Fxq 'CONFIG_SPI_BITBANG=y' "$k/.config"
 	grep -Fxq 'CONFIG_SPI_GPIO=y' "$k/.config"
 	grep -Fxq 'CONFIG_SPI_SPIDEV=y' "$k/.config"
-	grep -Fxq '# CONFIG_INGENIC_SFC is not set' "$k/.config"
+	! grep -Eq '^CONFIG_INGENIC_SFC=' "$k/.config"
 	grep -Fxq '# CONFIG_INGENIC_RSA is not set' "$k/.config"
 	grep -Fxq '# CONFIG_SPINLOCK_TEST is not set' "$k/.config"
 	grep -Fxq 'CONFIG_MEDIA_SUPPORT=y' "$k/.config"
@@ -1271,11 +1300,14 @@ EOF
 		CONFIG_MEDIA_SDR_SUPPORT \
 		CONFIG_MEDIA_PLATFORM_SUPPORT \
 		CONFIG_MEDIA_TEST_SUPPORT \
-		CONFIG_USB_VIDEO_CLASS_INPUT_EVDEV \
+		CONFIG_USB_VIDEO_CLASS_INPUT_EVDEV; do
+		grep -Fxq "# $setting is not set" "$k/.config"
+	done
+	for setting in \
 		CONFIG_VIDEO_INGENIC_ISP \
 		CONFIG_VIDEO_INGENIC_ROTATE \
 		CONFIG_VIDEO_INGENIC_VCODEC; do
-		grep -Fxq "# $setting is not set" "$k/.config"
+		! grep -Eq "^${setting}=" "$k/.config"
 	done
 	! grep -Eq '^CONFIG_(VIDEO_INGENIC|INGENIC_ISP_CAMERA|HALLEY5_CAMERA|RD_X2000_HALLEY5_CAMERA).*=' \
 		"$k/.config"

@@ -22,20 +22,32 @@
       "patch": "patches/kernel/0001-ingenic-x2000-vendor-delta-v6.6.18-rt23.patch",
       "patch_sha256": "c0da10973471db5b47d6af6151c65fe6025b46e15a9f22c221a47832fc582e73"
     },
-    "vendor_pruning": {
-      "round": 1,
-      "scope": "unused Vendor device trees only",
-      "input_tree": "30cd72f68ffa1739f7f5b8d1158aad5f7d5a97f8",
-      "result_tree": "70240a8b33c471156106fbad5a22a3e3b5127a73",
-      "patch": "patches/kernel/0002-prune-unused-vendor-dts.patch",
-      "patch_sha256": "b0858afd5fa64c9ea5401dc1f37452810d5eb6f6c043e4447a5ef95f0d4f8ae4",
-      "deleted_files": 86
-    },
     "kernel_version": "6.6.18",
     "kernel_localversion": "-fre3nder",
     "kernel_release": "6.6.18-rt23-fre3nder",
     "preemption_model": "PREEMPT",
-    "preempt_rt_enabled": false
+    "preempt_rt_enabled": false,
+    "vendor_pruning": [
+      {
+        "round": 1,
+        "scope": "unused Vendor device trees only",
+        "input_tree": "30cd72f68ffa1739f7f5b8d1158aad5f7d5a97f8",
+        "result_tree": "70240a8b33c471156106fbad5a22a3e3b5127a73",
+        "patch": "patches/kernel/0002-prune-unused-vendor-dts.patch",
+        "patch_sha256": "b0858afd5fa64c9ea5401dc1f37452810d5eb6f6c043e4447a5ef95f0d4f8ae4",
+        "deleted_files": 86
+      },
+      {
+        "round": 2,
+        "scope": "unused Vendor subsystems and their audited Kconfig/Kbuild hooks",
+        "input_tree": "70240a8b33c471156106fbad5a22a3e3b5127a73",
+        "result_tree": "2255f2cd3048897a627f58ddf693c1f7249e444c",
+        "patch": "patches/kernel/0003-prune-unused-vendor-subsystems.patch",
+        "patch_sha256": "49d07c49a2c25ce1d336a6602fdba6b9fb44726b367b527266141ca3bd25c4f0",
+        "deleted_files": 2233,
+        "modified_hook_files": 9
+      }
+    ]
   },
   "buildroot": {
     "version": "2025.02.18",
