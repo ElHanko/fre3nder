@@ -50,6 +50,9 @@ kernel_baseline_tree=16880e7cebe5db9273d0ad7fbac7f86fec2585b2
 kernel_vendor_tree=30cd72f68ffa1739f7f5b8d1158aad5f7d5a97f8
 kernel_vendor_patch="$project/patches/kernel/0001-ingenic-x2000-vendor-delta-v6.6.18-rt23.patch"
 kernel_vendor_patch_sha256=c0da10973471db5b47d6af6151c65fe6025b46e15a9f22c221a47832fc582e73
+kernel_pruned_tree=70240a8b33c471156106fbad5a22a3e3b5127a73
+kernel_prune_patch="$project/patches/kernel/0002-prune-unused-vendor-dts.patch"
+kernel_prune_patch_sha256=b0858afd5fa64c9ea5401dc1f37452810d5eb6f6c043e4447a5ef95f0d4f8ae4
 kernel_release=6.6.18-rt23-fre3nder
 buildroot_url=https://gitlab.com/buildroot.org/buildroot.git
 buildroot_version=2025.02.18
@@ -1146,6 +1149,12 @@ prepare_kernel() {
 		return 1
 	}
 
+	actual_prune_patch_sha256=$(sha256sum "$kernel_prune_patch" | awk '{print $1}')
+	[ "$actual_prune_patch_sha256" = "$kernel_prune_patch_sha256" ] || {
+		echo "X2000 prune patch SHA256 mismatch" >&2
+		return 1
+	}
+
 	vendor_index="$work/kernel-vendor-index"
 	rm -f -- "$vendor_index"
 
@@ -1159,15 +1168,33 @@ prepare_kernel() {
 		GIT_INDEX_FILE="$vendor_index" git -C "$k" write-tree
 	)
 
-	rm -f -- "$vendor_index"
-
 	[ "$actual_vendor_tree" = "$kernel_vendor_tree" ] || {
 		echo "Ingenic vendor tree mismatch: $actual_vendor_tree" >&2
+		rm -f -- "$vendor_index"
+		return 1
+	}
+
+	GIT_INDEX_FILE="$vendor_index" git -C "$k" apply --cached --check \
+		"$kernel_prune_patch"
+	GIT_INDEX_FILE="$vendor_index" git -C "$k" apply --cached \
+		"$kernel_prune_patch"
+
+	actual_pruned_tree=$(
+		GIT_INDEX_FILE="$vendor_index" git -C "$k" write-tree
+	)
+
+	rm -f -- "$vendor_index"
+
+	[ "$actual_pruned_tree" = "$kernel_pruned_tree" ] || {
+		echo "X2000 pruned tree mismatch: $actual_pruned_tree" >&2
 		return 1
 	}
 
 	git -C "$k" apply --check "$kernel_vendor_patch"
 	git -C "$k" apply "$kernel_vendor_patch"
+
+	git -C "$k" apply --check "$kernel_prune_patch"
+	git -C "$k" apply "$kernel_prune_patch"
 
 	cp "$project/configs/x2000/ender3-v3-ke.dts" \
 		"$k/module_drivers/dts/x2000/ender3-v3-ke.dts"
