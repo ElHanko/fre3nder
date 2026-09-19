@@ -56,6 +56,9 @@ kernel_prune_patch_sha256=b0858afd5fa64c9ea5401dc1f37452810d5eb6f6c043e4447a5ef9
 kernel_pruned_tree_round2=2255f2cd3048897a627f58ddf693c1f7249e444c
 kernel_prune_patch_round2="$project/patches/kernel/0003-prune-unused-vendor-subsystems.patch"
 kernel_prune_patch_round2_sha256=49d07c49a2c25ce1d336a6602fdba6b9fb44726b367b527266141ca3bd25c4f0
+kernel_pruned_tree_round3=b837270f06fae68e4721ff8b71ef74f475129434
+kernel_prune_patch_round3="$project/patches/kernel/0004-prune-ender3-v3-ke-vendor-delta.patch"
+kernel_prune_patch_round3_sha256=98feb4c4f42184e05d76c15581d7752265e4b150492440004c453b51bcf25c12
 kernel_release=6.6.18-rt23-fre3nder
 buildroot_url=https://gitlab.com/buildroot.org/buildroot.git
 buildroot_version=2025.02.18
@@ -1166,6 +1169,14 @@ prepare_kernel() {
 		return 1
 	}
 
+	actual_prune_patch_round3_sha256=$(
+		sha256sum "$kernel_prune_patch_round3" | awk '{print $1}'
+	)
+	[ "$actual_prune_patch_round3_sha256" = "$kernel_prune_patch_round3_sha256" ] || {
+		echo "X2000 round-3 prune patch SHA256 mismatch" >&2
+		return 1
+	}
+
 	vendor_index="$work/kernel-vendor-index"
 	rm -f -- "$vendor_index"
 
@@ -1209,10 +1220,25 @@ prepare_kernel() {
 		GIT_INDEX_FILE="$vendor_index" git -C "$k" write-tree
 	)
 
-	rm -f -- "$vendor_index"
-
 	[ "$actual_pruned_tree_round2" = "$kernel_pruned_tree_round2" ] || {
 		echo "X2000 round-2 pruned tree mismatch: $actual_pruned_tree_round2" >&2
+		rm -f -- "$vendor_index"
+		return 1
+	}
+
+	GIT_INDEX_FILE="$vendor_index" git -C "$k" apply --cached --check \
+		"$kernel_prune_patch_round3"
+	GIT_INDEX_FILE="$vendor_index" git -C "$k" apply --cached \
+		"$kernel_prune_patch_round3"
+
+	actual_pruned_tree_round3=$(
+		GIT_INDEX_FILE="$vendor_index" git -C "$k" write-tree
+	)
+
+	rm -f -- "$vendor_index"
+
+	[ "$actual_pruned_tree_round3" = "$kernel_pruned_tree_round3" ] || {
+		echo "X2000 round-3 pruned tree mismatch: $actual_pruned_tree_round3" >&2
 		return 1
 	}
 
@@ -1224,6 +1250,9 @@ prepare_kernel() {
 
 	git -C "$k" apply --check "$kernel_prune_patch_round2"
 	git -C "$k" apply "$kernel_prune_patch_round2"
+
+	git -C "$k" apply --check "$kernel_prune_patch_round3"
+	git -C "$k" apply "$kernel_prune_patch_round3"
 
 	cp "$project/configs/x2000/ender3-v3-ke.dts" \
 		"$k/module_drivers/dts/x2000/ender3-v3-ke.dts"
