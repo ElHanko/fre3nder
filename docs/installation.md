@@ -31,6 +31,19 @@ after staging and must remain unchanged.
 selector, arm a system-persistence reset, activate the staged slot, or reboot
 the printer. Activation is a separate OTA transaction step.
 
+Stock-A host restoration is an explicit variant of the same staging interface.
+`--stock` stages a complete raw Stock kernel/RootFS pair to p5/p7 and is accepted
+only while Slot B is active and the selector still points to B. The default
+source is `local/backup/stock/image/`; an alternative source directory may be
+given directly after `--stock`. A Stock source directory must contain exact
+full-partition `p5.img` and `p7.img` files plus `SHA256SUMS`.
+
+Stock staging always treats p5/p7 as one pair; it cannot be combined with the
+individual component options or `--develop`. It does not restore p9/p10, change
+the X2000 selector, reboot the host, or restore the F005 MCU. Those remain
+separate recovery/activation responsibilities. Vendor and device backup files
+under `local/` remain local-only and are not repository artifacts.
+
 The X2000 deploy tool intentionally does not install or update the F005 MCU.
 MCU firmware lifecycle management is a separate responsibility and is not part
 of `deploy-x2000`.

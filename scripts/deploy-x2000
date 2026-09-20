@@ -9,6 +9,8 @@ ab_cmd=${X2000_DEPLOY_AB:-"$root/scripts/x2000-ab"}
 
 mode=preflight
 develop_mode=false
+stock_mode=false
+stock_source=${X2000_DEPLOY_STOCK_DIR:-"$root/local/backup/stock/image"}
 deploy_kernel=false
 deploy_rootfs=false
 component_seen=false
@@ -56,6 +58,13 @@ components:
   --all       stage kernel + RootFS
 
 If no component option is given, --all is implied.
+
+stock restore:
+  --stock [DIR]
+              stage a complete Stock A p5/p7 pair
+              default DIR: local/backup/stock/image
+
+--stock cannot be combined with --kernel, --rootfs, --all, or --develop.
 
 execution:
   default     fail-closed read-only preflight
@@ -317,6 +326,51 @@ PY
 	fi
 }
 
+
+verify_stock_artifacts() {
+	local sums=$stock_source/SHA256SUMS
+	local kernel=$stock_source/p5.img
+	local rootfs=$stock_source/p7.img
+	local expected_kernel_sha
+	local expected_rootfs_sha
+
+	require_regular_file "$sums"
+	require_regular_file "$kernel"
+	require_regular_file "$rootfs"
+
+	kernel_size=$(wc -c < "$kernel")
+	rootfs_size=$(wc -c < "$rootfs")
+
+	[ "$kernel_size" -eq 8388608 ] ||
+		die "Stock p5.img is not exactly 8 MiB"
+
+	[ "$rootfs_size" -eq 524288000 ] ||
+		die "Stock p7.img is not exactly 500 MiB"
+
+	kernel_sha=$(sha256sum "$kernel" | awk '{print $1}')
+	rootfs_sha=$(sha256sum "$rootfs" | awk '{print $1}')
+
+	expected_kernel_sha=$(
+		sums_sha "$sums" p5.img
+	) || die "SHA256SUMS has no unique valid p5.img entry"
+
+	expected_rootfs_sha=$(
+		sums_sha "$sums" p7.img
+	) || die "SHA256SUMS has no unique valid p7.img entry"
+
+	[ "$kernel_sha" = "$expected_kernel_sha" ] ||
+		die "Stock p5.img checksum differs from SHA256SUMS"
+
+	[ "$rootfs_sha" = "$expected_rootfs_sha" ] ||
+		die "Stock p7.img checksum differs from SHA256SUMS"
+
+	echo "stock source: $stock_source"
+	echo "Stock p5 image size: $kernel_size"
+	echo "Stock p5 image SHA256: $kernel_sha"
+	echo "Stock p7 image size: $rootfs_size"
+	echo "Stock p7 image SHA256: $rootfs_sha"
+}
+
 ab_status() {
 	local target_host=$1
 
@@ -398,6 +452,24 @@ detect_slots() {
 	echo "active root: $active_root_device"
 	echo "selector slot: $selector_slot"
 	echo "target slot: $target_slot"
+}
+
+
+verify_stock_target() {
+	[ "$active_slot" = B ] ||
+		die "--stock requires slot B to be active"
+
+	[ "$selector_slot" = B ] ||
+		die "--stock requires the selector to point to slot B"
+
+	[ "$target_slot" = A ] ||
+		die "--stock requires slot A to be inactive"
+
+	[ "$target_kernel_device" = /dev/mmcblk0p5 ] ||
+		die "--stock kernel target is not p5"
+
+	[ "$target_root_device" = /dev/mmcblk0p7 ] ||
+		die "--stock RootFS target is not p7"
 }
 
 slot_metadata() {
@@ -603,10 +675,21 @@ write_and_verify() {
 
 preflight() {
 	detect_slots
+
+	if [ "$stock_mode" = true ]; then
+		verify_stock_target
+	fi
+
 	verify_target_metadata
 
 	echo
-	echo "Fre3nder X2000 inactive-slot staging preflight: PASS"
+
+	if [ "$stock_mode" = true ]; then
+		echo "Fre3nder X2000 Stock-A restore staging preflight: PASS"
+	else
+		echo "Fre3nder X2000 inactive-slot staging preflight: PASS"
+	fi
+
 	echo "no partition writes, selector changes, SYS changes, or reboots performed"
 }
 
@@ -617,8 +700,20 @@ deploy_write() {
 	local before_root
 	local after_kernel
 	local after_root
+	local kernel_artifact="$artifact_dir/kernel.uImage"
+	local rootfs_artifact="$artifact_dir/rootfs.squashfs"
+
+	if [ "$stock_mode" = true ]; then
+		kernel_artifact=$stock_source/p5.img
+		rootfs_artifact=$stock_source/p7.img
+	fi
 
 	detect_slots
+
+	if [ "$stock_mode" = true ]; then
+		verify_stock_target
+	fi
+
 	verify_target_metadata
 
 	mapfile -t before_hashes < <(
@@ -634,7 +729,7 @@ deploy_write() {
 
 	if selected "$deploy_kernel"; then
 		write_and_verify \
-			"$artifact_dir/kernel.uImage" \
+			"$kernel_artifact" \
 			"$target_kernel_device" \
 			"$kernel_sha" \
 			"$kernel_size" \
@@ -643,7 +738,7 @@ deploy_write() {
 
 	if selected "$deploy_rootfs"; then
 		write_and_verify \
-			"$artifact_dir/rootfs.squashfs" \
+			"$rootfs_artifact" \
 			"$target_root_device" \
 			"$rootfs_sha" \
 			"$rootfs_size" \
@@ -691,6 +786,29 @@ main() {
 			mode=write
 			;;
 
+		--stock)
+			[ "$stock_mode" = false ] ||
+				usage
+
+			stock_mode=true
+
+			if [[ $# -gt 1 && "$2" != -* ]]; then
+				stock_source=$2
+				shift
+			fi
+			;;
+
+		--stock=*)
+			[ "$stock_mode" = false ] ||
+				usage
+
+			stock_mode=true
+			stock_source=${1#--stock=}
+
+			[ -n "$stock_source" ] ||
+				usage
+			;;
+
 		--develop)
 			[ "$develop_mode" = false ] ||
 				usage
@@ -732,7 +850,18 @@ main() {
 		shift
 	done
 
-	if [ "$all_seen" = true ] ||
+	if [ "$stock_mode" = true ]; then
+		[ "$develop_mode" = false ] ||
+			die "--stock cannot be combined with --develop"
+
+		if [ "$all_seen" = true ] ||
+			[ "$component_seen" = true ]; then
+			die "--stock cannot be combined with component options"
+		fi
+
+		deploy_kernel=true
+		deploy_rootfs=true
+	elif [ "$all_seen" = true ] ||
 		[ "$component_seen" = false ]; then
 
 		deploy_kernel=true
@@ -744,10 +873,21 @@ main() {
 	echo "ROOTFS=$(plan_value "$deploy_rootfs")"
 	echo "MODE=$mode"
 
+	if [ "$stock_mode" = true ]; then
+		echo "SOURCE=STOCK"
+		echo "STOCK_SOURCE=$stock_source"
+	else
+		echo "SOURCE=FRE3NDER"
+	fi
+
 	echo
 	echo "=== LOCAL ARTIFACT GATE ==="
 
-	verify_local_artifacts
+	if [ "$stock_mode" = true ]; then
+		verify_stock_artifacts
+	else
+		verify_local_artifacts
+	fi
 
 	echo "LOCAL_ARTIFACT_GATE=PASS"
 
@@ -777,6 +917,12 @@ main() {
 		echo "ROOTFS_P${target_root_number}=PASS"
 	else
 		echo "ROOTFS=SKIPPED"
+	fi
+
+	if [ "$stock_mode" = true ]; then
+		echo "STAGING_KIND=STOCK_A_RESTORE"
+	else
+		echo "STAGING_KIND=FRE3NDER_UPDATE"
 	fi
 
 	echo "ACTIVE_SLOT=$active_slot"
