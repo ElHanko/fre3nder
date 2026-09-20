@@ -268,8 +268,18 @@
     "slot_a_same_fre3nder_kernel_hardware_validated": false
   },
   "deployment_compatibility": {
-    "kernel_partition": "p6",
-    "rootfs_partition": "p8"
+    "strategy": "inactive_slot",
+    "requires_selector_matches_active_slot": true,
+    "slots": {
+      "A": {
+        "kernel_partition": "p5",
+        "rootfs_partition": "p7"
+      },
+      "B": {
+        "kernel_partition": "p6",
+        "rootfs_partition": "p8"
+      }
+    }
   },
   "wlan_firmware": {
     "package": "linux-firmware",

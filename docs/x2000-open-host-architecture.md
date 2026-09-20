@@ -2,11 +2,15 @@
 
 ## Decision
 
-Phase 3 uses the selected target: **Fre3nder B as a complete open X2000 host**.
-The target is an embedded appliance, not a general-purpose Linux distribution.
-Its A/B design preserves Stock A as an untouched Creality vendor fallback
-domain; Fre3nder B replaces the Creality Linux/application stack only while it
-is selected.
+Phase 3 established **Fre3nder B as a complete open X2000 host** while
+preserving Stock A as the initial vendor fallback. The target is an embedded
+appliance, not a general-purpose Linux distribution.
+
+The current update architecture transitions from that development arrangement
+to true Fre3nder A/B operation: Slot A and Slot B are equivalent Fre3nder host
+slots, and updates are staged into whichever slot is inactive. Stock restoration
+remains a documented recovery path rather than permanently reserving one A/B
+slot for the vendor system.
 
 ```text
 X2000 BootROM / stock-compatible lower boot boundary
@@ -59,10 +63,13 @@ needed printer-facing functions to have open replacements.
 
 ## Stock and Fre3nder MCU mode switching
 
-The target is **Stock/Fre3nder dual-mode operation**: Stock A is the preserved
-vendor fallback domain and Fre3nder B is the project-owned domain. The F005 is
-not A/B; its single active application must match the selected mode. A release
-must not require a Fre3nder modification or hook in Stock A. Fre3nder B now
+The current transition state still supports **Stock/Fre3nder dual-mode
+operation** while Stock remains present in Slot A and Fre3nder runs from Slot B.
+This is a migration and recovery state, not the final host A/B ownership model.
+
+The F005 itself is not A/B; its single active application must match the host
+mode that is being booted. While Stock A is retained, a Fre3nder release must
+not require a Fre3nder modification or hook in the Stock host. Fre3nder B now
 owns a qualified passive-UART Klippy/runtime leg, exact Stock-MCU ->
 Fre3nder-MCU transition, and bootloader-release leg; the preferred Stock-owned
 return path and complete coordinated host roundtrip remain **REQUIRES

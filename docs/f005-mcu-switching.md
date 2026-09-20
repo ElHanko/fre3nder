@@ -74,7 +74,7 @@ storage.
 The interface deliberately remains separate from
 [`scripts/deploy-x2000`](../scripts/deploy-x2000):
 
-- `deploy-x2000` manages only the inactive X2000 Slot-B kernel and RootFS;
+- `deploy-x2000` stages only the inactive X2000 A/B kernel and RootFS;
 - `deploy-f005` manages only the current F005 firmware staging and the already
   qualified open Stock-to-Fre3nder MCU transition;
 - neither tool silently expands into the other's persistent-write scope.

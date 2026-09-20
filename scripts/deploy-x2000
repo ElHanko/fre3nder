@@ -14,8 +14,19 @@ deploy_rootfs=false
 component_seen=false
 all_seen=false
 
-develop_host=
-stock_host=
+host=
+
+active_slot=
+target_slot=
+selector_slot=
+
+active_kernel_device=
+active_root_device=
+target_kernel_device=
+target_root_device=
+
+target_kernel_number=
+target_root_number=
 
 kernel_size=
 kernel_sha=
@@ -37,20 +48,22 @@ cleanup() {
 usage() {
 	cat >&2 <<EOF
 usage:
-  $0 <fre3nder-host> <stock-host> [OPTIONS]
+  $0 <active-host> [OPTIONS]
 
 components:
-  --kernel    deploy Slot-B kernel to p6
-  --rootfs    deploy Slot-B RootFS to p8
-  --all       deploy kernel + RootFS
+  --kernel    stage the kernel in the inactive A/B slot
+  --rootfs    stage the RootFS in the inactive A/B slot
+  --all       stage kernel + RootFS
 
 If no component option is given, --all is implied.
 
 execution:
   default     fail-closed read-only preflight
-  --write     perform the selected deployment operations
+  --write     write and read back the selected inactive-slot artifacts
   --develop   accept a fingerprint-matched development artifact;
               does not imply --write or relax hardware safety gates
+
+This command does not change the boot selector, arm a SYS reset, or reboot.
 EOF
 	exit 2
 }
@@ -152,7 +165,7 @@ verify_local_artifacts() {
 			die "kernel checksum differs from SHA256SUMS"
 
 		[ "$kernel_size" -lt 8388608 ] ||
-			die "kernel is not strictly smaller than p6"
+			die "kernel is not strictly smaller than an 8 MiB kernel slot"
 	fi
 
 	if selected "$deploy_rootfs"; then
@@ -171,7 +184,7 @@ verify_local_artifacts() {
 			die "RootFS checksum differs from SHA256SUMS"
 
 		[ "$rootfs_size" -lt 524288000 ] ||
-			die "RootFS is not strictly smaller than p8"
+			die "RootFS is not strictly smaller than a 500 MiB RootFS slot"
 	fi
 
 	mapfile -t manifest_output < <(
@@ -305,42 +318,27 @@ PY
 }
 
 ab_status() {
-	local host=$1
+	local target_host=$1
 
-	"$ab_cmd" "$host" status ||
-		die "cannot obtain x2000-ab status from $host"
+	"$ab_cmd" "$target_host" status ||
+		die "cannot obtain x2000-ab status from $target_host"
 }
 
-verify_ab_status() {
-	local host=$1
-	local expected_root=$2
-	local expected_selector=$3
-	local alternate_selector=${4:-}
+detect_slots() {
 	local status
-	local actual_root
-	local selector
+	local classification
 
 	status=$(ab_status "$host")
 
-	actual_root=$(
+	active_root_device=$(
 		printf '%s\n' "$status" |
 			field ACTIVE_ROOT
 	) || die "invalid ACTIVE_ROOT from $host"
 
-	selector=$(
+	classification=$(
 		printf '%s\n' "$status" |
 			field CLASSIFICATION
 	) || die "invalid selector classification from $host"
-
-	[ "$actual_root" = "$expected_root" ] ||
-		die "$host active root is $actual_root, expected $expected_root"
-
-	if [ "$selector" != "$expected_selector" ]; then
-		if [ -z "$alternate_selector" ] ||
-			[ "$selector" != "$alternate_selector" ]; then
-			die "$host selector is $selector, expected $expected_selector${alternate_selector:+ or $alternate_selector}"
-		fi
-	fi
 
 	[ "$(printf '%s\n' "$status" | field P1_DEVICE)" = /dev/mmcblk0p1 ] ||
 		die "$host p1 device identity is invalid"
@@ -357,13 +355,52 @@ verify_ab_status() {
 	[ "$(printf '%s\n' "$status" | field P1_IDENTITY)" = VALID ] ||
 		die "$host p1 identity is invalid"
 
-	echo "current root: $actual_root"
-	echo "current selector: $selector"
+	case "$classification" in
+	STOCK_A)
+		selector_slot=A
+		;;
+	DEVELOP_B)
+		selector_slot=B
+		;;
+	*)
+		die "$host selector classification is unknown"
+		;;
+	esac
+
+	case "$active_root_device" in
+	/dev/mmcblk0p7)
+		active_slot=A
+		target_slot=B
+		active_kernel_device=/dev/mmcblk0p5
+		target_kernel_device=/dev/mmcblk0p6
+		target_root_device=/dev/mmcblk0p8
+		target_kernel_number=6
+		target_root_number=8
+		;;
+	/dev/mmcblk0p8)
+		active_slot=B
+		target_slot=A
+		active_kernel_device=/dev/mmcblk0p6
+		target_kernel_device=/dev/mmcblk0p5
+		target_root_device=/dev/mmcblk0p7
+		target_kernel_number=5
+		target_root_number=7
+		;;
+	*)
+		die "$host active root is $active_root_device, expected p7 or p8"
+		;;
+	esac
+
+	[ "$selector_slot" = "$active_slot" ] ||
+		die "selector points to slot $selector_slot while slot $active_slot is active; inactive-slot staging is unsafe until the selector points to the active slot"
+
+	echo "active slot: $active_slot"
+	echo "active root: $active_root_device"
+	echo "selector slot: $selector_slot"
+	echo "target slot: $target_slot"
 }
 
 slot_metadata() {
-	local host=$1
-
 	"$ssh_cmd" -o BatchMode=yes "$host" 'sh -eu' <<'REMOTE'
 fail() {
 	echo "REMOTE REFUSED: $*" >&2
@@ -386,7 +423,9 @@ done
 	fail "expected exactly one root= argument"
 
 for item in \
+	"5:kernel:16384" \
 	"6:kernel2:16384" \
+	"7:rootfs:1024000" \
 	"8:rootfs2:1024000"
 do
 	number=${item%%:*}
@@ -451,215 +490,69 @@ echo "ACTIVE_ROOT=$active_root"
 REMOTE
 }
 
-verify_slot_metadata() {
-	local host=$1
-	local expected_root=$2
-	local require_stock_labels=$3
-	local metadata
-	local label
+verify_partition_metadata() {
+	local metadata=$1
+	local number=$2
+	local expected_sectors=$3
+	local role=$4
+	local device=/dev/mmcblk0p${number}
+	local label_state
 
-	metadata=$(slot_metadata "$host") ||
+	[ "$(printf '%s\n' "$metadata" | field "P${number}_DEVICE")" = "$device" ] ||
+		die "$host $role device is invalid"
+
+	[ "$(printf '%s\n' "$metadata" | field "P${number}_PARTITION_NUMBER")" = "$number" ] ||
+		die "$host $role partition number is invalid"
+
+	[ "$(printf '%s\n' "$metadata" | field "P${number}_SECTORS")" = "$expected_sectors" ] ||
+		die "$host $role size is invalid"
+
+	label_state=$(
+		printf '%s\n' "$metadata" |
+			field "P${number}_PARTLABEL"
+	) || die "$host $role partlabel state is invalid"
+
+	case "$label_state" in
+	VALID|ABSENT_INFRASTRUCTURE)
+		;;
+	*)
+		die "$host $role partlabel state is invalid"
+		;;
+	esac
+
+	[ "$(printf '%s\n' "$metadata" | field "P${number}_MOUNTED")" = NO ] ||
+		die "$host $role target $device is mounted"
+}
+
+verify_target_metadata() {
+	local metadata
+
+	metadata=$(slot_metadata) ||
 		die "slot metadata verification failed on $host"
 
-	[ "$(printf '%s\n' "$metadata" | field ACTIVE_ROOT)" = "$expected_root" ] ||
-		die "$host active root differs from $expected_root"
+	[ "$(printf '%s\n' "$metadata" | field ACTIVE_ROOT)" = "$active_root_device" ] ||
+		die "$host active root changed during deployment"
 
 	if selected "$deploy_kernel"; then
-		[ "$(printf '%s\n' "$metadata" | field P6_DEVICE)" = /dev/mmcblk0p6 ] ||
-			die "$host p6 device is invalid"
-
-		[ "$(printf '%s\n' "$metadata" | field P6_PARTITION_NUMBER)" = 6 ] ||
-			die "$host p6 partition number is invalid"
-
-		[ "$(printf '%s\n' "$metadata" | field P6_SECTORS)" = 16384 ] ||
-			die "$host p6 size is invalid"
-
-		label=$(printf '%s\n' "$metadata" | field P6_PARTLABEL) ||
-			die "$host p6 partlabel state is invalid"
-
-		case "$label" in
-		VALID|ABSENT_INFRASTRUCTURE) ;;
-		*) die "$host kernel2 partlabel state is invalid" ;;
-		esac
-
-		if [ "$require_stock_labels" = YES ]; then
-			[ "$label" = VALID ] ||
-				die "$host Stock kernel2 partlabel is unavailable"
-		fi
+		verify_partition_metadata \
+			"$metadata" \
+			"$target_kernel_number" \
+			16384 \
+			kernel
 	fi
 
 	if selected "$deploy_rootfs"; then
-		[ "$(printf '%s\n' "$metadata" | field P8_DEVICE)" = /dev/mmcblk0p8 ] ||
-			die "$host p8 device is invalid"
-
-		[ "$(printf '%s\n' "$metadata" | field P8_PARTITION_NUMBER)" = 8 ] ||
-			die "$host p8 partition number is invalid"
-
-		[ "$(printf '%s\n' "$metadata" | field P8_SECTORS)" = 1024000 ] ||
-			die "$host p8 size is invalid"
-
-		label=$(printf '%s\n' "$metadata" | field P8_PARTLABEL) ||
-			die "$host p8 partlabel state is invalid"
-
-		case "$label" in
-		VALID|ABSENT_INFRASTRUCTURE) ;;
-		*) die "$host rootfs2 partlabel state is invalid" ;;
-		esac
-
-		if [ "$require_stock_labels" = YES ]; then
-			[ "$label" = VALID ] ||
-				die "$host Stock rootfs2 partlabel is unavailable"
-		fi
-	fi
-
-	if [ "$expected_root" = /dev/mmcblk0p7 ]; then
-		if selected "$deploy_kernel"; then
-			[ "$(printf '%s\n' "$metadata" | field P6_MOUNTED)" = NO ] ||
-				die "$host p6 is mounted"
-		fi
-
-		if selected "$deploy_rootfs"; then
-			[ "$(printf '%s\n' "$metadata" | field P8_MOUNTED)" = NO ] ||
-				die "$host p8 is mounted"
-		fi
+		verify_partition_metadata \
+			"$metadata" \
+			"$target_root_number" \
+			1024000 \
+			RootFS
 	fi
 }
 
-verify_develop_b() {
-	local expected_selector=$1
-	local alternate_selector=${2:-}
-
-	verify_ab_status \
-		"$develop_host" \
-		/dev/mmcblk0p8 \
-		"$expected_selector" \
-		"$alternate_selector"
-
-	verify_slot_metadata \
-		"$develop_host" \
-		/dev/mmcblk0p8 \
-		NO
-}
-
-verify_stock_a() {
-	verify_ab_status \
-		"$stock_host" \
-		/dev/mmcblk0p7 \
-		STOCK_A
-
-	verify_slot_metadata \
-		"$stock_host" \
-		/dev/mmcblk0p7 \
-		YES
-}
-
-stock_hashes() {
-	"$ssh_cmd" -o BatchMode=yes "$stock_host" \
-		'sha256sum /dev/mmcblk0p5 /dev/mmcblk0p7'
-}
-
-verify_develop_runtime() {
-	local system_device
-	local userdata_device
-	local system_info
-	local userdata_info
-
-	"$ssh_cmd" -o BatchMode=yes "$develop_host" 'sh -eu' <<'REMOTE'
-fail() {
-	echo "REMOTE REFUSED: $*" >&2
-	exit 1
-}
-
-grep -Eq '(^|[[:space:]])root=/dev/mmcblk0p8([[:space:]]|$)' /proc/cmdline ||
-	fail "active root is not p8"
-
-[ -f /run/fre3nder-root/status ] &&
-[ ! -L /run/fre3nder-root/status ] ||
-	fail "persistent-root status is unavailable"
-
-[ "$(cat /run/fre3nder-root/status)" = active ] ||
-	fail "persistent root is not active"
-
-mount_contract() {
-	target=$1
-	expected_type=$2
-	expected_mode=$3
-
-	awk \
-		-v target="$target" \
-		-v expected_type="$expected_type" \
-		-v expected_mode="$expected_mode" '
-		$2 == target {
-			found = 1
-
-			if ($3 != expected_type)
-				exit 1
-
-			n = split($4, options, ",")
-
-			for (i = 1; i <= n; i++)
-				if (options[i] == expected_mode)
-					mode_found = 1
-		}
-
-		END {
-			if (!found || !mode_found)
-				exit 1
-		}
-	' /proc/mounts
-}
-
-mount_contract / overlay rw ||
-	fail "root filesystem is not writable OverlayFS"
-
-mount_contract /rom squashfs ro ||
-	fail "immutable lower is not read-only SquashFS at /rom"
-
-mount_contract /home ext4 rw ||
-	fail "userdata filesystem is not writable ext4 at /home"
-
-mount_contract /run/fre3nder-root/system ext4 rw ||
-	fail "system persistence is not writable ext4"
-
-system_device=$(
-	awk '$2 == "/run/fre3nder-root/system" { print $1 }' /proc/mounts
-)
-
-userdata_device=$(
-	awk '$2 == "/home" { print $1 }' /proc/mounts
-)
-
-[ -n "$system_device" ] ||
-	fail "system persistence device is unavailable"
-
-[ -n "$userdata_device" ] ||
-	fail "userdata persistence device is unavailable"
-
-system_info=$(/sbin/blkid "$system_device" 2>/dev/null) ||
-	fail "cannot identify system persistence"
-
-userdata_info=$(/sbin/blkid "$userdata_device" 2>/dev/null) ||
-	fail "cannot identify userdata persistence"
-
-case " $system_info " in
-*' LABEL="FRE3NDERSYS" '*) ;;
-*) fail "system persistence is not FRE3NDERSYS" ;;
-esac
-
-case " $userdata_info " in
-*' LABEL="FRE3NDERHOME" '*) ;;
-*) fail "userdata persistence is not FRE3NDERHOME" ;;
-esac
-
-echo "HOST_RUNTIME=PASS"
-REMOTE
-}
-
-request_reboot() {
-	local host=$1
-
+active_hashes() {
 	"$ssh_cmd" -o BatchMode=yes "$host" \
-		'sync; reboot' >/dev/null 2>&1 || :
+		"sha256sum '$active_kernel_device' '$active_root_device'"
 }
 
 ensure_tmp() {
@@ -685,7 +578,7 @@ write_and_verify() {
 
 	echo "writing $name -> $device"
 
-	"$ssh_cmd" -o BatchMode=yes "$stock_host" \
+	"$ssh_cmd" -o BatchMode=yes "$host" \
 		"dd of=$device bs=4096 2>/dev/null && sync" \
 		< "$artifact" ||
 		die "$name write failed"
@@ -693,7 +586,7 @@ write_and_verify() {
 	sectors=$(( (size + 511) / 512 ))
 	readback=$tmp/$name.readback
 
-	"$ssh_cmd" -o BatchMode=yes "$stock_host" \
+	"$ssh_cmd" -o BatchMode=yes "$host" \
 		"dd if=$device bs=512 count=$sectors 2>/dev/null" \
 		> "$readback" ||
 		die "$name readback failed"
@@ -708,252 +601,41 @@ write_and_verify() {
 	echo "$name artifact readback: PASS"
 }
 
-mark_system_persistence_reset() {
-	local output
-
-	output=$(
-		"$ssh_cmd" -o BatchMode=yes "$stock_host" 'sh -eu' <<'REMOTE'
-fail() {
-	echo "REMOTE REFUSED: $*" >&2
-	exit 1
-}
-
-blkid_cmd=$(command -v blkid 2>/dev/null || true)
-
-if [ -z "$blkid_cmd" ] && [ -x /sbin/blkid ]; then
-	blkid_cmd=/sbin/blkid
-fi
-
-[ -n "$blkid_cmd" ] ||
-	fail "blkid is unavailable"
-
-system_count=0
-system_device=
-
-output=$("$blkid_cmd" 2>/dev/null) || output=
-
-while IFS= read -r line; do
-	device=${line%%:*}
-	[ "$device" != "$line" ] || continue
-
-	case " $line " in
-	*' LABEL="FRE3NDERSYS" '*)
-		system_count=$((system_count + 1))
-		system_device=$device
-		;;
-	esac
-done <<EOF
-$output
-EOF
-
-[ "$system_count" -ne 0 ] ||
-	fail "FRE3NDERSYS is unavailable"
-
-[ "$system_count" -eq 1 ] ||
-	fail "multiple FRE3NDERSYS filesystems found"
-
-[ -b "$system_device" ] ||
-	fail "FRE3NDERSYS source is not a block device"
-
-mountpoint=
-mounted=false
-
-while read -r mounted_device mounted_path mounted_type mounted_options _; do
-	[ "$mounted_device" = "$system_device" ] || continue
-
-	[ -z "$mountpoint" ] ||
-		fail "FRE3NDERSYS has multiple mountpoints"
-
-	[ "$mounted_type" = ext4 ] ||
-		fail "mounted FRE3NDERSYS is not ext4"
-
-	case ",$mounted_options," in
-	*,rw,*) ;;
-	*) fail "mounted FRE3NDERSYS is not writable" ;;
-	esac
-
-	mountpoint=$mounted_path
-done < /proc/mounts
-
-if [ -z "$mountpoint" ]; then
-	mountpoint=/tmp/fre3nder-deploy-system-reset.$$
-
-	mkdir -m 0700 "$mountpoint" ||
-		fail "cannot create temporary system mountpoint"
-
-	mount -t ext4 -o rw,nosuid,nodev \
-		"$system_device" "$mountpoint" ||
-		fail "cannot mount FRE3NDERSYS"
-
-	mounted=true
-fi
-
-cleanup() {
-	if [ "$mounted" = true ]; then
-		umount "$mountpoint" 2>/dev/null || true
-		rmdir "$mountpoint" 2>/dev/null || true
-	fi
-}
-
-trap cleanup EXIT HUP INT TERM
-
-marker=$mountpoint/.fre3nder-reset
-rm -f -- "$marker" ||
-	fail "cannot replace system reset marker"
-
-umask 077
-printf '%s\n' RESET_ON_NEXT_BOOT > "$marker" ||
-	fail "cannot write system reset marker"
-
-[ -f "$marker" ] &&
-[ ! -L "$marker" ] &&
-[ "$(cat "$marker")" = RESET_ON_NEXT_BOOT ] ||
-	fail "system reset marker verification failed"
-
-sync
-
-if [ "$mounted" = true ]; then
-	umount "$mountpoint" ||
-		fail "cannot unmount FRE3NDERSYS"
-
-	mounted=false
-	rmdir "$mountpoint"
-fi
-
-trap - EXIT HUP INT TERM
-
-echo "SYSTEM_PERSISTENCE_RESET_MARKER=PASS"
-REMOTE
-	) || die "cannot arm FRE3NDERSYS reset"
-
-	printf '%s\n' "$output"
-}
-
-detect_initial_side() {
-	local develop_status
-	local stock_status
-	local root_value
-	local selector_value
-
-	initial_side=
-	initial_selector=
-
-	if develop_status=$("$ab_cmd" "$develop_host" status 2>/dev/null); then
-		root_value=$(
-			printf '%s\n' "$develop_status" |
-				field ACTIVE_ROOT 2>/dev/null
-		) || root_value=
-
-		selector_value=$(
-			printf '%s\n' "$develop_status" |
-				field CLASSIFICATION 2>/dev/null
-		) || selector_value=
-
-		if [ "$root_value" = /dev/mmcblk0p8 ] &&
-			{ [ "$selector_value" = STOCK_A ] ||
-			  [ "$selector_value" = DEVELOP_B ]; }; then
-
-			initial_side=develop
-			initial_selector=$selector_value
-			return
-		fi
-	fi
-
-	if stock_status=$("$ab_cmd" "$stock_host" status 2>/dev/null); then
-		root_value=$(
-			printf '%s\n' "$stock_status" |
-				field ACTIVE_ROOT 2>/dev/null
-		) || root_value=
-
-		selector_value=$(
-			printf '%s\n' "$stock_status" |
-				field CLASSIFICATION 2>/dev/null
-		) || selector_value=
-
-		if [ "$root_value" = /dev/mmcblk0p7 ] &&
-			[ "$selector_value" = STOCK_A ]; then
-
-			initial_side=stock
-			initial_selector=STOCK_A
-			return
-		fi
-	fi
-
-	die "initial state is neither known Fre3nder B nor Stock A"
-}
-
 preflight() {
-	detect_initial_side
-
-	case "$initial_side" in
-	develop)
-		verify_develop_b \
-			"$initial_selector"
-		;;
-	stock)
-		verify_stock_a
-		;;
-	*)
-		die "internal initial-side classification failed"
-		;;
-	esac
+	detect_slots
+	verify_target_metadata
 
 	echo
-	echo "Fre3nder X2000 deployment preflight: PASS"
-	echo "no partition writes, selector changes, or reboots performed"
+	echo "Fre3nder X2000 inactive-slot staging preflight: PASS"
+	echo "no partition writes, selector changes, SYS changes, or reboots performed"
 }
 
 deploy_write() {
 	local -a before_hashes
 	local -a after_hashes
-	local before_p5
-	local before_p7
-	local after_p5
-	local after_p7
+	local before_kernel
+	local before_root
+	local after_kernel
+	local after_root
 
-	detect_initial_side
-
-	if [ "$initial_side" = develop ]; then
-		verify_develop_b "$initial_selector"
-
-		if [ "$initial_selector" = DEVELOP_B ]; then
-			"$ab_cmd" "$develop_host" select-a ||
-				die "initial select-a failed"
-
-			verify_develop_b STOCK_A
-		fi
-
-		request_reboot "$develop_host"
-
-		echo
-		echo "Stock A wurde zum Booten aufgefordert."
-		echo
-		echo "Warte auf Operator:"
-		echo "- Stock A vollständig starten lassen"
-		echo "- SSH auf Stock A manuell aktivieren"
-		echo "- danach ENTER drücken"
-
-		read -r ||
-			die "operator confirmation for Stock A failed"
-	fi
-
-	verify_stock_a
+	detect_slots
+	verify_target_metadata
 
 	mapfile -t before_hashes < <(
-		stock_hashes |
+		active_hashes |
 			awk '{print $1}'
 	)
 
 	[ "${#before_hashes[@]}" -eq 2 ] ||
-		die "cannot obtain Stock p5/p7 pre-write hashes"
+		die "cannot obtain active-slot pre-write hashes"
 
-	before_p5=${before_hashes[0]}
-	before_p7=${before_hashes[1]}
+	before_kernel=${before_hashes[0]}
+	before_root=${before_hashes[1]}
 
 	if selected "$deploy_kernel"; then
 		write_and_verify \
 			"$artifact_dir/kernel.uImage" \
-			/dev/mmcblk0p6 \
+			"$target_kernel_device" \
 			"$kernel_sha" \
 			"$kernel_size" \
 			kernel
@@ -962,74 +644,42 @@ deploy_write() {
 	if selected "$deploy_rootfs"; then
 		write_and_verify \
 			"$artifact_dir/rootfs.squashfs" \
-			/dev/mmcblk0p8 \
+			"$target_root_device" \
 			"$rootfs_sha" \
 			"$rootfs_size" \
 			rootfs
 	fi
 
-	verify_stock_a
+	verify_target_metadata
 
 	mapfile -t after_hashes < <(
-		stock_hashes |
+		active_hashes |
 			awk '{print $1}'
 	)
 
 	[ "${#after_hashes[@]}" -eq 2 ] ||
-		die "cannot obtain Stock p5/p7 post-write hashes"
+		die "cannot obtain active-slot post-write hashes"
 
-	after_p5=${after_hashes[0]}
-	after_p7=${after_hashes[1]}
+	after_kernel=${after_hashes[0]}
+	after_root=${after_hashes[1]}
 
-	[ "$before_p5" = "$after_p5" ] ||
-		die "Stock p5 changed during deployment"
+	[ "$before_kernel" = "$after_kernel" ] ||
+		die "active-slot kernel changed during staging"
 
-	[ "$before_p7" = "$after_p7" ] ||
-		die "Stock p7 changed during deployment"
+	[ "$before_root" = "$after_root" ] ||
+		die "active-slot RootFS changed during staging"
 
-	echo "Stock p5 unchanged: PASS"
-	echo "Stock p7 unchanged: PASS"
-
-	if selected "$deploy_rootfs"; then
-		mark_system_persistence_reset
-	fi
-
-	"$ab_cmd" "$stock_host" select-b ||
-		die "select-b failed"
-
-	request_reboot "$stock_host"
-
-	echo
-	echo "Fre3nder B wurde zum Booten aufgefordert."
-	echo
-	echo "Warte auf Operator:"
-	echo "- Fre3nder vollständig starten lassen"
-	echo "- danach ENTER drücken"
-
-	read -r ||
-		die "operator confirmation for Fre3nder B failed"
-
-	verify_develop_b DEVELOP_B
-	verify_develop_runtime
-
-	"$ab_cmd" "$develop_host" select-a ||
-		die "final select-a failed"
-
-	verify_develop_b STOCK_A
-	verify_develop_runtime
+	echo "active-slot kernel unchanged: PASS"
+	echo "active-slot RootFS unchanged: PASS"
 }
 
 main() {
-	[[ $# -ge 2 ]] || usage
+	[[ $# -ge 1 ]] || usage
 
-	develop_host=$1
-	stock_host=$2
-	shift 2
+	host=$1
+	shift
 
-	[[ -n "$develop_host" && "$develop_host" != -* ]] ||
-		usage
-
-	[[ -n "$stock_host" && "$stock_host" != -* ]] ||
+	[[ -n "$host" && "$host" != -* ]] ||
 		usage
 
 	while [[ $# -gt 0 ]]; do
@@ -1118,26 +768,24 @@ main() {
 	echo "=== DEPLOY RESULT ==="
 
 	if selected "$deploy_kernel"; then
-		echo "KERNEL_P6=PASS"
+		echo "KERNEL_P${target_kernel_number}=PASS"
 	else
-		echo "KERNEL_P6=SKIPPED"
+		echo "KERNEL=SKIPPED"
 	fi
 
 	if selected "$deploy_rootfs"; then
-		echo "ROOTFS_P8=PASS"
+		echo "ROOTFS_P${target_root_number}=PASS"
 	else
-		echo "ROOTFS_P8=SKIPPED"
+		echo "ROOTFS=SKIPPED"
 	fi
 
-	if selected "$deploy_rootfs"; then
-		echo "SYSTEM_PERSISTENCE_RESET=PASS"
-	else
-		echo "SYSTEM_PERSISTENCE_RESET=SKIPPED"
-	fi
-
-	echo "FINAL_ACTIVE_ROOT=/dev/mmcblk0p8"
-	echo "FINAL_SELECTOR=STOCK_A"
-	echo "DEPLOY_X2000=PASS"
+	echo "ACTIVE_SLOT=$active_slot"
+	echo "TARGET_SLOT=$target_slot"
+	echo "SELECTOR_SLOT=$selector_slot"
+	echo "SYSTEM_PERSISTENCE_RESET=NOT_PERFORMED"
+	echo "ACTIVATION=NOT_PERFORMED"
+	echo "REBOOT=NOT_PERFORMED"
+	echo "DEPLOY_X2000_STAGE=PASS"
 }
 
 main "$@"

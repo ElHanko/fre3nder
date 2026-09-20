@@ -1,8 +1,9 @@
 # Installing and updating Fre3nder
 
 The current X2000 deployment tool is
-[`scripts/deploy-x2000`](../scripts/deploy-x2000). It manages the Slot-B host
-kernel on p6 and RootFS on p8.
+[`scripts/deploy-x2000`](../scripts/deploy-x2000). It stages the host kernel
+and RootFS into the inactive X2000 A/B slot. Slot A uses p5/p7 and Slot B uses
+p6/p8.
 
 Without a component option, both kernel and RootFS are selected. The same
 selection can be requested explicitly with `--all`; `--kernel` and `--rootfs`
@@ -19,12 +20,16 @@ fingerprint; release artifacts retain the clean-worktree deployment gate.
 
 For each selected component, the tool verifies the local artifact against
 `SHA256SUMS` and the build manifest, checks that relevant build inputs have not
-changed since the artifact source commit, validates the A/B partition and
-selector state, writes only the selected inactive Slot-B partition, and
-performs a complete artifact-length SHA-256 readback. During a write deployment
-Stock p5 and p7 are also verified unchanged before Slot B is booted. After the
-new Slot-B host has booted successfully, the selector is restored to
-`STOCK_A`.
+changed since the artifact source commit, identifies the active and inactive
+A/B slots, and requires the boot selector to still point to the active slot.
+It validates the inactive target partitions and, in `--write` mode, writes only
+the selected inactive-slot artifacts followed by a complete artifact-length
+SHA-256 readback. The active kernel and RootFS partitions are hashed before and
+after staging and must remain unchanged.
+
+`deploy-x2000` is intentionally a staging operation. It does not change the boot
+selector, arm a system-persistence reset, activate the staged slot, or reboot
+the printer. Activation is a separate OTA transaction step.
 
 The X2000 deploy tool intentionally does not install or update the F005 MCU.
 MCU firmware lifecycle management is a separate responsibility and is not part
@@ -63,9 +68,9 @@ already current Fre3nder MCU is not reflashed. An exact supported Stock MCU is
 first checked through the qualified no-write transition preflight and is then
 passed once to the existing open Stock-to-Fre3nder transition helper.
 
-`deploy-f005` does not modify the X2000 selector or p6/p8. The Fre3nder RootFS
-carries the qualified F005 release as its immutable baseline, so a
-system-overlay reset makes that image visible again. Any replacement in the
+`deploy-f005` does not modify the X2000 selector or the host A/B partitions.
+The Fre3nder RootFS carries the qualified F005 release as its immutable
+baseline, so a system-overlay reset makes that image visible again. Any replacement in the
 writable system overlay and every MCU transition remain explicit
 operator-controlled `deploy-f005` actions; normal boot does not flash the MCU.
 
