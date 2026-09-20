@@ -351,9 +351,7 @@ WRITE_INACTIVE_SLOT
     |
 READBACK_VERIFY
     |
-SCHEDULE_SYS_RESET
-    |
-ACTIVATE_NEW_SLOT
+PREPARE_ACTIVATION
     |
 REBOOT
     |
@@ -376,6 +374,15 @@ write B
 
 Activation occurs only after the complete required target-slot contents have
 passed their defined verification.
+
+`PREPARE_ACTIVATION` represents a recovery-safe transition that coordinates
+candidate-slot selection with the required clean-`SYS` state. The exact
+mechanism and ordering are intentionally not fixed here until boot-selector and
+rollback behavior have been established.
+
+An interrupted activation transition must not cause the previously active slot
+to reset `SYS` unintentionally, and it must not allow the candidate slot to boot
+with stale `SYS`.
 
 ## SYS update semantics
 
