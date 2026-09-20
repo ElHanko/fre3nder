@@ -7,6 +7,8 @@ new_root=${FRE3NDER_NEW_ROOT:-/mnt/fre3nder-root}
 immutable_home=${FRE3NDER_IMMUTABLE_HOME:-/home}
 immutable_rom=${FRE3NDER_IMMUTABLE_ROM:-/rom}
 reset_marker=$system_mount/.fre3nder-reset
+target_reset_marker=$system_mount/.fre3nder-reset-target
+cmdline=${FRE3NDER_CMDLINE:-/proc/cmdline}
 blkid_cmd=${FRE3NDER_BLKID:-/sbin/blkid}
 mount_cmd=${FRE3NDER_MOUNT:-mount}
 umount_cmd=${FRE3NDER_UMOUNT:-umount}
@@ -121,20 +123,79 @@ fail() {
 }
 
 handle_reset() {
-	if [ ! -e "$reset_marker" ] && [ ! -L "$reset_marker" ]; then
+	legacy_present=false
+	target_present=false
+	marker_to_remove=
+
+	if [ -e "$reset_marker" ] || [ -L "$reset_marker" ]; then
+		[ -f "$reset_marker" ] && [ ! -L "$reset_marker" ] || return 1
+		[ "$(cat "$reset_marker" 2>/dev/null)" = RESET_ON_NEXT_BOOT ] ||
+			return 1
+		legacy_present=true
+	fi
+
+	if [ -e "$target_reset_marker" ] || [ -L "$target_reset_marker" ]; then
+		[ -f "$target_reset_marker" ] &&
+		[ ! -L "$target_reset_marker" ] ||
+			return 1
+
+		marker_value=$(cat "$target_reset_marker" 2>/dev/null) ||
+			return 1
+
+		case "$marker_value" in
+		RESET_ON_NEXT_BOOT_ROOT=/dev/mmcblk0p7|RESET_ON_NEXT_BOOT_ROOT=/dev/mmcblk0p8)
+			expected_root=${marker_value#RESET_ON_NEXT_BOOT_ROOT=}
+			;;
+		*)
+			return 1
+			;;
+		esac
+
+		target_present=true
+	fi
+
+	[ "$legacy_present" = false ] ||
+	[ "$target_present" = false ] ||
+		return 1
+
+	if [ "$legacy_present" = false ] &&
+		[ "$target_present" = false ]; then
 		return 0
 	fi
-	if [ ! -f "$reset_marker" ] || [ -L "$reset_marker" ] ||
-		[ "$(cat "$reset_marker" 2>/dev/null)" != RESET_ON_NEXT_BOOT ]; then
-		return 1
+
+	if [ "$target_present" = true ]; then
+		active_root=
+		root_count=0
+
+		for argument in $(cat "$cmdline" 2>/dev/null); do
+			case "$argument" in
+			root=*)
+				active_root=${argument#root=}
+				root_count=$((root_count + 1))
+				;;
+			esac
+		done
+
+		[ "$root_count" -eq 1 ] || return 1
+
+		if [ "$active_root" != "$expected_root" ]; then
+			log "targeted system persistence reset deferred for $expected_root"
+			return 0
+		fi
+
+		marker_to_remove=$target_reset_marker
+	else
+		marker_to_remove=$reset_marker
 	fi
 
 	rm -rf -- "$system_mount/upper" "$system_mount/work" || return 1
 	mkdir -m 0755 "$system_mount/upper" || return 1
 	mkdir -m 0700 "$system_mount/work" || return 1
 	sync
-	rm -f -- "$reset_marker" || return 1
+
+	rm -f -- "$marker_to_remove" || return 1
 	sync
+
 	log 'authorized system persistence reset completed'
 }
 

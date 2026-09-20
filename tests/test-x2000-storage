@@ -20,6 +20,7 @@ blkid_output=$tmp/blkid-output
 bin=$tmp/bin
 log=$tmp/log
 sleep_count=$tmp/sleep-count
+cmdline=$tmp/cmdline
 
 mkdir -p "$bin"
 
@@ -120,9 +121,10 @@ chmod 0755 	"$bin/blkid" 	"$bin/mount" 	"$bin/umount" 	"$bin/sleep" 	"$bin/pivot
 
 reset_case() {
 	rm -rf -- "$state" "$new_root" "$immutable_home" "$immutable_rom" \
-		"$volumes" "$blkid_output" "$log" "$sleep_count"
+		"$volumes" "$blkid_output" "$log" "$sleep_count" "$cmdline"
 	mkdir -p "$new_root" "$immutable_home" "$immutable_rom" "$volumes"
 	: > "$blkid_output"
+	printf '%s\n' 'console=ttyS4 root=/dev/mmcblk0p7 rootwait' > "$cmdline"
 	unset \
 		X2000_TEST_SYSTEM_FAIL \
 		X2000_TEST_OVERLAY_FAIL \
@@ -178,6 +180,7 @@ run_root_setup() {
 	FRE3NDER_SLEEP="$bin/sleep" \
 	FRE3NDER_STORAGE_WAIT_SECONDS="${X2000_TEST_WAIT_SECONDS:-0}" \
 	FRE3NDER_ROOT_TEST_MODE="${X2000_TEST_ROOT_TEST_MODE:-true}" \
+	FRE3NDER_CMDLINE="$cmdline" \
 		"$root_setup" start
 }
 
@@ -279,6 +282,31 @@ status_is active
 [ -d "$state/system/upper" ] && [ ! -e "$state/system/upper/stale" ]
 [ -d "$state/system/work" ] && [ ! -e "$state/system/work/stale" ]
 [ ! -e "$state/system/.fre3nder-reset" ]
+
+# A targeted marker resets only when the intended root is active.
+reset_case
+normal_sources
+mkdir -p "$volumes/system/upper" "$volumes/system/work"
+printf stale > "$volumes/system/upper/stale"
+printf '%s\n' 'RESET_ON_NEXT_BOOT_ROOT=/dev/mmcblk0p7' \
+	> "$volumes/system/.fre3nder-reset-target"
+run_root_setup
+status_is active
+[ ! -e "$state/system/upper/stale" ]
+[ ! -e "$state/system/.fre3nder-reset-target" ]
+
+# A targeted marker for the other slot is retained and does not reset SYS.
+reset_case
+normal_sources
+mkdir -p "$volumes/system/upper" "$volumes/system/work"
+printf retained > "$volumes/system/upper/marker"
+printf '%s\n' 'RESET_ON_NEXT_BOOT_ROOT=/dev/mmcblk0p8' \
+	> "$volumes/system/.fre3nder-reset-target"
+run_root_setup
+status_is active
+[ "$(cat "$state/system/upper/marker")" = retained ]
+[ "$(cat "$state/system/.fre3nder-reset-target")" = \
+	'RESET_ON_NEXT_BOOT_ROOT=/dev/mmcblk0p8' ]
 
 # An invalid marker never authorizes deletion.
 reset_case

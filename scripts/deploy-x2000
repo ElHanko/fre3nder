@@ -6,6 +6,8 @@ root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 artifact_dir=${X2000_DEPLOY_ARTIFACT_DIR:-"$root/local/production/artifacts/x2000/full"}
 ssh_cmd=${X2000_DEPLOY_SSH:-ssh}
 ab_cmd=${X2000_DEPLOY_AB:-"$root/scripts/x2000-ab"}
+boot_timeout=${X2000_DEPLOY_BOOT_TIMEOUT:-120}
+boot_poll=${X2000_DEPLOY_BOOT_POLL:-2}
 
 mode=preflight
 develop_mode=false
@@ -53,11 +55,14 @@ usage:
   $0 <active-host> [OPTIONS]
 
 components:
-  --kernel    stage the kernel in the inactive A/B slot
-  --rootfs    stage the RootFS in the inactive A/B slot
+  --kernel    stage only the kernel in the inactive A/B slot;
+              requires --develop when used without --rootfs
+  --rootfs    stage only the RootFS in the inactive A/B slot;
+              requires --develop when used without --kernel
   --all       stage kernel + RootFS
 
 If no component option is given, --all is implied.
+Without --develop, a Fre3nder deployment always requires kernel + RootFS.
 
 stock restore:
   --stock [DIR]
@@ -68,11 +73,14 @@ stock restore:
 
 execution:
   default     fail-closed read-only preflight
-  --write     write and read back the selected inactive-slot artifacts
+  --write     write and verify the selected inactive-slot artifacts;
+              normal Fre3nder deployment then activates and boots that slot
   --develop   accept a fingerprint-matched development artifact;
               does not imply --write or relax hardware safety gates
 
-This command does not change the boot selector, arm a SYS reset, or reboot.
+Normal Fre3nder --write prepares a clean SYS transition, selects the verified
+target slot, reboots, and validates the new boot. --stock --write stages Stock A
+only and does not change the selector or reboot.
 EOF
 	exit 2
 }
@@ -627,6 +635,267 @@ active_hashes() {
 		"sha256sum '$active_kernel_device' '$active_root_device'"
 }
 
+arm_system_persistence_reset() {
+	local output
+
+	output=$(
+		"$ssh_cmd" -o BatchMode=yes "$host" \
+			"TARGET_ROOT='$target_root_device' sh -eu" <<'REMOTE'
+fail() {
+	echo "REMOTE REFUSED: $*" >&2
+	exit 1
+}
+
+case "$TARGET_ROOT" in
+/dev/mmcblk0p7|/dev/mmcblk0p8)
+	;;
+*)
+	fail "target root is invalid"
+	;;
+esac
+
+status_file=/run/fre3nder-root/status
+system_mount=/run/fre3nder-root/system
+
+[ -f "$status_file" ] &&
+[ ! -L "$status_file" ] &&
+[ "$(cat "$status_file")" = active ] ||
+	fail "Fre3nder persistent root is not active"
+
+[ -d "$system_mount" ] &&
+[ ! -L "$system_mount" ] ||
+	fail "system persistence mountpoint is invalid"
+
+mount_count=0
+
+while read -r _ mounted_path mounted_type mounted_options _; do
+	[ "$mounted_path" = "$system_mount" ] || continue
+
+	mount_count=$((mount_count + 1))
+
+	[ "$mounted_type" = ext4 ] ||
+		fail "system persistence is not ext4"
+
+	case ",$mounted_options," in
+	*,rw,*)
+		;;
+	*)
+		fail "system persistence is not writable"
+		;;
+	esac
+done < /proc/mounts
+
+[ "$mount_count" -eq 1 ] ||
+	fail "system persistence mount is not unique"
+
+legacy_marker=$system_mount/.fre3nder-reset
+marker=$system_mount/.fre3nder-reset-target
+temporary=$system_mount/.fre3nder-reset-target.tmp.$$
+
+cleanup() {
+	rm -f "$temporary" 2>/dev/null || true
+}
+trap cleanup EXIT HUP INT TERM
+
+[ ! -e "$temporary" ] && [ ! -L "$temporary" ] ||
+	fail "temporary reset marker already exists"
+
+[ ! -e "$legacy_marker" ] && [ ! -L "$legacy_marker" ] ||
+	fail "legacy system reset marker is already pending"
+
+if [ -e "$marker" ] || [ -L "$marker" ]; then
+	[ -f "$marker" ] && [ ! -L "$marker" ] ||
+		fail "targeted reset marker is invalid"
+
+	rm -f "$marker" ||
+		fail "cannot replace targeted reset marker"
+fi
+
+umask 077
+printf 'RESET_ON_NEXT_BOOT_ROOT=%s\n' "$TARGET_ROOT" > "$temporary" ||
+	fail "cannot write temporary reset marker"
+
+[ -f "$temporary" ] &&
+[ ! -L "$temporary" ] &&
+[ "$(cat "$temporary")" = "RESET_ON_NEXT_BOOT_ROOT=$TARGET_ROOT" ] ||
+	fail "temporary reset marker verification failed"
+
+mv -f "$temporary" "$marker" ||
+	fail "cannot install targeted reset marker"
+
+sync
+
+[ -f "$marker" ] &&
+[ ! -L "$marker" ] &&
+[ "$(cat "$marker")" = "RESET_ON_NEXT_BOOT_ROOT=$TARGET_ROOT" ] ||
+	fail "targeted reset marker verification failed"
+
+trap - EXIT HUP INT TERM
+
+echo "SYSTEM_PERSISTENCE_RESET_MARKER=PASS"
+REMOTE
+	) || die "cannot arm targeted system persistence reset"
+
+	printf '%s\n' "$output"
+}
+
+activate_target_slot() {
+	local action
+	local expected_class
+	local status
+	local actual_root
+	local actual_class
+
+	case "$target_slot" in
+	A)
+		action=select-a
+		expected_class=STOCK_A
+		;;
+	B)
+		action=select-b
+		expected_class=DEVELOP_B
+		;;
+	*)
+		die "target slot is invalid"
+		;;
+	esac
+
+	"$ab_cmd" "$host" "$action" ||
+		die "$action failed"
+
+	status=$(ab_status "$host") ||
+		die "cannot verify target selector"
+
+	actual_root=$(
+		printf '%s\n' "$status" |
+			field ACTIVE_ROOT
+	) || die "cannot verify active root before reboot"
+
+	actual_class=$(
+		printf '%s\n' "$status" |
+			field CLASSIFICATION
+	) || die "cannot verify selector before reboot"
+
+	[ "$actual_root" = "$active_root_device" ] ||
+		die "active root changed before reboot"
+
+	[ "$actual_class" = "$expected_class" ] ||
+		die "target selector verification failed"
+
+	echo "target selector: $target_slot"
+}
+
+request_reboot() {
+	"$ssh_cmd" -o BatchMode=yes "$host" \
+		'sync; reboot' >/dev/null 2>&1 || :
+}
+
+wait_for_target_boot() {
+	local expected_class
+	local deadline
+	local status
+	local actual_root
+	local actual_class
+
+	case "$target_slot" in
+	A)
+		expected_class=STOCK_A
+		;;
+	B)
+		expected_class=DEVELOP_B
+		;;
+	*)
+		die "target slot is invalid"
+		;;
+	esac
+
+	deadline=$((SECONDS + boot_timeout))
+
+	while [ "$SECONDS" -lt "$deadline" ]; do
+		if status=$(ab_status "$host" 2>/dev/null); then
+			actual_root=$(
+				printf '%s\n' "$status" |
+					field ACTIVE_ROOT 2>/dev/null
+			) || actual_root=
+
+			actual_class=$(
+				printf '%s\n' "$status" |
+					field CLASSIFICATION 2>/dev/null
+			) || actual_class=
+
+			if [ "$actual_root" = "$target_root_device" ] &&
+				[ "$actual_class" = "$expected_class" ]; then
+
+				echo "booted target slot: $target_slot"
+				echo "booted root: $actual_root"
+				return
+			fi
+		fi
+
+		sleep "$boot_poll"
+	done
+
+	die "target slot did not become reachable within ${boot_timeout}s"
+}
+
+verify_fre3nder_runtime() {
+	"$ssh_cmd" -o BatchMode=yes "$host" 'sh -eu' <<'REMOTE'
+fail() {
+	echo "REMOTE REFUSED: $*" >&2
+	exit 1
+}
+
+[ -f /run/fre3nder-root/status ] &&
+[ ! -L /run/fre3nder-root/status ] &&
+[ "$(cat /run/fre3nder-root/status)" = active ] ||
+	fail "Fre3nder persistent root is not active"
+
+mount_contract() {
+	path=$1
+	type=$2
+	mode=$3
+
+	awk -v path="$path" -v type="$type" -v mode="$mode" '
+		$2 == path && $3 == type {
+			n = split($4, options, ",")
+			mode_found = 0
+
+			for (i = 1; i <= n; i++)
+				if (options[i] == mode)
+					mode_found = 1
+
+			if (mode_found)
+				found++
+		}
+
+		END {
+			if (found != 1)
+				exit 1
+		}
+	' /proc/mounts
+}
+
+mount_contract / overlay rw ||
+	fail "root filesystem is not writable OverlayFS"
+
+mount_contract /rom squashfs ro ||
+	fail "immutable lower is not read-only SquashFS"
+
+mount_contract /home ext4 rw ||
+	fail "persistent home is not writable ext4"
+
+mount_contract /run/fre3nder-root/system ext4 rw ||
+	fail "system persistence is not writable ext4"
+
+reset_marker=/run/fre3nder-root/system/.fre3nder-reset-target
+
+[ ! -e "$reset_marker" ] && [ ! -L "$reset_marker" ] ||
+	fail "targeted system persistence reset marker was not consumed"
+
+echo "HOST_RUNTIME=PASS"
+REMOTE
+}
+
 ensure_tmp() {
 	if [ -z "$tmp" ]; then
 		tmp=$(mktemp -d) ||
@@ -766,6 +1035,19 @@ deploy_write() {
 
 	echo "active-slot kernel unchanged: PASS"
 	echo "active-slot RootFS unchanged: PASS"
+
+	if [ "$stock_mode" = true ]; then
+		return
+	fi
+
+	if selected "$deploy_rootfs"; then
+		arm_system_persistence_reset
+	fi
+
+	activate_target_slot
+	request_reboot
+	wait_for_target_boot
+	verify_fre3nder_runtime
 }
 
 main() {
@@ -776,6 +1058,12 @@ main() {
 
 	[[ -n "$host" && "$host" != -* ]] ||
 		usage
+
+	[[ "$boot_timeout" =~ ^[1-9][0-9]*$ ]] ||
+		die "X2000_DEPLOY_BOOT_TIMEOUT must be a positive integer"
+
+	[[ "$boot_poll" =~ ^[1-9][0-9]*$ ]] ||
+		die "X2000_DEPLOY_BOOT_POLL must be a positive integer"
 
 	while [[ $# -gt 0 ]]; do
 		case "$1" in
@@ -868,6 +1156,15 @@ main() {
 		deploy_rootfs=true
 	fi
 
+	if [ "$stock_mode" = false ] &&
+		[ "$develop_mode" = false ]; then
+
+		if [ "$deploy_kernel" != true ] ||
+			[ "$deploy_rootfs" != true ]; then
+			die "--kernel or --rootfs alone requires --develop; normal Fre3nder deployment requires kernel + RootFS"
+		fi
+	fi
+
 	echo "=== DEPLOY PLAN ==="
 	echo "KERNEL=$(plan_value "$deploy_kernel")"
 	echo "ROOTFS=$(plan_value "$deploy_rootfs")"
@@ -921,17 +1218,29 @@ main() {
 
 	if [ "$stock_mode" = true ]; then
 		echo "STAGING_KIND=STOCK_A_RESTORE"
+		echo "ACTIVE_SLOT=$active_slot"
+		echo "TARGET_SLOT=$target_slot"
+		echo "SELECTOR_SLOT=$selector_slot"
+		echo "SYSTEM_PERSISTENCE_RESET=NOT_PERFORMED"
+		echo "ACTIVATION=NOT_PERFORMED"
+		echo "REBOOT=NOT_PERFORMED"
+		echo "DEPLOY_X2000_STAGE=PASS"
 	else
 		echo "STAGING_KIND=FRE3NDER_UPDATE"
-	fi
 
-	echo "ACTIVE_SLOT=$active_slot"
-	echo "TARGET_SLOT=$target_slot"
-	echo "SELECTOR_SLOT=$selector_slot"
-	echo "SYSTEM_PERSISTENCE_RESET=NOT_PERFORMED"
-	echo "ACTIVATION=NOT_PERFORMED"
-	echo "REBOOT=NOT_PERFORMED"
-	echo "DEPLOY_X2000_STAGE=PASS"
+		if selected "$deploy_rootfs"; then
+			echo "SYSTEM_PERSISTENCE_RESET=PASS"
+		else
+			echo "SYSTEM_PERSISTENCE_RESET=SKIPPED"
+		fi
+
+		echo "ACTIVATION=PASS"
+		echo "REBOOT=PASS"
+		echo "FINAL_ACTIVE_SLOT=$target_slot"
+		echo "FINAL_ACTIVE_ROOT=$target_root_device"
+		echo "FINAL_SELECTOR_SLOT=$target_slot"
+		echo "DEPLOY_X2000=PASS"
+	fi
 }
 
 main "$@"

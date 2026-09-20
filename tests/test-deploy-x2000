@@ -1,9 +1,19 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-source_root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+repo=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+deploy=$repo/scripts/deploy-x2000
 
 tmp=$(mktemp -d)
+artifact_dir=$tmp/artifacts
+stock_source=$tmp/stock
+bin=$tmp/bin
+active=$tmp/active
+selector=$tmp/selector
+log=$tmp/log
+marker=$tmp/reset-marker
+hash_count=$tmp/hash-count
+slots=$tmp/slots
 
 cleanup() {
 	local result=$?
@@ -14,41 +24,93 @@ cleanup() {
 
 trap cleanup EXIT HUP INT TERM
 
-root=$tmp/project
-mkdir -p "$root/scripts"
-cp -a \
-	"$source_root/VERSION" \
-	"$source_root/build" \
-	"$source_root/configs" \
-	"$source_root/patches" \
-	"$root/"
-cp -a \
-	"$source_root/scripts/build-x2000" \
-	"$source_root/scripts/build-x2000-buildroot" \
-	"$source_root/scripts/build-x2000-guppyscreen" \
-	"$source_root/scripts/build-x2000-kernel" \
-	"$source_root/scripts/build-x2000-moonraker" \
-	"$source_root/scripts/deploy-x2000" \
-	"$source_root/scripts/x2000-build-input-sha256" \
-	"$root/scripts/"
-git -C "$root" init -q
-git -C "$root" config user.email tests@example.invalid
-git -C "$root" config user.name 'Fre3nder tests'
-git -C "$root" add .
-git -C "$root" commit -qm fixture
+mkdir -p "$artifact_dir" "$bin" "$slots"
 
-deploy="$root/scripts/deploy-x2000"
-artifact_dir=$tmp/artifacts
-bin=$tmp/bin
-state=$tmp/state
-selector=$tmp/selector
-log=$tmp/log
-p6=$tmp/p6
-p8=$tmp/p8
-hash_count=$tmp/hash-count
-operator_input=$tmp/operator-input
 
-mkdir -p "$bin"
+# ----------------------------------------------------------------------
+# Stock checksum fixture
+# ----------------------------------------------------------------------
+
+cat > "$bin/sha256sum" <<'EOF'
+#!/bin/sh
+set -eu
+
+file=${1:-}
+
+case "${file##*/}" in
+p5.img|kernel.readback)
+	hash=1111111111111111111111111111111111111111111111111111111111111111
+	;;
+p7.img|rootfs.readback)
+	hash=2222222222222222222222222222222222222222222222222222222222222222
+	;;
+*)
+	exit 1
+	;;
+esac
+
+printf '%s  %s\n' "$hash" "$file"
+EOF
+
+chmod 0755 "$bin/sha256sum"
+
+
+# ----------------------------------------------------------------------
+# Development artifacts matching the current dirty build inputs
+# ----------------------------------------------------------------------
+
+printf 'kernel-candidate\n' > "$artifact_dir/kernel.uImage"
+printf 'rootfs-candidate\n' > "$artifact_dir/rootfs.squashfs"
+
+kernel_sha=$(
+	sha256sum "$artifact_dir/kernel.uImage" |
+		awk '{print $1}'
+)
+
+rootfs_sha=$(
+	sha256sum "$artifact_dir/rootfs.squashfs" |
+		awk '{print $1}'
+)
+
+printf '%s  kernel.uImage\n' "$kernel_sha" \
+	> "$artifact_dir/SHA256SUMS"
+
+printf '%s  rootfs.squashfs\n' "$rootfs_sha" \
+	>> "$artifact_dir/SHA256SUMS"
+
+head_commit=$(git -C "$repo" rev-parse HEAD)
+fingerprint=$(
+	"$repo/scripts/x2000-build-input-sha256" --root "$repo"
+)
+
+python3 - \
+	"$artifact_dir/build-manifest.json" \
+	"$head_commit" \
+	"$fingerprint" \
+	"$kernel_sha" \
+	"$rootfs_sha" <<'PY'
+import json
+import pathlib
+import sys
+
+path, commit, fingerprint, kernel_sha, rootfs_sha = sys.argv[1:]
+
+manifest = {
+    "artifact_mode": "development",
+    "project_commit": commit,
+    "project_worktree_status": "dirty",
+    "build_input_sha256": fingerprint,
+    "artifacts": {
+        "kernel.uImage": kernel_sha,
+        "rootfs.squashfs": rootfs_sha,
+    },
+}
+
+pathlib.Path(path).write_text(
+    json.dumps(manifest, indent=2) + "\n",
+    encoding="utf-8",
+)
+PY
 
 
 # ----------------------------------------------------------------------
@@ -61,133 +123,66 @@ set -eu
 
 host=$1
 action=$2
-phase=$(cat "$X2000_TEST_STATE")
 
-root_for_phase() {
+[ "$host" = printer ] || exit 1
+
+root_for_slot() {
 	case "$1" in
-	develop-initial)
-		printf '%s\n' "${X2000_TEST_DEVELOP_ROOT:-/dev/mmcblk0p8}"
-		;;
-	develop-initial-after-a)
-		printf '%s\n' "${X2000_TEST_INITIAL_AFTER_A_ROOT:-/dev/mmcblk0p8}"
-		;;
-	develop-after-b)
-		printf '%s\n' "${X2000_TEST_POST_B_ROOT:-/dev/mmcblk0p8}"
-		;;
-	develop-final)
-		printf '%s\n' "${X2000_TEST_FINAL_ROOT:-/dev/mmcblk0p8}"
-		;;
-	stock)
-		printf '%s\n' "${X2000_TEST_STOCK_ROOT:-/dev/mmcblk0p7}"
-		;;
-	*)
-		exit 1
-		;;
+	A) printf '%s\n' /dev/mmcblk0p7 ;;
+	B) printf '%s\n' /dev/mmcblk0p8 ;;
+	*) exit 1 ;;
 	esac
 }
 
-selector_for_phase() {
-	current=$(cat "$X2000_TEST_SELECTOR")
-
+class_for_slot() {
 	case "$1" in
-	develop-initial)
-		printf '%s\n' "${X2000_TEST_DEVELOP_SELECTOR:-$current}"
-		;;
-	develop-initial-after-a)
-		printf '%s\n' "${X2000_TEST_INITIAL_AFTER_A_SELECTOR:-$current}"
-		;;
-	develop-after-b)
-		printf '%s\n' "${X2000_TEST_POST_B_SELECTOR:-$current}"
-		;;
-	develop-final)
-		printf '%s\n' "${X2000_TEST_FINAL_SELECTOR:-$current}"
-		;;
-	stock)
-		printf '%s\n' "${X2000_TEST_STOCK_SELECTOR:-$current}"
-		;;
-	*)
-		exit 1
-		;;
+	A) printf '%s\n' STOCK_A ;;
+	B) printf '%s\n' DEVELOP_B ;;
+	*) exit 1 ;;
 	esac
 }
 
 case "$action" in
 status)
-	case "$host:$phase" in
-	develop:develop-initial|\
-develop:develop-initial-after-a|\
-develop:develop-after-b|\
-develop:develop-final)
-		[ "${X2000_TEST_DEVELOP_AVAILABLE:-true}" = true ] ||
-			exit 1
-		;;
-	stock:stock)
-		[ "${X2000_TEST_STOCK_AVAILABLE:-true}" = true ] ||
-			exit 1
-		;;
-	*)
-		exit 1
-		;;
-	esac
-
-	active_root=$(root_for_phase "$phase")
-	classification=$(selector_for_phase "$phase")
+	active_slot=$(cat "$X2000_TEST_ACTIVE")
+	selector_slot=$(cat "$X2000_TEST_SELECTOR")
 
 	printf '%s\n' \
-		"ACTIVE_ROOT=$active_root" \
+		"ACTIVE_ROOT=$(root_for_slot "$active_slot")" \
 		'P1_DEVICE=/dev/mmcblk0p1' \
+		'P1_LABEL_DEVICE=UNRESOLVED' \
+		'P1_PARTLABEL=ABSENT_INFRASTRUCTURE' \
 		'P1_PARTITION_NUMBER=1' \
 		'P1_START=2048' \
 		'P1_SECTORS=2048' \
 		'P1_IDENTITY=VALID' \
-		"CLASSIFICATION=$classification"
+		'P1_RECORD_BYTES=512' \
+		'P1_SHA256=fixture' \
+		"CLASSIFICATION=$(class_for_slot "$selector_slot")"
 	;;
 
 select-a)
-	[ "$host" = develop ] ||
-		exit 1
-
-	case "$phase" in
-	develop-initial|develop-after-b)
-		;;
-	*)
-		exit 1
-		;;
-	esac
-
-	[ "$(cat "$X2000_TEST_SELECTOR")" = DEVELOP_B ] ||
-		exit 1
-
 	printf '%s\n' select-a >> "$X2000_TEST_LOG"
 
-	if [ "$phase" = develop-initial ]; then
-		[ "${X2000_TEST_INITIAL_SELECT_A_FAIL:-false}" != true ] ||
-			exit 1
+	[ "$(cat "$X2000_TEST_SELECTOR")" = B ] ||
+		exit 1
 
-		printf STOCK_A > "$X2000_TEST_SELECTOR"
-		printf develop-initial-after-a > "$X2000_TEST_STATE"
-	else
-		[ "${X2000_TEST_FINAL_SELECT_A_FAIL:-false}" != true ] ||
-			exit 1
+	[ "${X2000_TEST_SELECT_A_FAIL:-false}" != true ] ||
+		exit 1
 
-		printf STOCK_A > "$X2000_TEST_SELECTOR"
-		printf develop-final > "$X2000_TEST_STATE"
-	fi
+	printf A > "$X2000_TEST_SELECTOR"
 	;;
 
 select-b)
-	[ "$host:$phase" = stock:stock ] ||
-		exit 1
-
-	[ "$(cat "$X2000_TEST_SELECTOR")" = STOCK_A ] ||
-		exit 1
-
 	printf '%s\n' select-b >> "$X2000_TEST_LOG"
+
+	[ "$(cat "$X2000_TEST_SELECTOR")" = A ] ||
+		exit 1
 
 	[ "${X2000_TEST_SELECT_B_FAIL:-false}" != true ] ||
 		exit 1
 
-	printf DEVELOP_B > "$X2000_TEST_SELECTOR"
+	printf B > "$X2000_TEST_SELECTOR"
 	;;
 
 *)
@@ -218,229 +213,209 @@ while [ "$#" -gt 0 ]; do
 	esac
 done
 
+[ "$host" = printer ] || exit 1
+
 command=${1:-}
-phase=$(cat "$X2000_TEST_STATE")
+
+root_for_slot() {
+	case "$1" in
+	A) printf '%s\n' /dev/mmcblk0p7 ;;
+	B) printf '%s\n' /dev/mmcblk0p8 ;;
+	*) exit 1 ;;
+	esac
+}
 
 case "$command" in
 
+'sh -eu')
+	body=$(cat)
+
+	if printf '%s\n' "$body" |
+		grep -Fq '5:kernel:16384'; then
+
+		active_slot=$(cat "$X2000_TEST_ACTIVE")
+
+		printf '%s\n' \
+			'P5_DEVICE=/dev/mmcblk0p5' \
+			"P5_PARTLABEL=${X2000_TEST_P5_PARTLABEL:-VALID}" \
+			'P5_PARTITION_NUMBER=5' \
+			"P5_SECTORS=${X2000_TEST_P5_SECTORS:-16384}" \
+			"P5_MOUNTED=${X2000_TEST_P5_MOUNTED:-NO}" \
+			'P6_DEVICE=/dev/mmcblk0p6' \
+			"P6_PARTLABEL=${X2000_TEST_P6_PARTLABEL:-VALID}" \
+			'P6_PARTITION_NUMBER=6' \
+			"P6_SECTORS=${X2000_TEST_P6_SECTORS:-16384}" \
+			"P6_MOUNTED=${X2000_TEST_P6_MOUNTED:-NO}" \
+			'P7_DEVICE=/dev/mmcblk0p7' \
+			"P7_PARTLABEL=${X2000_TEST_P7_PARTLABEL:-VALID}" \
+			'P7_PARTITION_NUMBER=7' \
+			"P7_SECTORS=${X2000_TEST_P7_SECTORS:-1024000}" \
+			"P7_MOUNTED=${X2000_TEST_P7_MOUNTED:-NO}" \
+			'P8_DEVICE=/dev/mmcblk0p8' \
+			"P8_PARTLABEL=${X2000_TEST_P8_PARTLABEL:-VALID}" \
+			'P8_PARTITION_NUMBER=8' \
+			"P8_SECTORS=${X2000_TEST_P8_SECTORS:-1024000}" \
+			"P8_MOUNTED=${X2000_TEST_P8_MOUNTED:-NO}" \
+			"ACTIVE_ROOT=$(root_for_slot "$active_slot")"
+
+	elif printf '%s\n' "$body" |
+		grep -Fq 'HOST_RUNTIME=PASS'; then
+
+		printf '%s\n' "$body" |
+			grep -Fq '.fre3nder-reset-target' ||
+			exit 1
+
+		[ "${X2000_TEST_RUNTIME_FAIL:-false}" != true ] ||
+			exit 1
+
+		[ ! -e "$X2000_TEST_MARKER" ] ||
+			exit 1
+
+		printf '%s\n' runtime-pass >> "$X2000_TEST_LOG"
+		printf '%s\n' HOST_RUNTIME=PASS
+
+	else
+		exit 1
+	fi
+	;;
+
+"TARGET_ROOT='/dev/mmcblk0p7' sh -eu"|\
+"TARGET_ROOT='/dev/mmcblk0p8' sh -eu")
+	body=$(cat)
+
+	printf '%s\n' "$body" |
+		grep -Fq '.fre3nder-reset-target' ||
+		exit 1
+
+	printf '%s\n' "$body" |
+		grep -Fq 'legacy system reset marker is already pending' ||
+		exit 1
+
+	case "$command" in
+	*"mmcblk0p7"*)
+		target_root=/dev/mmcblk0p7
+		target_number=7
+		;;
+	*"mmcblk0p8"*)
+		target_root=/dev/mmcblk0p8
+		target_number=8
+		;;
+	*)
+		exit 1
+		;;
+	esac
+
+	printf 'arm-reset-p%s\n' "$target_number" \
+		>> "$X2000_TEST_LOG"
+
+	[ "${X2000_TEST_RESET_FAIL:-false}" != true ] ||
+		exit 1
+
+	printf 'RESET_ON_NEXT_BOOT_ROOT=%s\n' "$target_root" \
+		> "$X2000_TEST_MARKER"
+
+	printf '%s\n' SYSTEM_PERSISTENCE_RESET_MARKER=PASS
+	;;
+
 'sync; reboot')
-	printf 'reboot-%s\n' "$host" >> "$X2000_TEST_LOG"
+	printf '%s\n' reboot >> "$X2000_TEST_LOG"
 
-	case "$host:$phase" in
-	develop:develop-initial|develop:develop-initial-after-a)
-		[ "${X2000_TEST_REBOOT_DEVELOP:-true}" = true ] &&
-			printf stock > "$X2000_TEST_STATE"
+	if [ "${X2000_TEST_BOOT_STUCK:-false}" != true ]; then
+		cat "$X2000_TEST_SELECTOR" > "$X2000_TEST_ACTIVE"
+
+		if [ "${X2000_TEST_CONSUME_MARKER:-true}" = true ]; then
+			rm -f -- "$X2000_TEST_MARKER"
+		fi
+	fi
+	;;
+
+"sha256sum '/dev/mmcblk0p5' '/dev/mmcblk0p7'"|\
+"sha256sum '/dev/mmcblk0p6' '/dev/mmcblk0p8'")
+	active_slot=$(cat "$X2000_TEST_ACTIVE")
+
+	count=$(cat "$X2000_TEST_HASH_COUNT")
+	count=$((count + 1))
+	printf '%s\n' "$count" > "$X2000_TEST_HASH_COUNT"
+
+	kernel_hash=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+	root_hash=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+
+	if [ "$count" -gt 1 ] &&
+		[ "${X2000_TEST_ACTIVE_HASH_CHANGED:-false}" = true ]; then
+		root_hash=cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+	fi
+
+	case "$active_slot" in
+	A)
+		printf '%s  /dev/mmcblk0p5\n' "$kernel_hash"
+		printf '%s  /dev/mmcblk0p7\n' "$root_hash"
 		;;
-
-	stock:stock)
-		[ "${X2000_TEST_REBOOT_STOCK:-true}" = true ] &&
-			printf develop-after-b > "$X2000_TEST_STATE"
+	B)
+		printf '%s  /dev/mmcblk0p6\n' "$kernel_hash"
+		printf '%s  /dev/mmcblk0p8\n' "$root_hash"
 		;;
-
 	*)
 		exit 1
 		;;
 	esac
 	;;
 
-'sh -eu')
-	body=$(cat)
+"dd of=/dev/mmcblk0p5 bs=4096 2>/dev/null && sync"|\
+"dd of=/dev/mmcblk0p6 bs=4096 2>/dev/null && sync"|\
+"dd of=/dev/mmcblk0p7 bs=4096 2>/dev/null && sync"|\
+"dd of=/dev/mmcblk0p8 bs=4096 2>/dev/null && sync")
+	number=$(
+		printf '%s\n' "$command" |
+			sed -n 's#^dd of=/dev/mmcblk0p\([5-8]\) .*#\1#p'
+	)
 
-	if printf '%s\n' "$body" |
-		grep -Fq 'kernel2:16384'; then
+	[ -n "$number" ] || exit 1
 
-		case "$phase" in
-		stock)
-			active_root=${X2000_TEST_STOCK_ROOT:-/dev/mmcblk0p7}
-			p6_mounted=${X2000_TEST_STOCK_P6_MOUNTED:-NO}
-			p8_mounted=${X2000_TEST_STOCK_P8_MOUNTED:-NO}
-			p6_label=${X2000_TEST_STOCK_P6_PARTLABEL:-VALID}
-			p8_label=${X2000_TEST_STOCK_P8_PARTLABEL:-VALID}
-			;;
+	printf 'write-p%s\n' "$number" >> "$X2000_TEST_LOG"
 
-		develop-initial|develop-initial-after-a|develop-after-b|develop-final)
-			active_root=${X2000_TEST_DEVELOP_METADATA_ROOT:-/dev/mmcblk0p8}
-			p6_mounted=${X2000_TEST_DEVELOP_P6_MOUNTED:-NO}
-			p8_mounted=${X2000_TEST_DEVELOP_P8_MOUNTED:-YES}
-			p6_label=${X2000_TEST_DEVELOP_P6_PARTLABEL:-VALID}
-			p8_label=${X2000_TEST_DEVELOP_P8_PARTLABEL:-VALID}
-			;;
+	fail=false
 
-		*)
-			exit 1
-			;;
-		esac
+	case "$number" in
+	5) fail=${X2000_TEST_WRITE_FAIL_P5:-false} ;;
+	6) fail=${X2000_TEST_WRITE_FAIL_P6:-false} ;;
+	7) fail=${X2000_TEST_WRITE_FAIL_P7:-false} ;;
+	8) fail=${X2000_TEST_WRITE_FAIL_P8:-false} ;;
+	esac
 
-		[ "$p6_label" != WRONG ] || exit 1
-		[ "$p8_label" != WRONG ] || exit 1
+	[ "$fail" != true ] || exit 1
 
-		printf '%s\n' \
-			"P6_DEVICE=/dev/mmcblk0p6" \
-			"P6_PARTLABEL=$p6_label" \
-			"P6_PARTITION_NUMBER=6" \
-			"P6_SECTORS=${X2000_TEST_P6_SECTORS:-16384}" \
-			"P6_MOUNTED=$p6_mounted" \
-			"P8_DEVICE=/dev/mmcblk0p8" \
-			"P8_PARTLABEL=$p8_label" \
-			"P8_PARTITION_NUMBER=8" \
-			"P8_SECTORS=${X2000_TEST_P8_SECTORS:-1024000}" \
-			"P8_MOUNTED=$p8_mounted" \
-			"ACTIVE_ROOT=$active_root"
-
-	elif printf '%s\n' "$body" |
-		grep -Fq 'RESET_ON_NEXT_BOOT'; then
-
-		[ "$host:$phase" = stock:stock ] ||
-			exit 1
-
-		printf '%s\n' "$body" |
-			grep -Fq 'LABEL="FRE3NDERSYS"' ||
-			exit 1
-
-		printf '%s\n' "$body" |
-			grep -Fq 'mounted FRE3NDERSYS is not ext4' ||
-			exit 1
-
-		printf '%s\n' "$body" |
-			grep -Fq 'mounted FRE3NDERSYS is not writable' ||
-			exit 1
-
-		printf '%s\n' "$body" |
-			grep -Fq '.fre3nder-reset' ||
-			exit 1
-
-		printf '%s\n' "$body" |
-			grep -Fq 'multiple FRE3NDERSYS filesystems found' ||
-			exit 1
-
-		printf '%s\n' arm-system-reset >> "$X2000_TEST_LOG"
-
-		[ "${X2000_TEST_SYSTEM_RESET_FAIL:-false}" != true ] ||
-			exit 1
-
-		printf '%s\n' 'SYSTEM_PERSISTENCE_RESET_MARKER=PASS'
-
-	elif printf '%s\n' "$body" |
-		grep -Fq 'HOST_RUNTIME=PASS'; then
-
-		case "$host:$phase" in
-		develop:develop-after-b|develop:develop-final)
-			;;
-		*)
-			exit 1
-			;;
-		esac
-
-		printf '%s\n' "$body" |
-			grep -Fq '/run/fre3nder-root/status' ||
-			exit 1
-
-		printf '%s\n' "$body" |
-			grep -Fq 'mount_contract / overlay rw' ||
-			exit 1
-
-		printf '%s\n' "$body" |
-			grep -Fq 'mount_contract /rom squashfs ro' ||
-			exit 1
-
-		printf '%s\n' "$body" |
-			grep -Fq 'mount_contract /home ext4 rw' ||
-			exit 1
-
-		printf '%s\n' "$body" |
-			grep -Fq 'mount_contract /run/fre3nder-root/system ext4 rw' ||
-			exit 1
-
-		printf '%s\n' "$body" |
-			grep -Fq 'LABEL="FRE3NDERSYS"' ||
-			exit 1
-
-		printf '%s\n' "$body" |
-			grep -Fq 'LABEL="FRE3NDERHOME"' ||
-			exit 1
-
-		[ "${X2000_TEST_RUNTIME_FAIL:-false}" != true ] ||
-			exit 1
-
-		printf '%s\n' 'HOST_RUNTIME=PASS'
-
+	if [ "${X2000_TEST_STOCK_FIXTURE:-false}" = true ]; then
+		: > "$X2000_TEST_SLOTS/p$number"
 	else
-		exit 1
+		cat > "$X2000_TEST_SLOTS/p$number"
 	fi
 	;;
 
-'sha256sum /dev/mmcblk0p5 /dev/mmcblk0p7')
-	[ "$host:$phase" = stock:stock ] ||
-		exit 1
+dd\ if=/dev/mmcblk0p[5-8]\ bs=512\ count=*\ 2\>/dev/null)
+	number=$(
+		printf '%s\n' "$command" |
+			sed -n 's#^dd if=/dev/mmcblk0p\([5-8]\) .*#\1#p'
+	)
 
-	count=$(cat "$X2000_TEST_HASH_COUNT")
-	count=$((count + 1))
-	printf '%s\n' "$count" > "$X2000_TEST_HASH_COUNT"
+	[ -n "$number" ] || exit 1
 
-	p5=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
-	p7=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+	printf 'readback-p%s\n' "$number" >> "$X2000_TEST_LOG"
 
-	if [ "$count" -gt 1 ] &&
-		[ "${X2000_TEST_P5_CHANGED:-false}" = true ]; then
-		p5=cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
-	fi
+	bad=false
 
-	if [ "$count" -gt 1 ] &&
-		[ "${X2000_TEST_P7_CHANGED:-false}" = true ]; then
-		p7=dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
-	fi
+	case "$number" in
+	5) bad=${X2000_TEST_READBACK_BAD_P5:-false} ;;
+	6) bad=${X2000_TEST_READBACK_BAD_P6:-false} ;;
+	7) bad=${X2000_TEST_READBACK_BAD_P7:-false} ;;
+	8) bad=${X2000_TEST_READBACK_BAD_P8:-false} ;;
+	esac
 
-	printf '%s  /dev/mmcblk0p5\n' "$p5"
-	printf '%s  /dev/mmcblk0p7\n' "$p7"
-	;;
-
-'dd of=/dev/mmcblk0p6 bs=4096 2>/dev/null && sync')
-	[ "$host:$phase" = stock:stock ] ||
-		exit 1
-
-	printf '%s\n' write-p6 >> "$X2000_TEST_LOG"
-
-	[ "${X2000_TEST_WRITE_P6_FAIL:-false}" != true ] ||
-		exit 1
-
-	cat > "$X2000_TEST_P6"
-	;;
-
-'dd of=/dev/mmcblk0p8 bs=4096 2>/dev/null && sync')
-	[ "$host:$phase" = stock:stock ] ||
-		exit 1
-
-	printf '%s\n' write-p8 >> "$X2000_TEST_LOG"
-
-	[ "${X2000_TEST_WRITE_P8_FAIL:-false}" != true ] ||
-		exit 1
-
-	cat > "$X2000_TEST_P8"
-	;;
-
-dd\ if=/dev/mmcblk0p6\ bs=512\ count=*)
-	[ "$host:$phase" = stock:stock ] ||
-		exit 1
-
-	printf '%s\n' readback-p6 >> "$X2000_TEST_LOG"
-
-	if [ "${X2000_TEST_READBACK_P6_BAD:-false}" = true ]; then
+	if [ "${X2000_TEST_STOCK_FIXTURE:-false}" = true ]; then
+		:
+	elif [ "$bad" = true ]; then
 		printf corrupt
 	else
-		cat "$X2000_TEST_P6"
-	fi
-	;;
-
-dd\ if=/dev/mmcblk0p8\ bs=512\ count=*)
-	[ "$host:$phase" = stock:stock ] ||
-		exit 1
-
-	printf '%s\n' readback-p8 >> "$X2000_TEST_LOG"
-
-	if [ "${X2000_TEST_READBACK_P8_BAD:-false}" = true ]; then
-		printf corrupt
-	else
-		cat "$X2000_TEST_P8"
+		cat "$X2000_TEST_SLOTS/p$number"
 	fi
 	;;
 
@@ -453,198 +428,131 @@ EOF
 chmod 0755 "$bin/ab" "$bin/ssh"
 
 
-# ----------------------------------------------------------------------
-# Test helpers
-# ----------------------------------------------------------------------
+make_stock_artifacts() {
+	rm -rf -- "$stock_source"
+	mkdir -p "$stock_source"
+
+	truncate -s 8388608 		"$stock_source/p5.img"
+
+	truncate -s 524288000 		"$stock_source/p7.img"
+
+	cat > "$stock_source/SHA256SUMS" <<'EOF'
+1111111111111111111111111111111111111111111111111111111111111111  p5.img
+2222222222222222222222222222222222222222222222222222222222222222  p7.img
+EOF
+}
+
 
 reset_case() {
-	rm -rf -- \
-		"$artifact_dir" \
-		"$state" \
-		"$selector" \
-		"$log" \
-		"$p6" \
-		"$p8" \
-		"$hash_count" \
-		"$operator_input"
+	local slot=$1
 
-	mkdir -p "$artifact_dir"
+	printf '%s' "$slot" > "$active"
+	printf '%s' "$slot" > "$selector"
 
-	printf 'kernel-candidate\n' > "$artifact_dir/kernel.uImage"
-	printf 'rootfs-candidate\n' > "$artifact_dir/rootfs.squashfs"
-
-	kernel_sha=$(
-		sha256sum "$artifact_dir/kernel.uImage" |
-			awk '{print $1}'
-	)
-
-	rootfs_sha=$(
-		sha256sum "$artifact_dir/rootfs.squashfs" |
-			awk '{print $1}'
-	)
-
-	printf '%s  kernel.uImage\n' "$kernel_sha" \
-		> "$artifact_dir/SHA256SUMS"
-
-	printf '%s  rootfs.squashfs\n' "$rootfs_sha" \
-		>> "$artifact_dir/SHA256SUMS"
-
-	head_commit=$(git -C "$root" rev-parse HEAD)
-
-	python3 - \
-		"$artifact_dir/build-manifest.json" \
-		"$head_commit" \
-		"$kernel_sha" \
-		"$rootfs_sha" <<'PY'
-import json
-import pathlib
-import sys
-
-path, commit, kernel_sha, rootfs_sha = sys.argv[1:]
-
-manifest = {
-    "artifact_mode": "release",
-    "project_commit": commit,
-    "project_worktree_status": "clean",
-    "artifacts": {
-        "kernel.uImage": kernel_sha,
-        "rootfs.squashfs": rootfs_sha,
-    },
-}
-
-pathlib.Path(path).write_text(
-    json.dumps(manifest, indent=2) + "\n",
-    encoding="utf-8",
-)
-PY
-
-	printf develop-initial > "$state"
-	printf STOCK_A > "$selector"
-	printf 0 > "$hash_count"
 	: > "$log"
+	printf 0 > "$hash_count"
+
+	rm -f -- "$marker"
+	rm -rf -- "$slots"
+	mkdir -p "$slots"
 
 	unset \
-		X2000_TEST_DEVELOP_AVAILABLE \
-		X2000_TEST_STOCK_AVAILABLE \
-		X2000_TEST_DEVELOP_ROOT \
-		X2000_TEST_INITIAL_AFTER_A_ROOT \
-		X2000_TEST_POST_B_ROOT \
-		X2000_TEST_FINAL_ROOT \
-		X2000_TEST_STOCK_ROOT \
-		X2000_TEST_DEVELOP_SELECTOR \
-		X2000_TEST_INITIAL_AFTER_A_SELECTOR \
-		X2000_TEST_POST_B_SELECTOR \
-		X2000_TEST_FINAL_SELECTOR \
-		X2000_TEST_STOCK_SELECTOR \
-		X2000_TEST_DEVELOP_METADATA_ROOT \
-		X2000_TEST_DEVELOP_P6_MOUNTED \
-		X2000_TEST_DEVELOP_P8_MOUNTED \
-		X2000_TEST_STOCK_P6_MOUNTED \
-		X2000_TEST_STOCK_P8_MOUNTED \
-		X2000_TEST_DEVELOP_P6_PARTLABEL \
-		X2000_TEST_DEVELOP_P8_PARTLABEL \
-		X2000_TEST_STOCK_P6_PARTLABEL \
-		X2000_TEST_STOCK_P8_PARTLABEL \
-		X2000_TEST_P6_SECTORS \
-		X2000_TEST_P8_SECTORS \
-		X2000_TEST_REBOOT_DEVELOP \
-		X2000_TEST_REBOOT_STOCK \
-		X2000_TEST_INITIAL_SELECT_A_FAIL \
-		X2000_TEST_FINAL_SELECT_A_FAIL \
+		X2000_TEST_SELECT_A_FAIL \
 		X2000_TEST_SELECT_B_FAIL \
-		X2000_TEST_WRITE_P6_FAIL \
-		X2000_TEST_WRITE_P8_FAIL \
-		X2000_TEST_READBACK_P6_BAD \
-		X2000_TEST_READBACK_P8_BAD \
-		X2000_TEST_P5_CHANGED \
-		X2000_TEST_P7_CHANGED \
-		X2000_TEST_SYSTEM_RESET_FAIL \
-		X2000_TEST_RUNTIME_FAIL
-}
-
-make_development_manifest() {
-	local fingerprint
-	local worktree_status
-
-	fingerprint=$("$root/scripts/x2000-build-input-sha256" --root "$root")
-	if [ -n "$(git -C "$root" status --porcelain=v1)" ]; then
-		worktree_status=dirty
-	else
-		worktree_status=clean
-	fi
-
-	python3 - \
-		"$artifact_dir/build-manifest.json" \
-		"$fingerprint" \
-		"$worktree_status" <<'PY'
-import json
-import pathlib
-import sys
-
-path, fingerprint, worktree_status = sys.argv[1:]
-manifest_path = pathlib.Path(path)
-manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-manifest["artifact_mode"] = "development"
-manifest["project_worktree_status"] = worktree_status
-manifest["build_input_sha256"] = fingerprint
-manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
-PY
-}
-
-reset_stock_case() {
-	reset_case
-	printf stock > "$state"
-}
-
-run_deploy_with_input() {
-	local input=$1
-	shift
-
-	X2000_DEPLOY_ARTIFACT_DIR="$artifact_dir" \
-	X2000_DEPLOY_SSH="$bin/ssh" \
-	X2000_DEPLOY_AB="$bin/ab" \
-	X2000_TEST_STATE="$state" \
-	X2000_TEST_SELECTOR="$selector" \
-	X2000_TEST_LOG="$log" \
-	X2000_TEST_P6="$p6" \
-	X2000_TEST_P8="$p8" \
-	X2000_TEST_HASH_COUNT="$hash_count" \
-	"$deploy" develop stock "$@" < "$input"
+		X2000_TEST_RESET_FAIL \
+		X2000_TEST_BOOT_STUCK \
+		X2000_TEST_CONSUME_MARKER \
+		X2000_TEST_RUNTIME_FAIL \
+		X2000_TEST_ACTIVE_HASH_CHANGED \
+		X2000_TEST_READBACK_BAD_P5 \
+		X2000_TEST_READBACK_BAD_P6 \
+		X2000_TEST_READBACK_BAD_P7 \
+		X2000_TEST_READBACK_BAD_P8 \
+		X2000_TEST_WRITE_FAIL_P5 \
+		X2000_TEST_WRITE_FAIL_P6 \
+		X2000_TEST_WRITE_FAIL_P7 \
+		X2000_TEST_WRITE_FAIL_P8 \
+		X2000_TEST_P5_PARTLABEL \
+		X2000_TEST_P6_PARTLABEL \
+		X2000_TEST_P7_PARTLABEL \
+		X2000_TEST_P8_PARTLABEL \
+		X2000_TEST_P5_SECTORS \
+		X2000_TEST_P6_SECTORS \
+		X2000_TEST_P7_SECTORS \
+		X2000_TEST_P8_SECTORS \
+		X2000_TEST_P5_MOUNTED \
+		X2000_TEST_P6_MOUNTED \
+		X2000_TEST_P7_MOUNTED \
+		X2000_TEST_P8_MOUNTED \
+		X2000_TEST_BOOT_TIMEOUT
 }
 
 run_deploy() {
-	local arg
-	local write=false
-
-	for arg in "$@"; do
-		if [ "$arg" = --write ]; then
-			write=true
-		fi
-	done
-
-	if [ "$write" = true ]; then
-		printf '\n\n' > "$operator_input"
-	else
-		: > "$operator_input"
-	fi
-
-	run_deploy_with_input "$operator_input" "$@"
+	X2000_DEPLOY_ARTIFACT_DIR="$artifact_dir" \
+	X2000_DEPLOY_SSH="$bin/ssh" \
+	X2000_DEPLOY_AB="$bin/ab" \
+	X2000_DEPLOY_BOOT_TIMEOUT="${X2000_TEST_BOOT_TIMEOUT:-2}" \
+	X2000_DEPLOY_BOOT_POLL=1 \
+	X2000_TEST_ACTIVE="$active" \
+	X2000_TEST_SELECTOR="$selector" \
+	X2000_TEST_LOG="$log" \
+	X2000_TEST_MARKER="$marker" \
+	X2000_TEST_HASH_COUNT="$hash_count" \
+	X2000_TEST_SLOTS="$slots" \
+	X2000_TEST_SELECT_A_FAIL="${X2000_TEST_SELECT_A_FAIL:-false}" \
+	X2000_TEST_SELECT_B_FAIL="${X2000_TEST_SELECT_B_FAIL:-false}" \
+	X2000_TEST_RESET_FAIL="${X2000_TEST_RESET_FAIL:-false}" \
+	X2000_TEST_BOOT_STUCK="${X2000_TEST_BOOT_STUCK:-false}" \
+	X2000_TEST_CONSUME_MARKER="${X2000_TEST_CONSUME_MARKER:-true}" \
+	X2000_TEST_RUNTIME_FAIL="${X2000_TEST_RUNTIME_FAIL:-false}" \
+	X2000_TEST_ACTIVE_HASH_CHANGED="${X2000_TEST_ACTIVE_HASH_CHANGED:-false}" \
+	X2000_TEST_READBACK_BAD_P5="${X2000_TEST_READBACK_BAD_P5:-false}" \
+	X2000_TEST_READBACK_BAD_P6="${X2000_TEST_READBACK_BAD_P6:-false}" \
+	X2000_TEST_READBACK_BAD_P7="${X2000_TEST_READBACK_BAD_P7:-false}" \
+	X2000_TEST_READBACK_BAD_P8="${X2000_TEST_READBACK_BAD_P8:-false}" \
+	X2000_TEST_WRITE_FAIL_P5="${X2000_TEST_WRITE_FAIL_P5:-false}" \
+	X2000_TEST_WRITE_FAIL_P6="${X2000_TEST_WRITE_FAIL_P6:-false}" \
+	X2000_TEST_WRITE_FAIL_P7="${X2000_TEST_WRITE_FAIL_P7:-false}" \
+	X2000_TEST_WRITE_FAIL_P8="${X2000_TEST_WRITE_FAIL_P8:-false}" \
+	X2000_TEST_P5_PARTLABEL="${X2000_TEST_P5_PARTLABEL:-VALID}" \
+	X2000_TEST_P6_PARTLABEL="${X2000_TEST_P6_PARTLABEL:-VALID}" \
+	X2000_TEST_P7_PARTLABEL="${X2000_TEST_P7_PARTLABEL:-VALID}" \
+	X2000_TEST_P8_PARTLABEL="${X2000_TEST_P8_PARTLABEL:-VALID}" \
+	X2000_TEST_P5_SECTORS="${X2000_TEST_P5_SECTORS:-16384}" \
+	X2000_TEST_P6_SECTORS="${X2000_TEST_P6_SECTORS:-16384}" \
+	X2000_TEST_P7_SECTORS="${X2000_TEST_P7_SECTORS:-1024000}" \
+	X2000_TEST_P8_SECTORS="${X2000_TEST_P8_SECTORS:-1024000}" \
+	X2000_TEST_P5_MOUNTED="${X2000_TEST_P5_MOUNTED:-NO}" \
+	X2000_TEST_P6_MOUNTED="${X2000_TEST_P6_MOUNTED:-NO}" \
+	X2000_TEST_P7_MOUNTED="${X2000_TEST_P7_MOUNTED:-NO}" \
+	X2000_TEST_P8_MOUNTED="${X2000_TEST_P8_MOUNTED:-NO}" \
+		"$deploy" printer --develop "$@"
 }
 
-run_without_confirmation() {
-	: > "$operator_input"
-	run_deploy_with_input "$operator_input" "$@"
+run_without_develop() {
+	X2000_DEPLOY_ARTIFACT_DIR="$artifact_dir" 	X2000_DEPLOY_SSH="$bin/ssh" 	X2000_DEPLOY_AB="$bin/ab" 	X2000_TEST_ACTIVE="$active" 	X2000_TEST_SELECTOR="$selector" 	X2000_TEST_LOG="$log" 	X2000_TEST_MARKER="$marker" 	X2000_TEST_HASH_COUNT="$hash_count" 	X2000_TEST_SLOTS="$slots" 		"$deploy" printer "$@"
 }
 
-run_with_one_confirmation() {
-	printf '\n' > "$operator_input"
-	run_deploy_with_input "$operator_input" "$@"
+
+run_stock_deploy() {
+	PATH="$bin:$PATH" \
+	X2000_DEPLOY_SSH="$bin/ssh" \
+	X2000_DEPLOY_AB="$bin/ab" \
+	X2000_TEST_ACTIVE="$active" \
+	X2000_TEST_SELECTOR="$selector" \
+	X2000_TEST_LOG="$log" \
+	X2000_TEST_MARKER="$marker" \
+	X2000_TEST_HASH_COUNT="$hash_count" \
+	X2000_TEST_SLOTS="$slots" \
+	X2000_TEST_STOCK_FIXTURE=true \
+		"$deploy" printer --stock "$stock_source" "$@"
 }
+
 
 must_fail() {
 	if "$@" >/dev/null 2>&1; then
 		echo "unexpected success: $*" >&2
-		exit 1
+		return 1
 	fi
 }
 
@@ -662,512 +570,445 @@ assert_before() {
 	local first_line
 	local second_line
 
-	first_line=$(grep -n -Fx "$first" "$log" | head -n 1 | cut -d: -f1)
-	second_line=$(grep -n -Fx "$second" "$log" | head -n 1 | cut -d: -f1)
+	first_line=$(
+		grep -n -Fx "$first" "$log" |
+			head -n 1 |
+			cut -d: -f1
+	)
+
+	second_line=$(
+		grep -n -Fx "$second" "$log" |
+			head -n 1 |
+			cut -d: -f1
+	)
 
 	[ -n "$first_line" ]
 	[ -n "$second_line" ]
 	[ "$first_line" -lt "$second_line" ]
 }
 
-assert_plan() {
-	local output=$1
-	local kernel=$2
-	local rootfs=$3
-	local mode=$4
 
-	grep -Fxq "KERNEL=$kernel" "$output"
-	grep -Fxq "ROOTFS=$rootfs" "$output"
-	grep -Fxq "MODE=$mode" "$output"
-}
+echo '=== PREFLIGHT A -> B ==='
+reset_case A
+run_deploy > "$tmp/preflight-a.out"
+
+grep -Fxq 'active slot: A' "$tmp/preflight-a.out"
+grep -Fxq 'target slot: B' "$tmp/preflight-a.out"
+assert_not_called select-b
+assert_not_called reboot
 
 
-# ----------------------------------------------------------------------
-# CLI / component selection
-# ----------------------------------------------------------------------
+echo '=== PREFLIGHT B -> A ==='
+reset_case B
+run_deploy > "$tmp/preflight-b.out"
 
-reset_case
-run_deploy > "$tmp/default.out"
+grep -Fxq 'active slot: B' "$tmp/preflight-b.out"
+grep -Fxq 'target slot: A' "$tmp/preflight-b.out"
+assert_not_called select-a
+assert_not_called reboot
 
-assert_plan "$tmp/default.out" CHECK CHECK preflight
-grep -Fq 'deployment preflight: PASS' "$tmp/default.out"
+
+echo '=== SELECTOR MISMATCH ==='
+reset_case A
+printf B > "$selector"
+
+must_fail run_deploy
+assert_not_called reboot
+
+
+echo '=== SINGLE COMPONENT REQUIRES DEVELOP ==='
+reset_case A
+
+if run_without_develop --kernel 		> "$tmp/no-develop-kernel.out" 2>&1; then
+	echo "unexpected success: --kernel without --develop" >&2
+	exit 1
+fi
+
+grep -Fq -- 	'--kernel or --rootfs alone requires --develop' 	"$tmp/no-develop-kernel.out"
+
+assert_not_called write-p6
+assert_not_called select-b
+assert_not_called reboot
+
+reset_case A
+
+if run_without_develop --rootfs 		> "$tmp/no-develop-rootfs.out" 2>&1; then
+	echo "unexpected success: --rootfs without --develop" >&2
+	exit 1
+fi
+
+grep -Fq -- 	'--kernel or --rootfs alone requires --develop' 	"$tmp/no-develop-rootfs.out"
+
+assert_not_called write-p8
+assert_not_called select-b
+assert_not_called reboot
+
+
+echo '=== DEVELOPMENT ARTIFACT REQUIRES DEVELOP ==='
+reset_case A
+
+must_fail run_without_develop
 
 assert_not_called write-p6
 assert_not_called write-p8
-assert_not_called reboot-develop
-assert_not_called reboot-stock
-assert_not_called select-a
 assert_not_called select-b
+assert_not_called reboot
 
 
-reset_case
-run_deploy --all > "$tmp/all.out"
+echo '=== INVALID COMPONENT CLI ==='
+reset_case A
 
-assert_plan "$tmp/all.out" CHECK CHECK preflight
-
-
-reset_case
-run_deploy --kernel > "$tmp/kernel.out"
-
-assert_plan "$tmp/kernel.out" CHECK SKIP preflight
-
-
-reset_case
-run_deploy --rootfs > "$tmp/rootfs.out"
-
-assert_plan "$tmp/rootfs.out" SKIP CHECK preflight
-
-
-reset_case
 must_fail run_deploy --all --kernel
 
-reset_case
-must_fail run_deploy --all --rootfs
-
-reset_case
-must_fail run_deploy --mcu
-
-
-reset_case
-printf '# release input changed\n' >> "$root/configs/x2000/buildroot.fragment"
-must_fail run_deploy --rootfs --develop
-git -C "$root" restore configs/x2000/buildroot.fragment
-
-
-# ----------------------------------------------------------------------
-# Development artifact provenance
-# ----------------------------------------------------------------------
-
-reset_case
-printf '# development input\n' >> "$root/configs/x2000/buildroot.fragment"
-make_development_manifest
-must_fail run_deploy --rootfs
-run_deploy --rootfs --develop > "$tmp/development.out"
-grep -Fxq 'artifact mode: development' "$tmp/development.out"
-assert_plan "$tmp/development.out" SKIP CHECK preflight
 assert_not_called write-p6
 assert_not_called write-p8
-git -C "$root" restore configs/x2000/buildroot.fragment
-
-
-reset_case
-make_development_manifest
-printf '# changed after build\n' >> "$root/configs/x2000/buildroot.fragment"
-must_fail run_deploy --rootfs --develop
-git -C "$root" restore configs/x2000/buildroot.fragment
-
-
-reset_case
-make_development_manifest
-printf '# staged after build\n' >> "$root/configs/x2000/buildroot.fragment"
-git -C "$root" add configs/x2000/buildroot.fragment
-must_fail run_deploy --rootfs --develop
-git -C "$root" restore --staged --worktree configs/x2000/buildroot.fragment
-
-
-reset_case
-make_development_manifest
-printf 'untracked build input\n' > "$root/configs/x2000/fingerprint-untracked"
-must_fail run_deploy --rootfs --develop
-rm "$root/configs/x2000/fingerprint-untracked"
-
-
-reset_case
-make_development_manifest
-printf 'changed-rootfs\n' > "$artifact_dir/rootfs.squashfs"
-must_fail run_deploy --rootfs --develop
-
-
-reset_case
-make_development_manifest
-run_deploy --rootfs --develop --write > "$tmp/development-write-rootfs.out"
-assert_plan "$tmp/development-write-rootfs.out" SKIP WRITE write
-assert_not_called write-p6
-assert_called write-p8
-
-
-# ----------------------------------------------------------------------
-# Component-specific local artifacts
-# ----------------------------------------------------------------------
-
-reset_case
-rm "$artifact_dir/rootfs.squashfs"
-
-run_deploy --kernel > "$tmp/kernel-without-rootfs.out"
-assert_plan "$tmp/kernel-without-rootfs.out" CHECK SKIP preflight
-
-
-reset_case
-rm "$artifact_dir/kernel.uImage"
-
-run_deploy --rootfs > "$tmp/rootfs-without-kernel.out"
-assert_plan "$tmp/rootfs-without-kernel.out" SKIP CHECK preflight
-
-
-reset_case
-rm "$artifact_dir/kernel.uImage"
-
-must_fail run_deploy
-
-
-reset_case
-rm "$artifact_dir/rootfs.squashfs"
-
-must_fail run_deploy
-
-
-reset_case
-printf 'changed-kernel\n' > "$artifact_dir/kernel.uImage"
-
-must_fail run_deploy --kernel
-
-
-reset_case
-printf 'changed-rootfs\n' > "$artifact_dir/rootfs.squashfs"
-
-must_fail run_deploy --rootfs
-
-
-# ----------------------------------------------------------------------
-# Preflight state handling
-# ----------------------------------------------------------------------
-
-reset_case
-printf DEVELOP_B > "$selector"
-
-run_deploy > "$tmp/preflight-develop-b.out"
-
-assert_not_called select-a
 assert_not_called select-b
-assert_not_called reboot-develop
+assert_not_called reboot
 
 
-reset_stock_case
+echo '=== BUILD INPUT FINGERPRINT MISMATCH ==='
+reset_case A
 
-run_deploy > "$tmp/preflight-stock.out"
+cp "$artifact_dir/build-manifest.json" \
+	"$tmp/build-manifest.good"
 
-assert_plan "$tmp/preflight-stock.out" CHECK CHECK preflight
-assert_not_called write-p6
-assert_not_called write-p8
+python3 -c '
+import json
+import pathlib
+import sys
 
-
-reset_case
-export X2000_TEST_DEVELOP_ROOT=/dev/mmcblk0p7
+path = pathlib.Path(sys.argv[1])
+data = json.loads(path.read_text())
+data["build_input_sha256"] = "0" * 64
+path.write_text(json.dumps(data, indent=2) + "\n")
+' "$artifact_dir/build-manifest.json"
 
 must_fail run_deploy
 
-unset X2000_TEST_DEVELOP_ROOT
+cp "$tmp/build-manifest.good" \
+	"$artifact_dir/build-manifest.json"
+
+assert_not_called write-p6
+assert_not_called write-p8
+assert_not_called select-b
+assert_not_called reboot
 
 
-reset_stock_case
-export X2000_TEST_STOCK_P6_MOUNTED=YES
+echo '=== TAMPERED KERNEL ARTIFACT ==='
+reset_case A
+
+cp "$artifact_dir/kernel.uImage" \
+	"$tmp/kernel.good"
+
+printf 'tampered\n' \
+	>> "$artifact_dir/kernel.uImage"
 
 must_fail run_deploy --kernel
 
-unset X2000_TEST_STOCK_P6_MOUNTED
+cp "$tmp/kernel.good" \
+	"$artifact_dir/kernel.uImage"
+
+assert_not_called write-p6
+assert_not_called select-b
+assert_not_called reboot
 
 
-reset_stock_case
-export X2000_TEST_STOCK_P8_MOUNTED=YES
+echo '=== MISSING ROOTFS ARTIFACT ==='
+reset_case A
+
+mv "$artifact_dir/rootfs.squashfs" \
+	"$tmp/rootfs.saved"
 
 must_fail run_deploy --rootfs
 
-unset X2000_TEST_STOCK_P8_MOUNTED
+mv "$tmp/rootfs.saved" \
+	"$artifact_dir/rootfs.squashfs"
+
+assert_not_called write-p8
+assert_not_called select-b
+assert_not_called reboot
 
 
-reset_stock_case
-export X2000_TEST_P6_SECTORS=16383
+echo '=== TARGET PARTITION MOUNTED ==='
+reset_case A
+X2000_TEST_P6_MOUNTED=YES
 
 must_fail run_deploy --kernel
 
-unset X2000_TEST_P6_SECTORS
+assert_not_called write-p6
+assert_not_called select-b
+assert_not_called reboot
 
 
-reset_stock_case
-export X2000_TEST_P8_SECTORS=1023999
+echo '=== TARGET PARTITION SIZE MISMATCH ==='
+reset_case A
+X2000_TEST_P8_SECTORS=1023999
 
 must_fail run_deploy --rootfs
 
-unset X2000_TEST_P8_SECTORS
-
-
-# ----------------------------------------------------------------------
-# Operator gates
-# ----------------------------------------------------------------------
-
-reset_case
-
-if run_without_confirmation --write \
-		> "$tmp/no-confirmation.out" 2>&1; then
-	echo "unexpected success without Stock confirmation" >&2
-	exit 1
-fi
-
-grep -Fq \
-	'Stock A wurde zum Booten aufgefordert.' \
-	"$tmp/no-confirmation.out"
-
-assert_called reboot-develop
-assert_not_called write-p6
 assert_not_called write-p8
+assert_not_called select-b
+assert_not_called reboot
 
 
-reset_case
+echo '=== TARGET PARTLABEL INVALID ==='
+reset_case A
+X2000_TEST_P6_PARTLABEL=WRONG
 
-if run_with_one_confirmation --write \
-		> "$tmp/one-confirmation.out" 2>&1; then
-	echo "unexpected success with only one confirmation" >&2
-	exit 1
-fi
-
-grep -Fq \
-	'Fre3nder B wurde zum Booten aufgefordert.' \
-	"$tmp/one-confirmation.out"
-
-assert_called reboot-develop
-assert_called write-p6
-assert_called readback-p6
-assert_called write-p8
-assert_called readback-p8
-assert_called arm-system-reset
-assert_called select-b
-assert_called reboot-stock
-assert_not_called select-a
-assert_before readback-p8 arm-system-reset
-assert_before arm-system-reset select-b
-
-
-# ----------------------------------------------------------------------
-# Successful writes
-# ----------------------------------------------------------------------
-
-reset_case
-
-run_deploy --write > "$tmp/write-all.out"
-
-assert_plan "$tmp/write-all.out" WRITE WRITE write
-
-assert_called write-p6
-assert_called readback-p6
-assert_called write-p8
-assert_called readback-p8
-assert_called arm-system-reset
-assert_called select-b
-assert_called select-a
-
-grep -Fxq 'KERNEL_P6=PASS' "$tmp/write-all.out"
-grep -Fxq 'ROOTFS_P8=PASS' "$tmp/write-all.out"
-grep -Fxq 'SYSTEM_PERSISTENCE_RESET=PASS' "$tmp/write-all.out"
-grep -Fxq 'FINAL_ACTIVE_ROOT=/dev/mmcblk0p8' "$tmp/write-all.out"
-grep -Fxq 'FINAL_SELECTOR=STOCK_A' "$tmp/write-all.out"
-grep -Fxq 'DEPLOY_X2000=PASS' "$tmp/write-all.out"
-
-
-reset_case
-
-run_deploy --kernel --write > "$tmp/write-kernel.out"
-
-assert_plan "$tmp/write-kernel.out" WRITE SKIP write
-
-assert_called write-p6
-assert_called readback-p6
-assert_not_called write-p8
-assert_not_called readback-p8
-assert_not_called arm-system-reset
-
-grep -Fxq 'KERNEL_P6=PASS' "$tmp/write-kernel.out"
-grep -Fxq 'ROOTFS_P8=SKIPPED' "$tmp/write-kernel.out"
-grep -Fxq 'SYSTEM_PERSISTENCE_RESET=SKIPPED' "$tmp/write-kernel.out"
-
-
-reset_case
-
-run_deploy --rootfs --write > "$tmp/write-rootfs.out"
-
-assert_plan "$tmp/write-rootfs.out" SKIP WRITE write
+must_fail run_deploy --kernel
 
 assert_not_called write-p6
+assert_not_called select-b
+assert_not_called reboot
+
+
+echo '=== KERNEL WRITE FAILURE ==='
+reset_case A
+X2000_TEST_WRITE_FAIL_P6=true
+
+must_fail run_deploy --write
+
+assert_called write-p6
 assert_not_called readback-p6
-assert_called write-p8
-assert_called readback-p8
-assert_called arm-system-reset
-assert_before readback-p8 arm-system-reset
-assert_before arm-system-reset select-b
-
-grep -Fxq 'KERNEL_P6=SKIPPED' "$tmp/write-rootfs.out"
-grep -Fxq 'ROOTFS_P8=PASS' "$tmp/write-rootfs.out"
-grep -Fxq 'SYSTEM_PERSISTENCE_RESET=PASS' "$tmp/write-rootfs.out"
-
-
-reset_stock_case
-
-run_deploy --write > "$tmp/write-from-stock.out"
-
-assert_not_called reboot-develop
-assert_called write-p6
-assert_called write-p8
-assert_called select-b
-assert_called reboot-stock
-assert_called select-a
-
-
-# ----------------------------------------------------------------------
-# Fail-closed write behavior
-# ----------------------------------------------------------------------
-
-reset_case
-printf DEVELOP_B > "$selector"
-
-export X2000_TEST_INITIAL_SELECT_A_FAIL=true
-
-must_fail run_deploy --write
-
-assert_called select-a
-assert_not_called reboot-develop
-assert_not_called write-p6
 assert_not_called write-p8
-
-unset X2000_TEST_INITIAL_SELECT_A_FAIL
-
-
-reset_case
-export X2000_TEST_REBOOT_DEVELOP=false
-
-must_fail run_deploy --write
-
-assert_called reboot-develop
-assert_not_called write-p6
-assert_not_called write-p8
-
-unset X2000_TEST_REBOOT_DEVELOP
-
-
-reset_case
-export X2000_TEST_WRITE_P6_FAIL=true
-
-must_fail run_deploy --write
-
-assert_called write-p6
+assert_not_called arm-reset-p8
 assert_not_called select-b
-
-unset X2000_TEST_WRITE_P6_FAIL
-
-
-reset_case
-export X2000_TEST_READBACK_P6_BAD=true
-
-must_fail run_deploy --write
-
-assert_called write-p6
-assert_called readback-p6
-assert_not_called write-p8
-assert_not_called select-b
-
-unset X2000_TEST_READBACK_P6_BAD
+assert_not_called reboot
 
 
-reset_case
-export X2000_TEST_WRITE_P8_FAIL=true
+echo '=== ROOTFS WRITE FAILURE ==='
+reset_case A
+X2000_TEST_WRITE_FAIL_P8=true
 
 must_fail run_deploy --write
 
 assert_called write-p6
 assert_called readback-p6
 assert_called write-p8
+assert_not_called readback-p8
+assert_not_called arm-reset-p8
 assert_not_called select-b
-
-unset X2000_TEST_WRITE_P8_FAIL
-
-
-reset_case
-export X2000_TEST_READBACK_P8_BAD=true
-
-must_fail run_deploy --write
-
-assert_called write-p8
-assert_called readback-p8
-assert_not_called select-b
-
-unset X2000_TEST_READBACK_P8_BAD
+assert_not_called reboot
 
 
-reset_case
-export X2000_TEST_P5_CHANGED=true
-
-must_fail run_deploy --write
+echo '=== FULL A -> B ==='
+reset_case A
+run_deploy --write > "$tmp/a-to-b.out"
 
 assert_called write-p6
-assert_called write-p8
-assert_not_called select-b
-
-unset X2000_TEST_P5_CHANGED
-
-
-reset_case
-export X2000_TEST_P7_CHANGED=true
-
-must_fail run_deploy --write
-
-assert_not_called select-b
-
-unset X2000_TEST_P7_CHANGED
-
-
-reset_case
-export X2000_TEST_SYSTEM_RESET_FAIL=true
-
-must_fail run_deploy --write
-
+assert_called readback-p6
 assert_called write-p8
 assert_called readback-p8
-assert_called arm-system-reset
+assert_called arm-reset-p8
+assert_called select-b
+assert_called reboot
+assert_called runtime-pass
+
+assert_before readback-p8 arm-reset-p8
+assert_before arm-reset-p8 select-b
+assert_before select-b reboot
+assert_before reboot runtime-pass
+
+[ "$(cat "$active")" = B ]
+[ "$(cat "$selector")" = B ]
+[ ! -e "$marker" ]
+
+grep -Fxq 'FINAL_ACTIVE_SLOT=B' "$tmp/a-to-b.out"
+grep -Fxq 'FINAL_ACTIVE_ROOT=/dev/mmcblk0p8' "$tmp/a-to-b.out"
+grep -Fxq 'DEPLOY_X2000=PASS' "$tmp/a-to-b.out"
+
+
+echo '=== FULL B -> A ==='
+reset_case B
+run_deploy --write > "$tmp/b-to-a.out"
+
+assert_called write-p5
+assert_called readback-p5
+assert_called write-p7
+assert_called readback-p7
+assert_called arm-reset-p7
+assert_called select-a
+assert_called reboot
+assert_called runtime-pass
+
+assert_before readback-p7 arm-reset-p7
+assert_before arm-reset-p7 select-a
+assert_before select-a reboot
+
+[ "$(cat "$active")" = A ]
+[ "$(cat "$selector")" = A ]
+[ ! -e "$marker" ]
+
+grep -Fxq 'FINAL_ACTIVE_SLOT=A' "$tmp/b-to-a.out"
+grep -Fxq 'FINAL_ACTIVE_ROOT=/dev/mmcblk0p7' "$tmp/b-to-a.out"
+grep -Fxq 'DEPLOY_X2000=PASS' "$tmp/b-to-a.out"
+
+
+echo '=== KERNEL ONLY ==='
+reset_case A
+run_deploy --kernel --write > "$tmp/kernel-only.out"
+
+assert_called write-p6
+assert_called readback-p6
+assert_not_called arm-reset-p8
+assert_called select-b
+assert_called reboot
+
+grep -Fxq 'SYSTEM_PERSISTENCE_RESET=SKIPPED' \
+	"$tmp/kernel-only.out"
+
+
+echo '=== ROOTFS ONLY ==='
+reset_case B
+run_deploy --rootfs --write > "$tmp/rootfs-only.out"
+
+assert_called write-p7
+assert_called readback-p7
+assert_called arm-reset-p7
+assert_called select-a
+assert_called reboot
+
+grep -Fxq 'SYSTEM_PERSISTENCE_RESET=PASS' \
+	"$tmp/rootfs-only.out"
+
+
+echo '=== BAD READBACK ==='
+reset_case A
+X2000_TEST_READBACK_BAD_P8=true
+
+must_fail run_deploy --write
+
+assert_called readback-p8
+assert_not_called arm-reset-p8
 assert_not_called select-b
-assert_not_called reboot-stock
-
-unset X2000_TEST_SYSTEM_RESET_FAIL
+assert_not_called reboot
 
 
-reset_case
-export X2000_TEST_SELECT_B_FAIL=true
+echo '=== ACTIVE SLOT CHANGED ==='
+reset_case A
+X2000_TEST_ACTIVE_HASH_CHANGED=true
+
+must_fail run_deploy --write
+
+assert_not_called arm-reset-p8
+assert_not_called select-b
+assert_not_called reboot
+
+
+echo '=== RESET MARKER FAILURE ==='
+reset_case A
+X2000_TEST_RESET_FAIL=true
+
+must_fail run_deploy --write
+
+assert_called arm-reset-p8
+assert_not_called select-b
+assert_not_called reboot
+
+
+echo '=== SELECTOR FAILURE ==='
+reset_case A
+X2000_TEST_SELECT_B_FAIL=true
+
+must_fail run_deploy --write
+
+assert_called arm-reset-p8
+assert_called select-b
+assert_not_called reboot
+[ -e "$marker" ]
+
+
+echo '=== BOOT TIMEOUT ==='
+reset_case A
+X2000_TEST_BOOT_STUCK=true
+X2000_TEST_BOOT_TIMEOUT=1
 
 must_fail run_deploy --write
 
 assert_called select-b
-assert_not_called reboot-stock
+assert_called reboot
+assert_not_called runtime-pass
 
-unset X2000_TEST_SELECT_B_FAIL
 
-
-reset_case
-export X2000_TEST_REBOOT_STOCK=false
+echo '=== RUNTIME FAILURE ==='
+reset_case A
+X2000_TEST_RUNTIME_FAIL=true
 
 must_fail run_deploy --write
 
-assert_called reboot-stock
+assert_called reboot
+assert_not_called runtime-pass
+
+
+echo '=== RESET MARKER NOT CONSUMED ==='
+reset_case A
+X2000_TEST_CONSUME_MARKER=false
+
+must_fail run_deploy --write
+
+assert_called arm-reset-p8
+assert_called select-b
+assert_called reboot
+assert_not_called runtime-pass
+[ -e "$marker" ]
+
+
+echo '=== STOCK REQUIRES INACTIVE A ==='
+reset_case A
+make_stock_artifacts
+
+must_fail run_stock_deploy
+
+assert_not_called write-p5
+assert_not_called write-p7
 assert_not_called select-a
+assert_not_called reboot
 
-unset X2000_TEST_REBOOT_STOCK
 
+echo '=== STOCK B -> A STAGING ONLY ==='
+reset_case B
+make_stock_artifacts
 
-reset_case
-export X2000_TEST_RUNTIME_FAIL=true
+run_stock_deploy --write > "$tmp/stock-write.out"
 
-must_fail run_deploy --write
+assert_called write-p5
+assert_called readback-p5
+assert_called write-p7
+assert_called readback-p7
 
-assert_called reboot-stock
+assert_before write-p5 readback-p5
+assert_before readback-p5 write-p7
+assert_before write-p7 readback-p7
+
+assert_not_called arm-reset-p7
 assert_not_called select-a
+assert_not_called reboot
+assert_not_called runtime-pass
 
-unset X2000_TEST_RUNTIME_FAIL
+[ "$(cat "$active")" = B ]
+[ "$(cat "$selector")" = B ]
+[ ! -e "$marker" ]
+
+grep -Fxq 'KERNEL_P5=PASS' 	"$tmp/stock-write.out"
+
+grep -Fxq 'ROOTFS_P7=PASS' 	"$tmp/stock-write.out"
+
+grep -Fxq 'STAGING_KIND=STOCK_A_RESTORE' 	"$tmp/stock-write.out"
+
+grep -Fxq 'ACTIVE_SLOT=B' 	"$tmp/stock-write.out"
+
+grep -Fxq 'TARGET_SLOT=A' 	"$tmp/stock-write.out"
+
+grep -Fxq 'SELECTOR_SLOT=B' 	"$tmp/stock-write.out"
+
+grep -Fxq 'SYSTEM_PERSISTENCE_RESET=NOT_PERFORMED' 	"$tmp/stock-write.out"
+
+grep -Fxq 'ACTIVATION=NOT_PERFORMED' 	"$tmp/stock-write.out"
+
+grep -Fxq 'REBOOT=NOT_PERFORMED' 	"$tmp/stock-write.out"
+
+grep -Fxq 'DEPLOY_X2000_STAGE=PASS' 	"$tmp/stock-write.out"
 
 
-reset_case
-export X2000_TEST_FINAL_SELECT_A_FAIL=true
-
-must_fail run_deploy --write
-
-assert_called select-a
-
-unset X2000_TEST_FINAL_SELECT_A_FAIL
-
-
-echo "deploy-x2000 tests: PASS"
+echo
+echo 'test-deploy-x2000 single-host A/B + Stock fixture tests: PASS'

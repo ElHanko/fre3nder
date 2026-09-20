@@ -373,16 +373,23 @@ write B
 ```
 
 Activation occurs only after the complete required target-slot contents have
-passed their defined verification.
+passed their defined verification. Normal Fre3nder updates require kernel and
+RootFS as one pair. Component-only deployment with `--kernel` or `--rootfs` is
+permitted only together with `--develop` and is outside the normal OTA release
+contract.
 
-`PREPARE_ACTIVATION` represents a recovery-safe transition that coordinates
-candidate-slot selection with the required clean-`SYS` state. The exact
-mechanism and ordering are intentionally not fixed here until boot-selector and
-rollback behavior have been established.
+`PREPARE_ACTIVATION` extends the established next-boot system-overlay reset
+mechanism with a separate target-slot marker whose payload encodes the intended
+target root. The legacy `.fre3nder-reset` marker remains unchanged for backward
+compatibility; A/B activation uses `.fre3nder-reset-target`. The marker
+is installed only after target-slot write/readback verification. The target
+selector is then written and verified before reboot.
 
-An interrupted activation transition must not cause the previously active slot
-to reset `SYS` unintentionally, and it must not allow the candidate slot to boot
-with stale `SYS`.
+At early boot, a targeted reset marker is acted on only when the actual
+`root=` device matches the marker's intended target root. If activation is
+interrupted before the selector changes, the previously active slot therefore
+keeps its existing `SYS` overlay and leaves the marker pending. If the target
+slot boots, it consumes the marker and starts with a clean `SYS` overlay.
 
 ## SYS update semantics
 

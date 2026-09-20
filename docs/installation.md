@@ -27,9 +27,20 @@ the selected inactive-slot artifacts followed by a complete artifact-length
 SHA-256 readback. The active kernel and RootFS partitions are hashed before and
 after staging and must remain unchanged.
 
-`deploy-x2000` is intentionally a staging operation. It does not change the boot
-selector, arm a system-persistence reset, activate the staged slot, or reboot
-the printer. Activation is a separate OTA transaction step.
+For a normal Fre3nder `--write`, deployment continues after successful write
+and readback verification: the shared system overlay is marked for a
+target-slot-specific reset, the verified inactive slot is selected, the printer
+is rebooted, and the new active root, selector, and persistent-root runtime are
+validated. The selector remains on the newly active Fre3nder slot.
+
+Normal Fre3nder deployment always treats kernel and RootFS as one release pair.
+Using `--kernel` or `--rootfs` individually requires `--develop`; component-only
+deployment is therefore an explicit development operation rather than part of
+the normal update contract.
+
+`--stock --write` is deliberately different: it restores the Stock-A p5/p7 pair
+only and stops after staging and readback. Stock activation remains separate
+because the F005 MCU state must be coordinated with the Stock host.
 
 Stock-A host restoration is an explicit variant of the same staging interface.
 `--stock` stages a complete raw Stock kernel/RootFS pair to p5/p7 and is accepted
