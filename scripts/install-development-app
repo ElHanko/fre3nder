@@ -26,7 +26,6 @@ app=$2
 
 root=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
 source=$root/apps/$app/service
-prepare=$root/scripts/prepare-x2000-development
 remote_root=/tmp/fre3nder-app-source
 remote_dir=$remote_root/apps/$app
 remote_service=$remote_dir/service
@@ -35,11 +34,15 @@ remote_service=$remote_dir/service
 	die "local app definition is missing, non-regular, or a symlink: $source"
 [[ $(head -n 1 -- "$source") == '#!/bin/sh' ]] ||
 	die "local app definition must begin with #!/bin/sh: $source"
-[[ -x $prepare ]] || die "development preparation helper is unavailable"
-
 local_sha=$(sha256sum "$source" | awk '{print $1}')
 
-"$prepare" "$host" || die "development preparation failed"
+root_status=$(
+	ssh -o BatchMode=yes "$host" \
+		'cat /run/fre3nder-root/status 2>/dev/null'
+) || die "cannot read Fre3nder persistent-root status"
+
+[[ $root_status == active ]] ||
+	die "Fre3nder persistent root is not active"
 
 remote_write="set -eu
 for directory in '$remote_root' '$remote_root/apps' '$remote_dir'; do

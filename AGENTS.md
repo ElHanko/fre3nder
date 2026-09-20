@@ -1,25 +1,25 @@
 # Project scope
 
-This repository documents and develops a possible migration of the Creality
-Ender-3 V3 KE from Creality's Klipper fork to current upstream Klipper.
+This repository develops Fre3nder, an open Linux and upstream-Klipper
+platform for the Creality Ender-3 V3 KE.
 
 # Safety rules
 
-The physical printer is a production system. Unless an operation is covered by
-the standing on-device Fre3nder development authorization below or a task
-explicitly authorizes the change, every access to the printer must be read-only.
+The physical printer is the hardware-qualified Fre3nder development system.
+Normal development inside a healthy writable Fre3nder runtime is covered by the
+standing authorization below. Platform, boot, storage, firmware, and destructive
+recovery operations remain operator-controlled.
 
-By default, do not:
+By default, do not perform hardware- or platform-changing operations unless they
+are covered by an established explicitly authorized workflow. This includes:
 
-- create, modify, move, or delete files on the printer;
-- install or update packages;
-- start, stop, or restart services;
-- alter mounts or filesystems;
-- write to block devices or change partitions;
-- change the bootloader or kernel;
-- change or flash MCU firmware;
-- change printer configuration;
-- perform a factory reset or firmware update.
+- raw writes to block devices or partitions;
+- partition-table changes;
+- filesystem creation, repair, or formatting;
+- bootloader changes;
+- kernel or RootFS deployment outside an authorized deployment sequence;
+- MCU firmware flashing or replacement;
+- factory reset, Stock restoration, or destructive recovery operations.
 
 Prefer non-interactive remote access:
 
@@ -43,67 +43,22 @@ Unless the project scope is explicitly changed by the operator, do not require:
 
 The currently accepted non-invasive access paths are:
 
-- the normal stock Linux interface, including SSH where available;
-- the existing external Ingenic USB / BootROM interface.
+- the normal Fre3nder Linux interface, including SSH;
+- Stock Linux when intentionally used for restoration or comparison;
+- the existing external Ingenic USB / BootROM interface for recovery work.
 
 A missing serial bootloader console is a project constraint, not a reason to
 implicitly introduce hardware modification work.
 
 ## On-device Fre3nder development
 
-The qualified writable Fre3nder runtime may be used as a normal development
-environment on the physical printer.
+Fre3nder is the qualified working system used for ongoing development on the
+physical printer. It is no longer treated as a temporary experimental boot
+environment that must return to Stock after each development session.
 
-When Fre3nder is running with its qualified persistent root active, normal
-development work inside the mounted Linux system is permitted without separate
-authorization for each individual filesystem or service change.
-
-Before the first write of every on-device development session:
-
-1. verify that `/run/fre3nder-root/status` reports `active`;
-2. create a fresh off-device backup of `/home` under
-   `local/production/backup/` using a current timestamp as the backup
-   name;
-3. verify that the new `/home` backup completed successfully;
-4. verify that the boot selector is `STOCK_A`; if it is `DEVELOP_B`, use the
-   established `x2000-ab select-a` operation to restore `STOCK_A` before
-   development begins.
-
-The standard implementation of this session preparation is
-`scripts/prepare-x2000-development <printer-host>`. The helper must preserve the
-ordering and fail-closed behavior above. It may restore `STOCK_A`, but it must
-not select `DEVELOP_B`, reboot the printer, or perform the development task
-itself.
-
-The `/home` backup directory is local production data and must remain excluded
-from Git.
-
-Backups shall use a sortable timestamped name, for example:
-
-`local/production/backup/home-YYYYMMDDTHHMMSS/`
-
-Keep the three most recent successfully completed `/home` backups. Older
-backups may be removed only after the new backup has completed and been
-verified successfully.
-
-A failed or incomplete backup must not cause an existing valid backup to be
-deleted.
-
-The default development state is therefore Fre3nder running from p8 with the
-next boot selecting Stock A. This provides a fail-safe path back to Stock if an
-on-device development change makes Fre3nder unbootable.
-
-Setting the selector to `STOCK_A` with the established and validated
-`x2000-ab select-a` operation is part of the standing development-session
-preparation and does not require separate authorization.
-
-Setting the selector to `DEVELOP_B`, including intentional
-Fre3nder-to-Fre3nder reboot testing, is never automatic and still requires
-explicit authorization for that concrete operation or test sequence.
-
-The `/home` backup must be made before changing either system state or userdata,
-even when the planned change itself is outside `/home`. This preserves the
-upgrade-persistent source of truth before experimentation begins.
+When `/run/fre3nder-root/status` reports `active`, normal development inside the
+mounted Fre3nder Linux system is permitted without separate authorization for
+each individual filesystem, configuration, application, or service change.
 
 Normal on-device development may include:
 
@@ -115,23 +70,45 @@ Normal on-device development may include:
 - iterating on system behavior before transferring the final change back into
   the reproducible repository/build inputs.
 
+No mandatory development-session preparation, automatic `/home` backup, or
+selector change is required for ordinary work on a healthy Fre3nder runtime.
+Backups remain appropriate when the concrete task puts valuable persistent data
+at risk, but they are not a ritual prerequisite for every normal development
+change.
+
+Fre3nder may run from either qualified A/B system slot. The currently active
+slot may remain selected after a successful deployment or reboot. Do not change
+the selector merely to restore a historical development safety state.
+
+The `x2000-ab` classifications `STOCK_A` and `DEVELOP_B` describe the two known
+selector byte patterns. They are historical names and do not establish what
+payload is currently stored in slot A or B. In particular, slot A may contain
+Fre3nder while the selector still reports `STOCK_A`.
+
+A/B deployment is an established Fre3nder platform operation. When the operator
+explicitly authorizes a deployment sequence, the authorization covers the
+selector change, reboot, and post-boot validation that are defined parts of that
+sequence. Do not split an already-authorized deployment into repeated approval
+requests for those established internal steps.
+
 On-device state is development evidence, not the release source of truth.
 Changes intended to become part of Fre3nder must subsequently be reproduced in
 the repository and validated through the normal build process.
 
-This standing development authorization does not include:
+The standing authorization for normal runtime development does not include
+platform-destructive or recovery operations. Separate explicit authorization is
+still required for:
 
-- writes to block devices or partitions other than the established
-  `x2000-ab select-a` operation used solely to restore the default `STOCK_A`
-  development safety state;
+- raw writes to kernel, RootFS, boot, recovery, or other block-device
+  partitions outside an explicitly authorized deployment sequence;
+- partition-table changes;
 - filesystem creation, repair, or formatting;
-- writes to p6, p8, p9, or p10;
-- bootloader or kernel deployment;
-- MCU firmware changes;
-- factory reset or other destructive recovery operations.
-
-Those operations remain subject to their existing explicit authorization and
-safety rules.
+- bootloader changes;
+- MCU firmware flashing or replacement;
+- Stock restoration;
+- factory reset or destructive recovery operations;
+- other hardware-changing operations that are not already part of an explicitly
+  authorized established workflow.
 
 # Decision discipline and proportionality
 
@@ -191,11 +168,11 @@ treated proportionally.
   split it into repeated approval requests for individual already-established
   steps unless the sequence changes materially.
 
-- Before every deployment to an experimental kernel or RootFS slot, especially
-  p6 or p8, verify the functional invariants of the artifact that matter to the
-  current test. At minimum, verify the intended boot path, the expected artifact
-  variant, and whether the currently established access and recovery path remains
-  available after the deployment.
+- Before every deployment of a newly built kernel or RootFS to an inactive A/B
+  slot, verify the functional invariants of the artifact that matter to the
+  current operation. At minimum, verify the intended boot path, the expected
+  artifact variant, and whether the currently established access and recovery
+  path remains available after the deployment.
 
 - Preserving operator access is a functional invariant. A build that boots but
   unintentionally removes the currently validated SSH, network, diagnostic, or

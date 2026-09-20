@@ -20,12 +20,6 @@ cp "$helper" "$fixture/scripts/install-development-app"
 printf '%s\n' '#!/bin/sh' 'echo sample fixture' > "$fixture/apps/sample/service"
 printf '%s\n' '#!/bin/bash' > "$fixture/apps/bad-shebang/service"
 
-cat > "$fixture/scripts/prepare-x2000-development" <<'EOF'
-#!/bin/sh
-printf 'prepare:%s\n' "$*" >> "$TEST_CALLS"
-[ "${TEST_PREPARE_FAIL:-0}" -eq 0 ]
-EOF
-
 cat > "$bin/ssh" <<'EOF'
 #!/bin/sh
 set -eu
@@ -35,6 +29,9 @@ command=$4
 printf 'ssh-host:%s\nssh-command:%s\n' "$host" "$command" >> "$TEST_CALLS"
 
 case "$command" in
+'cat /run/fre3nder-root/status 2>/dev/null')
+	printf '%s\n' "${TEST_ROOT_STATUS:-active}"
+	;;
 *"cat > '/tmp/fre3nder-app-source/apps/sample/service'"*)
 	cat > "$TEST_TRANSFERRED"
 	;;
@@ -63,7 +60,6 @@ EOF
 
 chmod 0755 \
 	"$fixture/scripts/install-development-app" \
-	"$fixture/scripts/prepare-x2000-development" \
 	"$fixture/apps/sample/service" \
 	"$bin/ssh"
 
@@ -71,7 +67,7 @@ run_helper() {
 	PATH=$bin:$PATH \
 	TEST_CALLS=$log \
 	TEST_TRANSFERRED=$transferred \
-	TEST_PREPARE_FAIL=${TEST_PREPARE_FAIL:-0} \
+	TEST_ROOT_STATUS=${TEST_ROOT_STATUS:-active} \
 	TEST_SHA_MISMATCH=${TEST_SHA_MISMATCH:-0} \
 	TEST_INSTALL_RC=${TEST_INSTALL_RC:-0} \
 	TEST_S61_RC=${TEST_S61_RC:-0} \
@@ -118,12 +114,13 @@ if run_helper host linked >/dev/null 2>&1; then
 fi
 
 rm -f "$log" "$transferred"
-if TEST_PREPARE_FAIL=1 run_helper host sample >/dev/null 2>&1; then
-	echo 'failed development preparation unexpectedly accepted' >&2
+if TEST_ROOT_STATUS=inactive run_helper host sample >/dev/null 2>&1; then
+	echo 'inactive persistent root unexpectedly accepted' >&2
 	exit 1
 fi
-grep -Fxq 'prepare:host' "$log"
-! grep -Fq 'ssh-' "$log"
+grep -Fxq \
+	'ssh-command:cat /run/fre3nder-root/status 2>/dev/null' \
+	"$log"
 [ ! -e "$transferred" ]
 
 rm -f "$log" "$transferred"
@@ -137,8 +134,10 @@ cmp -s "$fixture/apps/sample/service" "$transferred"
 rm -f "$log" "$transferred"
 run_helper host sample
 cmp -s "$fixture/apps/sample/service" "$transferred"
-[ "$(sed -n '1p' "$log")" = prepare:host ]
-[ "$(grep -Fc 'ssh-host:host' "$log")" -eq 3 ]
+grep -Fxq \
+	'ssh-command:cat /run/fre3nder-root/status 2>/dev/null' \
+	"$log"
+[ "$(grep -Fc 'ssh-host:host' "$log")" -eq 4 ]
 grep -Fq "chmod 0755 '/tmp/fre3nder-app-source/apps/sample/service'" "$log"
 grep -Fxq \
 	"ssh-command:FRE3NDER_APP_SOURCE_DIR=/tmp/fre3nder-app-source /usr/bin/fre3nder install 'sample'" \
@@ -157,8 +156,10 @@ set -e
 rm -f "$log" "$transferred"
 run_helper --apply host sample
 cmp -s "$fixture/apps/sample/service" "$transferred"
-[ "$(sed -n '1p' "$log")" = prepare:host ]
-[ "$(grep -Fc 'ssh-host:host' "$log")" -eq 5 ]
+grep -Fxq \
+	'ssh-command:cat /run/fre3nder-root/status 2>/dev/null' \
+	"$log"
+[ "$(grep -Fc 'ssh-host:host' "$log")" -eq 6 ]
 grep -Fxq \
 	"ssh-command:FRE3NDER_APP_SOURCE_DIR=/tmp/fre3nder-app-source /usr/bin/fre3nder install 'sample'" \
 	"$log"

@@ -139,9 +139,9 @@ The standard host-side workflow for a dirty development build is:
 scripts/install-development-app <printer-host> fluidd
 ```
 
-The helper validates the repository app definition, runs the required
-`prepare-x2000-development` safety preparation, transfers only that definition
-through SSH/stdin, verifies its SHA256 on the target, and invokes
+The helper validates the repository app definition, verifies that the target
+is running with the active Fre3nder persistent root, transfers only that
+definition through SSH/stdin, verifies its SHA256 on the target, and invokes
 `fre3nder install <app>` with `/tmp/fre3nder-app-source` as the explicit local
 source. This default form installs the app without restarting running services.
 
