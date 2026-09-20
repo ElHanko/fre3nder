@@ -10,18 +10,25 @@ configuration under [`configs/x2000`](../configs/x2000). The container recipe
 is [`build/x2000`](../build/x2000), and the source manifest is
 [`configs/x2000/sources.json`](../configs/x2000/sources.json).
 
-The resulting host image uses Linux 6.6.18-rt23, a read-only SquashFS RootFS,
-`root=/dev/mmcblk0p8`, upstream Klipper at the pinned revision, and the
-project's passive-UART patch. The public board-specific Radxa AZW372 WLAN NVRAM
-is vendored unchanged; no Creality WLAN file remains a build input.
-Credentials remain outside the repository and are never embedded
-automatically.
+The resulting host image uses `6.6.157-fre3nder`: official Linux stable
+`v6.6.157` plus the reproducible ordered Fre3nder X2000 hardware-support patch
+series. It uses a read-only SquashFS RootFS, `root=/dev/mmcblk0p8`, upstream
+Klipper at the pinned revision, and the project's passive-UART patch. The public
+board-specific Radxa AZW372 WLAN NVRAM is vendored unchanged; no Creality WLAN
+file remains a build input. Credentials remain outside the repository and are
+never embedded automatically.
 
 The productive source and configuration layers are separated as follows:
 
 ```text
-Ingenic SDK
-└── Kernel 6.6.18-rt23 source
+Official Linux stable v6.6.157
+└── ordered Fre3nder X2000 hardware-support patch series
+    ├── X2000 platform support
+    ├── Ender-3 V3 KE display
+    ├── NS2009 touch
+    ├── Ender-3 V3 KE WLAN integration
+    └── Fre3nder board / forward-port integration
+        └── Kernel 6.6.157-fre3nder
 
 Upstream Buildroot 2025.02.18
 └── internal GCC 13.4.0 / binutils 2.43.1 / glibc toolchain
@@ -34,6 +41,8 @@ Debian ARM bare-metal toolchain
 └── F005 / GD32F303 MCU firmware
 
 Fre3nder
+├── kernel-fre3nder.defconfig
+├── kernel.fragment
 ├── buildroot.defconfig
 ├── buildroot.fragment
 ├── BusyBox fragment
@@ -49,8 +58,10 @@ NaN2008, using Linux 6.6 headers. The XBurst II target retains upstream
 Buildroot's `-ffp-contract=off` XBurst workaround for userspace. The kernel uses the same Buildroot toolchain
 family through the underlying `gcc.br_real`, but Kbuild supplies its separate
 MIPS32r5/O32/soft-float/legacy-NaN target contract. The userspace wrapper flags
-are not applied to the kernel. The Ingenic SDK remains only the separately
-pinned source of the vendor kernel. Buildroot package downloads are retained
+are not applied to the kernel. Historical Ingenic kernel/SDK material remains
+pinned only as migration provenance for the retained X2000 support; it is not a
+productive kernel source checkout or build dependency. Buildroot package
+downloads are retained
 outside its Git checkout so source-tree cleanup does
 not discard the offline-build cache. See
 [`buildroot-maintenance.md`](buildroot-maintenance.md) for the LTS update

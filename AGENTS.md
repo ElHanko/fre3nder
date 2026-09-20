@@ -345,20 +345,31 @@ External findings are reference evidence, not authority:
    documentation section, stock-derived artifact, or hardware report,
    rather than only the project homepage.
 
-### Canonical kernel reference
+### Canonical kernel references
 
-For the X2000 clean-port work, the canonical upstream target-kernel reference is:
+The historical X2000 clean-port investigation used this read-only upstream
+reference:
 
 - Path: `local/research/x2000-kernel/linux-upstream`
 - Version: Linux `v6.6.18`
 - Commit: `d8a27ea2c98685cdaa5fa66c809c7069a4ff394b`
 
-Treat this tree as read-only reference material.
+Keep that tree unchanged as historical migration/reference material.
 
-Do not use another local Linux tree as the upstream clean-port reference unless
-the user explicitly changes the reference for a specific task.
+The productive Fre3nder kernel baseline is defined by
+`configs/x2000/sources.json`. For the current `2026.3` line it is:
 
-Do not modify, commit in, rebase, reset, or otherwise mutate this reference tree.
+- Linux stable `v6.6.157`
+- Commit: `79643295eba17affbd16ca97f3ef04c90266b28c`
+- Baseline tree: `e2963aecbdc92c10a52434a5ae11a82522dc38d5`
+- Fre3nder result tree: `40d8b5cee4341505c12373e9bb1386e80241f0d6`
+
+For productive kernel maintenance and future stable updates, use the pinned
+baseline in `configs/x2000/sources.json` rather than treating the historical
+`v6.6.18` clean-port reference as the current target.
+
+Do not modify, commit in, rebase, reset, or otherwise mutate historical
+read-only reference trees.
 
 # Secrets
 

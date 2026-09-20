@@ -109,21 +109,45 @@ fallback. See [the app-definition source rule](apps.md#app-definition-source-rev
 
 ## 2026.2 usable-system line
 
-The next release target is `2026.2`, scope ID `usable-system`, titled
-**Usable System**. Development candidates use the normal staged version suffixes;
-the first implementation candidate is `2026.2.a`.
+`2026.2`, scope ID `usable-system`, titled **Usable System**, was released on
+2026-09-14. Development candidates used the normal staged version suffixes; the
+implementation candidate was `2026.2.a`.
 
 The `2026.2` scope builds on the functionally achieved `2026.1` open-host
 baseline and adds the persistent runtime and application architecture required
 for normal day-to-day operation. Its completed functional scope and release
 history are summarized in [`CHANGELOG.md`](../CHANGELOG.md); current behavior
-is described by the subject-specific technical documentation.
+is described by the subject-specific technical documentation. The final release
+was built, validated, and tagged from commit
+`fcabe6089dba72ded7c256b8550ea65bc7a34ec6`.
 
-A `2026.2.a` build identifies an alpha implementation candidate. It does not
-by itself claim final-release status. The usable-system scope is now
-hardware-qualified on the investigated reference system, but `2026.2` remains
-unreleased until final release-mode artifacts from the reviewed current source
-are validated and the matching tag is created.
+## 2026.3 independent-kernel-stack line
+
+`2026.3`, scope ID `independent-kernel-stack`, titled
+**Independent Kernel Stack**, was released on 2026-09-20. It completes the
+transition away from the vendor kernel while intentionally changing little
+user-facing printer behavior.
+
+The productive X2000 kernel baseline is official Linux stable `v6.6.157` at
+commit `79643295eba17affbd16ca97f3ef04c90266b28c`. An ordered five-patch
+Fre3nder hardware-support series supplies the retained X2000 platform support,
+Ender-3 V3 KE display, NS2009 touch, WLAN integration, and Fre3nder board/
+forward-port integration. The series produces source tree
+`40d8b5cee4341505c12373e9bb1386e80241f0d6`.
+
+The historical Ingenic kernel/SDK and RT23 trees remain migration provenance
+and reference material only. They are not productive kernel source checkouts.
+PREEMPT_RT/RT23 is no longer required.
+
+The `6.6.157-fre3nder` kernel host baseline is hardware-qualified on the
+investigated reference Ender-3 V3 KE for the exercised boot, network, and SSH
+path. This does not by itself re-qualify every peripheral or application flow
+on the new kernel baseline.
+
+The matching `2026.3` tag identifies the final release source. Release-mode
+artifacts must be built and validated from the clean release commit before that
+tag is published; changing the canonical `VERSION` alone does not create a
+release.
 
 ## Project name
 

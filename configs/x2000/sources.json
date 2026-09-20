@@ -224,11 +224,11 @@
     "relationship": "same toolchain family as userspace, with separate Kbuild target flags",
     "hardware_validated": true
   },
-  "patch_set": {
+  "wlan_kernel_source_provenance": {
     "identity": "fre3nder-x2000-ke-wlan-v1",
-    "file": "configs/x2000/ke-wlan.patch",
+    "carried_in": "patches/kernel/0004-ingenic-ender3-v3-ke-wlan-v6.6.157.patch",
     "basis": "hardware-validated 2026.1.a KE WLAN power/reset/detect sequence",
-    "source_commit": "a98c2e1f22e4263ddd4153a4eca4db4dcfd2777b",
+    "migration_source_commit": "a98c2e1f22e4263ddd4153a4eca4db4dcfd2777b",
     "license": "GPL-2.0-only"
   },
   "klipper_patch_set": {
@@ -348,10 +348,10 @@
   },
   "credential_free": true,
   "selector_write": false,
-  "display_patch_set": {
+  "display_source_provenance": {
     "identity": "fre3nder-x2000-ender3-v3-ke-display-v1",
-    "file": "configs/x2000/ke-display.patch",
-    "source_commit": "a98c2e1f22e4263ddd4153a4eca4db4dcfd2777b",
+    "carried_in": "patches/kernel/0002-ender3-v3-ke-display-v6.6.157.patch",
+    "migration_source_commit": "a98c2e1f22e4263ddd4153a4eca4db4dcfd2777b",
     "license": "GPL-2.0-only",
     "derived_from": {
       "repository": "https://github.com/coreflake1/NebulaOS-kernel",
@@ -361,10 +361,10 @@
     },
     "role": "Ender 3 V3 KE 480x272 parallel-RGB panel support for Ingenic fb_stage"
   },
-  "touch_patch_set": {
+  "touch_source_provenance": {
     "identity": "fre3nder-x2000-ender3-v3-ke-touch-v1",
-    "file": "configs/x2000/ke-touch.patch",
-    "source_commit": "a98c2e1f22e4263ddd4153a4eca4db4dcfd2777b",
+    "carried_in": "patches/kernel/0003-ns2009-touch-v6.6.157.patch",
+    "migration_source_commit": "a98c2e1f22e4263ddd4153a4eca4db4dcfd2777b",
     "license": "GPL-2.0-or-later",
     "derived_from": {
       "repository": "https://github.com/coreflake1/NebulaOS-kernel",

@@ -13,6 +13,7 @@ work.
 - `2026.1` — open printer stack and first qualified real print, released on
   2026-08-29.
 - `2026.2` — usable-system, released on 2026-09-14.
+- `2026.3` — independent-kernel-stack, released on 2026-09-20.
 
 ## Next
 
@@ -71,13 +72,12 @@ and the separation between platform and application updates. Updates must retain
 a usable fallback, fit normal user-facing installation and recovery workflows,
 and must never imply silent F005 firmware flashing.
 
-### Mainline Linux
+### Kernel upstreaming
 
-Move toward a kernel based as far as practical on mainline Linux. Identify the
-required X2000 and printer-hardware support, isolate the current vendor patches,
-reduce remaining Ingenic dependencies, and upstream suitable work where
-possible. Select a concrete kernel only after this investigation, then qualify
-the resulting path on hardware.
+The productive kernel is already independently maintainable from official Linux
+stable. Reduce the remaining Fre3nder X2000 hardware-support series over time
+and upstream suitable support where practical. Upstreaming is a maintenance
+improvement, not a prerequisite for the current kernel path.
 
 ### Internal persistence backend
 

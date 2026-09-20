@@ -101,8 +101,8 @@ current-main build into a new public release.
 
 ## Full kernel and RootFS qualification
 
-On 2026-08-30 a subsequent full current-main build from project commit
-`833cbd43132e5a818a422f25d9478cd6b3f76123`
+On 2026-08-30 a subsequent full build that was current-main at the time,
+from project commit `833cbd43132e5a818a422f25d9478cd6b3f76123`
 (`2026.1-4-g833cbd4`) was installed on the same reference system.
 
 The Slot-B kernel artifact was 4878400 bytes with SHA-256
@@ -120,6 +120,7 @@ The newly written p6/p8 pair subsequently booted successfully with Linux
 Klipper, and hostname `fre3nder`. The selector was finally restored to
 `STOCK_A` while Fre3nder remained active on p8.
 
-This qualifies the complete current-main kernel-plus-RootFS installation on
-the investigated reference system. The build remains an untagged current-main
-qualification build and is not a new public `2026.1` release.
+This qualifies the complete kernel-plus-RootFS installation of that
+2026-08-30 build on the investigated reference system. It was an untagged
+current-main qualification build at the time and is not a new public `2026.1`
+release.

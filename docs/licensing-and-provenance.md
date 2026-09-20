@@ -35,7 +35,7 @@ Policy:
 - publish modifications according to the applicable upstream license;
 - prefer patches or clearly maintained source history.
 
-## Buildroot and Ingenic SDK
+## Buildroot and X2000 kernel provenance
 
 The productive RootFS is built from the official upstream Buildroot 2025.02.18
 LTS source. Its exact release and commit are pinned in

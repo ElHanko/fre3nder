@@ -44,9 +44,9 @@ needed printer-facing functions to have open replacements.
 | Area | Status | Architecture consequence |
 | --- | --- | --- |
 | Main F005 path | PROVEN | Mainline Klipper communicates with the investigated F005 over `/dev/ttyS1` at 230400. Retain this contract; do not redesign it in Phase 3. |
-| X2000 CPU, RAM, eMMC | PROVEN | An X2000 Linux appliance is the hardware target; Phase 3.2 selected the Ingenic Linux 6.6.18 X2000 SDK source basis. |
+| X2000 CPU, RAM, eMMC | PROVEN | An X2000 Linux appliance is the hardware target; the productive kernel is official Linux stable `v6.6.157` plus the ordered Fre3nder X2000 hardware-support patch series. |
 | Lower boot chain | LIKELY | Preserve the existing pre-p1 loader boundary unless evidence requires replacement. Exact normal BootROM/SPL/U-Boot handoff remains UNKNOWN. |
-| LTS kernel + DT | PROVEN | The pinned Ingenic Linux 6.6.18 X2000 SDK mirror, project KE DTS, and minimal patch series boot the bounded `2026.1.a` Slot-B baseline. Long-term maintenance and peripheral completion remain separate work. |
+| LTS kernel + DT | HARDWARE QUALIFIED (HOST BASELINE) | Official Linux stable `v6.6.157` plus the reproducible ordered Fre3nder X2000 patch series builds as `6.6.157-fre3nder` and boots on the investigated reference system. The `2026.3` qualification covers the exercised boot, network, and SSH path; it does not by itself re-qualify every peripheral or application flow. The former Ingenic 6.6.18/RT23 basis is retained only as migration provenance and historical qualification evidence. |
 | Minimal Buildroot root filesystem | PERSISTENCE HARDWARE QUALIFIED | The bounded `2026.1.a` system runs its immutable Buildroot SquashFS RootFS from p8. The former single-volume `/persist` Development adapter was qualified through a normal Develop-B -> Develop-B reboot and is now superseded. The `2026.2` implementation resolves separate external ext4 filesystems labelled `FRE3NDERSYS` and `FRE3NDERHOME`, builds a writable root OverlayFS, exposes the immutable lower at `/rom`, and mounts userdata at `/home`. Normal persistence, the marker-authorized system reset retaining `/home`, and fail-closed degraded boots for missing or invalid system and userdata backends are qualified on the investigated reference system. |
 | Network/SSH | PROVEN | The Production S20 -> S40 -> S50 path is hardware-validated on the investigated reference system: USB provisioning, CDC-NCM Ethernet-first operation, WLAN fallback, public-key login, and interactive SSH PTY allocation and shell operation all succeeded. The image embeds no user credentials. A persistent Dropbear host key was reused over a normal Develop-B -> Develop-B reboot and verified as both Dropbear's configured key and the key presented over SSH; SSH became available again afterward. This qualification is limited to the Development USB-adapter path; runtime/hotplug failover remains open. |
 | Moonraker | NORMAL AND RECOVERY LIFECYCLE HARDWARE QUALIFIED | The RootFS build stages the pinned stable Git checkout under `/opt/fre3nder/moonraker` and a system-site-packages-enabled environment under `/opt/fre3nder/moonraker-env`. Persistent state remains in `/home`; PID/status/socket remain in `/run`. Runtime, Klippy/API, LAN-proxied HTTP, real WebSocket behavior, normal-reboot state retention, and OverlayFS baseline recovery are hardware-qualified on the investigated reference system. Self-update and automatic post-update restart are deferred beyond `2026.2`. |
@@ -162,10 +162,14 @@ a separate update strategy, but Phase 3.1 does not select storage ownership.
 1. **3.1 Hardware + Boot Contract — complete.** Record only the REQUIRED
    interfaces and compatibility constraints in
    [x2000-hardware-contract.md](x2000-hardware-contract.md).
-2. **3.2 Kernel / Device-Tree feasibility — complete.** The bounded result is
-   [x2000-kernel-dt-feasibility.md](../research/docs/x2000-kernel-dt-feasibility.md): the pinned
-   Ingenic Linux 6.6.18 X2000 SDK mirror is selected over a large upstream-6.12
-   forward port. NebulaOS is KE prior art only, not an adopted distribution.
+2. **3.2 Kernel / Device-Tree feasibility — complete and superseded as a
+   production-source decision.** The original bounded result in
+   [x2000-kernel-dt-feasibility.md](../research/docs/x2000-kernel-dt-feasibility.md)
+   selected the Ingenic 6.6.18 source for initial bring-up. The `2026.3`
+   migration subsequently replaced that productive dependency with official
+   Linux stable `v6.6.157` plus the ordered Fre3nder X2000 hardware-support
+   series. The historical document remains evidence; NebulaOS remains prior art
+   and explicit source provenance, not an adopted distribution.
 3. **3.3 A/B bring-up qualification — complete for `2026.1.a`.** The selected
    Slot-B kernel/DT/rootfs, bounded network administration path, and one-shot
    return-to-Stock-A sequence are proven. The RAM-only prototype remains a

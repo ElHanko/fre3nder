@@ -4,9 +4,13 @@ This document records the productive Fre3nder hardware implementation and
 qualification of the integrated Ender-3 V3 KE display, backlight, and
 touchscreen on the investigated reference system.
 
-The hardware path was qualified on real hardware on 2026-09-12.
+The hardware path was qualified on real hardware on 2026-09-12 using the
+then-productive kernel baseline. The `2026.3` migration carries that
+implementation in the ordered Fre3nder X2000 hardware-support series on Linux
+stable `v6.6.157`, but the kernel-migration qualification did not separately
+re-exercise the display/touch path on that new baseline.
 
-This qualification covers the Linux kernel, Device Tree, framebuffer,
+The 2026-09-12 qualification covers the Linux kernel, Device Tree, framebuffer,
 backlight, I2C touchscreen, pendown detection, and Linux input-device path.
 
 It does not qualify a local printer UI. Local presentation is a separate
@@ -233,17 +237,24 @@ UART3 was not registered.
 
 ## Build integration
 
-The productive X2000 kernel build contains:
+The productive X2000 kernel build carries display and touch support through the
+ordered kernel patch series, specifically:
 
 ~~~text
-configs/x2000/ke-display.patch
-configs/x2000/ke-touch.patch
-configs/x2000/ender3-v3-ke.dts
+patches/kernel/0002-ender3-v3-ke-display-v6.6.157.patch
+patches/kernel/0003-ns2009-touch-v6.6.157.patch
+patches/kernel/0005-fre3nder-ender3-v3-ke-integration-v6.6.157.patch
+configs/x2000/kernel-fre3nder.defconfig
 configs/x2000/kernel.fragment
 ~~~
 
-`build/x2000/entrypoint.sh` applies and validates the display and touch patches
-during kernel preparation.
+The board DTS is carried inside the applied kernel tree as
+`module_drivers/dts/x2000/ender3-v3-ke.dts`.
+
+`build/x2000/entrypoint.sh` verifies each ordered patch hash and the final
+result tree, applies the series to the pinned Linux-stable baseline, and
+validates the display/touch configuration and generated DTB during kernel
+preparation.
 
 The effective kernel configuration is checked fail-closed for:
 
@@ -258,27 +269,27 @@ CONFIG_TOUCHSCREEN_NS2009=y
 
 ## Provenance
 
-The kernel base used by these patches is the pinned public Ingenic SDK:
+The productive kernel baseline is official Linux stable:
 
 ~~~text
-Llixuma/ingenic-linux-kernel6.6-x2000-v1.0-20250221
-commit a98c2e1f22e4263ddd4153a4eca4db4dcfd2777b
-Linux 6.6.18-rt23
+linux stable v6.6.157
+commit 79643295eba17affbd16ca97f3ef04c90266b28c
+Fre3nder result: 6.6.157-fre3nder
 ~~~
 
-The open display and touchscreen reference material was inspected from:
+Display and touch are explicit layers in the ordered Fre3nder kernel patch
+series. Their source provenance is retained from the public
+`coreflake1/NebulaOS-kernel` reference at commit
+`88a0e1ecc6ace7c9e4ad99d6fa49e272180fd5a9`, with exact source paths,
+revisions, roles, and licenses recorded in `configs/x2000/sources.json`.
 
-~~~text
-coreflake1/NebulaOS-kernel
-commit 88a0e1ecc6ace7c9e4ad99d6fa49e272180fd5a9
-~~~
+The display-derived source material is recorded as `GPL-2.0-only`. The
+NS2009-derived source material is recorded as `GPL-2.0-or-later`.
 
-The exact source paths, revisions, roles, and licenses are recorded in
-`configs/x2000/sources.json`.
-
-The display-derived kernel material is recorded as GPL-2.0-only.
-
-The NS2009-derived kernel material is recorded as GPL-2.0-or-later.
+The historical Ingenic X2000 kernel at commit
+`a98c2e1f22e4263ddd4153a4eca4db4dcfd2777b` remains migration provenance for
+the surrounding X2000 platform integration; it is not a productive kernel
+source.
 
 No proprietary Creality display or touchscreen binary is part of this
 productive implementation.

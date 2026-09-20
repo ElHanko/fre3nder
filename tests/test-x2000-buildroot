@@ -181,6 +181,24 @@ assert data["wlan_hardware_qualification"] == {
     "overall_gate": "PASS",
     "bluetooth_hardware_validated": False,
 }
+assert "patch_set" not in data
+assert "display_patch_set" not in data
+assert "touch_patch_set" not in data
+
+assert data["wlan_kernel_source_provenance"]["carried_in"] == (
+    "patches/kernel/0004-ingenic-ender3-v3-ke-wlan-v6.6.157.patch")
+assert data["display_source_provenance"]["carried_in"] == (
+    "patches/kernel/0002-ender3-v3-ke-display-v6.6.157.patch")
+assert data["touch_source_provenance"]["carried_in"] == (
+    "patches/kernel/0003-ns2009-touch-v6.6.157.patch")
+
+for provenance in (
+        data["wlan_kernel_source_provenance"],
+        data["display_source_provenance"],
+        data["touch_source_provenance"]):
+    assert provenance["migration_source_commit"] == (
+        "a98c2e1f22e4263ddd4153a4eca4db4dcfd2777b")
+
 assert data["userspace"]["moonraker"] == {
     "repository": "https://github.com/Arksine/moonraker.git",
     "commit": "985c1d0bbeb90bc057d34a232c9dc3b05e0c6c8d",

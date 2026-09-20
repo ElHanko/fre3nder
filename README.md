@@ -8,13 +8,23 @@ owner.
 
 ## Current status
 
-Current released version: [`2026.2`](CHANGELOG.md)
+Current released version: [`2026.3`](CHANGELOG.md)
 
-**`2026.2 RELEASED`** on the investigated reference system.
+**`2026.3 RELEASED`** on the investigated reference system.
 Fre3nder provides an open X2000 host, upstream Klipper integration for the
 F005 MCU, a persistent usable-system stack, Moonraker, managed web applications,
-GuppyScreen, and a documented path back to Stock. The `2026.2` usable-system
-scope is hardware-qualified on the investigated reference system. See the
+GuppyScreen, and a documented path back to Stock.
+
+The `2026.3` **Independent Kernel Stack** release completes the transition away
+from the vendor kernel. The productive host kernel is official Linux stable
+`v6.6.157` plus an ordered five-patch Fre3nder X2000 hardware-support series
+with explicit provenance and no RT23 dependency. The applied series reproduces
+the exact kernel source tree exercised on the investigated reference system.
+
+The `2026.3` kernel qualification covers the exercised host boot, network, and
+SSH path. Previously qualified display/touch, camera, ADXL/Input Shaper,
+GuppyScreen, and complete-print flows remain documented qualification evidence
+but were not automatically re-run on `6.6.157-fre3nder`. See the
 [changelog](CHANGELOG.md) for release history.
 
 The important boundaries remain:

@@ -41,7 +41,10 @@ incorporated into the release-mode `2026.2.a` candidate RootFS. That exact
 RootFS was deployed to p8 and booted on the investigated reference system.
 Display, touch, backlight, standby, touch feedback, and the compact portrait UI
 were exercised from the persistent candidate. A complete real print was
-selected and started through GuppyScreen and finished successfully.
+selected and started through GuppyScreen and finished successfully. Those
+GuppyScreen qualification results belong to the recorded `2026.2.a` candidate;
+the `2026.3` kernel-host-baseline qualification does not independently re-run
+or re-qualify this application flow on `6.6.157-fre3nder`.
 
 Pinned native/vendored dependencies are:
 
@@ -155,7 +158,7 @@ the inverse transformation for 270 degrees, producing the observed mirrored
 axes. The pinned `ElHanko/guppyscreen` fork contains the corresponding
 90/270-degree correction and the 180-degree off-by-one correction together
 with a regression test. That fix has now been built, deployed, and physically
-qualified on the reference printer. No kernel, DTS, `ke-touch.patch`, or
+qualified on the reference printer. No additional kernel, DTS, or
 service-side coordinate workaround is required.
 
 ## Moonraker and failure behavior

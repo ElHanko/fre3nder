@@ -4,6 +4,41 @@ This file records the user-visible and architecturally relevant changes of
 Fre3nder releases. Technical documentation describes the current system rather
 than preserving release-specific acceptance checklists.
 
+## 2026.3 - 2026-09-20
+
+Fre3nder 2026.3 completes the transition away from the vendor kernel. The
+productive X2000 kernel now starts from official Linux stable `v6.6.157` and
+applies an ordered, provenance-separated five-patch Fre3nder X2000 hardware
+support series. Applied in order, that series reproduces the exact
+`40d8b5cee4341505c12373e9bb1386e80241f0d6` source tree already exercised as
+`6.6.157-fre3nder`.
+
+User-facing printer behavior is intentionally largely unchanged. The release
+changes the kernel ownership and maintenance boundary.
+
+The `2026.3` hardware qualification is scoped to the new kernel host baseline
+and the exercised boot, network, and SSH path. It does not by itself re-qualify
+previously qualified display/touch, camera, ADXL/Input Shaper, GuppyScreen, or
+complete-print flows on `6.6.157-fre3nder`.
+
+### Changed
+
+- Replaced the productive Ingenic/Creality-derived `6.6.18-rt23` kernel basis
+  with official Linux stable `v6.6.157` plus the ordered Fre3nder X2000
+  hardware-support patch series. Historical Ingenic kernel/SDK material remains
+  migration provenance only and is no longer a productive kernel source.
+- Removed the PREEMPT_RT/RT23 dependency. The resulting
+  `6.6.157-fre3nder` host baseline was exercised on the investigated reference
+  Ender-3 V3 KE through kernel boot, network, and SSH. The qualified deployment
+  updated p6 only, reused the existing Fre3nder p8, left Stock p5 and p7
+  unchanged, and retained working administrative access.
+- Split the retained X2000 support by provenance into explicit platform,
+  display, touch, WLAN, and Fre3nder board-integration layers while preserving
+  the exact previously qualified result tree.
+- Made the kernel baseline independently maintainable from official Linux
+  stable so future `6.6.y` updates can be ported incrementally against the
+  documented Fre3nder patch series.
+
 ## 2026.2 - 2026-09-14
 
 The usable-system scope is implemented and hardware-qualified on the
