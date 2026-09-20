@@ -254,7 +254,19 @@
     "ssh_host_key": "persistent under /home/fre3nder/.fre3nder/ssh when the persistent root is active; volatile fallback host key in degraded mode",
     "hardware_validated": true
   },
-  "root_cmdline": "root=/dev/mmcblk0p8 rootwait rootfstype=squashfs ro",
+  "kernel_slot_contract": {
+    "embedded_bootargs": false,
+    "command_line_source": "existing X2000 boot chain",
+    "slot_b_hardware_qualification": {
+      "date": "2026-09-20",
+      "kernel_sha256": "9e1902279d8aaac39bf1ef303e1ff9afdf1a58057c61605d639bd497d6062678",
+      "p6_kernel_write_readback": "PASS",
+      "selector": "DEVELOP_B",
+      "boot_root": "/dev/mmcblk0p8",
+      "kernel_version": "6.6.157-fre3nder"
+    },
+    "slot_a_same_fre3nder_kernel_hardware_validated": false
+  },
   "deployment_compatibility": {
     "kernel_partition": "p6",
     "rootfs_partition": "p8"

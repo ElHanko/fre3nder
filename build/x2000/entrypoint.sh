@@ -47,13 +47,13 @@ kernel_url=https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git
 kernel_tag=v6.6.157
 kernel_commit=79643295eba17affbd16ca97f3ef04c90266b28c
 kernel_baseline_tree=e2963aecbdc92c10a52434a5ae11a82522dc38d5
-kernel_fre3nder_tree=40d8b5cee4341505c12373e9bb1386e80241f0d6
+kernel_fre3nder_tree=fd3535dcfe9b4adca5c2e77f10b7672ae6a0a786
 kernel_fre3nder_patch_dir="$project/patches/kernel"
 kernel_fre3nder_patch_series='0001-ingenic-x2000-platform-v6.6.157.patch:df0ab5b4f8041faf8aa715500dd9f3c4aa4c6e34360bdf03836c4a1487da072e
 0002-ender3-v3-ke-display-v6.6.157.patch:50e4ff298bea856a91183482ef8ed4d6578c6860e50833986601d9072f9c6516
 0003-ns2009-touch-v6.6.157.patch:121c9ed5f0123864c21077a7dfb207d9b1f366bb783df8dd18916eff0fa04ac5
 0004-ingenic-ender3-v3-ke-wlan-v6.6.157.patch:01a8a472de7235f06630e599ade5645aed9c803c0a2e7c516a97362eb2578085
-0005-fre3nder-ender3-v3-ke-integration-v6.6.157.patch:08f9eb4bf44d69d7083253b2d75f102e440f20bd0ccb41fdbf011fcefe8f4b30'
+0005-fre3nder-ender3-v3-ke-integration-v6.6.157.patch:3d06a959c58136ac747014396ff4f71d4a04d375814e7da83983303625461206'
 kernel_release=6.6.157-fre3nder
 buildroot_url=https://gitlab.com/buildroot.org/buildroot.git
 buildroot_version=2025.02.18
@@ -1283,7 +1283,13 @@ check_kernel_dtb() {
 	dtb="$k/module_drivers/dts/x2000/ender3-v3-ke.dtb"
 	decoded="$work/fre3nder-x2000-kernel-only.dts"
 
-	grep -Fq 'bootargs = "console=ttyS4,115200 root=/dev/mmcblk0p8 rootwait rootfstype=squashfs ro";' "$dts"
+	grep -Fxq 'CONFIG_MIPS_CMDLINE_FROM_DTB=y' "$k/.config"
+	grep -Fxq '# CONFIG_MIPS_CMDLINE_FROM_BOOTLOADER is not set' "$k/.config"
+
+	if grep -Fq 'bootargs =' "$dts"; then
+		echo 'KE DTS must not embed bootargs; A/B root selection belongs to the bootloader' >&2
+		exit 1
+	fi
 	grep -Fq 'ingenic,drvvbus-gpio = <&gpc 9 GPIO_ACTIVE_HIGH INGENIC_GPIO_NOBIAS>;' "$dts"
 	grep -Fq 'ingenic,vbus-dete-gpio = <&gpd 17 GPIO_ACTIVE_LOW INGENIC_GPIO_NOBIAS>;' "$dts"
 	grep -Fq 'compatible = "pwm-beeper";' "$dts"
@@ -1304,7 +1310,14 @@ check_kernel_dtb() {
 	dtc -I dtb -O dts -o "$decoded" "$dtb"
 	grep -Fq 'creality,ender-3-v3-ke' "$decoded"
 	grep -Fq 'compatible = "pwm-beeper";' "$decoded"
-	grep -Fq 'root=/dev/mmcblk0p8' "$decoded"
+	if grep -Fq 'bootargs =' "$decoded"; then
+		echo 'built KE DTB unexpectedly contains fixed bootargs' >&2
+		exit 1
+	fi
+	if grep -Eq 'root=/dev/mmcblk0p(7|8)' "$decoded"; then
+		echo 'built KE DTB unexpectedly contains a slot-specific root device' >&2
+		exit 1
+	fi
 	grep -Fq 'wifi-bt-power' "$decoded"
 	grep -Fq 'vmmc-supply' "$decoded"
 	grep -Fq 'wlan-reg-on-gpios' "$decoded"
@@ -1860,7 +1873,12 @@ build() {
 	file "$out/rootfs.squashfs" | grep -q ', xz compressed,'
 	dumpimage -l "$out/kernel.uImage"
 	fdtdump "$out/ender3-v3-ke.dtb" 2>&1 | grep -E \
-		'ender-3-v3-ke|root=/dev/mmcblk0p8|wifi-bt-power|wlan-reg-on-gpios'
+		'ender-3-v3-ke|wifi-bt-power|wlan-reg-on-gpios'
+	if fdtdump "$out/ender3-v3-ke.dtb" 2>&1 | \
+		grep -Eq 'bootargs =|root=/dev/mmcblk0p(7|8)'; then
+		echo 'kernel artifact DTB unexpectedly contains slot-specific bootargs' >&2
+		exit 1
+	fi
 	[ "$(stat -c '%s' "$out/kernel.uImage")" -lt 8388608 ]
 	[ "$(stat -c '%s' "$out/rootfs.squashfs")" -lt 524288000 ]
 	unsquashfs -ll "$out/rootfs.squashfs" | grep -q '/dev/pts$'

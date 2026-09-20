@@ -107,10 +107,10 @@ index 69822206d0d4a10f027d667ba8dab05e38e4c4e3..c9a46433b45add3aa58608007c5ec07c
  static int ingenic_gpio_to_irq(struct gpio_chip *chip,
 diff --git a/module_drivers/dts/x2000/ender3-v3-ke.dts b/module_drivers/dts/x2000/ender3-v3-ke.dts
 new file mode 100644
-index 0000000000000000000000000000000000000000..38ae644f4409d5ae649bb23d865dfb8f5380b6d1
+index 0000000000000000000000000000000000000000..e57a81972a763f70bcd6779772b82e7c1095ff5a
 --- /dev/null
 +++ b/module_drivers/dts/x2000/ender3-v3-ke.dts
-@@ -0,0 +1,174 @@
+@@ -0,0 +1,169 @@
 +/dts-v1/;
 +
 +#include <dt-bindings/gpio/gpio.h>
@@ -118,11 +118,6 @@ index 0000000000000000000000000000000000000000..38ae644f4409d5ae649bb23d865dfb8f
 +
 +/ {
 +	compatible = "creality,ender-3-v3-ke", "ingenic,x2000";
-+
-+	chosen {
-+		/* UART1 is reserved for the printer MCU and must not be the console. */
-+		bootargs = "console=ttyS4,115200 root=/dev/mmcblk0p8 rootwait rootfstype=squashfs ro";
-+	};
 +
 +	backlight {
 +		compatible = "gpio-backlight";

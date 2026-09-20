@@ -12,11 +12,26 @@ is [`build/x2000`](../build/x2000), and the source manifest is
 
 The resulting host image uses `6.6.157-fre3nder`: official Linux stable
 `v6.6.157` plus the reproducible ordered Fre3nder X2000 hardware-support patch
-series. It uses a read-only SquashFS RootFS, `root=/dev/mmcblk0p8`, upstream
-Klipper at the pinned revision, and the project's passive-UART patch. The public
-board-specific Radxa AZW372 WLAN NVRAM is vendored unchanged; no Creality WLAN
-file remains a build input. Credentials remain outside the repository and are
-never embedded automatically.
+series. It uses a read-only SquashFS RootFS. The Fre3nder board DT intentionally
+embeds no `/chosen/bootargs` and no slot-specific root device; the existing X2000
+boot chain supplies the slot-dependent kernel command line. Upstream Klipper is
+used at the pinned revision together with the project's passive-UART patch. The
+public board-specific Radxa AZW372 WLAN NVRAM is vendored unchanged; no Creality
+WLAN file remains a build input. Credentials remain outside the repository and
+are never embedded automatically.
+
+The slot-neutral kernel path was hardware-qualified on the investigated
+reference Ender-3 V3 KE on 2026-09-20. Development Kernel SHA-256
+`9e1902279d8aaac39bf1ef303e1ff9afdf1a58057c61605d639bd497d6062678`
+was built with no DT `bootargs` and no p7/p8 root reference, written to inactive
+p6 from Stock A, and passed complete artifact-length readback. After selecting
+B, the same image booted successfully as `6.6.157-fre3nder`; `/proc/cmdline`
+contained `root=/dev/mmcblk0p8` and `x2000-ab` reported active p8 with
+`DEVELOP_B`. This demonstrates that the B root selection is supplied by the
+existing boot chain rather than embedded in the Fre3nder kernel DT. The same
+Fre3nder kernel image has not yet been hardware-qualified from p5/A; that
+symmetric case is intentionally deferred until an A-side Fre3nder transition is
+needed.
 
 The productive source and configuration layers are separated as follows:
 
