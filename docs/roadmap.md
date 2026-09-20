@@ -53,6 +53,32 @@ restore, version/pin, dependency, discovery, and user-management behavior while
 keeping catalog work demand-driven. Avoid introducing a general package-manager
 framework without a concrete need.
 
+### Platform updates (OTA) and rollback
+
+Add a safe release-to-release update path for the Fre3nder platform.
+
+The update architecture should use the existing X2000 A/B system slots so that
+the currently active system remains untouched while a new system is written and
+verified on the inactive side.
+
+Platform updates should preserve the logical `HOME` role while resetting the
+logical `SYS` system overlay for the newly installed release. OTA must operate on
+these logical storage roles rather than depending on their physical backing.
+Physical assignment of `SYS` and `HOME` remains an installation/storage-policy
+responsibility.
+
+The initial implementation is intended for the currently supported external
+Fre3nder persistence backend. Internal persistence and migration are separate
+future work and may require corresponding extensions to OTA.
+
+The same OTA core should eventually be usable through SSH/CLI, the web interface,
+and the local display. Local upload and removable USB storage are the initial
+planned update sources.
+
+A deliberate return to compatible Creality Stock firmware should also be
+supported without requiring a permanently preserved Stock A/B slot. Normal
+Fre3nder platform updates remain separate from F005 firmware updates.
+
 ## Later
 
 ### Application update lifecycle
