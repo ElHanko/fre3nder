@@ -320,9 +320,9 @@ for a different latency-sensitive workload. It establishes that Fre3nder does
 not require RT23 as its kernel source baseline for the currently qualified
 printer stack.
 
-## Productive kernel architecture
+## Phase-2 productive kernel architecture
 
-The productive kernel source relationship is now:
+At the end of Phase 2, the productive kernel source relationship was:
 
 ```text
 official stable Linux v6.6.18
@@ -333,38 +333,28 @@ Fre3nder XBurst2 / X2000 / Ender-3 V3 KE delta
 Linux 6.6.18-fre3nder
 ```
 
-The productive kernel workflow:
-
-1. fetches the pinned official stable Linux `v6.6.18` source;
-2. verifies its commit and tree;
-3. verifies the Fre3nder direct-patch SHA256;
-4. verifies that the patch produces the exact expected source tree;
-5. applies the patch;
-6. applies the reproducible Fre3nder kernel configuration;
-7. builds the normal Fre3nder kernel artifacts.
-
-The Ingenic SDK and the RT23 baseline are now migration history and provenance,
-not productive kernel dependencies.
+That phase established that neither the Ingenic SDK checkout nor the RT23
+baseline was required as a productive kernel source. The Phase-2 direct patch
+is retained as migration history; the current productive architecture is
+described by the Phase-3 section below.
 
 ## Phase 3: maintained Linux 6.6.y
 
-The next kernel migration phase is to move the same known-working Fre3nder
-hardware support from Linux `v6.6.18` to a current maintained Linux `6.6.y`
-baseline.
+Phase 3 advanced the same hardware support from Linux `v6.6.18` to the
+maintained Linux `v6.6.157` baseline.
 
-The migration should remain incremental:
+The migration remained incremental:
 
-1. select and pin the target stable `6.6.y` commit;
-2. compare the current 344-path Fre3nder delta against that source;
-3. identify support that newer upstream Linux already contains or supersedes;
-4. adapt only genuine conflicts;
-5. avoid unrelated redesign during the initial transplant;
-6. reproduce the expected source tree exactly;
-7. build the kernel through the productive workflow;
-8. hardware-qualify the resulting kernel through the established p6 test path.
+1. pin the target official stable commit and tree;
+2. transplant the already qualified Fre3nder hardware support;
+3. identify concrete Stable/API/Kconfig conflicts;
+4. adapt only those observed incompatibilities;
+5. reproduce an exact expected source tree;
+6. build through the normal Fre3nder kernel workflow;
+7. hardware-qualify the resulting kernel through the established p6 test path.
 
-Cleanup and replacement of remaining Vendor-derived implementations can continue
-after a working maintained-6.6.y baseline is established.
+After qualification, the initially collapsed direct delta was mechanically
+split again by provenance without changing the resulting kernel source tree.
 
 Migration to a newer suitable LTS kernel remains a later project phase.
 
@@ -390,17 +380,64 @@ The pinned upstream reference is:
 * tree:
   `e2963aecbdc92c10a52434a5ae11a82522dc38d5`
 
-The productive Fre3nder delta is stored as:
+The productive Fre3nder kernel delta is stored as an ordered provenance
+patch series:
 
-`patches/kernel/0001-fre3nder-x2000-direct-delta-v6.6.157.patch`
+1. Ingenic-derived X2000 platform support:
 
-SHA256:
+   `patches/kernel/0001-ingenic-x2000-platform-v6.6.157.patch`
 
-`3d44d87703ffd6889c515a6010b23d8c83411c905c3c289b8b6db57030147795`
+   SHA256:
 
-Applying the direct delta to the pinned `v6.6.157` baseline produces exactly:
+   `df0ab5b4f8041faf8aa715500dd9f3c4aa4c6e34360bdf03836c4a1487da072e`
+
+2. NebulaOS/OpenKE-derived Ender-3 V3 KE display support:
+
+   `patches/kernel/0002-ender3-v3-ke-display-v6.6.157.patch`
+
+   SHA256:
+
+   `50e4ff298bea856a91183482ef8ed4d6578c6860e50833986601d9072f9c6516`
+
+3. NebulaOS/OpenKE-derived NS2009 touchscreen support:
+
+   `patches/kernel/0003-ns2009-touch-v6.6.157.patch`
+
+   SHA256:
+
+   `121c9ed5f0123864c21077a7dfb207d9b1f366bb783df8dd18916eff0fa04ac5`
+
+4. Ingenic-derived Ender-3 V3 KE WLAN integration:
+
+   `patches/kernel/0004-ingenic-ender3-v3-ke-wlan-v6.6.157.patch`
+
+   SHA256:
+
+   `01a8a472de7235f06630e599ade5645aed9c803c0a2e7c516a97362eb2578085`
+
+5. Fre3nder Ender-3 V3 KE board integration and `v6.6.157`
+   forward-port fixes:
+
+   `patches/kernel/0005-fre3nder-ender3-v3-ke-integration-v6.6.157.patch`
+
+   SHA256:
+
+   `08f9eb4bf44d69d7083253b2d75f102e440f20bd0ccb41fdbf011fcefe8f4b30`
+
+The series is provenance-oriented rather than merely file-oriented. The
+Ingenic-derived layers remain traceable to the public Ingenic X2000 source,
+the display and touch layers remain traceable to the NebulaOS/OpenKE source,
+and Fre3nder-specific board integration and Stable forward-port work remain
+separate.
+
+Applying the complete ordered series to the pinned `v6.6.157` baseline
+produces exactly:
 
 `40d8b5cee4341505c12373e9bb1386e80241f0d6`
+
+This is the same source tree that was built and hardware-qualified before the
+mechanical patch-series split. The split therefore changes provenance and
+maintenance structure, not kernel source content.
 
 The resulting kernel release is:
 
@@ -486,5 +523,5 @@ workload, latency characteristic, or hardware revision.
 
 Future 6.6.y updates should therefore follow the same incremental process:
 
-upstream baseline update → direct-delta apply/port → Kconfig and API validation
-→ kernel build → targeted hardware qualification.
+upstream baseline update → ordered provenance-series apply/port → Kconfig and
+API validation → kernel build → targeted hardware qualification.

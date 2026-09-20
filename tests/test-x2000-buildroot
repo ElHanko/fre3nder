@@ -23,9 +23,8 @@ post_build="$root/configs/x2000/rootfs-post-build.sh"
 nvram="$root/configs/x2000/rootfs-overlay/lib/firmware/brcm/brcmfmac43430-sdio.txt"
 nvram_license="$root/configs/x2000/rootfs-overlay/usr/share/licenses/radxa-rkwifibt/LICENSE"
 reuse="$root/REUSE.toml"
-sdk_source=${X2000_SDK_SOURCE:-$root/local/production/work/x2000/sdk}
-sdk_commit=a98c2e1f22e4263ddd4153a4eca4db4dcfd2777b
-wlan_patch=$root/configs/x2000/ke-wlan.patch
+kernel_wlan_patch=$root/patches/kernel/0004-ingenic-ender3-v3-ke-wlan-v6.6.157.patch
+kernel_integration_patch=$root/patches/kernel/0005-fre3nder-ender3-v3-ke-integration-v6.6.157.patch
 
 python3 - "$sources" <<'PY'
 import json
@@ -189,6 +188,90 @@ assert data["userspace"]["moonraker"] == {
     "role": "qualified RootFS application baseline",
 }
 PY
+
+python3 - "$sources" <<'PY'
+import json
+import pathlib
+import sys
+
+data = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
+kernel = data["kernel"]
+
+assert kernel["source"] == {
+    "role": "productive upstream Linux baseline",
+    "url": "https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git",
+    "tag": "v6.6.157",
+    "commit": "79643295eba17affbd16ca97f3ef04c90266b28c",
+    "tree": "e2963aecbdc92c10a52434a5ae11a82522dc38d5",
+}
+
+series = kernel["patch_series"]
+
+assert series["baseline_commit"] == (
+    "79643295eba17affbd16ca97f3ef04c90266b28c"
+)
+
+assert series["result_tree"] == (
+    "40d8b5cee4341505c12373e9bb1386e80241f0d6"
+)
+
+assert [
+    (
+        item["order"],
+        item["patch"],
+        item["patch_sha256"],
+    )
+    for item in series["patches"]
+] == [
+    (
+        1,
+        "patches/kernel/0001-ingenic-x2000-platform-v6.6.157.patch",
+        "df0ab5b4f8041faf8aa715500dd9f3c4aa4c6e34360bdf03836c4a1487da072e",
+    ),
+    (
+        2,
+        "patches/kernel/0002-ender3-v3-ke-display-v6.6.157.patch",
+        "50e4ff298bea856a91183482ef8ed4d6578c6860e50833986601d9072f9c6516",
+    ),
+    (
+        3,
+        "patches/kernel/0003-ns2009-touch-v6.6.157.patch",
+        "121c9ed5f0123864c21077a7dfb207d9b1f366bb783df8dd18916eff0fa04ac5",
+    ),
+    (
+        4,
+        "patches/kernel/0004-ingenic-ender3-v3-ke-wlan-v6.6.157.patch",
+        "01a8a472de7235f06630e599ade5645aed9c803c0a2e7c516a97362eb2578085",
+    ),
+    (
+        5,
+        "patches/kernel/0005-fre3nder-ender3-v3-ke-integration-v6.6.157.patch",
+        "08f9eb4bf44d69d7083253b2d75f102e440f20bd0ccb41fdbf011fcefe8f4b30",
+    ),
+]
+PY
+
+for patch in \
+    0001-ingenic-x2000-platform-v6.6.157.patch \
+    0002-ender3-v3-ke-display-v6.6.157.patch \
+    0003-ns2009-touch-v6.6.157.patch \
+    0004-ingenic-ender3-v3-ke-wlan-v6.6.157.patch \
+    0005-fre3nder-ender3-v3-ke-integration-v6.6.157.patch
+do
+    grep -Fq "$patch" "$entrypoint"
+    [ -f "$root/patches/kernel/$patch" ]
+done
+
+grep -Fq \
+    'kernel_fre3nder_tree=40d8b5cee4341505c12373e9bb1386e80241f0d6' \
+    "$entrypoint"
+
+! grep -Fq \
+    '0001-fre3nder-x2000-direct-delta-v6.6.157.patch' \
+    "$entrypoint" "$sources"
+
+[ ! -e \
+    "$root/patches/kernel/0001-fre3nder-x2000-direct-delta-v6.6.157.patch" ]
 
 python3 - "$moonraker_wheels" <<'PY'
 import json
@@ -370,50 +453,79 @@ done
 grep -Fxq '# CONFIG_INGENIC_SPI is not set' \
 	"$root/configs/x2000/kernel.fragment"
 ! grep -Fxq 'CONFIG_SPI_MASTER=y' "$root/configs/x2000/kernel.fragment"
-python3 - "$root/configs/x2000/ender3-v3-ke.dts" "$wlan_patch" <<'PY'
+python3 - "$kernel_integration_patch" "$kernel_wlan_patch" <<'PY'
 import pathlib
 import re
 import sys
 
-text = pathlib.Path(sys.argv[1]).read_text(encoding="utf-8")
-for required in (
-        "wifi_bt_power: wifi-bt-power {",
-        'compatible = "regulator-fixed";',
-        'regulator-name = "wifi_bt_power";',
-        "regulator-min-microvolt = <3300000>;",
-        "regulator-max-microvolt = <3300000>;",
-        "gpio = <&gpa 1 GPIO_ACTIVE_LOW INGENIC_GPIO_NOBIAS>;",
-        "regulator-always-on;",
-        "regulator-boot-on;",
-        "vmmc-supply = <&wifi_bt_power>;",
-        "wlan-reg-on-gpios = <&gpd 4 GPIO_ACTIVE_HIGH INGENIC_GPIO_NOBIAS>;",
-        "&aliases {",
-        "spi2 = &adxl_spi;",
-        'compatible = "spi-gpio";',
-        "sck-gpios = <&gpe 16 GPIO_ACTIVE_HIGH INGENIC_GPIO_NOBIAS>;",
-        "mosi-gpios = <&gpe 17 GPIO_ACTIVE_HIGH INGENIC_GPIO_NOBIAS>;",
-        "miso-gpios = <&gpe 18 GPIO_ACTIVE_HIGH INGENIC_GPIO_NOBIAS>;",
-        "cs-gpios = <&gpe 21 GPIO_ACTIVE_LOW INGENIC_GPIO_NOBIAS>;",
-        "num-chipselects = <1>;",
-        'compatible = "rohm,dh2228fv";',
-        "spi-max-frequency = <2000000>;",
-):
-    assert required in text
-assert text.count("spi2 = &adxl_spi;") == 1
-assert text.count("spidev@0 {") == 1
-assert text.count("num-chipselects = <1>;") == 1
-assert "spidev@1" not in text
-for forbidden in ("bl24c16", "eeprom@", "plr"):
-    assert forbidden not in text.lower()
+integration_patch = pathlib.Path(sys.argv[1]).read_text(encoding="utf-8")
+wlan_patch = pathlib.Path(sys.argv[2]).read_text(encoding="utf-8")
 
-patch = pathlib.Path(sys.argv[2]).read_text(encoding="utf-8")
-paths = re.findall(r"^diff --git a/(\S+) b/(\S+)$", patch, re.MULTILINE)
-assert paths == [
-    ("kernel/kernel-6.6/module_drivers/drivers/mmc/host/ingenic_sdio.c",) * 2,
-    ("kernel/kernel-6.6/module_drivers/drivers/mmc/host/sdhci-ingenic.c",) * 2,
-    ("kernel/kernel-6.6/module_drivers/drivers/mmc/host/sdhci-ingenic.h",) * 2,
+integration_paths = re.findall(
+    r"^diff --git a/(\S+) b/(\S+)$",
+    integration_patch,
+    re.MULTILINE,
+)
+
+assert (
+    "module_drivers/dts/x2000/ender3-v3-ke.dts",
+    "module_drivers/dts/x2000/ender3-v3-ke.dts",
+) in integration_paths
+
+for required in (
+    "wifi_bt_power: wifi-bt-power {",
+    'compatible = "regulator-fixed";',
+    'regulator-name = "wifi_bt_power";',
+    "regulator-min-microvolt = <3300000>;",
+    "regulator-max-microvolt = <3300000>;",
+    "gpio = <&gpa 1 GPIO_ACTIVE_LOW INGENIC_GPIO_NOBIAS>;",
+    "regulator-always-on;",
+    "regulator-boot-on;",
+    "vmmc-supply = <&wifi_bt_power>;",
+    "wlan-reg-on-gpios = <&gpd 4 GPIO_ACTIVE_HIGH INGENIC_GPIO_NOBIAS>;",
+    "&aliases {",
+    "spi2 = &adxl_spi;",
+    'compatible = "spi-gpio";',
+    "sck-gpios = <&gpe 16 GPIO_ACTIVE_HIGH INGENIC_GPIO_NOBIAS>;",
+    "mosi-gpios = <&gpe 17 GPIO_ACTIVE_HIGH INGENIC_GPIO_NOBIAS>;",
+    "miso-gpios = <&gpe 18 GPIO_ACTIVE_HIGH INGENIC_GPIO_NOBIAS>;",
+    "cs-gpios = <&gpe 21 GPIO_ACTIVE_LOW INGENIC_GPIO_NOBIAS>;",
+    "num-chipselects = <1>;",
+    'compatible = "rohm,dh2228fv";',
+    "spi-max-frequency = <2000000>;",
+):
+    assert required in integration_patch
+
+assert integration_patch.count("spi2 = &adxl_spi;") == 1
+assert integration_patch.count("spidev@0 {") == 1
+assert integration_patch.count("num-chipselects = <1>;") == 1
+assert "spidev@1" not in integration_patch
+
+for forbidden in ("bl24c16", "eeprom@", "plr"):
+    assert forbidden not in integration_patch.lower()
+
+wlan_paths = re.findall(
+    r"^diff --git a/(\S+) b/(\S+)$",
+    wlan_patch,
+    re.MULTILINE,
+)
+
+assert wlan_paths == [
+    (
+        "module_drivers/drivers/mmc/host/ingenic_sdio.c",
+        "module_drivers/drivers/mmc/host/ingenic_sdio.c",
+    ),
+    (
+        "module_drivers/drivers/mmc/host/sdhci-ingenic.c",
+        "module_drivers/drivers/mmc/host/sdhci-ingenic.c",
+    ),
+    (
+        "module_drivers/drivers/mmc/host/sdhci-ingenic.h",
+        "module_drivers/drivers/mmc/host/sdhci-ingenic.h",
+    ),
 ]
-assert "ender3-v3-ke.dts" not in patch
+
+assert "ender3-v3-ke.dts" not in wlan_patch
 PY
 
 python3 - \
@@ -470,7 +582,6 @@ done
 ! grep -Fq 'BR2_MIPS_NAN_LEGACY=y' "$base"
 grep -Fq 'host/bin/mipsel-buildroot-linux-gnu-gcc' "$entrypoint"
 grep -Fq 'gcc.br_real' "$entrypoint"
-grep -Fq 'git -C "$sdk" sparse-checkout set kernel/kernel-6.6' "$entrypoint"
 ! grep -Fq 'mips-gcc720-glibc238' "$entrypoint"
 ! grep -Fq 'CROSS_COMPILE=mips-linux-gnu-' "$entrypoint"
 [ -x "$fingerprint" ]
@@ -1029,25 +1140,10 @@ cache_log=$(prepare_buildroot_output "$cache_output")
 	'Buildroot development cache: ADOPTED (legacy output without fingerprint)' ]
 [ -f "$cache_output/$buildroot_toolchain_marker" ]
 
-# Reproduce the prepare_kernel ordering against the exact pinned SDK sources:
-# stage the canonical board DTS first, then check only the driver patch.
-[ "$(git -C "$sdk_source" rev-parse HEAD)" = "$sdk_commit" ]
-sdk_stage=$tmp/sdk
-mkdir -p "$sdk_stage/kernel/kernel-6.6/module_drivers/dts/x2000"
-for path in \
-	kernel/kernel-6.6/module_drivers/drivers/mmc/host/ingenic_sdio.c \
-	kernel/kernel-6.6/module_drivers/drivers/mmc/host/sdhci-ingenic.c \
-	kernel/kernel-6.6/module_drivers/drivers/mmc/host/sdhci-ingenic.h; do
-	mkdir -p "$sdk_stage/${path%/*}"
-	GIT_NO_LAZY_FETCH=1 git -C "$sdk_source" show \
-		"$sdk_commit:$path" > "$sdk_stage/$path"
-done
-cp "$root/configs/x2000/ender3-v3-ke.dts" \
-	"$sdk_stage/kernel/kernel-6.6/module_drivers/dts/x2000/ender3-v3-ke.dts"
-(
-	cd "$sdk_stage"
-	git apply --check "$wlan_patch"
-)
+# The productive kernel no longer stages board or WLAN changes through an
+# Ingenic SDK checkout. Kernel patch ordering, provenance, hashes, and the
+# exact resulting source tree are validated above against the productive
+# upstream-v6.6.157 patch series.
 
 # The qualified F005 image is staged into the immutable RootFS overlay from the
 # release-manifest-validated local artifact.

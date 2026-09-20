@@ -1,5 +1,5 @@
 diff --git a/Kconfig b/Kconfig
-index 745bc773f..bcff5cd00 100644
+index 745bc773f567067a85ce6574fb41ce80833247d9..bcff5cd00dc406fd46fc6cdee078c10753bca3c9 100644
 --- a/Kconfig
 +++ b/Kconfig
 @@ -30,3 +30,6 @@ source "lib/Kconfig"
@@ -10,7 +10,7 @@ index 745bc773f..bcff5cd00 100644
 +source "module_drivers/Kconfig"
 +
 diff --git a/Makefile b/Makefile
-index cda631fef..28d284e50 100644
+index cda631fef608e187e1bf96f8eaa145180c1f3bbf..28d284e50b17ca1fbfbca87bdec13b7ff77e5acd 100644
 --- a/Makefile
 +++ b/Makefile
 @@ -390,7 +390,8 @@ include $(srctree)/scripts/subarch.include
@@ -47,7 +47,7 @@ index cda631fef..28d284e50 100644
  
  ifneq ($(dtstree),)
 diff --git a/arch/mips/Kbuild.platforms b/arch/mips/Kbuild.platforms
-index caad195ba..f919d5b62 100644
+index caad195ba5c196ca8862b23af55e857f1e751e67..f919d5b622d10d02536a4e87a54b23470be3c435 100644
 --- a/arch/mips/Kbuild.platforms
 +++ b/arch/mips/Kbuild.platforms
 @@ -32,6 +32,7 @@ platform-$(CONFIG_SIBYTE_SB1250)	+= sibyte/
@@ -59,7 +59,7 @@ index caad195ba..f919d5b62 100644
  # include the platform specific files
  include $(patsubst %/, $(srctree)/arch/mips/%/Platform, $(platform-y))
 diff --git a/arch/mips/Kconfig b/arch/mips/Kconfig
-index 91c3a5021..879c7ca8a 100644
+index 91c3a502156b31ace9339ca320dd90111a56e481..879c7ca8a7ca42df82544217873de75dce3f36a2 100644
 --- a/arch/mips/Kconfig
 +++ b/arch/mips/Kconfig
 @@ -26,6 +26,7 @@ config MIPS
@@ -161,7 +161,7 @@ index 91c3a5021..879c7ca8a 100644
  	bool
  	select BOARD_SCACHE
 diff --git a/arch/mips/Makefile b/arch/mips/Makefile
-index 0888074f4..c33944a65 100644
+index 0888074f4dfef0206948d99621c7fca1b92691c1..c33944a659e28e3c4785f5dd9c2614a18857b4aa 100644
 --- a/arch/mips/Makefile
 +++ b/arch/mips/Makefile
 @@ -95,7 +95,7 @@ all-$(CONFIG_SYS_SUPPORTS_ZBOOT)+= vmlinuz
@@ -202,7 +202,7 @@ index 0888074f4..c33944a65 100644
  	echo
 diff --git a/arch/mips/boot/zcompressed/Makefile b/arch/mips/boot/zcompressed/Makefile
 new file mode 100644
-index 000000000..2c7a024bc
+index 0000000000000000000000000000000000000000..2c7a024bc3bc884fef06fadc14d5abd97821fb31
 --- /dev/null
 +++ b/arch/mips/boot/zcompressed/Makefile
 @@ -0,0 +1,79 @@
@@ -287,7 +287,7 @@ index 000000000..2c7a024bc
 +	@rm -f $(obj)/zImage
 diff --git a/arch/mips/boot/zcompressed/dummy.c b/arch/mips/boot/zcompressed/dummy.c
 new file mode 100644
-index 000000000..31dbf45bf
+index 0000000000000000000000000000000000000000..31dbf45bf99c5996ca0ee62cba186d912b08e666
 --- /dev/null
 +++ b/arch/mips/boot/zcompressed/dummy.c
 @@ -0,0 +1,4 @@
@@ -297,7 +297,7 @@ index 000000000..31dbf45bf
 +}
 diff --git a/arch/mips/boot/zcompressed/entry b/arch/mips/boot/zcompressed/entry
 new file mode 100644
-index 000000000..663553b4c
+index 0000000000000000000000000000000000000000..663553b4cb291502d6671a8e774fbdacc91f20f0
 --- /dev/null
 +++ b/arch/mips/boot/zcompressed/entry
 @@ -0,0 +1,12 @@
@@ -315,7 +315,7 @@ index 000000000..663553b4c
 +fi
 diff --git a/arch/mips/boot/zcompressed/filesize b/arch/mips/boot/zcompressed/filesize
 new file mode 100644
-index 000000000..9fdebda56
+index 0000000000000000000000000000000000000000..9fdebda56c07b3d31cd79dd9f8af457b922e5c43
 --- /dev/null
 +++ b/arch/mips/boot/zcompressed/filesize
 @@ -0,0 +1,14 @@
@@ -335,7 +335,7 @@ index 000000000..9fdebda56
 +done
 diff --git a/arch/mips/boot/zcompressed/head.S b/arch/mips/boot/zcompressed/head.S
 new file mode 100644
-index 000000000..6df71ff45
+index 0000000000000000000000000000000000000000..6df71ff458005b6bd603aab38a5e718ed641911f
 --- /dev/null
 +++ b/arch/mips/boot/zcompressed/head.S
 @@ -0,0 +1,87 @@
@@ -428,7 +428,7 @@ index 000000000..6df71ff45
 +	.comm .stack,4096*2,4
 diff --git a/arch/mips/boot/zcompressed/ld.script b/arch/mips/boot/zcompressed/ld.script
 new file mode 100644
-index 000000000..5ebfdae53
+index 0000000000000000000000000000000000000000..5ebfdae53cf32d20cb7d0a3a0d924946b0e2492b
 --- /dev/null
 +++ b/arch/mips/boot/zcompressed/ld.script
 @@ -0,0 +1,152 @@
@@ -586,7 +586,7 @@ index 000000000..5ebfdae53
 +}
 diff --git a/arch/mips/boot/zcompressed/misc.c b/arch/mips/boot/zcompressed/misc.c
 new file mode 100644
-index 000000000..ddfb22351
+index 0000000000000000000000000000000000000000..ddfb22351e8e86d23338ee1ae2290c69897528f4
 --- /dev/null
 +++ b/arch/mips/boot/zcompressed/misc.c
 @@ -0,0 +1,404 @@
@@ -996,7 +996,7 @@ index 000000000..ddfb22351
 +}
 diff --git a/arch/mips/boot/zcompressed/tools/entry b/arch/mips/boot/zcompressed/tools/entry
 new file mode 100644
-index 000000000..376e822a6
+index 0000000000000000000000000000000000000000..376e822a6353bff6f56689f619e3f50b0b0ec46f
 --- /dev/null
 +++ b/arch/mips/boot/zcompressed/tools/entry
 @@ -0,0 +1,12 @@
@@ -1014,7 +1014,7 @@ index 000000000..376e822a6
 +fi
 diff --git a/arch/mips/boot/zcompressed/tools/filesize b/arch/mips/boot/zcompressed/tools/filesize
 new file mode 100644
-index 000000000..9fdebda56
+index 0000000000000000000000000000000000000000..9fdebda56c07b3d31cd79dd9f8af457b922e5c43
 --- /dev/null
 +++ b/arch/mips/boot/zcompressed/tools/filesize
 @@ -0,0 +1,14 @@
@@ -1033,7 +1033,7 @@ index 000000000..9fdebda56
 +    exit 0
 +done
 diff --git a/arch/mips/include/asm/cpu-features.h b/arch/mips/include/asm/cpu-features.h
-index 3f11e5218..f0dbaa8b0 100644
+index 3f11e5218e6c65759cc5442e87c514e5139e4d01..f0dbaa8b0ba9c7e009f1771b499401d51905fb54 100644
 --- a/arch/mips/include/asm/cpu-features.h
 +++ b/arch/mips/include/asm/cpu-features.h
 @@ -439,6 +439,19 @@
@@ -1057,7 +1057,7 @@ index 3f11e5218..f0dbaa8b0 100644
  #define cpu_has_mipsmt		__isa_range_and_ase(2, 6, MIPS_ASE_MIPSMT)
  #endif
 diff --git a/arch/mips/include/asm/cpu-type.h b/arch/mips/include/asm/cpu-type.h
-index a4a66bd93..a412895a8 100644
+index a4a66bd93748404d9864a0fbf237d4e2c0586bc1..a412895a8b4f1bb448511fb4d22928b9ad90c7ee 100644
 --- a/arch/mips/include/asm/cpu-type.h
 +++ b/arch/mips/include/asm/cpu-type.h
 @@ -57,6 +57,7 @@ static inline int __pure __get_cpu_type(const int cpu_type)
@@ -1069,7 +1069,7 @@ index a4a66bd93..a412895a8 100644
  
  #if defined(CONFIG_SYS_HAS_CPU_MIPS32_R2) || \
 diff --git a/arch/mips/include/asm/cpu.h b/arch/mips/include/asm/cpu.h
-index ecb9854cb..492a4dcc7 100644
+index ecb9854cb4324820aede937e29ad9e40db3fb0e6..492a4dcc7ec021a6108f2cc36ec524050abf80f4 100644
 --- a/arch/mips/include/asm/cpu.h
 +++ b/arch/mips/include/asm/cpu.h
 @@ -185,10 +185,19 @@
@@ -1103,7 +1103,7 @@ index ecb9854cb..492a4dcc7 100644
  	CPU_M5150, CPU_I6400, CPU_P6600, CPU_M6250,
  
 diff --git a/arch/mips/include/asm/mipsregs.h b/arch/mips/include/asm/mipsregs.h
-index 92ad30139..526534ef9 100644
+index 92ad301395045abb94d71ff1ea579bdf82b36c04..526534ef981d8d005b76b61eee114568334aaff5 100644
 --- a/arch/mips/include/asm/mipsregs.h
 +++ b/arch/mips/include/asm/mipsregs.h
 @@ -468,6 +468,8 @@
@@ -1116,7 +1116,7 @@ index 92ad30139..526534ef9 100644
  /*
   * Bits in the coprocessor 0 config register.
 diff --git a/arch/mips/include/asm/msa.h b/arch/mips/include/asm/msa.h
-index 236a49ee2..50f6cd157 100644
+index 236a49ee2e3e7a05a511c9711ab053dc1dfbcb9c..50f6cd157279dbd2f555294b65a8ad8992d8f12d 100644
 --- a/arch/mips/include/asm/msa.h
 +++ b/arch/mips/include/asm/msa.h
 @@ -98,6 +98,8 @@ static inline void enable_msa(void)
@@ -1138,7 +1138,7 @@ index 236a49ee2..50f6cd157 100644
  	}
  }
 diff --git a/arch/mips/include/asm/pgtable-bits.h b/arch/mips/include/asm/pgtable-bits.h
-index 421e78c30..38e169a55 100644
+index 421e78c30253cbadd43aeb892ebdb4cf83ef0470..38e169a5527fe534f67891169c0cc2c6ca8c7451 100644
 --- a/arch/mips/include/asm/pgtable-bits.h
 +++ b/arch/mips/include/asm/pgtable-bits.h
 @@ -249,6 +249,20 @@ static inline uint64_t pte_to_entrylo(unsigned long pte_val)
@@ -1163,7 +1163,7 @@ index 421e78c30..38e169a55 100644
  
  #ifndef _CACHE_CACHABLE_NO_WA
 diff --git a/arch/mips/include/asm/processor.h b/arch/mips/include/asm/processor.h
-index ae2cd37a3..9284c4f9b 100644
+index ae2cd37a38f05faf3578e599c1fa218835cc485a..9284c4f9b28d07d3224a427c238a964c2d43a107 100644
 --- a/arch/mips/include/asm/processor.h
 +++ b/arch/mips/include/asm/processor.h
 @@ -88,11 +88,49 @@ extern unsigned long mips_stack_top(void);
@@ -1227,7 +1227,7 @@ index ae2cd37a3..9284c4f9b 100644
  	union mips_watch_reg_state watch;
  
 diff --git a/arch/mips/include/asm/stackframe.h b/arch/mips/include/asm/stackframe.h
-index a8705aef4..6c55d3c86 100644
+index a8705aef47e12d7af5a43c04ada66e07ec886dff..6c55d3c864d2780400fdb087be06dd6c19aae015 100644
 --- a/arch/mips/include/asm/stackframe.h
 +++ b/arch/mips/include/asm/stackframe.h
 @@ -424,7 +424,8 @@
@@ -1241,7 +1241,7 @@ index a8705aef4..6c55d3c86 100644
  #else
  		.set	push
 diff --git a/arch/mips/include/asm/switch_to.h b/arch/mips/include/asm/switch_to.h
-index d6ccd5344..a905588e5 100644
+index d6ccd53440213315ec75a54caf683c32c69dcdbe..a905588e50ca8a07fa406cb5989562de566b31d6 100644
 --- a/arch/mips/include/asm/switch_to.h
 +++ b/arch/mips/include/asm/switch_to.h
 @@ -17,7 +17,8 @@
@@ -1279,7 +1279,7 @@ index d6ccd5344..a905588e5 100644
  		u32 status = read_c0_status();				\
  									\
 diff --git a/arch/mips/include/asm/thread_info.h b/arch/mips/include/asm/thread_info.h
-index ecae7470f..e230e506f 100644
+index ecae7470faa4058403b259c9ea199267684e30db..e230e506f84f26600f940994beeec6dc02de8227 100644
 --- a/arch/mips/include/asm/thread_info.h
 +++ b/arch/mips/include/asm/thread_info.h
 @@ -23,25 +23,25 @@
@@ -1539,7 +1539,7 @@ index ecae7470f..e230e506f 100644
  #endif /* __KERNEL__ */
  #endif /* _ASM_THREAD_INFO_H */
 diff --git a/arch/mips/kernel/cpu-probe.c b/arch/mips/kernel/cpu-probe.c
-index d982bc328..5c708a6e2 100644
+index d982bc3288eb7afe8d5415f72a031d6b60ec0c40..5c708a6e22208785b0713ad574129d0e566ff30d 100644
 --- a/arch/mips/kernel/cpu-probe.c
 +++ b/arch/mips/kernel/cpu-probe.c
 @@ -1766,7 +1766,12 @@ static inline void cpu_probe_ingenic(struct cpuinfo_mips *c, unsigned int cpu)
@@ -1568,7 +1568,7 @@ index d982bc328..5c708a6e2 100644
  		break;
  
 diff --git a/arch/mips/kernel/elf.c b/arch/mips/kernel/elf.c
-index 7aa2c2360..8dd19aa00 100644
+index 7aa2c2360ff60219bb8fb9f03a8a528edf7f53a1..8dd19aa00402354de2f33f18649b02ed78238726 100644
 --- a/arch/mips/kernel/elf.c
 +++ b/arch/mips/kernel/elf.c
 @@ -338,6 +338,24 @@ int mips_elf_read_implies_exec(void *elf_ex, int exstack)
@@ -1598,7 +1598,7 @@ index 7aa2c2360..8dd19aa00 100644
  }
  EXPORT_SYMBOL(mips_elf_read_implies_exec);
 diff --git a/arch/mips/kernel/genex.S b/arch/mips/kernel/genex.S
-index b6de8e88c..fa19586a1 100644
+index b6de8e88c1bd428f1f1b7eee6b1118c9304e3601..fa19586a1de1ce05cd494ce34f377c4a4fecbd87 100644
 --- a/arch/mips/kernel/genex.S
 +++ b/arch/mips/kernel/genex.S
 @@ -567,6 +567,7 @@ NESTED(nmi_handler, PT_SIZE, sp)
@@ -1610,7 +1610,7 @@ index b6de8e88c..fa19586a1 100644
  	BUILD_HANDLER gsexc gsexc gsexc silent		/* #16 */
  	BUILD_HANDLER msa msa sti silent		/* #21 */
 diff --git a/arch/mips/kernel/idle.c b/arch/mips/kernel/idle.c
-index 5abc8b734..e8fe57a98 100644
+index 5abc8b7340f88779f1027e609f31a795d30216eb..e8fe57a986e52b0cf2cecd6f6bf67200e95c5a69 100644
 --- a/arch/mips/kernel/idle.c
 +++ b/arch/mips/kernel/idle.c
 @@ -59,6 +59,19 @@ void __cpuidle r4k_wait_irqoff(void)
@@ -1649,7 +1649,7 @@ index 5abc8b734..e8fe57a98 100644
  		if ((c->processor_id & (PRID_IMP_MASK | PRID_REV_MASK)) >=
  				(PRID_IMP_LOONGSON_64C | PRID_REV_LOONGSON3A_R2_0) ||
 diff --git a/arch/mips/kernel/setup.c b/arch/mips/kernel/setup.c
-index 3f45b7256..e330cf71e 100644
+index 3f45b72561db9c0a4ef712dbc4a12bbbc3a4e532..e330cf71e01400c824c65c23d5106cf7c1176afa 100644
 --- a/arch/mips/kernel/setup.c
 +++ b/arch/mips/kernel/setup.c
 @@ -652,7 +652,6 @@ static void __init arch_mem_init(char **cmdline_p)
@@ -1669,7 +1669,7 @@ index 3f45b7256..e330cf71e 100644
  	/*
  	 * In order to reduce the possibility of kernel panic when failed to
 diff --git a/arch/mips/kernel/traps.c b/arch/mips/kernel/traps.c
-index 5b778995d..dc1e6de71 100644
+index 5b778995d44831ea58ee23590237b5b401b4010a..dc1e6de71eb25b82ec68cc74851c62878a378b6f 100644
 --- a/arch/mips/kernel/traps.c
 +++ b/arch/mips/kernel/traps.c
 @@ -91,6 +91,7 @@ extern asmlinkage void handle_ov(void);
@@ -1772,7 +1772,7 @@ index 5b778995d..dc1e6de71 100644
  		set_except_vector(EXCCODE_TLBRI, tlb_do_page_fault_0);
  		set_except_vector(EXCCODE_TLBXI, tlb_do_page_fault_0);
 diff --git a/arch/mips/mm/c-r4k.c b/arch/mips/mm/c-r4k.c
-index 187d1c163..7a35137a3 100644
+index 187d1c16361cfa926e1d5cd394d7ed6fb1491167..7a35137a3708c450a286006d36bb922fb1163fa4 100644
 --- a/arch/mips/mm/c-r4k.c
 +++ b/arch/mips/mm/c-r4k.c
 @@ -95,9 +95,11 @@ static inline void r4k_on_each_cpu(unsigned int type,
@@ -1857,7 +1857,7 @@ index 187d1c163..7a35137a3 100644
  	case CPU_CAVIUM_OCTEON3:
  		/* don't need to worry about L2, fully coherent */
 diff --git a/arch/mips/mm/dma-noncoherent.c b/arch/mips/mm/dma-noncoherent.c
-index 3c4fc97b9..062151a32 100644
+index 3c4fc97b9f394b0c2f2d22c5f59d23c0105cbfb3..062151a32bc50ea47b0620c8a3abd334a85b9e89 100644
 --- a/arch/mips/mm/dma-noncoherent.c
 +++ b/arch/mips/mm/dma-noncoherent.c
 @@ -33,6 +33,7 @@ static inline bool cpu_needs_post_dma_flush(void)
@@ -1869,7 +1869,7 @@ index 3c4fc97b9..062151a32 100644
  	default:
  		/*
 diff --git a/arch/mips/mm/tlb-r4k.c b/arch/mips/mm/tlb-r4k.c
-index 0cb68a531..ae42b9fed 100644
+index 0cb68a5316010ee69c37181136721871b65da463..ae42b9fed1adb8aa12c5405c6fe4ea6bae8c8253 100644
 --- a/arch/mips/mm/tlb-r4k.c
 +++ b/arch/mips/mm/tlb-r4k.c
 @@ -59,7 +59,7 @@ void local_flush_tlb_all(void)
@@ -1901,7 +1901,7 @@ index 0cb68a531..ae42b9fed 100644
  		while (entry < current_cpu_data.tlbsize) {
  			/* Make sure all entries differ. */
 diff --git a/arch/mips/mm/tlbex.c b/arch/mips/mm/tlbex.c
-index b4e1c783e..532ee4ab6 100644
+index b4e1c783e61779e346e19a8eca88aea1f63f2b19..532ee4ab63b3970e32403b4938fa21f6f4854261 100644
 --- a/arch/mips/mm/tlbex.c
 +++ b/arch/mips/mm/tlbex.c
 @@ -587,6 +587,7 @@ void build_tlb_write_entry(u32 **p, struct uasm_label **l,
@@ -1914,7 +1914,7 @@ index b4e1c783e..532ee4ab6 100644
  		break;
 diff --git a/arch/mips/xburst2/Kconfig b/arch/mips/xburst2/Kconfig
 new file mode 100644
-index 000000000..fe056143b
+index 0000000000000000000000000000000000000000..fe056143befcc05064aa17d086342e6c0ee69fac
 --- /dev/null
 +++ b/arch/mips/xburst2/Kconfig
 @@ -0,0 +1,144 @@
@@ -2064,7 +2064,7 @@ index 000000000..fe056143b
 +endif
 diff --git a/arch/mips/xburst2/Makefile b/arch/mips/xburst2/Makefile
 new file mode 100644
-index 000000000..c9b57958b
+index 0000000000000000000000000000000000000000..c9b57958b4c4f20314e171be65af4fc4fa58a2a0
 --- /dev/null
 +++ b/arch/mips/xburst2/Makefile
 @@ -0,0 +1,5 @@
@@ -2075,7 +2075,7 @@ index 000000000..c9b57958b
 +obj-$(CONFIG_SOC_X2100) += soc-x2000/
 diff --git a/arch/mips/xburst2/Platform b/arch/mips/xburst2/Platform
 new file mode 100644
-index 000000000..7041f5c5f
+index 0000000000000000000000000000000000000000..7041f5c5f196b95847da41756208fa14f7eb7e8b
 --- /dev/null
 +++ b/arch/mips/xburst2/Platform
 @@ -0,0 +1,9 @@
@@ -2090,7 +2090,7 @@ index 000000000..7041f5c5f
 +cflags-$(CONFIG_SOC_X2500)	+= -I$(srctree)/arch/mips/xburst2/soc-x2500/include
 diff --git a/arch/mips/xburst2/common/Makefile b/arch/mips/xburst2/common/Makefile
 new file mode 100644
-index 000000000..d449d4579
+index 0000000000000000000000000000000000000000..d449d4579436a64a02d8109de38b649adf45de8c
 --- /dev/null
 +++ b/arch/mips/xburst2/common/Makefile
 @@ -0,0 +1,10 @@
@@ -2106,7 +2106,7 @@ index 000000000..d449d4579
 +#obj-y += initrd-check.o
 diff --git a/arch/mips/xburst2/common/get-cpu-features.c b/arch/mips/xburst2/common/get-cpu-features.c
 new file mode 100644
-index 000000000..9771d20a0
+index 0000000000000000000000000000000000000000..9771d20a0fc3f394c106736f40e2429c0bd7bb43
 --- /dev/null
 +++ b/arch/mips/xburst2/common/get-cpu-features.c
 @@ -0,0 +1,98 @@
@@ -2210,7 +2210,7 @@ index 000000000..9771d20a0
 +module_init(init_cpu_features);
 diff --git a/arch/mips/xburst2/common/initrd-check.c b/arch/mips/xburst2/common/initrd-check.c
 new file mode 100644
-index 000000000..8e3e0c86a
+index 0000000000000000000000000000000000000000..8e3e0c86a337f72a2ce8731fc2d0503dc8d148c5
 --- /dev/null
 +++ b/arch/mips/xburst2/common/initrd-check.c
 @@ -0,0 +1,61 @@
@@ -2277,7 +2277,7 @@ index 000000000..8e3e0c86a
 +late_initcall(check_rootfs);
 diff --git a/arch/mips/xburst2/common/mxuv3.c b/arch/mips/xburst2/common/mxuv3.c
 new file mode 100644
-index 000000000..97ab908db
+index 0000000000000000000000000000000000000000..97ab908dba431c5aa00667570c0b4ba233733c14
 --- /dev/null
 +++ b/arch/mips/xburst2/common/mxuv3.c
 @@ -0,0 +1,696 @@
@@ -2979,7 +2979,7 @@ index 000000000..97ab908db
 +}
 diff --git a/arch/mips/xburst2/common/proc.c b/arch/mips/xburst2/common/proc.c
 new file mode 100644
-index 000000000..d1ccaa41e
+index 0000000000000000000000000000000000000000..d1ccaa41ea07fe28ba35006edd72e4f9a5963245
 --- /dev/null
 +++ b/arch/mips/xburst2/common/proc.c
 @@ -0,0 +1,95 @@
@@ -3080,7 +3080,7 @@ index 000000000..d1ccaa41e
 +}
 diff --git a/arch/mips/xburst2/core/Makefile b/arch/mips/xburst2/core/Makefile
 new file mode 100644
-index 000000000..f24f8fa4d
+index 0000000000000000000000000000000000000000..f24f8fa4ddb7d8f2f87a95a04a639d8ab17d95cd
 --- /dev/null
 +++ b/arch/mips/xburst2/core/Makefile
 @@ -0,0 +1,4 @@
@@ -3090,7 +3090,7 @@ index 000000000..f24f8fa4d
 +obj-$(CONFIG_SMP)	+= smp.o
 diff --git a/arch/mips/xburst2/core/include/ccu.h b/arch/mips/xburst2/core/include/ccu.h
 new file mode 100644
-index 000000000..fa983a3a8
+index 0000000000000000000000000000000000000000..fa983a3a8f5c05d2a134f9af5d6d13a9e8ec16f8
 --- /dev/null
 +++ b/arch/mips/xburst2/core/include/ccu.h
 @@ -0,0 +1,42 @@
@@ -3138,7 +3138,7 @@ index 000000000..fa983a3a8
 +#endif
 diff --git a/arch/mips/xburst2/core/include/core_base.h b/arch/mips/xburst2/core/include/core_base.h
 new file mode 100644
-index 000000000..d499ed302
+index 0000000000000000000000000000000000000000..d499ed3025a798d83b97148351e2a40d8d4bcd94
 --- /dev/null
 +++ b/arch/mips/xburst2/core/include/core_base.h
 @@ -0,0 +1,6 @@
@@ -3150,7 +3150,7 @@ index 000000000..d499ed302
 +#endif /* __CORE_BASE_H__ */
 diff --git a/arch/mips/xburst2/core/include/ingenic_proc.h b/arch/mips/xburst2/core/include/ingenic_proc.h
 new file mode 100644
-index 000000000..9dae127b6
+index 0000000000000000000000000000000000000000..9dae127b64732b5e98427fcdc2e6b4e894d42b7d
 --- /dev/null
 +++ b/arch/mips/xburst2/core/include/ingenic_proc.h
 @@ -0,0 +1,18 @@
@@ -3174,7 +3174,7 @@ index 000000000..9dae127b6
 +#endif /* _INGENIC_PROC_H_ */
 diff --git a/arch/mips/xburst2/core/include/irq_cpu.h b/arch/mips/xburst2/core/include/irq_cpu.h
 new file mode 100644
-index 000000000..0584b7b84
+index 0000000000000000000000000000000000000000..0584b7b84dd8d8791d5e68ac7eb05049e5029365
 --- /dev/null
 +++ b/arch/mips/xburst2/core/include/irq_cpu.h
 @@ -0,0 +1,6 @@
@@ -3186,7 +3186,7 @@ index 000000000..0584b7b84
 +#endif /* IRQ_CPU_H */
 diff --git a/arch/mips/xburst2/core/include/mxu.h b/arch/mips/xburst2/core/include/mxu.h
 new file mode 100755
-index 000000000..0700de16c
+index 0000000000000000000000000000000000000000..0700de16cf963c149477de56a29729350ca1cfc3
 --- /dev/null
 +++ b/arch/mips/xburst2/core/include/mxu.h
 @@ -0,0 +1,60 @@
@@ -3252,7 +3252,7 @@ index 000000000..0700de16c
 +#endif /* _ASM_MXU_H */
 diff --git a/arch/mips/xburst2/core/include/mxuv3.h b/arch/mips/xburst2/core/include/mxuv3.h
 new file mode 100644
-index 000000000..8c304419c
+index 0000000000000000000000000000000000000000..8c304419c5df05ab72b29c896f0ce791f6e78b6f
 --- /dev/null
 +++ b/arch/mips/xburst2/core/include/mxuv3.h
 @@ -0,0 +1,48 @@
@@ -3306,7 +3306,7 @@ index 000000000..8c304419c
 +#endif /* _ASM_MXU_V3_H */
 diff --git a/arch/mips/xburst2/core/prom.c b/arch/mips/xburst2/core/prom.c
 new file mode 100644
-index 000000000..0a5782310
+index 0000000000000000000000000000000000000000..0a578231069926be2ac871ee3fa7c5ece15e04cd
 --- /dev/null
 +++ b/arch/mips/xburst2/core/prom.c
 @@ -0,0 +1,81 @@
@@ -3393,7 +3393,7 @@ index 000000000..0a5782310
 +}
 diff --git a/arch/mips/xburst2/core/sc.c b/arch/mips/xburst2/core/sc.c
 new file mode 100644
-index 000000000..50c25a1c6
+index 0000000000000000000000000000000000000000..50c25a1c696a6ef3504c8ac81744dc3961cb4838
 --- /dev/null
 +++ b/arch/mips/xburst2/core/sc.c
 @@ -0,0 +1,170 @@
@@ -3569,7 +3569,7 @@ index 000000000..50c25a1c6
 +}
 diff --git a/arch/mips/xburst2/core/smp.c b/arch/mips/xburst2/core/smp.c
 new file mode 100644
-index 000000000..8fdb8102c
+index 0000000000000000000000000000000000000000..8fdb8102cc428777f21e8d269367228fe6a8b673
 --- /dev/null
 +++ b/arch/mips/xburst2/core/smp.c
 @@ -0,0 +1,512 @@
@@ -4087,7 +4087,7 @@ index 000000000..8fdb8102c
 +};
 diff --git a/arch/mips/xburst2/soc-x2000/Kconfig.DT b/arch/mips/xburst2/soc-x2000/Kconfig.DT
 new file mode 100644
-index 000000000..3a7d5cfd3
+index 0000000000000000000000000000000000000000..3a7d5cfd32b39755d8fb91530e8b803639b9ffe6
 --- /dev/null
 +++ b/arch/mips/xburst2/soc-x2000/Kconfig.DT
 @@ -0,0 +1,26 @@
@@ -4119,7 +4119,7 @@ index 000000000..3a7d5cfd3
 +		the dts file location is arch/mips/boot/dts/ingenic/
 diff --git a/arch/mips/xburst2/soc-x2000/Makefile b/arch/mips/xburst2/soc-x2000/Makefile
 new file mode 100644
-index 000000000..37ebc934b
+index 0000000000000000000000000000000000000000..37ebc934bba56b51cd389b2bbd4c845a95cd5a3d
 --- /dev/null
 +++ b/arch/mips/xburst2/soc-x2000/Makefile
 @@ -0,0 +1,12 @@
@@ -4137,7 +4137,7 @@ index 000000000..37ebc934b
 +obj-y += reset.o
 diff --git a/arch/mips/xburst2/soc-x2000/fastboot_resume_code.hex b/arch/mips/xburst2/soc-x2000/fastboot_resume_code.hex
 new file mode 100644
-index 000000000..c2fdb73ae
+index 0000000000000000000000000000000000000000..c2fdb73ae88051c75b93cab5b9d2fa77463228e7
 --- /dev/null
 +++ b/arch/mips/xburst2/soc-x2000/fastboot_resume_code.hex
 @@ -0,0 +1,579 @@
@@ -4722,7 +4722,7 @@ index 000000000..c2fdb73ae
 +0x00000066,
 diff --git a/arch/mips/xburst2/soc-x2000/gpio.c b/arch/mips/xburst2/soc-x2000/gpio.c
 new file mode 100644
-index 000000000..9fc5478dd
+index 0000000000000000000000000000000000000000..9fc5478dd50ede71d98c9a64ffefd1821f0339ee
 --- /dev/null
 +++ b/arch/mips/xburst2/soc-x2000/gpio.c
 @@ -0,0 +1,136 @@
@@ -4864,7 +4864,7 @@ index 000000000..9fc5478dd
 +EXPORT_SYMBOL(jzgpio_set_func);
 diff --git a/arch/mips/xburst2/soc-x2000/include/cpu-feature-overrides.h b/arch/mips/xburst2/soc-x2000/include/cpu-feature-overrides.h
 new file mode 100644
-index 000000000..4777a2fd1
+index 0000000000000000000000000000000000000000..4777a2fd1aa27997558cd9c255fda66a51f79a58
 --- /dev/null
 +++ b/arch/mips/xburst2/soc-x2000/include/cpu-feature-overrides.h
 @@ -0,0 +1,65 @@
@@ -4935,7 +4935,7 @@ index 000000000..4777a2fd1
 +#endif
 diff --git a/arch/mips/xburst2/soc-x2000/include/irq.h b/arch/mips/xburst2/soc-x2000/include/irq.h
 new file mode 100644
-index 000000000..65a26739f
+index 0000000000000000000000000000000000000000..65a26739f912734cb811a766a10d46ba10558a48
 --- /dev/null
 +++ b/arch/mips/xburst2/soc-x2000/include/irq.h
 @@ -0,0 +1,39 @@
@@ -4980,7 +4980,7 @@ index 000000000..65a26739f
 +#endif
 diff --git a/arch/mips/xburst2/soc-x2000/include/libdmmu.h b/arch/mips/xburst2/soc-x2000/include/libdmmu.h
 new file mode 100644
-index 000000000..a4f6f49e9
+index 0000000000000000000000000000000000000000..a4f6f49e96b7c4a8382bcc45ba60a01329dcbd90
 --- /dev/null
 +++ b/arch/mips/xburst2/soc-x2000/include/libdmmu.h
 @@ -0,0 +1,30 @@
@@ -5016,7 +5016,7 @@ index 000000000..a4f6f49e9
 +#endif
 diff --git a/arch/mips/xburst2/soc-x2000/include/soc/base.h b/arch/mips/xburst2/soc-x2000/include/soc/base.h
 new file mode 100644
-index 000000000..5b1cb7901
+index 0000000000000000000000000000000000000000..5b1cb7901d1077983053df76710847dc332f29e8
 --- /dev/null
 +++ b/arch/mips/xburst2/soc-x2000/include/soc/base.h
 @@ -0,0 +1,77 @@
@@ -5099,7 +5099,7 @@ index 000000000..5b1cb7901
 +#endif
 diff --git a/arch/mips/xburst2/soc-x2000/include/soc/cache.h b/arch/mips/xburst2/soc-x2000/include/soc/cache.h
 new file mode 100644
-index 000000000..5bd1b1bf1
+index 0000000000000000000000000000000000000000..5bd1b1bf1fdd47bed374f786e438045efed2ebe1
 --- /dev/null
 +++ b/arch/mips/xburst2/soc-x2000/include/soc/cache.h
 @@ -0,0 +1,73 @@
@@ -5178,7 +5178,7 @@ index 000000000..5bd1b1bf1
 +#endif /* __CHIP_CACHE_H__ */
 diff --git a/arch/mips/xburst2/soc-x2000/include/soc/cpm.h b/arch/mips/xburst2/soc-x2000/include/soc/cpm.h
 new file mode 100644
-index 000000000..917a6e70d
+index 0000000000000000000000000000000000000000..917a6e70db234aa7295da662f5545005a62e90a0
 --- /dev/null
 +++ b/arch/mips/xburst2/soc-x2000/include/soc/cpm.h
 @@ -0,0 +1,137 @@
@@ -5321,7 +5321,7 @@ index 000000000..917a6e70d
 +#endif
 diff --git a/arch/mips/xburst2/soc-x2000/include/soc/ddr.h b/arch/mips/xburst2/soc-x2000/include/soc/ddr.h
 new file mode 100644
-index 000000000..fe40dce35
+index 0000000000000000000000000000000000000000..fe40dce355823eb8531b2928a882d6d172696f5a
 --- /dev/null
 +++ b/arch/mips/xburst2/soc-x2000/include/soc/ddr.h
 @@ -0,0 +1,324 @@
@@ -5651,7 +5651,7 @@ index 000000000..fe40dce35
 +#endif /* __DDR_H__ */
 diff --git a/arch/mips/xburst2/soc-x2000/include/soc/efuse.h b/arch/mips/xburst2/soc-x2000/include/soc/efuse.h
 new file mode 100644
-index 000000000..8e29b6751
+index 0000000000000000000000000000000000000000..8e29b67514f052147798831071517a0ee11b9bb1
 --- /dev/null
 +++ b/arch/mips/xburst2/soc-x2000/include/soc/efuse.h
 @@ -0,0 +1,365 @@
@@ -6022,7 +6022,7 @@ index 000000000..8e29b6751
 +#endif
 diff --git a/arch/mips/xburst2/soc-x2000/include/soc/extal.h b/arch/mips/xburst2/soc-x2000/include/soc/extal.h
 new file mode 100644
-index 000000000..849b995ff
+index 0000000000000000000000000000000000000000..849b995ff16efc76bc77e833f4ed67abea92d0a4
 --- /dev/null
 +++ b/arch/mips/xburst2/soc-x2000/include/soc/extal.h
 @@ -0,0 +1,12 @@
@@ -6040,7 +6040,7 @@ index 000000000..849b995ff
 +#endif
 diff --git a/arch/mips/xburst2/soc-x2000/include/soc/gpio.h b/arch/mips/xburst2/soc-x2000/include/soc/gpio.h
 new file mode 100644
-index 000000000..b1b98b9d9
+index 0000000000000000000000000000000000000000..b1b98b9d9b2989b9e086c44d70c00541e1e1cfc4
 --- /dev/null
 +++ b/arch/mips/xburst2/soc-x2000/include/soc/gpio.h
 @@ -0,0 +1,42 @@
@@ -6088,7 +6088,7 @@ index 000000000..b1b98b9d9
 +#endif /* _SOC_GPIO_H_ */
 diff --git a/arch/mips/xburst2/soc-x2000/include/soc/pm.h b/arch/mips/xburst2/soc-x2000/include/soc/pm.h
 new file mode 100644
-index 000000000..11b61d9e4
+index 0000000000000000000000000000000000000000..11b61d9e4c79724f3c6aa8b1f00101d725fd5106
 --- /dev/null
 +++ b/arch/mips/xburst2/soc-x2000/include/soc/pm.h
 @@ -0,0 +1,218 @@
@@ -6312,7 +6312,7 @@ index 000000000..11b61d9e4
 +#endif
 diff --git a/arch/mips/xburst2/soc-x2000/include/soc/pm_fastboot.h b/arch/mips/xburst2/soc-x2000/include/soc/pm_fastboot.h
 new file mode 100644
-index 000000000..7c9a4682d
+index 0000000000000000000000000000000000000000..7c9a4682dd883904e6e9eeb689cc12ac3a8cec83
 --- /dev/null
 +++ b/arch/mips/xburst2/soc-x2000/include/soc/pm_fastboot.h
 @@ -0,0 +1,172 @@
@@ -6490,7 +6490,7 @@ index 000000000..7c9a4682d
 +#endif
 diff --git a/arch/mips/xburst2/soc-x2000/include/soc/pm_sleep.h b/arch/mips/xburst2/soc-x2000/include/soc/pm_sleep.h
 new file mode 100644
-index 000000000..01eb77aed
+index 0000000000000000000000000000000000000000..01eb77aede24b93799d6e7abd33904cfcd9026f1
 --- /dev/null
 +++ b/arch/mips/xburst2/soc-x2000/include/soc/pm_sleep.h
 @@ -0,0 +1,16 @@
@@ -6512,7 +6512,7 @@ index 000000000..01eb77aed
 +
 diff --git a/arch/mips/xburst2/soc-x2000/include/soc/rtc.h b/arch/mips/xburst2/soc-x2000/include/soc/rtc.h
 new file mode 100644
-index 000000000..bb42737ac
+index 0000000000000000000000000000000000000000..bb42737ac66a61373c41278ae972ab5586d48d48
 --- /dev/null
 +++ b/arch/mips/xburst2/soc-x2000/include/soc/rtc.h
 @@ -0,0 +1,96 @@
@@ -6614,7 +6614,7 @@ index 000000000..bb42737ac
 +#endif  /* __RTC_H__ */
 diff --git a/arch/mips/xburst2/soc-x2000/include/soc/sfc.h b/arch/mips/xburst2/soc-x2000/include/soc/sfc.h
 new file mode 100644
-index 000000000..e03c8df12
+index 0000000000000000000000000000000000000000..e03c8df12002d5ed16e28679fc9f2034d96a75a4
 --- /dev/null
 +++ b/arch/mips/xburst2/soc-x2000/include/soc/sfc.h
 @@ -0,0 +1,211 @@
@@ -6831,7 +6831,7 @@ index 000000000..e03c8df12
 +#endif
 diff --git a/arch/mips/xburst2/soc-x2000/include/soc/tcsm_layout.h b/arch/mips/xburst2/soc-x2000/include/soc/tcsm_layout.h
 new file mode 100644
-index 000000000..36fcde6e5
+index 0000000000000000000000000000000000000000..36fcde6e544e0e70a420f4ea20eff51ecf26d651
 --- /dev/null
 +++ b/arch/mips/xburst2/soc-x2000/include/soc/tcsm_layout.h
 @@ -0,0 +1,53 @@
@@ -6890,7 +6890,7 @@ index 000000000..36fcde6e5
 +#endif  /*  __TCSM_LAYOUT_H__ */
 diff --git a/arch/mips/xburst2/soc-x2000/include/war.h b/arch/mips/xburst2/soc-x2000/include/war.h
 new file mode 100644
-index 000000000..2b99ad4e8
+index 0000000000000000000000000000000000000000..2b99ad4e8a92d47d576dcaf037acd31451f43c02
 --- /dev/null
 +++ b/arch/mips/xburst2/soc-x2000/include/war.h
 @@ -0,0 +1,27 @@
@@ -6923,7 +6923,7 @@ index 000000000..2b99ad4e8
 +
 diff --git a/arch/mips/xburst2/soc-x2000/libdmmu.c b/arch/mips/xburst2/soc-x2000/libdmmu.c
 new file mode 100644
-index 000000000..7eb8ab159
+index 0000000000000000000000000000000000000000..7eb8ab1599472eb34f8f864432a87b656dd48057
 --- /dev/null
 +++ b/arch/mips/xburst2/soc-x2000/libdmmu.c
 @@ -0,0 +1,1107 @@
@@ -8036,7 +8036,7 @@ index 000000000..7eb8ab159
 +module_init(init_dmmu_proc);
 diff --git a/arch/mips/xburst2/soc-x2000/pm.c b/arch/mips/xburst2/soc-x2000/pm.c
 new file mode 100644
-index 000000000..d98232e72
+index 0000000000000000000000000000000000000000..d98232e7211cc414d138422afdb5cdb1ba0e8fa6
 --- /dev/null
 +++ b/arch/mips/xburst2/soc-x2000/pm.c
 @@ -0,0 +1,329 @@
@@ -8371,7 +8371,7 @@ index 000000000..d98232e72
 +late_initcall(pm_init);
 diff --git a/arch/mips/xburst2/soc-x2000/pm_fastboot.c b/arch/mips/xburst2/soc-x2000/pm_fastboot.c
 new file mode 100644
-index 000000000..02ae6b942
+index 0000000000000000000000000000000000000000..02ae6b942334223ef62d30525ffbe6ae2a4459fa
 --- /dev/null
 +++ b/arch/mips/xburst2/soc-x2000/pm_fastboot.c
 @@ -0,0 +1,502 @@
@@ -8879,7 +8879,7 @@ index 000000000..02ae6b942
 +
 diff --git a/arch/mips/xburst2/soc-x2000/pm_firmware/Makefile b/arch/mips/xburst2/soc-x2000/pm_firmware/Makefile
 new file mode 100644
-index 000000000..16ae79345
+index 0000000000000000000000000000000000000000..16ae79345b339b7c02aeb294d023425b9e824a91
 --- /dev/null
 +++ b/arch/mips/xburst2/soc-x2000/pm_firmware/Makefile
 @@ -0,0 +1,39 @@
@@ -8924,7 +8924,7 @@ index 000000000..16ae79345
 +	rm $(BIN) $(PRJ) $(OBJS) $(PRJ).map $(HEX) -rf
 diff --git a/arch/mips/xburst2/soc-x2000/pm_firmware/fastboot_firmware/Makefile b/arch/mips/xburst2/soc-x2000/pm_firmware/fastboot_firmware/Makefile
 new file mode 100644
-index 000000000..45222b254
+index 0000000000000000000000000000000000000000..45222b2544c7ff322dc4c8338e120960b0c2a351
 --- /dev/null
 +++ b/arch/mips/xburst2/soc-x2000/pm_firmware/fastboot_firmware/Makefile
 @@ -0,0 +1,42 @@
@@ -8972,7 +8972,7 @@ index 000000000..45222b254
 +
 diff --git a/arch/mips/xburst2/soc-x2000/pm_firmware/fastboot_firmware/Readme b/arch/mips/xburst2/soc-x2000/pm_firmware/fastboot_firmware/Readme
 new file mode 100644
-index 000000000..215604c5a
+index 0000000000000000000000000000000000000000..215604c5a832c147a6278b0878284e542335ef6b
 --- /dev/null
 +++ b/arch/mips/xburst2/soc-x2000/pm_firmware/fastboot_firmware/Readme
 @@ -0,0 +1,14 @@
@@ -8992,7 +8992,7 @@ index 000000000..215604c5a
 +
 diff --git a/arch/mips/xburst2/soc-x2000/pm_firmware/fastboot_firmware/include/base.h b/arch/mips/xburst2/soc-x2000/pm_firmware/fastboot_firmware/include/base.h
 new file mode 100644
-index 000000000..496366eac
+index 0000000000000000000000000000000000000000..496366eac5bec6d58254db0c0b483b18ff039221
 --- /dev/null
 +++ b/arch/mips/xburst2/soc-x2000/pm_firmware/fastboot_firmware/include/base.h
 @@ -0,0 +1,91 @@
@@ -9089,7 +9089,7 @@ index 000000000..496366eac
 +#endif
 diff --git a/arch/mips/xburst2/soc-x2000/pm_firmware/fastboot_firmware/include/cpm.h b/arch/mips/xburst2/soc-x2000/pm_firmware/fastboot_firmware/include/cpm.h
 new file mode 100755
-index 000000000..e1b80b760
+index 0000000000000000000000000000000000000000..e1b80b760cdf367550cfe039ea2622139c9740ef
 --- /dev/null
 +++ b/arch/mips/xburst2/soc-x2000/pm_firmware/fastboot_firmware/include/cpm.h
 @@ -0,0 +1,246 @@
@@ -9341,7 +9341,7 @@ index 000000000..e1b80b760
 +#endif /* __CPM_H__ */
 diff --git a/arch/mips/xburst2/soc-x2000/pm_firmware/fastboot_firmware/include/ddr.h b/arch/mips/xburst2/soc-x2000/pm_firmware/fastboot_firmware/include/ddr.h
 new file mode 100644
-index 000000000..62b544451
+index 0000000000000000000000000000000000000000..62b544451ef70dbb30c3a8f4b420bd7372a956b8
 --- /dev/null
 +++ b/arch/mips/xburst2/soc-x2000/pm_firmware/fastboot_firmware/include/ddr.h
 @@ -0,0 +1,289 @@
@@ -9636,7 +9636,7 @@ index 000000000..62b544451
 +#endif /* __DDR_H__ */
 diff --git a/arch/mips/xburst2/soc-x2000/pm_firmware/fastboot_firmware/include/gpio.h b/arch/mips/xburst2/soc-x2000/pm_firmware/fastboot_firmware/include/gpio.h
 new file mode 100755
-index 000000000..38e249189
+index 0000000000000000000000000000000000000000..38e249189861689d2e28f7c22ea96df8e6fbf6c1
 --- /dev/null
 +++ b/arch/mips/xburst2/soc-x2000/pm_firmware/fastboot_firmware/include/gpio.h
 @@ -0,0 +1,288 @@
@@ -9930,7 +9930,7 @@ index 000000000..38e249189
 +
 diff --git a/arch/mips/xburst2/soc-x2000/pm_firmware/fastboot_firmware/include/pm_fastboot.h b/arch/mips/xburst2/soc-x2000/pm_firmware/fastboot_firmware/include/pm_fastboot.h
 new file mode 100644
-index 000000000..626562c20
+index 0000000000000000000000000000000000000000..626562c200d2bdc9c643822802a8ee18befaba25
 --- /dev/null
 +++ b/arch/mips/xburst2/soc-x2000/pm_firmware/fastboot_firmware/include/pm_fastboot.h
 @@ -0,0 +1,193 @@
@@ -10129,7 +10129,7 @@ index 000000000..626562c20
 +
 diff --git a/arch/mips/xburst2/soc-x2000/pm_firmware/fastboot_firmware/include/uart.h b/arch/mips/xburst2/soc-x2000/pm_firmware/fastboot_firmware/include/uart.h
 new file mode 100755
-index 000000000..9df439e52
+index 0000000000000000000000000000000000000000..9df439e522e73f97190c0b1c146ab89a750af3ab
 --- /dev/null
 +++ b/arch/mips/xburst2/soc-x2000/pm_firmware/fastboot_firmware/include/uart.h
 @@ -0,0 +1,113 @@
@@ -10248,7 +10248,7 @@ index 000000000..9df439e52
 +
 diff --git a/arch/mips/xburst2/soc-x2000/pm_firmware/fastboot_firmware/mkmodule.sh b/arch/mips/xburst2/soc-x2000/pm_firmware/fastboot_firmware/mkmodule.sh
 new file mode 100755
-index 000000000..698e07160
+index 0000000000000000000000000000000000000000..698e07160643bae28b709d5ae486347bd9721bae
 --- /dev/null
 +++ b/arch/mips/xburst2/soc-x2000/pm_firmware/fastboot_firmware/mkmodule.sh
 @@ -0,0 +1,7 @@
@@ -10261,7 +10261,7 @@ index 000000000..698e07160
 +cp fastboot_resume_code.hex ../
 diff --git a/arch/mips/xburst2/soc-x2000/pm_firmware/fastboot_firmware/src/fastboot_resume.c b/arch/mips/xburst2/soc-x2000/pm_firmware/fastboot_firmware/src/fastboot_resume.c
 new file mode 100644
-index 000000000..89d08ade3
+index 0000000000000000000000000000000000000000..89d08ade3fd32dd83562d982b963b3e22f31d52f
 --- /dev/null
 +++ b/arch/mips/xburst2/soc-x2000/pm_firmware/fastboot_firmware/src/fastboot_resume.c
 @@ -0,0 +1,363 @@
@@ -10630,7 +10630,7 @@ index 000000000..89d08ade3
 +
 diff --git a/arch/mips/xburst2/soc-x2000/pm_firmware/fastboot_firmware/src/uart.c b/arch/mips/xburst2/soc-x2000/pm_firmware/fastboot_firmware/src/uart.c
 new file mode 100644
-index 000000000..3c8b42fc6
+index 0000000000000000000000000000000000000000..3c8b42fc638278e6b981e0999d826d0bf626bb08
 --- /dev/null
 +++ b/arch/mips/xburst2/soc-x2000/pm_firmware/fastboot_firmware/src/uart.c
 @@ -0,0 +1,106 @@
@@ -10742,7 +10742,7 @@ index 000000000..3c8b42fc6
 +}
 diff --git a/arch/mips/xburst2/soc-x2000/pm_firmware/fastboot_firmware/target.ld b/arch/mips/xburst2/soc-x2000/pm_firmware/fastboot_firmware/target.ld
 new file mode 100644
-index 000000000..44f03a97a
+index 0000000000000000000000000000000000000000..44f03a97a2ae2721ba6cf3984f61c8a17087db71
 --- /dev/null
 +++ b/arch/mips/xburst2/soc-x2000/pm_firmware/fastboot_firmware/target.ld
 @@ -0,0 +1,37 @@
@@ -10785,7 +10785,7 @@ index 000000000..44f03a97a
 +}
 diff --git a/arch/mips/xburst2/soc-x2000/pm_firmware/include/asm.h b/arch/mips/xburst2/soc-x2000/pm_firmware/include/asm.h
 new file mode 100644
-index 000000000..523eff81f
+index 0000000000000000000000000000000000000000..523eff81f747e7742d7a3312d25cda52e0bfd88d
 --- /dev/null
 +++ b/arch/mips/xburst2/soc-x2000/pm_firmware/include/asm.h
 @@ -0,0 +1,11 @@
@@ -10802,7 +10802,7 @@ index 000000000..523eff81f
 +#endif
 diff --git a/arch/mips/xburst2/soc-x2000/pm_firmware/include/barrier.h b/arch/mips/xburst2/soc-x2000/pm_firmware/include/barrier.h
 new file mode 100644
-index 000000000..0f8b882b7
+index 0000000000000000000000000000000000000000..0f8b882b7f7f0e8c10b6ed3a6301a172df2b320e
 --- /dev/null
 +++ b/arch/mips/xburst2/soc-x2000/pm_firmware/include/barrier.h
 @@ -0,0 +1,37 @@
@@ -10845,7 +10845,7 @@ index 000000000..0f8b882b7
 +#endif
 diff --git a/arch/mips/xburst2/soc-x2000/pm_firmware/include/base.h b/arch/mips/xburst2/soc-x2000/pm_firmware/include/base.h
 new file mode 100644
-index 000000000..8a3a77e3c
+index 0000000000000000000000000000000000000000..8a3a77e3ca379aab57009de7a927d37f78552c26
 --- /dev/null
 +++ b/arch/mips/xburst2/soc-x2000/pm_firmware/include/base.h
 @@ -0,0 +1,91 @@
@@ -10942,7 +10942,7 @@ index 000000000..8a3a77e3c
 +#endif
 diff --git a/arch/mips/xburst2/soc-x2000/pm_firmware/include/cacheops.h b/arch/mips/xburst2/soc-x2000/pm_firmware/include/cacheops.h
 new file mode 100644
-index 000000000..fb28e3fc9
+index 0000000000000000000000000000000000000000..fb28e3fc9628c3d7c413e1c98c30b9604d109f77
 --- /dev/null
 +++ b/arch/mips/xburst2/soc-x2000/pm_firmware/include/cacheops.h
 @@ -0,0 +1,139 @@
@@ -11087,7 +11087,7 @@ index 000000000..fb28e3fc9
 +#endif  /* __ASM_CACHEOPS_H */
 diff --git a/arch/mips/xburst2/soc-x2000/pm_firmware/include/ccu.h b/arch/mips/xburst2/soc-x2000/pm_firmware/include/ccu.h
 new file mode 100644
-index 000000000..ff4f381e8
+index 0000000000000000000000000000000000000000..ff4f381e8569d310e3f275658ff68c085465aefd
 --- /dev/null
 +++ b/arch/mips/xburst2/soc-x2000/pm_firmware/include/ccu.h
 @@ -0,0 +1,42 @@
@@ -11135,7 +11135,7 @@ index 000000000..ff4f381e8
 +#endif
 diff --git a/arch/mips/xburst2/soc-x2000/pm_firmware/include/common.h b/arch/mips/xburst2/soc-x2000/pm_firmware/include/common.h
 new file mode 100644
-index 000000000..eeeeafa16
+index 0000000000000000000000000000000000000000..eeeeafa1604eeb108218cb0251b3b27f629527cb
 --- /dev/null
 +++ b/arch/mips/xburst2/soc-x2000/pm_firmware/include/common.h
 @@ -0,0 +1,17 @@
@@ -11158,7 +11158,7 @@ index 000000000..eeeeafa16
 +#endif
 diff --git a/arch/mips/xburst2/soc-x2000/pm_firmware/include/compiler-gcc.h b/arch/mips/xburst2/soc-x2000/pm_firmware/include/compiler-gcc.h
 new file mode 100644
-index 000000000..4a90c5659
+index 0000000000000000000000000000000000000000..4a90c565956442d6caca42051dc9714fa07e98e8
 --- /dev/null
 +++ b/arch/mips/xburst2/soc-x2000/pm_firmware/include/compiler-gcc.h
 @@ -0,0 +1,6 @@
@@ -11170,7 +11170,7 @@ index 000000000..4a90c5659
 +#endif
 diff --git a/arch/mips/xburst2/soc-x2000/pm_firmware/include/cpm.h b/arch/mips/xburst2/soc-x2000/pm_firmware/include/cpm.h
 new file mode 100644
-index 000000000..d81ae74bf
+index 0000000000000000000000000000000000000000..d81ae74bf079e56cb59bcd643f9fefc0f6112d37
 --- /dev/null
 +++ b/arch/mips/xburst2/soc-x2000/pm_firmware/include/cpm.h
 @@ -0,0 +1,104 @@
@@ -11280,7 +11280,7 @@ index 000000000..d81ae74bf
 +
 diff --git a/arch/mips/xburst2/soc-x2000/pm_firmware/include/ddr.h b/arch/mips/xburst2/soc-x2000/pm_firmware/include/ddr.h
 new file mode 100644
-index 000000000..292dc19a1
+index 0000000000000000000000000000000000000000..292dc19a11da96db76b9a5600c08b721c3ede9be
 --- /dev/null
 +++ b/arch/mips/xburst2/soc-x2000/pm_firmware/include/ddr.h
 @@ -0,0 +1,316 @@
@@ -11602,7 +11602,7 @@ index 000000000..292dc19a1
 +#endif /* __DDR_H__ */
 diff --git a/arch/mips/xburst2/soc-x2000/pm_firmware/include/delay.h b/arch/mips/xburst2/soc-x2000/pm_firmware/include/delay.h
 new file mode 100644
-index 000000000..c475650d9
+index 0000000000000000000000000000000000000000..c475650d929cf3d62e746401ce121def5f97c33b
 --- /dev/null
 +++ b/arch/mips/xburst2/soc-x2000/pm_firmware/include/delay.h
 @@ -0,0 +1,8 @@
@@ -11616,7 +11616,7 @@ index 000000000..c475650d9
 +}
 diff --git a/arch/mips/xburst2/soc-x2000/pm_firmware/include/gpio.h b/arch/mips/xburst2/soc-x2000/pm_firmware/include/gpio.h
 new file mode 100644
-index 000000000..2372398de
+index 0000000000000000000000000000000000000000..2372398de9b2de4f5a62d4ffac1179196910a83a
 --- /dev/null
 +++ b/arch/mips/xburst2/soc-x2000/pm_firmware/include/gpio.h
 @@ -0,0 +1,97 @@
@@ -11719,7 +11719,7 @@ index 000000000..2372398de
 +#endif /* GPIO_H */
 diff --git a/arch/mips/xburst2/soc-x2000/pm_firmware/include/intc.h b/arch/mips/xburst2/soc-x2000/pm_firmware/include/intc.h
 new file mode 100644
-index 000000000..f67a8e29e
+index 0000000000000000000000000000000000000000..f67a8e29e96a14754a05adcda3a7c43d7474d884
 --- /dev/null
 +++ b/arch/mips/xburst2/soc-x2000/pm_firmware/include/intc.h
 @@ -0,0 +1,106 @@
@@ -11831,7 +11831,7 @@ index 000000000..f67a8e29e
 +
 diff --git a/arch/mips/xburst2/soc-x2000/pm_firmware/include/interface.h b/arch/mips/xburst2/soc-x2000/pm_firmware/include/interface.h
 new file mode 100644
-index 000000000..99f4b6090
+index 0000000000000000000000000000000000000000..99f4b60904168157d628095ab28e917894374f66
 --- /dev/null
 +++ b/arch/mips/xburst2/soc-x2000/pm_firmware/include/interface.h
 @@ -0,0 +1,30 @@
@@ -11867,7 +11867,7 @@ index 000000000..99f4b6090
 +#endif /* INTERFACE_H */
 diff --git a/arch/mips/xburst2/soc-x2000/pm_firmware/include/mipsregs.h b/arch/mips/xburst2/soc-x2000/pm_firmware/include/mipsregs.h
 new file mode 100644
-index 000000000..be73baed1
+index 0000000000000000000000000000000000000000..be73baed15c4d7cec1e03b67c28b29a57d9fef38
 --- /dev/null
 +++ b/arch/mips/xburst2/soc-x2000/pm_firmware/include/mipsregs.h
 @@ -0,0 +1,858 @@
@@ -12731,7 +12731,7 @@ index 000000000..be73baed1
 +#endif /* _ASM_MIPSREGS_H */
 diff --git a/arch/mips/xburst2/soc-x2000/pm_firmware/include/pm.h b/arch/mips/xburst2/soc-x2000/pm_firmware/include/pm.h
 new file mode 100644
-index 000000000..375dc05f7
+index 0000000000000000000000000000000000000000..375dc05f763955358f5b45754a627f2308aad902
 --- /dev/null
 +++ b/arch/mips/xburst2/soc-x2000/pm_firmware/include/pm.h
 @@ -0,0 +1,88 @@
@@ -12825,7 +12825,7 @@ index 000000000..375dc05f7
 +#endif
 diff --git a/arch/mips/xburst2/soc-x2000/pm_firmware/include/pm_fastboot.h b/arch/mips/xburst2/soc-x2000/pm_firmware/include/pm_fastboot.h
 new file mode 100644
-index 000000000..d64a0d6d4
+index 0000000000000000000000000000000000000000..d64a0d6d463900f2efc05c9ce05fd443c88df145
 --- /dev/null
 +++ b/arch/mips/xburst2/soc-x2000/pm_firmware/include/pm_fastboot.h
 @@ -0,0 +1,179 @@
@@ -13010,7 +13010,7 @@ index 000000000..d64a0d6d4
 +#endif
 diff --git a/arch/mips/xburst2/soc-x2000/pm_firmware/include/pm_sleep.h b/arch/mips/xburst2/soc-x2000/pm_firmware/include/pm_sleep.h
 new file mode 100644
-index 000000000..64a1778c2
+index 0000000000000000000000000000000000000000..64a1778c294073729d64a799bbb8544f78f04fb2
 --- /dev/null
 +++ b/arch/mips/xburst2/soc-x2000/pm_firmware/include/pm_sleep.h
 @@ -0,0 +1,17 @@
@@ -13033,7 +13033,7 @@ index 000000000..64a1778c2
 +
 diff --git a/arch/mips/xburst2/soc-x2000/pm_firmware/include/printf.h b/arch/mips/xburst2/soc-x2000/pm_firmware/include/printf.h
 new file mode 100644
-index 000000000..4216a3b4d
+index 0000000000000000000000000000000000000000..4216a3b4d611e883b4ac51e2b33275319362f9a3
 --- /dev/null
 +++ b/arch/mips/xburst2/soc-x2000/pm_firmware/include/printf.h
 @@ -0,0 +1,4 @@
@@ -13043,7 +13043,7 @@ index 000000000..4216a3b4d
 +#endif /* PRINTF_H */
 diff --git a/arch/mips/xburst2/soc-x2000/pm_firmware/include/regdef.h b/arch/mips/xburst2/soc-x2000/pm_firmware/include/regdef.h
 new file mode 100644
-index 000000000..dd29235c2
+index 0000000000000000000000000000000000000000..dd29235c24130ae5c9bf9305aa0c72e1d7e19e4b
 --- /dev/null
 +++ b/arch/mips/xburst2/soc-x2000/pm_firmware/include/regdef.h
 @@ -0,0 +1,45 @@
@@ -13094,7 +13094,7 @@ index 000000000..dd29235c2
 +#endif /* REGDEF_H */
 diff --git a/arch/mips/xburst2/soc-x2000/pm_firmware/include/rtc.h b/arch/mips/xburst2/soc-x2000/pm_firmware/include/rtc.h
 new file mode 100644
-index 000000000..ed96d4bec
+index 0000000000000000000000000000000000000000..ed96d4bec004bbd3bf8ed30b569991ed1d732a9a
 --- /dev/null
 +++ b/arch/mips/xburst2/soc-x2000/pm_firmware/include/rtc.h
 @@ -0,0 +1,139 @@
@@ -13239,7 +13239,7 @@ index 000000000..ed96d4bec
 +#endif /* __RTC_H__ */
 diff --git a/arch/mips/xburst2/soc-x2000/pm_firmware/include/suspend.h b/arch/mips/xburst2/soc-x2000/pm_firmware/include/suspend.h
 new file mode 100644
-index 000000000..a06c5cdc6
+index 0000000000000000000000000000000000000000..a06c5cdc6093ee87a6ad185d06477f36b298327d
 --- /dev/null
 +++ b/arch/mips/xburst2/soc-x2000/pm_firmware/include/suspend.h
 @@ -0,0 +1,13 @@
@@ -13258,7 +13258,7 @@ index 000000000..a06c5cdc6
 +#endif
 diff --git a/arch/mips/xburst2/soc-x2000/pm_firmware/include/uart.h b/arch/mips/xburst2/soc-x2000/pm_firmware/include/uart.h
 new file mode 100644
-index 000000000..13d8d78f8
+index 0000000000000000000000000000000000000000..13d8d78f87fc61126925ace17c273b343698b028
 --- /dev/null
 +++ b/arch/mips/xburst2/soc-x2000/pm_firmware/include/uart.h
 @@ -0,0 +1,215 @@
@@ -13479,7 +13479,7 @@ index 000000000..13d8d78f8
 +#endif
 diff --git a/arch/mips/xburst2/soc-x2000/pm_firmware/pm_firmware.lds b/arch/mips/xburst2/soc-x2000/pm_firmware/pm_firmware.lds
 new file mode 100644
-index 000000000..c23a1925d
+index 0000000000000000000000000000000000000000..c23a1925dce1a1f9b2932133edbbe8b98116739a
 --- /dev/null
 +++ b/arch/mips/xburst2/soc-x2000/pm_firmware/pm_firmware.lds
 @@ -0,0 +1,67 @@
@@ -13552,7 +13552,7 @@ index 000000000..c23a1925d
 +}
 diff --git a/arch/mips/xburst2/soc-x2000/pm_firmware/src/pm.c b/arch/mips/xburst2/soc-x2000/pm_firmware/src/pm.c
 new file mode 100644
-index 000000000..8e808c476
+index 0000000000000000000000000000000000000000..8e808c476c333d0dce27255feae87e678aa39945
 --- /dev/null
 +++ b/arch/mips/xburst2/soc-x2000/pm_firmware/src/pm.c
 @@ -0,0 +1,297 @@
@@ -13855,7 +13855,7 @@ index 000000000..8e808c476
 +
 diff --git a/arch/mips/xburst2/soc-x2000/pm_firmware/src/pm_fastboot.c b/arch/mips/xburst2/soc-x2000/pm_firmware/src/pm_fastboot.c
 new file mode 100644
-index 000000000..339c0f97d
+index 0000000000000000000000000000000000000000..339c0f97d56cfe0f42bee63ea237f45320009364
 --- /dev/null
 +++ b/arch/mips/xburst2/soc-x2000/pm_firmware/src/pm_fastboot.c
 @@ -0,0 +1,505 @@
@@ -14366,7 +14366,7 @@ index 000000000..339c0f97d
 +
 diff --git a/arch/mips/xburst2/soc-x2000/pm_firmware/src/pm_sleep.c b/arch/mips/xburst2/soc-x2000/pm_firmware/src/pm_sleep.c
 new file mode 100644
-index 000000000..c2e7a3df9
+index 0000000000000000000000000000000000000000..c2e7a3df976cf66fe0aaa4537c1941ba4172f7d5
 --- /dev/null
 +++ b/arch/mips/xburst2/soc-x2000/pm_firmware/src/pm_sleep.c
 @@ -0,0 +1,319 @@
@@ -14691,7 +14691,7 @@ index 000000000..c2e7a3df9
 +
 diff --git a/arch/mips/xburst2/soc-x2000/pm_firmware/src/printf.c b/arch/mips/xburst2/soc-x2000/pm_firmware/src/printf.c
 new file mode 100644
-index 000000000..67fd3bdff
+index 0000000000000000000000000000000000000000..67fd3bdff44fba97c1bb4ff32beb3a8da5e14563
 --- /dev/null
 +++ b/arch/mips/xburst2/soc-x2000/pm_firmware/src/printf.c
 @@ -0,0 +1,130 @@
@@ -14827,7 +14827,7 @@ index 000000000..67fd3bdff
 +}
 diff --git a/arch/mips/xburst2/soc-x2000/pm_firmware/src/regs_save_restore.S b/arch/mips/xburst2/soc-x2000/pm_firmware/src/regs_save_restore.S
 new file mode 100644
-index 000000000..f742d1ac3
+index 0000000000000000000000000000000000000000..f742d1ac3676d2b8012f035cffaebbb9cb4762a9
 --- /dev/null
 +++ b/arch/mips/xburst2/soc-x2000/pm_firmware/src/regs_save_restore.S
 @@ -0,0 +1,189 @@
@@ -15022,7 +15022,7 @@ index 000000000..f742d1ac3
 +	END(restore_goto)
 diff --git a/arch/mips/xburst2/soc-x2000/pm_firmware/src/start.S b/arch/mips/xburst2/soc-x2000/pm_firmware/src/start.S
 new file mode 100644
-index 000000000..6265064ab
+index 0000000000000000000000000000000000000000..6265064abd42e124f55fb7f47853e46b6283349e
 --- /dev/null
 +++ b/arch/mips/xburst2/soc-x2000/pm_firmware/src/start.S
 @@ -0,0 +1,177 @@
@@ -15205,7 +15205,7 @@ index 000000000..6265064ab
 +
 diff --git a/arch/mips/xburst2/soc-x2000/pm_firmware/src/uart.c b/arch/mips/xburst2/soc-x2000/pm_firmware/src/uart.c
 new file mode 100644
-index 000000000..10f987ff6
+index 0000000000000000000000000000000000000000..10f987ff6cf7f1e899dad811ff61a4e0baa84ad1
 --- /dev/null
 +++ b/arch/mips/xburst2/soc-x2000/pm_firmware/src/uart.c
 @@ -0,0 +1,174 @@
@@ -15385,7 +15385,7 @@ index 000000000..10f987ff6
 +
 diff --git a/arch/mips/xburst2/soc-x2000/pm_interface.c b/arch/mips/xburst2/soc-x2000/pm_interface.c
 new file mode 100644
-index 000000000..101fa7be9
+index 0000000000000000000000000000000000000000..101fa7be95b34afa12c32eef920de09709c4e8f5
 --- /dev/null
 +++ b/arch/mips/xburst2/soc-x2000/pm_interface.c
 @@ -0,0 +1,296 @@
@@ -15687,7 +15687,7 @@ index 000000000..101fa7be9
 +MODULE_LICENSE("GPL");
 diff --git a/arch/mips/xburst2/soc-x2000/pm_interface.h b/arch/mips/xburst2/soc-x2000/pm_interface.h
 new file mode 100644
-index 000000000..4377ecc62
+index 0000000000000000000000000000000000000000..4377ecc62a4893423170c465730eae5fcbcab8a0
 --- /dev/null
 +++ b/arch/mips/xburst2/soc-x2000/pm_interface.h
 @@ -0,0 +1,35 @@
@@ -15728,7 +15728,7 @@ index 000000000..4377ecc62
 +#endif /* INTERFACE_H */
 diff --git a/arch/mips/xburst2/soc-x2000/pm_sleep.c b/arch/mips/xburst2/soc-x2000/pm_sleep.c
 new file mode 100644
-index 000000000..2bf95771e
+index 0000000000000000000000000000000000000000..2bf95771ebe9fbed73fdb70814d3af2d857e1c81
 --- /dev/null
 +++ b/arch/mips/xburst2/soc-x2000/pm_sleep.c
 @@ -0,0 +1,379 @@
@@ -16113,7 +16113,7 @@ index 000000000..2bf95771e
 +
 diff --git a/arch/mips/xburst2/soc-x2000/regs_save_restore.S b/arch/mips/xburst2/soc-x2000/regs_save_restore.S
 new file mode 100644
-index 000000000..abe8b49df
+index 0000000000000000000000000000000000000000..abe8b49df40c64b655ebd472dbcf9532a7d50509
 --- /dev/null
 +++ b/arch/mips/xburst2/soc-x2000/regs_save_restore.S
 @@ -0,0 +1,190 @@
@@ -16309,7 +16309,7 @@ index 000000000..abe8b49df
 +	END(restore_goto)
 diff --git a/arch/mips/xburst2/soc-x2000/regs_save_restore.py b/arch/mips/xburst2/soc-x2000/regs_save_restore.py
 new file mode 100755
-index 000000000..8a23de0d0
+index 0000000000000000000000000000000000000000..8a23de0d075e35162d44a2c53a1f827a9a29636a
 --- /dev/null
 +++ b/arch/mips/xburst2/soc-x2000/regs_save_restore.py
 @@ -0,0 +1,124 @@
@@ -16439,7 +16439,7 @@ index 000000000..8a23de0d0
 +    main()
 diff --git a/arch/mips/xburst2/soc-x2000/reset.c b/arch/mips/xburst2/soc-x2000/reset.c
 new file mode 100644
-index 000000000..c449952a3
+index 0000000000000000000000000000000000000000..c449952a309fc99004a68fda466358df34198c14
 --- /dev/null
 +++ b/arch/mips/xburst2/soc-x2000/reset.c
 @@ -0,0 +1,337 @@
@@ -16782,7 +16782,7 @@ index 000000000..c449952a3
 +module_init(init_reset);
 diff --git a/arch/mips/xburst2/soc-x2000/serial.c b/arch/mips/xburst2/soc-x2000/serial.c
 new file mode 100644
-index 000000000..55e4d9b8f
+index 0000000000000000000000000000000000000000..55e4d9b8f1e783fff807ff0981fd8a901cdd348f
 --- /dev/null
 +++ b/arch/mips/xburst2/soc-x2000/serial.c
 @@ -0,0 +1,94 @@
@@ -16882,7 +16882,7 @@ index 000000000..55e4d9b8f
 +#endif
 diff --git a/arch/mips/xburst2/soc-x2000/setup.c b/arch/mips/xburst2/soc-x2000/setup.c
 new file mode 100644
-index 000000000..cf0a82943
+index 0000000000000000000000000000000000000000..cf0a82943e540149937911c80cfde1bd6fc432a2
 --- /dev/null
 +++ b/arch/mips/xburst2/soc-x2000/setup.c
 @@ -0,0 +1,114 @@
@@ -17002,7 +17002,7 @@ index 000000000..cf0a82943
 +}
 diff --git a/arch/mips/xburst2/soc-x2000/sleep_firmware/Makefile b/arch/mips/xburst2/soc-x2000/sleep_firmware/Makefile
 new file mode 100644
-index 000000000..45222b254
+index 0000000000000000000000000000000000000000..45222b2544c7ff322dc4c8338e120960b0c2a351
 --- /dev/null
 +++ b/arch/mips/xburst2/soc-x2000/sleep_firmware/Makefile
 @@ -0,0 +1,42 @@
@@ -17050,7 +17050,7 @@ index 000000000..45222b254
 +
 diff --git a/arch/mips/xburst2/soc-x2000/sleep_firmware/Readme b/arch/mips/xburst2/soc-x2000/sleep_firmware/Readme
 new file mode 100644
-index 000000000..215604c5a
+index 0000000000000000000000000000000000000000..215604c5a832c147a6278b0878284e542335ef6b
 --- /dev/null
 +++ b/arch/mips/xburst2/soc-x2000/sleep_firmware/Readme
 @@ -0,0 +1,14 @@
@@ -17070,7 +17070,7 @@ index 000000000..215604c5a
 +
 diff --git a/arch/mips/xburst2/soc-x2000/sleep_firmware/include/base.h b/arch/mips/xburst2/soc-x2000/sleep_firmware/include/base.h
 new file mode 100644
-index 000000000..496366eac
+index 0000000000000000000000000000000000000000..496366eac5bec6d58254db0c0b483b18ff039221
 --- /dev/null
 +++ b/arch/mips/xburst2/soc-x2000/sleep_firmware/include/base.h
 @@ -0,0 +1,91 @@
@@ -17167,7 +17167,7 @@ index 000000000..496366eac
 +#endif
 diff --git a/arch/mips/xburst2/soc-x2000/sleep_firmware/include/cpm.h b/arch/mips/xburst2/soc-x2000/sleep_firmware/include/cpm.h
 new file mode 100755
-index 000000000..e1b80b760
+index 0000000000000000000000000000000000000000..e1b80b760cdf367550cfe039ea2622139c9740ef
 --- /dev/null
 +++ b/arch/mips/xburst2/soc-x2000/sleep_firmware/include/cpm.h
 @@ -0,0 +1,246 @@
@@ -17419,7 +17419,7 @@ index 000000000..e1b80b760
 +#endif /* __CPM_H__ */
 diff --git a/arch/mips/xburst2/soc-x2000/sleep_firmware/include/ddr.h b/arch/mips/xburst2/soc-x2000/sleep_firmware/include/ddr.h
 new file mode 100644
-index 000000000..62b544451
+index 0000000000000000000000000000000000000000..62b544451ef70dbb30c3a8f4b420bd7372a956b8
 --- /dev/null
 +++ b/arch/mips/xburst2/soc-x2000/sleep_firmware/include/ddr.h
 @@ -0,0 +1,289 @@
@@ -17714,7 +17714,7 @@ index 000000000..62b544451
 +#endif /* __DDR_H__ */
 diff --git a/arch/mips/xburst2/soc-x2000/sleep_firmware/include/gpio.h b/arch/mips/xburst2/soc-x2000/sleep_firmware/include/gpio.h
 new file mode 100755
-index 000000000..38e249189
+index 0000000000000000000000000000000000000000..38e249189861689d2e28f7c22ea96df8e6fbf6c1
 --- /dev/null
 +++ b/arch/mips/xburst2/soc-x2000/sleep_firmware/include/gpio.h
 @@ -0,0 +1,288 @@
@@ -18008,7 +18008,7 @@ index 000000000..38e249189
 +
 diff --git a/arch/mips/xburst2/soc-x2000/sleep_firmware/include/pm_fastboot.h b/arch/mips/xburst2/soc-x2000/sleep_firmware/include/pm_fastboot.h
 new file mode 100644
-index 000000000..ec806b42c
+index 0000000000000000000000000000000000000000..ec806b42c5b85ff10fd5f9dd4009074e2bbefe54
 --- /dev/null
 +++ b/arch/mips/xburst2/soc-x2000/sleep_firmware/include/pm_fastboot.h
 @@ -0,0 +1,187 @@
@@ -18201,7 +18201,7 @@ index 000000000..ec806b42c
 +
 diff --git a/arch/mips/xburst2/soc-x2000/sleep_firmware/include/uart.h b/arch/mips/xburst2/soc-x2000/sleep_firmware/include/uart.h
 new file mode 100755
-index 000000000..9df439e52
+index 0000000000000000000000000000000000000000..9df439e522e73f97190c0b1c146ab89a750af3ab
 --- /dev/null
 +++ b/arch/mips/xburst2/soc-x2000/sleep_firmware/include/uart.h
 @@ -0,0 +1,113 @@
@@ -18320,7 +18320,7 @@ index 000000000..9df439e52
 +
 diff --git a/arch/mips/xburst2/soc-x2000/sleep_firmware/mkmodule.sh b/arch/mips/xburst2/soc-x2000/sleep_firmware/mkmodule.sh
 new file mode 100755
-index 000000000..698e07160
+index 0000000000000000000000000000000000000000..698e07160643bae28b709d5ae486347bd9721bae
 --- /dev/null
 +++ b/arch/mips/xburst2/soc-x2000/sleep_firmware/mkmodule.sh
 @@ -0,0 +1,7 @@
@@ -18333,7 +18333,7 @@ index 000000000..698e07160
 +cp fastboot_resume_code.hex ../
 diff --git a/arch/mips/xburst2/soc-x2000/sleep_firmware/src/fastboot_resume.c b/arch/mips/xburst2/soc-x2000/sleep_firmware/src/fastboot_resume.c
 new file mode 100644
-index 000000000..998ff9143
+index 0000000000000000000000000000000000000000..998ff91432f0953ece7f5d9120f2dbdd002fce92
 --- /dev/null
 +++ b/arch/mips/xburst2/soc-x2000/sleep_firmware/src/fastboot_resume.c
 @@ -0,0 +1,314 @@
@@ -18653,7 +18653,7 @@ index 000000000..998ff9143
 +
 diff --git a/arch/mips/xburst2/soc-x2000/sleep_firmware/src/uart.c b/arch/mips/xburst2/soc-x2000/sleep_firmware/src/uart.c
 new file mode 100644
-index 000000000..3c8b42fc6
+index 0000000000000000000000000000000000000000..3c8b42fc638278e6b981e0999d826d0bf626bb08
 --- /dev/null
 +++ b/arch/mips/xburst2/soc-x2000/sleep_firmware/src/uart.c
 @@ -0,0 +1,106 @@
@@ -18765,7 +18765,7 @@ index 000000000..3c8b42fc6
 +}
 diff --git a/arch/mips/xburst2/soc-x2000/sleep_firmware/target.ld b/arch/mips/xburst2/soc-x2000/sleep_firmware/target.ld
 new file mode 100644
-index 000000000..44f03a97a
+index 0000000000000000000000000000000000000000..44f03a97a2ae2721ba6cf3984f61c8a17087db71
 --- /dev/null
 +++ b/arch/mips/xburst2/soc-x2000/sleep_firmware/target.ld
 @@ -0,0 +1,37 @@
@@ -18807,7 +18807,7 @@ index 000000000..44f03a97a
 +	}
 +}
 diff --git a/block/partitions/efi.c b/block/partitions/efi.c
-index 7acba66ee..aaad3ab76 100644
+index 7acba66eed481c77fe45f901632fac7211acdcad..aaad3ab767a9579295b6e9e07f49bf0d2bcc98b0 100644
 --- a/block/partitions/efi.c
 +++ b/block/partitions/efi.c
 @@ -728,10 +728,17 @@ int efi_partition(struct parsed_partitions *state)
@@ -18830,317 +18830,8 @@ index 7acba66ee..aaad3ab76 100644
  		if (!is_pte_valid(&ptes[i], last_lba(state->disk)))
  			continue;
  
-diff --git a/drivers/input/touchscreen/Kconfig b/drivers/input/touchscreen/Kconfig
-index e3e232454..d6a9b95cb 100644
---- a/drivers/input/touchscreen/Kconfig
-+++ b/drivers/input/touchscreen/Kconfig
-@@ -1144,6 +1144,17 @@ config TOUCHSCREEN_TSC2005
- 	  To compile this driver as a module, choose M here: the
- 	  module will be called tsc2005.
- 
-+config TOUCHSCREEN_NS2009
-+	tristate "Nsiway NS2009 based touchscreens"
-+	depends on I2C
-+	help
-+	  Say Y here if you have a Nsiway NS2009 based touchscreen.
-+
-+	  If unsure, say N.
-+
-+	  To compile this driver as a module, choose M here: the
-+	  module will be called ns2009.
-+
- config TOUCHSCREEN_TSC2007
- 	tristate "TSC2007 based touchscreens"
- 	depends on I2C
-diff --git a/drivers/input/touchscreen/Makefile b/drivers/input/touchscreen/Makefile
-index 62bd24f3a..29b2bc609 100644
---- a/drivers/input/touchscreen/Makefile
-+++ b/drivers/input/touchscreen/Makefile
-@@ -92,6 +92,7 @@ obj-$(CONFIG_TOUCHSCREEN_TOUCHRIGHT)	+= touchright.o
- obj-$(CONFIG_TOUCHSCREEN_TOUCHWIN)	+= touchwin.o
- obj-$(CONFIG_TOUCHSCREEN_TS4800)	+= ts4800-ts.o
- obj-$(CONFIG_TOUCHSCREEN_TSC_SERIO)	+= tsc40.o
-+obj-$(CONFIG_TOUCHSCREEN_NS2009)	+= ns2009.o
- obj-$(CONFIG_TOUCHSCREEN_TSC200X_CORE)	+= tsc200x-core.o
- obj-$(CONFIG_TOUCHSCREEN_TSC2004)	+= tsc2004.o
- obj-$(CONFIG_TOUCHSCREEN_TSC2005)	+= tsc2005.o
-diff --git a/drivers/input/touchscreen/ns2009.c b/drivers/input/touchscreen/ns2009.c
-new file mode 100644
-index 000000000..a1af2c7ab
---- /dev/null
-+++ b/drivers/input/touchscreen/ns2009.c
-@@ -0,0 +1,269 @@
-+/*
-+ * Nsiway NS2009 touchscreen controller driver
-+ *
-+ * Copyright (C) 2017 Icenowy Zheng <icenowy@aosc.xyz>
-+ *
-+ * Some codes are from silead.c, which is
-+ *   Copyright (C) 2014-2015 Intel Corporation
-+ *
-+ * This program is free software; you can redistribute it and/or modify
-+ * it under the terms of the GNU General Public License as published by
-+ * the Free Software Foundation; either version 2 of the License, or
-+ * (at your option) any later version.
-+ *
-+ * This program is distributed in the hope that it will be useful,
-+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
-+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-+ * GNU General Public License for more details.
-+ */
-+
-+/*
-+ * Fre3nder provenance:
-+ * Derived from coreflake1/NebulaOS-kernel
-+ * commit 88a0e1ecc6ace7c9e4ad99d6fa49e272180fd5a9
-+ * kernel/kernel-6.6/drivers/input/touchscreen/ns2009.c
-+ *
-+ * Generic driver identity remains Nsiway NS2009. The optional
-+ * pendown-gpios support is used by the Ender-3 V3 KE board description.
-+ */
-+
-+#include <linux/kernel.h>
-+#include <linux/module.h>
-+#include <linux/input.h>
-+#include <linux/input/touchscreen.h>
-+#include <linux/i2c.h>
-+#include <linux/gpio/consumer.h>
-+
-+/* polling interval in ms */
-+#define POLL_INTERVAL	30
-+
-+/* this driver uses 12-bit readout */
-+#define MAX_12BIT	0xfff
-+
-+#define NS2009_TS_NAME	"ns2009_ts"
-+
-+#define NS2009_READ_X_LOW_POWER_12BIT	0xc0
-+#define NS2009_READ_Y_LOW_POWER_12BIT	0xd0
-+#define NS2009_READ_Z1_LOW_POWER_12BIT	0xe0
-+#define NS2009_READ_Z2_LOW_POWER_12BIT	0xf0
-+
-+#define NS2009_DEF_X_FUZZ	32
-+#define NS2009_DEF_Y_FUZZ	16
-+
-+/*
-+ * The chip have some error in z1 value when pen is up, so the data read out
-+ * is sometimes not accurately 0.
-+ * This value is based on experiements.
-+ */
-+#define NS2009_PEN_UP_Z1_ERR	80
-+
-+struct ns2009_data {
-+	struct i2c_client		*client;
-+	struct input_dev		*input;
-+
-+	struct touchscreen_properties	prop;
-+
-+	bool				pen_down;
-+
-+	/* ke-mainline-klipper touch mission: optional "pendown-gpios" DT
-+	 * property, matching stock's real (disassembly-proven) touch-detect
-+	 * signal - see the halley5_v30.dts ns2009@48 node for the full
-+	 * evidence trail. NULL (no property present) preserves the original
-+	 * generic upstream Z1-threshold-only behavior unchanged for any other
-+	 * board using this driver. */
-+	struct gpio_desc		*pendown_gpio;
-+};
-+
-+static int ns2009_ts_read_data(struct ns2009_data *data, u8 cmd, u16 *val)
-+{
-+	u8 raw_data[2];
-+	int error;
-+
-+	error = i2c_smbus_read_i2c_block_data(data->client, cmd, 2, raw_data);
-+	if (error < 0)
-+		return error;
-+
-+	if (unlikely(raw_data[1] & 0xf))
-+		return -EINVAL;
-+
-+	*val = (raw_data[0] << 4) | (raw_data[1] >> 4);
-+
-+	return 0;
-+}
-+
-+static int ns2009_ts_report(struct ns2009_data *data)
-+{
-+	u16 x, y, z1;
-+	int ret;
-+	bool pen_is_down;
-+
-+	/* ke-mainline-klipper touch mission: when a pendown-gpios property is
-+	 * present, use it as the pen-down signal instead of the Z1 pressure
-+	 * threshold - proven on this exact board that the touch driver never
-+	 * generated coordinate events via Z1 polling, while stock's own
-+	 * driver never uses Z1 at all (interrupt-driven off this exact GPIO
-+	 * instead - see halley5_v30.dts ns2009@48 for the full evidence
-+	 * trail). Physically confirmed fixed: all corners and center
-+	 * activate accurately. Boards without the property keep the
-+	 * original upstream Z1-only behavior unchanged. */
-+	if (data->pendown_gpio) {
-+		pen_is_down = gpiod_get_value_cansleep(data->pendown_gpio);
-+	} else {
-+		/*
-+		 * NS2009 chip supports pressure measurement, but currently it
-+		 * needs more investigation, so we only use z1 axis to detect
-+		 * pen down here.
-+		 */
-+		ret = ns2009_ts_read_data(data, NS2009_READ_Z1_LOW_POWER_12BIT, &z1);
-+		if (ret)
-+			return ret;
-+		pen_is_down = z1 >= NS2009_PEN_UP_Z1_ERR;
-+	}
-+
-+	if (pen_is_down) {
-+		ret = ns2009_ts_read_data(data, NS2009_READ_X_LOW_POWER_12BIT,
-+					  &x);
-+		if (ret)
-+			return ret;
-+
-+		ret = ns2009_ts_read_data(data, NS2009_READ_Y_LOW_POWER_12BIT,
-+					  &y);
-+		if (ret)
-+			return ret;
-+
-+		if (!data->pen_down) {
-+			input_report_key(data->input, BTN_TOUCH, 1);
-+			data->pen_down = true;
-+		}
-+
-+		input_report_abs(data->input, ABS_X, x);
-+		input_report_abs(data->input, ABS_Y, y);
-+		input_sync(data->input);
-+	} else if (data->pen_down) {
-+		input_report_key(data->input, BTN_TOUCH, 0);
-+		input_sync(data->input);
-+		data->pen_down = false;
-+	}
-+	return 0;
-+}
-+
-+static void ns2009_ts_poll(struct input_dev *input_dev)
-+{
-+	struct ns2009_data *data = input_get_drvdata(input_dev);
-+	int ret;
-+
-+	ret = ns2009_ts_report(data);
-+	if (ret)
-+		dev_err(&input_dev->dev, "Poll touch data failed: %d\n", ret);
-+}
-+
-+static void ns2009_ts_config_input_dev(struct ns2009_data *data)
-+{
-+	struct input_dev *input = data->input;
-+
-+	input_set_abs_params(input, ABS_X, 0, MAX_12BIT, NS2009_DEF_X_FUZZ, 0);
-+	input_set_abs_params(input, ABS_Y, 0, MAX_12BIT, NS2009_DEF_Y_FUZZ, 0);
-+	touchscreen_parse_properties(input, false, &data->prop);
-+
-+	input->name = NS2009_TS_NAME;
-+	input->phys = "input/ts";
-+	input->id.bustype = BUS_I2C;
-+	input_set_capability(input, EV_KEY, BTN_TOUCH);
-+}
-+
-+static int ns2009_ts_request_polled_input_dev(struct ns2009_data *data)
-+{
-+	struct device *dev = &data->client->dev;
-+	int error;
-+
-+	data->input = devm_input_allocate_device(dev);
-+	if (!data->input) {
-+		dev_err(dev, "Failed to allocate input device\n");
-+		return -ENOMEM;
-+	}
-+	input_set_drvdata(data->input, data);
-+
-+	ns2009_ts_config_input_dev(data);
-+
-+	error = input_setup_polling(data->input, ns2009_ts_poll);
-+	if (error) {
-+		dev_err(dev, "Failed to set up polling: %d\n", error);
-+		return error;
-+	}
-+	input_set_poll_interval(data->input, POLL_INTERVAL);
-+
-+	error = input_register_device(data->input);
-+	if (error) {
-+		dev_err(dev, "Failed to register input device: %d\n", error);
-+		return error;
-+	}
-+
-+	return 0;
-+}
-+
-+static int ns2009_ts_probe(struct i2c_client *client)
-+{
-+	struct ns2009_data *data;
-+	struct device *dev = &client->dev;
-+	int error;
-+
-+	if (!i2c_check_functionality(client->adapter,
-+				     I2C_FUNC_I2C |
-+				     I2C_FUNC_SMBUS_READ_I2C_BLOCK |
-+				     I2C_FUNC_SMBUS_WRITE_I2C_BLOCK)) {
-+		dev_err(dev, "I2C functionality check failed\n");
-+		return -ENXIO;
-+	}
-+
-+	data = devm_kzalloc(dev, sizeof(*data), GFP_KERNEL);
-+	if (!data)
-+		return -ENOMEM;
-+
-+	i2c_set_clientdata(client, data);
-+	data->client = client;
-+
-+	/* ke-mainline-klipper touch mission: optional, absent on any board
-+	 * that doesn't declare "pendown-gpios" in its DT node - see the
-+	 * struct field comment and halley5_v30.dts for the full evidence
-+	 * trail behind this exact property on this exact board. */
-+	data->pendown_gpio = devm_gpiod_get_optional(dev, "pendown", GPIOD_IN);
-+	if (IS_ERR(data->pendown_gpio)) {
-+		dev_err(dev, "Failed to get pendown-gpios: %ld\n",
-+			PTR_ERR(data->pendown_gpio));
-+		return PTR_ERR(data->pendown_gpio);
-+	}
-+
-+	error = ns2009_ts_request_polled_input_dev(data);
-+	if (error)
-+		return error;
-+
-+	return 0;
-+};
-+
-+static const struct i2c_device_id ns2009_ts_id[] = {
-+	{ "ns2009", 0 },
-+	{ }
-+};
-+MODULE_DEVICE_TABLE(i2c, ns2009_ts_id);
-+
-+#ifdef CONFIG_OF
-+static const struct of_device_id ns2009_ts_of_match[] = {
-+	{ .compatible = "nsiway,ns2009", },
-+	{ }
-+};
-+MODULE_DEVICE_TABLE(of, ns2009_ts_of_match);
-+#endif
-+
-+static struct i2c_driver ns2009_ts_driver = {
-+	.probe = ns2009_ts_probe,
-+	.id_table = ns2009_ts_id,
-+	.driver = {
-+		.name = NS2009_TS_NAME,
-+		.of_match_table = of_match_ptr(ns2009_ts_of_match),
-+	},
-+};
-+module_i2c_driver(ns2009_ts_driver);
-+
-+MODULE_AUTHOR("Icenowy Zheng <icenowy@aosc.xyz>");
-+MODULE_DESCRIPTION("Nsiway NS2009 touchscreen controller driver");
-+MODULE_LICENSE("GPL");
 diff --git a/drivers/mmc/core/core.c b/drivers/mmc/core/core.c
-index 39b5846db..69f1dad6e 100644
+index 39b5846db389ff49b49ac27866693e725185cd8e..69f1dad6eb11d95b2431f9047e42c15d2ee443e2 100644
 --- a/drivers/mmc/core/core.c
 +++ b/drivers/mmc/core/core.c
 @@ -48,8 +48,8 @@
@@ -21111,7 +20802,7 @@ index 39b5846db..69f1dad6e 100644
  	return 0;
  
 diff --git a/drivers/mmc/host/sdhci.c b/drivers/mmc/host/sdhci.c
-index b7d4bdb43..6d32ec7a9 100644
+index b7d4bdb4340278dba61ac0c0fa195c02b059c1cb..90f334fa6cec43c506b67e7c098039f47a2307b7 100644
 --- a/drivers/mmc/host/sdhci.c
 +++ b/drivers/mmc/host/sdhci.c
 @@ -56,62 +56,63 @@ void sdhci_dumpregs(struct sdhci_host *host)
@@ -23857,14 +23548,13 @@ index b7d4bdb43..6d32ec7a9 100644
  
  		pr_err("%s: Got data interrupt 0x%08x even though no data operation was in progress.\n",
  		       mmc_hostname(host->mmc), (unsigned)intmask);
-@@ -3439,14 +3605,16 @@ static void sdhci_data_irq(struct sdhci_host *host, u32 intmask)
+@@ -3439,13 +3605,13 @@ static void sdhci_data_irq(struct sdhci_host *host, u32 intmask)
  		sdhci_err_stats_inc(host, DAT_TIMEOUT);
  	} else if (intmask & SDHCI_INT_DATA_END_BIT) {
  		host->data->error = -EILSEQ;
 -		if (!mmc_op_tuning(SDHCI_GET_CMD(sdhci_readw(host, SDHCI_COMMAND))))
 +		if (!mmc_op_tuning(SDHCI_GET_CMD(sdhci_readw(host, SDHCI_COMMAND)))) {
  			sdhci_err_stats_inc(host, DAT_CRC);
-+		}
  	} else if ((intmask & (SDHCI_INT_DATA_CRC | SDHCI_INT_TUNING_ERROR)) &&
  		SDHCI_GET_CMD(sdhci_readw(host, SDHCI_COMMAND))
  			!= MMC_BUS_TEST_R) {
@@ -23872,11 +23562,9 @@ index b7d4bdb43..6d32ec7a9 100644
 -		if (!mmc_op_tuning(SDHCI_GET_CMD(sdhci_readw(host, SDHCI_COMMAND))))
 +		if (!mmc_op_tuning(SDHCI_GET_CMD(sdhci_readw(host, SDHCI_COMMAND)))) {
  			sdhci_err_stats_inc(host, DAT_CRC);
-+		}
  		if (intmask & SDHCI_INT_TUNING_ERROR) {
  			u16 ctrl2 = sdhci_readw(host, SDHCI_HOST_CONTROL2);
- 
-@@ -3459,15 +3627,17 @@ static void sdhci_data_irq(struct sdhci_host *host, u32 intmask)
+@@ -3459,15 +3625,17 @@ static void sdhci_data_irq(struct sdhci_host *host, u32 intmask)
  		sdhci_adma_show_error(host);
  		sdhci_err_stats_inc(host, ADMA);
  		host->data->error = -EIO;
@@ -23898,7 +23586,7 @@ index b7d4bdb43..6d32ec7a9 100644
  
  		/*
  		 * We currently don't do anything fancy with DMA
-@@ -3487,8 +3657,8 @@ static void sdhci_data_irq(struct sdhci_host *host, u32 intmask)
+@@ -3487,8 +3655,8 @@ static void sdhci_data_irq(struct sdhci_host *host, u32 intmask)
  			 * Force update to the next DMA block boundary.
  			 */
  			dmanow = (dmanow &
@@ -23909,7 +23597,7 @@ index b7d4bdb43..6d32ec7a9 100644
  			host->data->bytes_xfered = dmanow - dmastart;
  			DBG("DMA base %pad, transferred 0x%06x bytes, next %pad\n",
  			    &dmastart, host->data->bytes_xfered, &dmanow);
-@@ -3511,13 +3681,13 @@ static void sdhci_data_irq(struct sdhci_host *host, u32 intmask)
+@@ -3511,13 +3679,13 @@ static void sdhci_data_irq(struct sdhci_host *host, u32 intmask)
  }
  
  static inline bool sdhci_defer_done(struct sdhci_host *host,
@@ -23925,7 +23613,7 @@ index b7d4bdb43..6d32ec7a9 100644
  }
  
  static irqreturn_t sdhci_irq(int irq, void *dev_id)
-@@ -3547,18 +3717,19 @@ static irqreturn_t sdhci_irq(int irq, void *dev_id)
+@@ -3547,18 +3715,19 @@ static irqreturn_t sdhci_irq(int irq, void *dev_id)
  
  		if (host->ops->irq) {
  			intmask = host->ops->irq(host, intmask);
@@ -23948,7 +23636,7 @@ index b7d4bdb43..6d32ec7a9 100644
  
  			/*
  			 * There is a observation on i.mx esdhc.  INSERT
-@@ -3572,32 +3743,35 @@ static irqreturn_t sdhci_irq(int irq, void *dev_id)
+@@ -3572,32 +3741,35 @@ static irqreturn_t sdhci_irq(int irq, void *dev_id)
  			 * for other platforms though.
  			 */
  			host->ier &= ~(SDHCI_INT_CARD_INSERT |
@@ -23992,7 +23680,7 @@ index b7d4bdb43..6d32ec7a9 100644
  
  		if ((intmask & SDHCI_INT_CARD_INT) &&
  		    (host->ier & SDHCI_INT_CARD_INT)) {
-@@ -3606,17 +3780,18 @@ static irqreturn_t sdhci_irq(int irq, void *dev_id)
+@@ -3606,17 +3778,18 @@ static irqreturn_t sdhci_irq(int irq, void *dev_id)
  		}
  
  		intmask &= ~(SDHCI_INT_CARD_INSERT | SDHCI_INT_CARD_REMOVE |
@@ -24015,7 +23703,7 @@ index b7d4bdb43..6d32ec7a9 100644
  
  		intmask = sdhci_readl(host, SDHCI_INT_STATUS);
  	} while (intmask && --max_loops);
-@@ -3625,8 +3800,9 @@ static irqreturn_t sdhci_irq(int irq, void *dev_id)
+@@ -3625,8 +3798,9 @@ static irqreturn_t sdhci_irq(int irq, void *dev_id)
  	for (i = 0; i < SDHCI_MAX_MRQS; i++) {
  		struct mmc_request *mrq = host->mrqs_done[i];
  
@@ -24026,7 +23714,7 @@ index b7d4bdb43..6d32ec7a9 100644
  
  		if (sdhci_defer_done(host, mrq)) {
  			result = IRQ_WAKE_THREAD;
-@@ -3636,25 +3812,28 @@ static irqreturn_t sdhci_irq(int irq, void *dev_id)
+@@ -3636,25 +3810,28 @@ static irqreturn_t sdhci_irq(int irq, void *dev_id)
  		}
  	}
  out:
@@ -24060,7 +23748,7 @@ index b7d4bdb43..6d32ec7a9 100644
  		sdhci_err_stats_inc(host, UNEXPECTED_IRQ);
  		sdhci_dumpregs(host);
  	}
-@@ -3678,8 +3857,9 @@ static irqreturn_t sdhci_thread_irq(int irq, void *dev_id)
+@@ -3678,8 +3855,9 @@ static irqreturn_t sdhci_thread_irq(int irq, void *dev_id)
  	host->thread_isr = 0;
  
  	cmd = host->deferred_cmd;
@@ -24071,7 +23759,7 @@ index b7d4bdb43..6d32ec7a9 100644
  
  	spin_unlock_irqrestore(&host->lock, flags);
  
-@@ -3719,7 +3899,7 @@ static bool sdhci_cd_irq_can_wakeup(struct sdhci_host *host)
+@@ -3719,7 +3897,7 @@ static bool sdhci_cd_irq_can_wakeup(struct sdhci_host *host)
  static bool sdhci_enable_irq_wakeups(struct sdhci_host *host)
  {
  	u8 mask = SDHCI_WAKE_ON_INSERT | SDHCI_WAKE_ON_REMOVE |
@@ -24080,7 +23768,7 @@ index b7d4bdb43..6d32ec7a9 100644
  	u32 irq_val = 0;
  	u8 wake_val = 0;
  	u8 val;
-@@ -3734,8 +3914,9 @@ static bool sdhci_enable_irq_wakeups(struct sdhci_host *host)
+@@ -3734,8 +3912,9 @@ static bool sdhci_enable_irq_wakeups(struct sdhci_host *host)
  		irq_val |= SDHCI_INT_CARD_INT;
  	}
  
@@ -24091,7 +23779,7 @@ index b7d4bdb43..6d32ec7a9 100644
  
  	val = sdhci_readb(host, SDHCI_WAKE_UP_CONTROL);
  	val &= ~mask;
-@@ -3753,7 +3934,7 @@ static void sdhci_disable_irq_wakeups(struct sdhci_host *host)
+@@ -3753,7 +3932,7 @@ static void sdhci_disable_irq_wakeups(struct sdhci_host *host)
  {
  	u8 val;
  	u8 mask = SDHCI_WAKE_ON_INSERT | SDHCI_WAKE_ON_REMOVE
@@ -24100,7 +23788,7 @@ index b7d4bdb43..6d32ec7a9 100644
  
  	val = sdhci_readb(host, SDHCI_WAKE_UP_CONTROL);
  	val &= ~mask;
-@@ -3789,8 +3970,9 @@ int sdhci_resume_host(struct sdhci_host *host)
+@@ -3789,8 +3968,9 @@ int sdhci_resume_host(struct sdhci_host *host)
  	int ret = 0;
  
  	if (host->flags & (SDHCI_USE_SDMA | SDHCI_USE_ADMA)) {
@@ -24111,7 +23799,7 @@ index b7d4bdb43..6d32ec7a9 100644
  	}
  
  	if ((mmc->pm_flags & MMC_PM_KEEP_POWER) &&
-@@ -3810,10 +3992,11 @@ int sdhci_resume_host(struct sdhci_host *host)
+@@ -3810,10 +3990,11 @@ int sdhci_resume_host(struct sdhci_host *host)
  		sdhci_disable_irq_wakeups(host);
  	} else {
  		ret = request_threaded_irq(host->irq, sdhci_irq,
@@ -24126,7 +23814,7 @@ index b7d4bdb43..6d32ec7a9 100644
  	}
  
  	sdhci_enable_card_detection(host);
-@@ -3852,8 +4035,9 @@ int sdhci_runtime_resume_host(struct sdhci_host *host, int soft_reset)
+@@ -3852,8 +4033,9 @@ int sdhci_runtime_resume_host(struct sdhci_host *host, int soft_reset)
  	int host_flags = host->flags;
  
  	if (host_flags & (SDHCI_USE_SDMA | SDHCI_USE_ADMA)) {
@@ -24137,7 +23825,7 @@ index b7d4bdb43..6d32ec7a9 100644
  	}
  
  	sdhci_init(host, soft_reset);
-@@ -3875,8 +4059,9 @@ int sdhci_runtime_resume_host(struct sdhci_host *host, int soft_reset)
+@@ -3875,8 +4057,9 @@ int sdhci_runtime_resume_host(struct sdhci_host *host, int soft_reset)
  		}
  
  		if ((mmc->caps2 & MMC_CAP2_HS400_ES) &&
@@ -24148,7 +23836,7 @@ index b7d4bdb43..6d32ec7a9 100644
  	}
  
  	spin_lock_irqsave(&host->lock, flags);
-@@ -3884,8 +4069,9 @@ int sdhci_runtime_resume_host(struct sdhci_host *host, int soft_reset)
+@@ -3884,8 +4067,9 @@ int sdhci_runtime_resume_host(struct sdhci_host *host, int soft_reset)
  	host->runtime_suspended = false;
  
  	/* Enable SDIO IRQ */
@@ -24159,7 +23847,7 @@ index b7d4bdb43..6d32ec7a9 100644
  
  	/* Enable Card Detection */
  	sdhci_enable_card_detection(host);
-@@ -3919,16 +4105,17 @@ void sdhci_cqe_enable(struct mmc_host *mmc)
+@@ -3919,16 +4103,17 @@ void sdhci_cqe_enable(struct mmc_host *mmc)
  	 * ADMA3 performs integrated descriptor which is more suitable
  	 * for cmd queuing to fetch both command and transfer descriptors.
  	 */
@@ -24181,7 +23869,7 @@ index b7d4bdb43..6d32ec7a9 100644
  
  	/* Set maximum timeout */
  	sdhci_set_timeout(host, NULL);
-@@ -3941,8 +4128,8 @@ void sdhci_cqe_enable(struct mmc_host *mmc)
+@@ -3941,8 +4126,8 @@ void sdhci_cqe_enable(struct mmc_host *mmc)
  	host->cqe_on = true;
  
  	pr_debug("%s: sdhci: CQE on, IRQ mask %#x, IRQ status %#x\n",
@@ -24192,7 +23880,7 @@ index b7d4bdb43..6d32ec7a9 100644
  
  	spin_unlock_irqrestore(&host->lock, flags);
  }
-@@ -3959,47 +4146,53 @@ void sdhci_cqe_disable(struct mmc_host *mmc, bool recovery)
+@@ -3959,47 +4144,53 @@ void sdhci_cqe_disable(struct mmc_host *mmc, bool recovery)
  
  	host->cqe_on = false;
  
@@ -24255,7 +23943,7 @@ index b7d4bdb43..6d32ec7a9 100644
  
  	/* Clear selected interrupts. */
  	mask = intmask & host->cqe_ier;
-@@ -4029,7 +4222,7 @@ EXPORT_SYMBOL_GPL(sdhci_cqe_irq);
+@@ -4029,7 +4220,7 @@ EXPORT_SYMBOL_GPL(sdhci_cqe_irq);
  \*****************************************************************************/
  
  struct sdhci_host *sdhci_alloc_host(struct device *dev,
@@ -24264,7 +23952,7 @@ index b7d4bdb43..6d32ec7a9 100644
  {
  	struct mmc_host *mmc;
  	struct sdhci_host *host;
-@@ -4037,8 +4230,9 @@ struct sdhci_host *sdhci_alloc_host(struct device *dev,
+@@ -4037,8 +4228,9 @@ struct sdhci_host *sdhci_alloc_host(struct device *dev,
  	WARN_ON(dev == NULL);
  
  	mmc = mmc_alloc_host(sizeof(struct sdhci_host) + priv_size, dev);
@@ -24275,7 +23963,7 @@ index b7d4bdb43..6d32ec7a9 100644
  
  	host = mmc_priv(mmc);
  	host->mmc = mmc;
-@@ -4076,15 +4270,16 @@ static int sdhci_set_dma_mask(struct sdhci_host *host)
+@@ -4076,15 +4268,16 @@ static int sdhci_set_dma_mask(struct sdhci_host *host)
  	struct device *dev = mmc_dev(mmc);
  	int ret = -EINVAL;
  
@@ -24294,7 +23982,7 @@ index b7d4bdb43..6d32ec7a9 100644
  			host->flags &= ~SDHCI_USE_64_BIT_DMA;
  		}
  	}
-@@ -4094,39 +4289,43 @@ static int sdhci_set_dma_mask(struct sdhci_host *host)
+@@ -4094,39 +4287,43 @@ static int sdhci_set_dma_mask(struct sdhci_host *host)
  		ret = dma_set_mask_and_coherent(dev, DMA_BIT_MASK(32));
  		if (ret)
  			pr_warn("%s: Failed to set 32-bit DMA mask.\n",
@@ -24346,7 +24034,7 @@ index b7d4bdb43..6d32ec7a9 100644
  
  	v = ver ? *ver : sdhci_readw(host, SDHCI_HOST_VERSION);
  	host->version = (v & SDHCI_SPEC_VER_MASK) >> SDHCI_SPEC_VER_SHIFT;
-@@ -4139,8 +4338,9 @@ void __sdhci_read_caps(struct sdhci_host *host, const u16 *ver,
+@@ -4139,8 +4336,9 @@ void __sdhci_read_caps(struct sdhci_host *host, const u16 *ver,
  		host->caps |= lower_32_bits(dt_caps);
  	}
  
@@ -24357,7 +24045,7 @@ index b7d4bdb43..6d32ec7a9 100644
  
  	if (caps1) {
  		host->caps1 = *caps1;
-@@ -4178,8 +4378,9 @@ static void sdhci_allocate_bounce_buffer(struct sdhci_host *host)
+@@ -4178,8 +4376,9 @@ static void sdhci_allocate_bounce_buffer(struct sdhci_host *host)
  	 * than our segment size, else hammer down the maximum
  	 * request size to the maximum buffer size.
  	 */
@@ -24368,7 +24056,7 @@ index b7d4bdb43..6d32ec7a9 100644
  	max_blocks = bounce_size / 512;
  
  	/*
-@@ -4188,8 +4389,8 @@ static void sdhci_allocate_bounce_buffer(struct sdhci_host *host)
+@@ -4188,8 +4387,8 @@ static void sdhci_allocate_bounce_buffer(struct sdhci_host *host)
  	 * reads/writes together.
  	 */
  	host->bounce_buffer = devm_kmalloc(mmc_dev(mmc),
@@ -24379,7 +24067,7 @@ index b7d4bdb43..6d32ec7a9 100644
  	if (!host->bounce_buffer) {
  		pr_err("%s: failed to allocate %u bytes for bounce buffer, falling back to single segments\n",
  		       mmc_hostname(mmc),
-@@ -4202,9 +4403,9 @@ static void sdhci_allocate_bounce_buffer(struct sdhci_host *host)
+@@ -4202,9 +4401,9 @@ static void sdhci_allocate_bounce_buffer(struct sdhci_host *host)
  	}
  
  	host->bounce_addr = dma_map_single(mmc_dev(mmc),
@@ -24392,7 +24080,7 @@ index b7d4bdb43..6d32ec7a9 100644
  	ret = dma_mapping_error(mmc_dev(mmc), host->bounce_addr);
  	if (ret) {
  		devm_kfree(mmc_dev(mmc), host->bounce_buffer);
-@@ -4229,7 +4430,7 @@ static void sdhci_allocate_bounce_buffer(struct sdhci_host *host)
+@@ -4229,7 +4428,7 @@ static void sdhci_allocate_bounce_buffer(struct sdhci_host *host)
  	mmc->max_req_size = bounce_size;
  
  	pr_info("%s bounce up to %u segments into one, max segment size %u bytes\n",
@@ -24401,7 +24089,7 @@ index b7d4bdb43..6d32ec7a9 100644
  }
  
  static inline bool sdhci_can_64bit_dma(struct sdhci_host *host)
-@@ -4239,8 +4440,9 @@ static inline bool sdhci_can_64bit_dma(struct sdhci_host *host)
+@@ -4239,8 +4438,9 @@ static inline bool sdhci_can_64bit_dma(struct sdhci_host *host)
  	 * version 4.10 in Capabilities Register is used as 64-bit System
  	 * Address support for V4 mode.
  	 */
@@ -24412,7 +24100,7 @@ index b7d4bdb43..6d32ec7a9 100644
  
  	return host->caps & SDHCI_CAN_64BIT;
  }
-@@ -4256,8 +4458,9 @@ int sdhci_setup_host(struct sdhci_host *host)
+@@ -4256,8 +4456,9 @@ int sdhci_setup_host(struct sdhci_host *host)
  	bool enable_vqmmc = false;
  
  	WARN_ON(host == NULL);
@@ -24423,7 +24111,7 @@ index b7d4bdb43..6d32ec7a9 100644
  
  	mmc = host->mmc;
  
-@@ -4269,8 +4472,9 @@ int sdhci_setup_host(struct sdhci_host *host)
+@@ -4269,8 +4470,9 @@ int sdhci_setup_host(struct sdhci_host *host)
  	 */
  	if (!mmc->supply.vqmmc) {
  		ret = mmc_regulator_get_supply(mmc);
@@ -24434,7 +24122,7 @@ index b7d4bdb43..6d32ec7a9 100644
  		enable_vqmmc  = true;
  	}
  
-@@ -4290,59 +4494,67 @@ int sdhci_setup_host(struct sdhci_host *host)
+@@ -4290,59 +4492,67 @@ int sdhci_setup_host(struct sdhci_host *host)
  		       mmc_hostname(mmc), host->version);
  	}
  
@@ -24516,7 +24204,7 @@ index b7d4bdb43..6d32ec7a9 100644
  			host->flags &= ~(SDHCI_USE_SDMA | SDHCI_USE_ADMA);
  
  			ret = 0;
-@@ -4350,17 +4562,19 @@ int sdhci_setup_host(struct sdhci_host *host)
+@@ -4350,17 +4560,19 @@ int sdhci_setup_host(struct sdhci_host *host)
  	}
  
  	/* SDMA does not support 64-bit DMA if v4 mode not set */
@@ -24539,7 +24227,7 @@ index b7d4bdb43..6d32ec7a9 100644
  
  		host->desc_sz = host->alloc_desc_sz;
  		host->adma_table_sz = host->adma_table_cnt * host->desc_sz;
-@@ -4371,19 +4585,19 @@ int sdhci_setup_host(struct sdhci_host *host)
+@@ -4371,19 +4583,19 @@ int sdhci_setup_host(struct sdhci_host *host)
  		 * descriptors so that they never need to be written.
  		 */
  		buf = dma_alloc_coherent(mmc_dev(mmc),
@@ -24565,7 +24253,7 @@ index b7d4bdb43..6d32ec7a9 100644
  		} else {
  			host->align_buffer = buf;
  			host->align_addr = dma;
-@@ -4403,14 +4617,15 @@ int sdhci_setup_host(struct sdhci_host *host)
+@@ -4403,14 +4615,15 @@ int sdhci_setup_host(struct sdhci_host *host)
  		mmc_dev(mmc)->dma_mask = &host->dma_mask;
  	}
  
@@ -24584,7 +24272,7 @@ index b7d4bdb43..6d32ec7a9 100644
  		if (!host->ops->get_max_clock) {
  			pr_err("%s: Hardware doesn't specify base clock frequency.\n",
  			       mmc_hostname(mmc));
-@@ -4432,66 +4647,74 @@ int sdhci_setup_host(struct sdhci_host *host)
+@@ -4432,66 +4645,74 @@ int sdhci_setup_host(struct sdhci_host *host)
  	 * multiplier is one more than the value of Clock Multiplier
  	 * in the Capabilities Register.
  	 */
@@ -24673,7 +24361,7 @@ index b7d4bdb43..6d32ec7a9 100644
  
  	/*
  	 * For v3 mode, Auto-CMD23 stuff only works in ADMA or PIO.
-@@ -4500,7 +4723,7 @@ int sdhci_setup_host(struct sdhci_host *host)
+@@ -4500,7 +4721,7 @@ int sdhci_setup_host(struct sdhci_host *host)
  	if ((host->version >= SDHCI_SPEC_300) &&
  	    ((host->flags & SDHCI_USE_ADMA) ||
  	     !(host->flags & SDHCI_USE_SDMA) || host->v4_mode) &&
@@ -24682,7 +24370,7 @@ index b7d4bdb43..6d32ec7a9 100644
  		host->flags |= SDHCI_AUTO_CMD23;
  		DBG("Auto-CMD23 available\n");
  	} else {
-@@ -4524,16 +4747,19 @@ int sdhci_setup_host(struct sdhci_host *host)
+@@ -4524,16 +4745,19 @@ int sdhci_setup_host(struct sdhci_host *host)
  		mmc->caps |= MMC_CAP_4_BIT_DATA;
  	}
  
@@ -24705,7 +24393,7 @@ index b7d4bdb43..6d32ec7a9 100644
  
  	if (!IS_ERR(mmc->supply.vqmmc)) {
  		if (enable_vqmmc) {
-@@ -4543,19 +4769,20 @@ int sdhci_setup_host(struct sdhci_host *host)
+@@ -4543,19 +4767,20 @@ int sdhci_setup_host(struct sdhci_host *host)
  
  		/* If vqmmc provides no 1.8V signalling, then there's no UHS */
  		if (!regulator_is_supported_voltage(mmc->supply.vqmmc, 1700000,
@@ -24731,7 +24419,7 @@ index b7d4bdb43..6d32ec7a9 100644
  			mmc->supply.vqmmc = ERR_PTR(-EINVAL);
  		}
  
-@@ -4563,7 +4790,7 @@ int sdhci_setup_host(struct sdhci_host *host)
+@@ -4563,7 +4788,7 @@ int sdhci_setup_host(struct sdhci_host *host)
  
  	if (host->quirks2 & SDHCI_QUIRK2_NO_1_8_V) {
  		host->caps1 &= ~(SDHCI_SUPPORT_SDR104 | SDHCI_SUPPORT_SDR50 |
@@ -24740,7 +24428,7 @@ index b7d4bdb43..6d32ec7a9 100644
  		/*
  		 * The SDHCI controller in a SoC might support HS200/HS400
  		 * (indicated using mmc-hs200-1_8v/mmc-hs400-1_8v dt property),
-@@ -4578,8 +4805,9 @@ int sdhci_setup_host(struct sdhci_host *host)
+@@ -4578,8 +4803,9 @@ int sdhci_setup_host(struct sdhci_host *host)
  
  	/* Any UHS-I mode in caps implies SDR12 and SDR25 support. */
  	if (host->caps1 & (SDHCI_SUPPORT_SDR104 | SDHCI_SUPPORT_SDR50 |
@@ -24751,7 +24439,7 @@ index b7d4bdb43..6d32ec7a9 100644
  
  	/* SDR104 supports also implies SDR50 support */
  	if (host->caps1 & SDHCI_SUPPORT_SDR104) {
-@@ -4587,48 +4815,57 @@ int sdhci_setup_host(struct sdhci_host *host)
+@@ -4587,48 +4813,57 @@ int sdhci_setup_host(struct sdhci_host *host)
  		/* SD3.0: SDR104 is supported so (for eMMC) the caps2
  		 * field can be promoted to support HS200.
  		 */
@@ -24819,7 +24507,7 @@ index b7d4bdb43..6d32ec7a9 100644
  
  	/* Re-tuning mode supported by the Host Controller */
  	host->tuning_mode = FIELD_GET(SDHCI_RETUNING_MODE_MASK, host->caps1);
-@@ -4648,14 +4885,14 @@ int sdhci_setup_host(struct sdhci_host *host)
+@@ -4648,14 +4883,14 @@ int sdhci_setup_host(struct sdhci_host *host)
  		if (curr > 0) {
  
  			/* convert to SDHCI_MAX_CURRENT format */
@@ -24839,7 +24527,7 @@ index b7d4bdb43..6d32ec7a9 100644
  		}
  	}
  
-@@ -4663,44 +4900,49 @@ int sdhci_setup_host(struct sdhci_host *host)
+@@ -4663,44 +4898,49 @@ int sdhci_setup_host(struct sdhci_host *host)
  		ocr_avail |= MMC_VDD_32_33 | MMC_VDD_33_34;
  
  		mmc->max_current_330 = FIELD_GET(SDHCI_MAX_CURRENT_330_MASK,
@@ -24901,7 +24589,7 @@ index b7d4bdb43..6d32ec7a9 100644
  
  	if (mmc->ocr_avail == 0) {
  		pr_err("%s: Hardware doesn't report any support voltages.\n",
-@@ -4710,13 +4952,15 @@ int sdhci_setup_host(struct sdhci_host *host)
+@@ -4710,13 +4950,15 @@ int sdhci_setup_host(struct sdhci_host *host)
  	}
  
  	if ((mmc->caps & (MMC_CAP_UHS_SDR12 | MMC_CAP_UHS_SDR25 |
@@ -24921,7 +24609,7 @@ index b7d4bdb43..6d32ec7a9 100644
  
  	spin_lock_init(&host->lock);
  
-@@ -4736,7 +4980,7 @@ int sdhci_setup_host(struct sdhci_host *host)
+@@ -4736,7 +4978,7 @@ int sdhci_setup_host(struct sdhci_host *host)
  	} else if (host->flags & SDHCI_USE_SDMA) {
  		mmc->max_segs = 1;
  		mmc->max_req_size = min_t(size_t, mmc->max_req_size,
@@ -24930,7 +24618,7 @@ index b7d4bdb43..6d32ec7a9 100644
  	} else { /* PIO */
  		mmc->max_segs = SDHCI_MAX_SEGS;
  	}
-@@ -4765,10 +5009,10 @@ int sdhci_setup_host(struct sdhci_host *host)
+@@ -4765,10 +5007,10 @@ int sdhci_setup_host(struct sdhci_host *host)
  		mmc->max_blk_size = 2;
  	} else {
  		mmc->max_blk_size = (host->caps & SDHCI_MAX_BLOCK_MASK) >>
@@ -24943,7 +24631,7 @@ index b7d4bdb43..6d32ec7a9 100644
  			mmc->max_blk_size = 0;
  		}
  	}
-@@ -4782,18 +5026,21 @@ int sdhci_setup_host(struct sdhci_host *host)
+@@ -4782,18 +5024,21 @@ int sdhci_setup_host(struct sdhci_host *host)
  
  	if (mmc->max_segs == 1)
  		/* This may alter mmc->*_blk_* parameters */
@@ -24968,7 +24656,7 @@ index b7d4bdb43..6d32ec7a9 100644
  	host->adma_table = NULL;
  	host->align_buffer = NULL;
  
-@@ -4805,16 +5052,18 @@ void sdhci_cleanup_host(struct sdhci_host *host)
+@@ -4805,16 +5050,18 @@ void sdhci_cleanup_host(struct sdhci_host *host)
  {
  	struct mmc_host *mmc = host->mmc;
  
@@ -24991,7 +24679,7 @@ index b7d4bdb43..6d32ec7a9 100644
  
  	host->adma_table = NULL;
  	host->align_buffer = NULL;
-@@ -4834,8 +5083,9 @@ int __sdhci_add_host(struct sdhci_host *host)
+@@ -4834,8 +5081,9 @@ int __sdhci_add_host(struct sdhci_host *host)
  	}
  
  	host->complete_wq = alloc_workqueue("sdhci", flags, 0);
@@ -25002,7 +24690,7 @@ index b7d4bdb43..6d32ec7a9 100644
  
  	INIT_WORK(&host->complete_work, sdhci_complete_work);
  
-@@ -4847,7 +5097,7 @@ int __sdhci_add_host(struct sdhci_host *host)
+@@ -4847,7 +5095,7 @@ int __sdhci_add_host(struct sdhci_host *host)
  	sdhci_init(host, 0);
  
  	ret = request_threaded_irq(host->irq, sdhci_irq, sdhci_thread_irq,
@@ -25011,7 +24699,7 @@ index b7d4bdb43..6d32ec7a9 100644
  	if (ret) {
  		pr_err("%s: Failed to request IRQ %d: %d\n",
  		       mmc_hostname(mmc), host->irq, ret);
-@@ -4862,15 +5112,16 @@ int __sdhci_add_host(struct sdhci_host *host)
+@@ -4862,15 +5110,16 @@ int __sdhci_add_host(struct sdhci_host *host)
  	}
  
  	ret = mmc_add_host(mmc);
@@ -25034,7 +24722,7 @@ index b7d4bdb43..6d32ec7a9 100644
  
  	sdhci_enable_card_detection(host);
  
-@@ -4895,12 +5146,14 @@ int sdhci_add_host(struct sdhci_host *host)
+@@ -4895,12 +5144,14 @@ int sdhci_add_host(struct sdhci_host *host)
  	int ret;
  
  	ret = sdhci_setup_host(host);
@@ -25051,7 +24739,7 @@ index b7d4bdb43..6d32ec7a9 100644
  
  	return 0;
  
-@@ -4923,7 +5176,7 @@ void sdhci_remove_host(struct sdhci_host *host, int dead)
+@@ -4923,7 +5174,7 @@ void sdhci_remove_host(struct sdhci_host *host, int dead)
  
  		if (sdhci_has_requests(host)) {
  			pr_err("%s: Controller removed during "
@@ -25060,7 +24748,7 @@ index b7d4bdb43..6d32ec7a9 100644
  			sdhci_error_out_mrqs(host, -ENOMEDIUM);
  		}
  
-@@ -4936,8 +5189,9 @@ void sdhci_remove_host(struct sdhci_host *host, int dead)
+@@ -4936,8 +5187,9 @@ void sdhci_remove_host(struct sdhci_host *host, int dead)
  
  	sdhci_led_unregister(host);
  
@@ -25071,7 +24759,7 @@ index b7d4bdb43..6d32ec7a9 100644
  
  	sdhci_writel(host, 0, SDHCI_INT_ENABLE);
  	sdhci_writel(host, 0, SDHCI_SIGNAL_ENABLE);
-@@ -4948,16 +5202,18 @@ void sdhci_remove_host(struct sdhci_host *host, int dead)
+@@ -4948,16 +5200,18 @@ void sdhci_remove_host(struct sdhci_host *host, int dead)
  
  	destroy_workqueue(host->complete_wq);
  
@@ -25094,7 +24782,7 @@ index b7d4bdb43..6d32ec7a9 100644
  
  	host->adma_table = NULL;
  	host->align_buffer = NULL;
-@@ -4981,7 +5237,7 @@ EXPORT_SYMBOL_GPL(sdhci_free_host);
+@@ -4981,7 +5235,7 @@ EXPORT_SYMBOL_GPL(sdhci_free_host);
  static int __init sdhci_drv_init(void)
  {
  	pr_info(DRIVER_NAME
@@ -25104,7 +24792,7 @@ index b7d4bdb43..6d32ec7a9 100644
  
  	return 0;
 diff --git a/drivers/mmc/host/sdhci.h b/drivers/mmc/host/sdhci.h
-index 1cc79aaee..3b794bb40 100644
+index 1cc79aaee46a3a9b4f505e7beb952183e5c0e448..3b794bb40fd8bd354b5231d1fcf1c14b8b40dbaf 100644
 --- a/drivers/mmc/host/sdhci.h
 +++ b/drivers/mmc/host/sdhci.h
 @@ -431,6 +431,8 @@ struct sdhci_host {
@@ -25117,7 +24805,7 @@ index 1cc79aaee..3b794bb40 100644
  #define SDHCI_QUIRK_MULTIBLOCK_READ_ACMD12		(1<<28)
  /* Controller doesn't have HISPD bit field in HI-SPEED SD card */
 diff --git a/drivers/of/fdt.c b/drivers/of/fdt.c
-index 366fbdc56..cadeac111 100644
+index 366fbdc56dec10473296112055c56f6beed91820..cadeac111e8ace8bb1fff2612cdffe801ee18202 100644
 --- a/drivers/of/fdt.c
 +++ b/drivers/of/fdt.c
 @@ -495,6 +495,10 @@ static int __init early_init_dt_reserve_memory(phys_addr_t base,
@@ -25175,7 +24863,7 @@ index 366fbdc56..cadeac111 100644
  	if (len && len % t_len != 0) {
  		pr_err("Reserved memory: invalid reg property in '%s', skipping node.\n",
 diff --git a/drivers/rpmsg/Kconfig b/drivers/rpmsg/Kconfig
-index d3795860f..79a39d646 100644
+index d3795860f5c080d36c8ea71691dfff90df7c889c..79a39d6468b21d56f0a7d12021f2e07c296c1f05 100644
 --- a/drivers/rpmsg/Kconfig
 +++ b/drivers/rpmsg/Kconfig
 @@ -81,4 +81,15 @@ config RPMSG_VIRTIO
@@ -25195,7 +24883,7 @@ index d3795860f..79a39d646 100644
 +
  endmenu
 diff --git a/drivers/usb/common/common.c b/drivers/usb/common/common.c
-index 532c19653..aab4e3274 100644
+index 532c1965392d1c2d2f6aa0fa2d7423240130af2c..aab4e3274f38c56d7939fa2547c3ede8dcb2f956 100644
 --- a/drivers/usb/common/common.c
 +++ b/drivers/usb/common/common.c
 @@ -173,6 +173,21 @@ const char *usb_state_string(enum usb_device_state state)
@@ -25221,7 +24909,7 @@ index 532c19653..aab4e3274 100644
  	[USB_DR_MODE_UNKNOWN]		= "",
  	[USB_DR_MODE_HOST]		= "host",
 diff --git a/drivers/usb/dwc2/Kconfig b/drivers/usb/dwc2/Kconfig
-index c13171936..2864f7087 100644
+index c131719367ecab5429b9f683179705410c0079d5..2864f70873a48da8cb892c8ebdd40b19f5ed87d1 100644
 --- a/drivers/usb/dwc2/Kconfig
 +++ b/drivers/usb/dwc2/Kconfig
 @@ -94,4 +94,24 @@ config USB_DWC2_DEBUG_PERIODIC
@@ -25250,7 +24938,7 @@ index c13171936..2864f7087 100644
 +
  endif
 diff --git a/drivers/usb/dwc2/core.c b/drivers/usb/dwc2/core.c
-index 66080ab8c..50af160c6 100644
+index 66080ab8c8e017e15c5fe8a4411b2caf0dcbf37d..50af160c6a2d3d9dc4f839d378a643e86175036c 100644
 --- a/drivers/usb/dwc2/core.c
 +++ b/drivers/usb/dwc2/core.c
 @@ -50,10 +50,8 @@ int dwc2_backup_global_registers(struct dwc2_hsotg *hsotg)
@@ -26089,7 +25777,7 @@ index 66080ab8c..50af160c6 100644
  			otgctl = readl(hsotg->regs + GOTGCTL);
  			otgctl |= GOTGCTL_VBVALOEN | GOTGCTL_VBVALOVAL;
 diff --git a/drivers/usb/dwc2/core.h b/drivers/usb/dwc2/core.h
-index a141f83ab..b215b5b33 100644
+index a141f83aba0ccefed100e62332cbd5c7134fbe63..b215b5b3377e326d5292e24192ea8e5f0606e73d 100644
 --- a/drivers/usb/dwc2/core.h
 +++ b/drivers/usb/dwc2/core.h
 @@ -181,8 +181,36 @@ do { \
@@ -26173,7 +25861,7 @@ index a141f83ab..b215b5b33 100644
  static inline int dwc2_hcd_get_frame_number(struct dwc2_hsotg *hsotg)
  { return 0; }
 diff --git a/drivers/usb/dwc2/core_intr.c b/drivers/usb/dwc2/core_intr.c
-index 26d752a4c..049885ce8 100644
+index 26d752a4c3ca956c7f7bd7c5dbb4a38f6670b03d..97f6a79baf1281c2e17c6a8a826ab74046e8d41c 100644
 --- a/drivers/usb/dwc2/core_intr.c
 +++ b/drivers/usb/dwc2/core_intr.c
 @@ -99,6 +99,9 @@ static void dwc2_handle_otg_intr(struct dwc2_hsotg *hsotg)
@@ -26197,26 +25885,7 @@ index 26d752a4c..049885ce8 100644
  	} else {
  		/* Turn on the port power bit. */
  		hprt0 = dwc2_read_hprt0(hsotg);
-@@ -326,7 +333,6 @@ static void dwc2_handle_session_req_intr(struct dwc2_hsotg *hsotg)
- void dwc2_wakeup_from_lpm_l1(struct dwc2_hsotg *hsotg, bool remotewakeup)
- {
- 	u32 glpmcfg;
--	u32 pcgctl;
- 	u32 dctl;
- 
- 	if (hsotg->lx_state != DWC2_L1) {
-@@ -341,10 +347,6 @@ void dwc2_wakeup_from_lpm_l1(struct dwc2_hsotg *hsotg, bool remotewakeup)
- 		glpmcfg &= ~GLPMCFG_HIRD_THRES_MASK;
- 		dwc2_writel(hsotg, glpmcfg, GLPMCFG);
- 
--		pcgctl = dwc2_readl(hsotg, PCGCTL);
--		pcgctl &= ~PCGCTL_ENBL_SLEEP_GATING;
--		dwc2_writel(hsotg, pcgctl, PCGCTL);
--
- 		glpmcfg = dwc2_readl(hsotg, GLPMCFG);
- 		if (glpmcfg & GLPMCFG_ENBESL) {
- 			glpmcfg |= GLPMCFG_RSTRSLPSTS;
-@@ -381,6 +383,7 @@ void dwc2_wakeup_from_lpm_l1(struct dwc2_hsotg *hsotg, bool remotewakeup)
+@@ -381,6 +388,7 @@ void dwc2_wakeup_from_lpm_l1(struct dwc2_hsotg *hsotg, bool remotewakeup)
  		/* Change to L0 state */
  		hsotg->lx_state = DWC2_L0;
  		hsotg->bus_suspended = false;
@@ -26224,7 +25893,7 @@ index 26d752a4c..049885ce8 100644
  fail:		dwc2_gadget_init_lpm(hsotg);
  	} else {
  		/* TODO */
-@@ -426,6 +429,7 @@ static void dwc2_handle_wakeup_detected_intr(struct dwc2_hsotg *hsotg)
+@@ -426,6 +434,7 @@ static void dwc2_handle_wakeup_detected_intr(struct dwc2_hsotg *hsotg)
  					dev_err(hsotg->dev,
  						"exit partial_power_down failed\n");
  				call_gadget(hsotg, resume);
@@ -26232,7 +25901,7 @@ index 26d752a4c..049885ce8 100644
  			}
  
  			/* Exit gadget mode clock gating. */
-@@ -562,6 +566,8 @@ static void dwc2_handle_usb_suspend_intr(struct dwc2_hsotg *hsotg)
+@@ -562,6 +571,8 @@ static void dwc2_handle_usb_suspend_intr(struct dwc2_hsotg *hsotg)
  
  			/* Call gadget suspend callback */
  			call_gadget(hsotg, suspend);
@@ -26241,7 +25910,7 @@ index 26d752a4c..049885ce8 100644
  		}
  	} else {
  		if (hsotg->op_state == OTG_STATE_A_PERIPHERAL) {
-@@ -587,7 +593,6 @@ static void dwc2_handle_usb_suspend_intr(struct dwc2_hsotg *hsotg)
+@@ -587,7 +598,6 @@ static void dwc2_handle_usb_suspend_intr(struct dwc2_hsotg *hsotg)
  static void dwc2_handle_lpm_intr(struct dwc2_hsotg *hsotg)
  {
  	u32 glpmcfg;
@@ -26249,7 +25918,7 @@ index 26d752a4c..049885ce8 100644
  	u32 hird;
  	u32 hird_thres;
  	u32 hird_thres_en;
-@@ -618,10 +623,6 @@ static void dwc2_handle_lpm_intr(struct dwc2_hsotg *hsotg)
+@@ -618,10 +628,6 @@ static void dwc2_handle_lpm_intr(struct dwc2_hsotg *hsotg)
  			dev_dbg(hsotg->dev, "L1 with utmi_sleep_n\n");
  		} else {
  			dev_dbg(hsotg->dev, "Entering Sleep with L1 Gating\n");
@@ -26260,7 +25929,7 @@ index 26d752a4c..049885ce8 100644
  		}
  		/**
  		 * Examine prt_sleep_sts after TL1TokenTetry period max (10 us)
-@@ -638,6 +639,8 @@ static void dwc2_handle_lpm_intr(struct dwc2_hsotg *hsotg)
+@@ -638,6 +644,8 @@ static void dwc2_handle_lpm_intr(struct dwc2_hsotg *hsotg)
  
  			/* Inform gadget that we are in L1 state */
  			call_gadget(hsotg, suspend);
@@ -26269,7 +25938,7 @@ index 26d752a4c..049885ce8 100644
  		}
  	}
  }
-@@ -777,6 +780,7 @@ static int dwc2_handle_gpwrdn_intr(struct dwc2_hsotg *hsotg)
+@@ -777,6 +785,7 @@ static int dwc2_handle_gpwrdn_intr(struct dwc2_hsotg *hsotg)
  					dev_err(hsotg->dev,
  						"exit hibernation failed.\n");
  				call_gadget(hsotg, resume);
@@ -26278,7 +25947,7 @@ index 26d752a4c..049885ce8 100644
  				ret = dwc2_exit_hibernation(hsotg, 1, 0, 1);
  				if (ret)
 diff --git a/drivers/usb/dwc2/debugfs.c b/drivers/usb/dwc2/debugfs.c
-index 1d72ece9c..6cee2303e 100644
+index 1d72ece9cfe480d15b0a733bc3ad7e3e869d49c5..6cee2303e2410f668ee7c6b3a02349c0a55ded4f 100644
 --- a/drivers/usb/dwc2/debugfs.c
 +++ b/drivers/usb/dwc2/debugfs.c
 @@ -535,7 +535,6 @@ static const struct debugfs_reg32 dwc2_regs[] = {
@@ -26290,7 +25959,7 @@ index 1d72ece9c..6cee2303e 100644
  	dump_register(HFIR),
  	dump_register(HFNUM),
 diff --git a/drivers/usb/dwc2/gadget.c b/drivers/usb/dwc2/gadget.c
-index aab4023eb..72d61cbfe 100644
+index aab4023eb1fe053e4d18a86f7d60fbd89ec08473..72d61cbfe72f235a2714b640615236118fc89bdb 100644
 --- a/drivers/usb/dwc2/gadget.c
 +++ b/drivers/usb/dwc2/gadget.c
 @@ -1,7 +1,7 @@
@@ -30715,7 +30384,7 @@ index aab4023eb..72d61cbfe 100644
 +	call_gadget_set_state(hsotg, hsotg->resume_state);
  }
 diff --git a/drivers/usb/dwc2/hcd.c b/drivers/usb/dwc2/hcd.c
-index e0f84726f..3679b188c 100644
+index e0f84726f4b1dc455f40d3296b85489eb2ebb713..3679b188c7213386e5b0e434897767c3ab511b66 100644
 --- a/drivers/usb/dwc2/hcd.c
 +++ b/drivers/usb/dwc2/hcd.c
 @@ -133,16 +133,28 @@ static void dwc2_gusbcfg_init(struct dwc2_hsotg *hsotg)
@@ -30997,7 +30666,7 @@ index e0f84726f..3679b188c 100644
  	hprt0 = dwc2_read_hprt0(hsotg);
  	hprt0 |= HPRT0_RES;
 diff --git a/drivers/usb/dwc2/hw.h b/drivers/usb/dwc2/hw.h
-index 12f8c7f86..7cc2862d0 100644
+index 12f8c7f86dc980fc8fb754a7c6d82eab9f88bc7a..7cc2862d0d9bd9225f74bb4ba7a708965a29d3f1 100644
 --- a/drivers/usb/dwc2/hw.h
 +++ b/drivers/usb/dwc2/hw.h
 @@ -619,38 +619,6 @@
@@ -31040,7 +30709,7 @@ index 12f8c7f86..7cc2862d0 100644
  
  /* Host Mode Registers */
 diff --git a/drivers/usb/dwc2/params.c b/drivers/usb/dwc2/params.c
-index 93f52e371..e991adcc3 100644
+index 93f52e371cddb6ecb2fef3b068858a39df9c2578..e991adcc3d1181369400c739c85d46f1a98418c6 100644
 --- a/drivers/usb/dwc2/params.c
 +++ b/drivers/usb/dwc2/params.c
 @@ -25,68 +25,12 @@ static void dwc2_set_bcm_params(struct dwc2_hsotg *hsotg)
@@ -31381,7 +31050,7 @@ index 93f52e371..e991adcc3 100644
  
  static void dwc2_check_param_otg_cap(struct dwc2_hsotg *hsotg)
 diff --git a/drivers/usb/dwc2/platform.c b/drivers/usb/dwc2/platform.c
-index e80982c81..bc92cfc5e 100644
+index e80982c817d7d044ad4792482564407cfa5502b7..bc92cfc5e1182a4b8cb6efdb01475654d3570e48 100644
 --- a/drivers/usb/dwc2/platform.c
 +++ b/drivers/usb/dwc2/platform.c
 @@ -101,16 +101,10 @@ static int __dwc2_lowlevel_hw_enable(struct dwc2_hsotg *hsotg)
@@ -31607,7 +31276,7 @@ index e80982c81..bc92cfc5e 100644
  		/* Need to restore FORCEDEVMODE/FORCEHOSTMODE */
  		dwc2_force_dr_mode(dwc2);
 diff --git a/drivers/usb/gadget/Kconfig b/drivers/usb/gadget/Kconfig
-index c7fa0ec74..ffe109799 100644
+index c7fa0ec74f5e69bb9c6525a3576a8bd473a05c9f..ffe109799243460b1f59f5b416710951e88000eb 100644
 --- a/drivers/usb/gadget/Kconfig
 +++ b/drivers/usb/gadget/Kconfig
 @@ -222,6 +222,15 @@ config USB_F_PRINTER
@@ -31655,7 +31324,7 @@ index c7fa0ec74..ffe109799 100644
  
  endif # USB_GADGET
 diff --git a/drivers/usb/phy/Makefile b/drivers/usb/phy/Makefile
-index e5d619b4d..547fc1278 100644
+index e5d619b4d8f68bbf3ba5cbb834c82f803728312d..547fc127816b052ea08de2f842f05248d74439a4 100644
 --- a/drivers/usb/phy/Makefile
 +++ b/drivers/usb/phy/Makefile
 @@ -23,3 +23,4 @@ obj-$(CONFIG_USB_MXS_PHY)		+= phy-mxs-usb.o
@@ -31664,7 +31333,7 @@ index e5d619b4d..547fc1278 100644
  obj-$(CONFIG_KEYSTONE_USB_PHY)		+= phy-keystone.o
 +
 diff --git a/include/linux/dma-map-ops.h b/include/linux/dma-map-ops.h
-index f2fc203fb..cebb52224 100644
+index f2fc203fb8a1a253d3abad99402d9e7da148d2ea..cebb52224a3222888fce0e4caf7151018673ec3f 100644
 --- a/include/linux/dma-map-ops.h
 +++ b/include/linux/dma-map-ops.h
 @@ -175,7 +175,7 @@ int dma_declare_coherent_memory(struct device *dev, phys_addr_t phys_addr,
@@ -31704,7 +31373,7 @@ index f2fc203fb..cebb52224 100644
  	return 0;
  }
 diff --git a/include/linux/etherdevice.h b/include/linux/etherdevice.h
-index 6f96d1c6d..9f75e6efc 100644
+index 6f96d1c6d10fd18c3419beb8705f83a0b86f9273..9f75e6efc735a1fef0d1964fa46eb09cf052aa3d 100644
 --- a/include/linux/etherdevice.h
 +++ b/include/linux/etherdevice.h
 @@ -1,18 +1,18 @@
@@ -31916,7 +31585,7 @@ index 6f96d1c6d..9f75e6efc 100644
 -#endif	/* _LINUX_ETHERDEVICE_H */
 +#endif  /* _LINUX_ETHERDEVICE_H */
 diff --git a/include/linux/sched/idle.h b/include/linux/sched/idle.h
-index 478084f91..5d55d2d8f 100644
+index 478084f9105e13158dd1d9e1c1753996bbc5aa1c..5d55d2d8f66ef5b49a3126cd6082f6f5932ae760 100644
 --- a/include/linux/sched/idle.h
 +++ b/include/linux/sched/idle.h
 @@ -28,13 +28,13 @@ static inline void wake_up_if_idle(int cpu) { }
@@ -31952,7 +31621,7 @@ index 478084f91..5d55d2d8f 100644
  
  #endif /* _ASM_GENERIC_BITOPS_INSTRUMENTED_ATOMIC_H */
 diff --git a/include/linux/sched/rt.h b/include/linux/sched/rt.h
-index 994c25640..2ddfb607c 100644
+index 994c25640e156f09ce8232340b8bfd0365154b36..2ddfb607c3861070205c75ce5ab96f0fca58e275 100644
 --- a/include/linux/sched/rt.h
 +++ b/include/linux/sched/rt.h
 @@ -8,8 +8,9 @@ struct task_struct;
@@ -31999,7 +31668,7 @@ index 994c25640..2ddfb607c 100644
  
  #endif /* _LINUX_SCHED_RT_H */
 diff --git a/include/linux/usb/ch9.h b/include/linux/usb/ch9.h
-index c93b410b3..59072d45c 100644
+index c93b410b314a16247186182762a6651a8a55c0e6..59072d45c8820a32a86927a561d4e122d568f1e5 100644
 --- a/include/linux/usb/ch9.h
 +++ b/include/linux/usb/ch9.h
 @@ -48,6 +48,7 @@ extern const char *usb_speed_string(enum usb_device_speed speed);
@@ -32011,7 +31680,7 @@ index c93b410b3..59072d45c 100644
  				 enum usb_device_speed speed);
  
 diff --git a/include/linux/usb/phy.h b/include/linux/usb/phy.h
-index e4de6bc1f..64e464c2c 100644
+index e4de6bc1f69b6287cb49882c3235b824bb474d13..64e464c2ce64e9d2adbe3fa241a0190402d57b68 100644
 --- a/include/linux/usb/phy.h
 +++ b/include/linux/usb/phy.h
 @@ -133,6 +133,8 @@ struct usb_phy {
@@ -32079,7 +31748,7 @@ index e4de6bc1f..64e464c2c 100644
  usb_phy_notify_connect(struct usb_phy *x, enum usb_device_speed speed)
  {
 diff --git a/include/uapi/linux/usb/ch9.h b/include/uapi/linux/usb/ch9.h
-index 8a147abfc..ccf5c9a79 100644
+index 8a147abfc6806590c3bfd91d37364478fc15f486..ccf5c9a79e572d8815db7c3dea51cdc8e56ca9af 100644
 --- a/include/uapi/linux/usb/ch9.h
 +++ b/include/uapi/linux/usb/ch9.h
 @@ -1211,6 +1211,13 @@ enum usb_device_state {
@@ -32098,7 +31767,7 @@ index 8a147abfc..ccf5c9a79 100644
  	USB3_LPM_U1,
 diff --git a/include/video/ingenic_logo.h b/include/video/ingenic_logo.h
 new file mode 100644
-index 000000000..8d6602df1
+index 0000000000000000000000000000000000000000..8d6602df14632c607ab47443575ea83775efd484
 --- /dev/null
 +++ b/include/video/ingenic_logo.h
 @@ -0,0 +1,15 @@
@@ -32118,7 +31787,7 @@ index 000000000..8d6602df1
 +
 +#endif /* __LOGO_H__ */
 diff --git a/kernel/dma/coherent.c b/kernel/dma/coherent.c
-index ff5683a57..676ac290c 100644
+index ff5683a57f77126dd25ee2f2949fc4d45ce2fa05..676ac290c7f454593b451bc626924aa70d73420b 100644
 --- a/kernel/dma/coherent.c
 +++ b/kernel/dma/coherent.c
 @@ -45,7 +45,8 @@ static struct dma_coherent_mem *dma_init_coherent_memory(phys_addr_t phys_addr,
@@ -32319,7 +31988,7 @@ index ff5683a57..676ac290c 100644
  }
  
 diff --git a/kernel/dma/direct.c b/kernel/dma/direct.c
-index 91915d351..d039111e5 100644
+index 91915d351e1235f8fb79391b7c993f4508e1477e..d039111e5a0c444f2e7eb47a8eacf04de8b89370 100644
 --- a/kernel/dma/direct.c
 +++ b/kernel/dma/direct.c
 @@ -335,7 +335,7 @@ void dma_direct_free(struct device *dev, size_t size,
@@ -32355,7 +32024,7 @@ index 91915d351..d039111e5 100644
  	if (IS_ENABLED(CONFIG_DMA_COHERENT_POOL) &&
  	    dma_free_from_pool(dev, vaddr, size))
 diff --git a/kernel/dma/mapping.c b/kernel/dma/mapping.c
-index f1d9f01b2..e1a326111 100644
+index f1d9f01b283d7d74670f05711f1784f9aded73e3..e1a3261113d0d296555113a53dc6d5509630efcc 100644
 --- a/kernel/dma/mapping.c
 +++ b/kernel/dma/mapping.c
 @@ -533,7 +533,7 @@ void dma_free_attrs(struct device *dev, size_t size, void *cpu_addr,
@@ -32368,7 +32037,7 @@ index f1d9f01b2..e1a326111 100644
  	/*
  	 * On non-coherent platforms which implement DMA-coherent buffers via
 diff --git a/kernel/printk/printk_safe.c b/kernel/printk/printk_safe.c
-index 6d10927a0..582d09e06 100644
+index 6d10927a07d835043d1fe9f383053b9254691742..582d09e06f27c5e7a2ef506b8111ca39aaf4bb8a 100644
 --- a/kernel/printk/printk_safe.c
 +++ b/kernel/printk/printk_safe.c
 @@ -30,16 +30,18 @@ asmlinkage int vprintk(const char *fmt, va_list args)
@@ -32393,7 +32062,7 @@ index 6d10927a0..582d09e06 100644
  	/* No obstacles. */
  	return vprintk_default(fmt, args);
 diff --git a/kernel/time/tick-sched.c b/kernel/time/tick-sched.c
-index 55cbc49f7..0cd55c265 100644
+index 55cbc49f70d14c6d5275568bc2da98ff212f7989..0cd55c265eb2dca7cda71ae07087323b898a1111 100644
 --- a/kernel/time/tick-sched.c
 +++ b/kernel/time/tick-sched.c
 @@ -69,8 +69,9 @@ static void tick_do_update_jiffies64(ktime_t now)
@@ -33222,7 +32891,7 @@ index 55cbc49f7..0cd55c265 100644
  	return 0;
 diff --git a/module_drivers/Kconfig b/module_drivers/Kconfig
 new file mode 100644
-index 000000000..66180696c
+index 0000000000000000000000000000000000000000..66180696c0af61c73013693c3b951a330ad90b97
 --- /dev/null
 +++ b/module_drivers/Kconfig
 @@ -0,0 +1,10 @@
@@ -33238,7 +32907,7 @@ index 000000000..66180696c
 +endmenu
 diff --git a/module_drivers/Makefile b/module_drivers/Makefile
 new file mode 100644
-index 000000000..78707af01
+index 0000000000000000000000000000000000000000..78707af01502cf8ab11f510ecb07a6c59e36e508
 --- /dev/null
 +++ b/module_drivers/Makefile
 @@ -0,0 +1,8 @@
@@ -33252,7 +32921,7 @@ index 000000000..78707af01
 +obj-y += drivers/
 diff --git a/module_drivers/README.zh b/module_drivers/README.zh
 new file mode 100644
-index 000000000..f8c7256c3
+index 0000000000000000000000000000000000000000..f8c7256c30cbb1464a8cc09fd5892d491e562f64
 --- /dev/null
 +++ b/module_drivers/README.zh
 @@ -0,0 +1,27 @@
@@ -33285,7 +32954,7 @@ index 000000000..f8c7256c3
 +
 diff --git a/module_drivers/drivers/Kconfig b/module_drivers/drivers/Kconfig
 new file mode 100644
-index 000000000..f19b1f88c
+index 0000000000000000000000000000000000000000..f19b1f88ce976c07b82635a3a2b6b5628fb1ca81
 --- /dev/null
 +++ b/module_drivers/drivers/Kconfig
 @@ -0,0 +1,114 @@
@@ -33405,7 +33074,7 @@ index 000000000..f19b1f88c
 +endmenu
 diff --git a/module_drivers/drivers/Makefile b/module_drivers/drivers/Makefile
 new file mode 100644
-index 000000000..b60083fba
+index 0000000000000000000000000000000000000000..b60083fba0754dfcfbfcbb739b85ee94173d6698
 --- /dev/null
 +++ b/module_drivers/drivers/Makefile
 @@ -0,0 +1,18 @@
@@ -33429,14 +33098,14 @@ index 000000000..b60083fba
 +obj-y += usb/
 diff --git a/module_drivers/drivers/clk/Makefile b/module_drivers/drivers/clk/Makefile
 new file mode 100644
-index 000000000..e55de3616
+index 0000000000000000000000000000000000000000..e55de36168fa125232f35eee37ec124ce8f0e789
 --- /dev/null
 +++ b/module_drivers/drivers/clk/Makefile
 @@ -0,0 +1 @@
 +obj-y += ingenic-v2/
 diff --git a/module_drivers/drivers/clk/ingenic-v2/Kconfig b/module_drivers/drivers/clk/ingenic-v2/Kconfig
 new file mode 100644
-index 000000000..2a3b2f3b6
+index 0000000000000000000000000000000000000000..2a3b2f3b65d539b8138325a3f0c8e43c324073eb
 --- /dev/null
 +++ b/module_drivers/drivers/clk/ingenic-v2/Kconfig
 @@ -0,0 +1,62 @@
@@ -33505,7 +33174,7 @@ index 000000000..2a3b2f3b6
 \ No newline at end of file
 diff --git a/module_drivers/drivers/clk/ingenic-v2/Makefile b/module_drivers/drivers/clk/ingenic-v2/Makefile
 new file mode 100644
-index 000000000..a0c8a181f
+index 0000000000000000000000000000000000000000..a0c8a181ff7b472de502c2f5aa86f09692a442f0
 --- /dev/null
 +++ b/module_drivers/drivers/clk/ingenic-v2/Makefile
 @@ -0,0 +1,40 @@
@@ -33551,7 +33220,7 @@ index 000000000..a0c8a181f
 +
 diff --git a/module_drivers/drivers/clk/ingenic-v2/clk-bus.c b/module_drivers/drivers/clk/ingenic-v2/clk-bus.c
 new file mode 100644
-index 000000000..10d3ae916
+index 0000000000000000000000000000000000000000..10d3ae916947fcf55db91e52a7fab12e201a6258
 --- /dev/null
 +++ b/module_drivers/drivers/clk/ingenic-v2/clk-bus.c
 @@ -0,0 +1,235 @@
@@ -33792,7 +33461,7 @@ index 000000000..10d3ae916
 +}
 diff --git a/module_drivers/drivers/clk/ingenic-v2/clk-bus.h b/module_drivers/drivers/clk/ingenic-v2/clk-bus.h
 new file mode 100644
-index 000000000..d01dcc921
+index 0000000000000000000000000000000000000000..d01dcc9218f564e085e147c8daf13112c527c9c6
 --- /dev/null
 +++ b/module_drivers/drivers/clk/ingenic-v2/clk-bus.h
 @@ -0,0 +1,23 @@
@@ -33821,7 +33490,7 @@ index 000000000..d01dcc921
 +#endif
 diff --git a/module_drivers/drivers/clk/ingenic-v2/clk-div.c b/module_drivers/drivers/clk/ingenic-v2/clk-div.c
 new file mode 100644
-index 000000000..607955f25
+index 0000000000000000000000000000000000000000..607955f255ed66290fb21f1eec680f45c1f60a61
 --- /dev/null
 +++ b/module_drivers/drivers/clk/ingenic-v2/clk-div.c
 @@ -0,0 +1,256 @@
@@ -34083,7 +33752,7 @@ index 000000000..607955f25
 +}
 diff --git a/module_drivers/drivers/clk/ingenic-v2/clk-div.h b/module_drivers/drivers/clk/ingenic-v2/clk-div.h
 new file mode 100644
-index 000000000..56d180842
+index 0000000000000000000000000000000000000000..56d180842e5ae52e40c4be707c2760f364fc045f
 --- /dev/null
 +++ b/module_drivers/drivers/clk/ingenic-v2/clk-div.h
 @@ -0,0 +1,17 @@
@@ -34106,7 +33775,7 @@ index 000000000..56d180842
 +#endif /* __SAMSUNG_CLK_PLL_H */
 diff --git a/module_drivers/drivers/clk/ingenic-v2/clk-pll-v1.c b/module_drivers/drivers/clk/ingenic-v2/clk-pll-v1.c
 new file mode 100644
-index 000000000..d4eb262df
+index 0000000000000000000000000000000000000000..d4eb262dfbac57e3415002a2e451d75f6fe64192
 --- /dev/null
 +++ b/module_drivers/drivers/clk/ingenic-v2/clk-pll-v1.c
 @@ -0,0 +1,190 @@
@@ -34302,7 +33971,7 @@ index 000000000..d4eb262df
 +}
 diff --git a/module_drivers/drivers/clk/ingenic-v2/clk-pll-v1.h b/module_drivers/drivers/clk/ingenic-v2/clk-pll-v1.h
 new file mode 100644
-index 000000000..f4f6f2fce
+index 0000000000000000000000000000000000000000..f4f6f2fce863ba26541d61a4b6902f20a057cd14
 --- /dev/null
 +++ b/module_drivers/drivers/clk/ingenic-v2/clk-pll-v1.h
 @@ -0,0 +1,50 @@
@@ -34358,7 +34027,7 @@ index 000000000..f4f6f2fce
 +#endif /*__INGENIC_CLK_PLLV1_H__*/
 diff --git a/module_drivers/drivers/clk/ingenic-v2/clk-pll-v2.c b/module_drivers/drivers/clk/ingenic-v2/clk-pll-v2.c
 new file mode 100644
-index 000000000..557bf42c4
+index 0000000000000000000000000000000000000000..557bf42c42be7940c6d175ae9e8df2708e5f2979
 --- /dev/null
 +++ b/module_drivers/drivers/clk/ingenic-v2/clk-pll-v2.c
 @@ -0,0 +1,170 @@
@@ -34534,7 +34203,7 @@ index 000000000..557bf42c4
 +}
 diff --git a/module_drivers/drivers/clk/ingenic-v2/clk-pll-v2.h b/module_drivers/drivers/clk/ingenic-v2/clk-pll-v2.h
 new file mode 100644
-index 000000000..6fd478bf1
+index 0000000000000000000000000000000000000000..6fd478bf18d4943b67fd0968a2a4f35911121a32
 --- /dev/null
 +++ b/module_drivers/drivers/clk/ingenic-v2/clk-pll-v2.h
 @@ -0,0 +1,52 @@
@@ -34592,7 +34261,7 @@ index 000000000..6fd478bf1
 +#endif /*__INGENIC_CLK_PLLV1_H__*/
 diff --git a/module_drivers/drivers/clk/ingenic-v2/clk-pll.c b/module_drivers/drivers/clk/ingenic-v2/clk-pll.c
 new file mode 100644
-index 000000000..a78f0342d
+index 0000000000000000000000000000000000000000..a78f0342d448445e3ca678016c023354570490ee
 --- /dev/null
 +++ b/module_drivers/drivers/clk/ingenic-v2/clk-pll.c
 @@ -0,0 +1,176 @@
@@ -34774,7 +34443,7 @@ index 000000000..a78f0342d
 +}
 diff --git a/module_drivers/drivers/clk/ingenic-v2/clk-pll.h b/module_drivers/drivers/clk/ingenic-v2/clk-pll.h
 new file mode 100644
-index 000000000..03143ff82
+index 0000000000000000000000000000000000000000..03143ff82901d48fe283867d8734cd7d80403f6c
 --- /dev/null
 +++ b/module_drivers/drivers/clk/ingenic-v2/clk-pll.h
 @@ -0,0 +1,8 @@
@@ -34788,7 +34457,7 @@ index 000000000..03143ff82
 +#endif
 diff --git a/module_drivers/drivers/clk/ingenic-v2/clk-x2000.c b/module_drivers/drivers/clk/ingenic-v2/clk-x2000.c
 new file mode 100644
-index 000000000..1f1d4bedc
+index 0000000000000000000000000000000000000000..1f1d4bedc8586386b62b6b1ccccb8f7a48da66c2
 --- /dev/null
 +++ b/module_drivers/drivers/clk/ingenic-v2/clk-x2000.c
 @@ -0,0 +1,375 @@
@@ -35169,7 +34838,7 @@ index 000000000..1f1d4bedc
 +CLK_OF_DECLARE_DRIVER(x2000_clk, "ingenic,x2000-clocks", x2000_clk_init);
 diff --git a/module_drivers/drivers/clk/ingenic-v2/clk.c b/module_drivers/drivers/clk/ingenic-v2/clk.c
 new file mode 100644
-index 000000000..1b73f11f9
+index 0000000000000000000000000000000000000000..1b73f11f9cfbf3552d11fb9b451e3846da974b66
 --- /dev/null
 +++ b/module_drivers/drivers/clk/ingenic-v2/clk.c
 @@ -0,0 +1,520 @@
@@ -35695,7 +35364,7 @@ index 000000000..1b73f11f9
 +#endif
 diff --git a/module_drivers/drivers/clk/ingenic-v2/clk.h b/module_drivers/drivers/clk/ingenic-v2/clk.h
 new file mode 100644
-index 000000000..8e4a3018a
+index 0000000000000000000000000000000000000000..8e4a3018a726488bd58c550f8a9e9368027a2782
 --- /dev/null
 +++ b/module_drivers/drivers/clk/ingenic-v2/clk.h
 @@ -0,0 +1,588 @@
@@ -36289,7 +35958,7 @@ index 000000000..8e4a3018a
 +#endif /* __INGENIC_CLK_H */
 diff --git a/module_drivers/drivers/clk/ingenic-v2/power-gate.c b/module_drivers/drivers/clk/ingenic-v2/power-gate.c
 new file mode 100644
-index 000000000..179192ab1
+index 0000000000000000000000000000000000000000..179192ab17a7819b5a982fccbe4b8f14eaf22cd0
 --- /dev/null
 +++ b/module_drivers/drivers/clk/ingenic-v2/power-gate.c
 @@ -0,0 +1,202 @@
@@ -36497,7 +36166,7 @@ index 000000000..179192ab1
 +EXPORT_SYMBOL_GPL(power_unregister_gate);
 diff --git a/module_drivers/drivers/clk/ingenic-v2/power-gate.h b/module_drivers/drivers/clk/ingenic-v2/power-gate.h
 new file mode 100644
-index 000000000..c5d2746d2
+index 0000000000000000000000000000000000000000..c5d2746d2684e913522cdc5fb66a0edf7938a269
 --- /dev/null
 +++ b/module_drivers/drivers/clk/ingenic-v2/power-gate.h
 @@ -0,0 +1,13 @@
@@ -36516,7 +36185,7 @@ index 000000000..c5d2746d2
 +#endif /* __SAMSUNG_CLK_PLL_H */
 diff --git a/module_drivers/drivers/clocksource/Kconfig b/module_drivers/drivers/clocksource/Kconfig
 new file mode 100644
-index 000000000..73aa197a3
+index 0000000000000000000000000000000000000000..73aa197a3537d7c89338b407cb0d419674707203
 --- /dev/null
 +++ b/module_drivers/drivers/clocksource/Kconfig
 @@ -0,0 +1,16 @@
@@ -36538,17 +36207,17 @@ index 000000000..73aa197a3
 +
 diff --git a/module_drivers/drivers/clocksource/Makefile b/module_drivers/drivers/clocksource/Makefile
 new file mode 100644
-index 000000000..c1f1b7820
+index 0000000000000000000000000000000000000000..c1f1b7820d8e9ea0eef691bc9001a891e60300e9
 --- /dev/null
 +++ b/module_drivers/drivers/clocksource/Makefile
 @@ -0,0 +1 @@
 +obj-$(CONFIG_CLKSRC_INGENIC_CORE_OST)           += ingenic_core_ost.o
 diff --git a/module_drivers/drivers/clocksource/ingenic_core_ost.c b/module_drivers/drivers/clocksource/ingenic_core_ost.c
 new file mode 100644
-index 000000000..f06d7937c
+index 0000000000000000000000000000000000000000..acce90baab38149fe54c522f9d53c74b4edb2760
 --- /dev/null
 +++ b/module_drivers/drivers/clocksource/ingenic_core_ost.c
-@@ -0,0 +1,549 @@
+@@ -0,0 +1,551 @@
 +/*
 + * Setting up the xburst2 system ost, including:
 + *      ---->   core system ost;
@@ -37032,6 +36701,8 @@ index 000000000..f06d7937c
 +	void __iomem *g_iobase = NULL;
 +	void __iomem *core_iobase = NULL;
 +	int irq = -1;
++	struct property *prop;
++	const unsigned int *vp;
 +	unsigned int pv;
 +	int index = 0;
 +
@@ -37052,7 +36723,7 @@ index 000000000..f06d7937c
 +		return -EINVAL;
 +	}
 +
-+	of_property_for_each_u32(np, "cpu-ost-map", pv) {
++	of_property_for_each_u32(np, "cpu-ost-map", prop, vp, pv) {
 +		if (index % 2) {
 +			cpu_ost_map[index / 2].dev_base = (unsigned int)core_iobase + pv;
 +		} else {
@@ -37100,14 +36771,14 @@ index 000000000..f06d7937c
 +TIMER_OF_DECLARE(ingenic_ost_init, "ingenic,core-ost", ingenic_ost_init);
 diff --git a/module_drivers/drivers/dma/Makefile b/module_drivers/drivers/dma/Makefile
 new file mode 100644
-index 000000000..10e2febc6
+index 0000000000000000000000000000000000000000..10e2febc6be86541d9c1d66bbf515658f4350001
 --- /dev/null
 +++ b/module_drivers/drivers/dma/Makefile
 @@ -0,0 +1 @@
 +obj-y += ingenic/
 diff --git a/module_drivers/drivers/dma/ingenic/Kconfig b/module_drivers/drivers/dma/ingenic/Kconfig
 new file mode 100644
-index 000000000..4a1be6266
+index 0000000000000000000000000000000000000000..4a1be6266dcea17376c00021c7533382472dcfaf
 --- /dev/null
 +++ b/module_drivers/drivers/dma/ingenic/Kconfig
 @@ -0,0 +1,24 @@
@@ -37137,7 +36808,7 @@ index 000000000..4a1be6266
 +	default n
 diff --git a/module_drivers/drivers/dma/ingenic/Makefile b/module_drivers/drivers/dma/ingenic/Makefile
 new file mode 100644
-index 000000000..0fe3db703
+index 0000000000000000000000000000000000000000..0fe3db703829023c693c3b46c8fa1cadf92e0691
 --- /dev/null
 +++ b/module_drivers/drivers/dma/ingenic/Makefile
 @@ -0,0 +1,3 @@
@@ -37146,7 +36817,7 @@ index 000000000..0fe3db703
 +obj-$(CONFIG_INGENIC_PDMAC) += ingenic_dma.o
 diff --git a/module_drivers/drivers/dma/ingenic/ingenic_dma.c b/module_drivers/drivers/dma/ingenic/ingenic_dma.c
 new file mode 100644
-index 000000000..67d289dd6
+index 0000000000000000000000000000000000000000..67d289dd6588ac3117bc9e26a3f42957346e44e7
 --- /dev/null
 +++ b/module_drivers/drivers/dma/ingenic/ingenic_dma.c
 @@ -0,0 +1,1342 @@
@@ -38494,7 +38165,7 @@ index 000000000..67d289dd6
 +MODULE_LICENSE("GPL");
 diff --git a/module_drivers/drivers/dma/ingenic/ingenic_dma.h b/module_drivers/drivers/dma/ingenic/ingenic_dma.h
 new file mode 100644
-index 000000000..f5eeeb83c
+index 0000000000000000000000000000000000000000..f5eeeb83cb1c0ffc6bffbc47ac7ce32a7677cc5d
 --- /dev/null
 +++ b/module_drivers/drivers/dma/ingenic/ingenic_dma.h
 @@ -0,0 +1,225 @@
@@ -38725,14 +38396,14 @@ index 000000000..f5eeeb83c
 +#endif /*__INGENIC_DMA_H__*/
 diff --git a/module_drivers/drivers/i2c/Makefile b/module_drivers/drivers/i2c/Makefile
 new file mode 100644
-index 000000000..0717b752f
+index 0000000000000000000000000000000000000000..0717b752f126c18aac840365a4425911f14d74a4
 --- /dev/null
 +++ b/module_drivers/drivers/i2c/Makefile
 @@ -0,0 +1 @@
 +obj-y += busses/
 diff --git a/module_drivers/drivers/i2c/busses/Kconfig b/module_drivers/drivers/i2c/busses/Kconfig
 new file mode 100644
-index 000000000..b67e622de
+index 0000000000000000000000000000000000000000..b67e622de58f31e084109ddc55a419abc6f7b656
 --- /dev/null
 +++ b/module_drivers/drivers/i2c/busses/Kconfig
 @@ -0,0 +1,27 @@
@@ -38765,14 +38436,14 @@ index 000000000..b67e622de
 +
 diff --git a/module_drivers/drivers/i2c/busses/Makefile b/module_drivers/drivers/i2c/busses/Makefile
 new file mode 100644
-index 000000000..6d81983b5
+index 0000000000000000000000000000000000000000..6d81983b581e8d14d153e9d2a5e03b832d626488
 --- /dev/null
 +++ b/module_drivers/drivers/i2c/busses/Makefile
 @@ -0,0 +1 @@
 +obj-$(CONFIG_I2C_INGENIC)       += i2c-ingenic.o
 diff --git a/module_drivers/drivers/i2c/busses/i2c-ingenic.c b/module_drivers/drivers/i2c/busses/i2c-ingenic.c
 new file mode 100644
-index 000000000..447382efe
+index 0000000000000000000000000000000000000000..447382efe2dd952368a8bbbce6edb6baea51d1f5
 --- /dev/null
 +++ b/module_drivers/drivers/i2c/busses/i2c-ingenic.c
 @@ -0,0 +1,1188 @@
@@ -39966,10 +39637,10 @@ index 000000000..447382efe
 +MODULE_DESCRIPTION("i2c driver for INGENIC SoCs");
 diff --git a/module_drivers/drivers/input/Makefile b/module_drivers/drivers/input/Makefile
 new file mode 100644
-index 000000000..e69de29bb
+index 0000000000000000000000000000000000000000..e69de29bb2d1d6434b8b29ae775ad8c2e48c5391
 diff --git a/module_drivers/drivers/irqchip/Kconfig b/module_drivers/drivers/irqchip/Kconfig
 new file mode 100644
-index 000000000..78eb59042
+index 0000000000000000000000000000000000000000..78eb590422d08589c10cf369fb24f3b098e79a9a
 --- /dev/null
 +++ b/module_drivers/drivers/irqchip/Kconfig
 @@ -0,0 +1,20 @@
@@ -39995,7 +39666,7 @@ index 000000000..78eb59042
 +
 diff --git a/module_drivers/drivers/irqchip/Makefile b/module_drivers/drivers/irqchip/Makefile
 new file mode 100644
-index 000000000..1cc42cd8a
+index 0000000000000000000000000000000000000000..1cc42cd8a3e66fb721673f3cfead280468bebf81
 --- /dev/null
 +++ b/module_drivers/drivers/irqchip/Makefile
 @@ -0,0 +1,2 @@
@@ -40003,10 +39674,10 @@ index 000000000..1cc42cd8a
 +obj-$(CONFIG_INGENIC_INTC_CHIP)         += irq-ingenic-chip.o
 diff --git a/module_drivers/drivers/irqchip/irq-ingenic-chip.c b/module_drivers/drivers/irqchip/irq-ingenic-chip.c
 new file mode 100644
-index 000000000..da183365c
+index 0000000000000000000000000000000000000000..0ea31b4d4d5a13be9bcd483ec9ffd41ae029fd40
 --- /dev/null
 +++ b/module_drivers/drivers/irqchip/irq-ingenic-chip.c
-@@ -0,0 +1,542 @@
+@@ -0,0 +1,544 @@
 +/*
 + * Copyright (C) 2017 Ingenic Semiconductor Co., Ltd.
 + *
@@ -40351,6 +40022,8 @@ index 000000000..da183365c
 +	struct irq_domain *domain;
 +	struct irq_chip_data *chip = &irq_chips->chip_data;
 +	int irq;
++	struct property *prop;
++	const unsigned int *vp;
 +	unsigned int pv;
 +	int index = 0;
 +
@@ -40370,7 +40043,7 @@ index 000000000..da183365c
 +
 +	irq_chips->irq = irq;
 +
-+	of_property_for_each_u32(node, "cpu-intc-map", pv) {
++	of_property_for_each_u32(node, "cpu-intc-map", prop, vp, pv) {
 +		if (index % 2) {
 +			cpu_intc_map[index / 2].dev_base = (unsigned int)iobase + pv;
 +		} else {
@@ -40551,7 +40224,7 @@ index 000000000..da183365c
 +}
 diff --git a/module_drivers/drivers/irqchip/irq-ingenic-cpu.c b/module_drivers/drivers/irqchip/irq-ingenic-cpu.c
 new file mode 100644
-index 000000000..f5ac91e9b
+index 0000000000000000000000000000000000000000..f5ac91e9bdb39794a02e7f629c38b58942385671
 --- /dev/null
 +++ b/module_drivers/drivers/irqchip/irq-ingenic-cpu.c
 @@ -0,0 +1,128 @@
@@ -40685,7 +40358,7 @@ index 000000000..f5ac91e9b
 +IRQCHIP_DECLARE(cpu_intc, "ingenic,cpu-interrupt-controller", ingenic_cpu_irq_of_init);
 diff --git a/module_drivers/drivers/md_export/Makefile b/module_drivers/drivers/md_export/Makefile
 new file mode 100644
-index 000000000..70928c85b
+index 0000000000000000000000000000000000000000..70928c85b3ebb7cbeee0c699669412257b092e88
 --- /dev/null
 +++ b/module_drivers/drivers/md_export/Makefile
 @@ -0,0 +1 @@
@@ -40693,7 +40366,7 @@ index 000000000..70928c85b
 \ No newline at end of file
 diff --git a/module_drivers/drivers/md_export/md_export.c b/module_drivers/drivers/md_export/md_export.c
 new file mode 100644
-index 000000000..c0da81f2f
+index 0000000000000000000000000000000000000000..c0da81f2f478f4a4f75379856914c9dcfdee1be5
 --- /dev/null
 +++ b/module_drivers/drivers/md_export/md_export.c
 @@ -0,0 +1,3 @@
@@ -40703,7 +40376,7 @@ index 000000000..c0da81f2f
 \ No newline at end of file
 diff --git a/module_drivers/drivers/mfd/Kconfig b/module_drivers/drivers/mfd/Kconfig
 new file mode 100644
-index 000000000..437bc5343
+index 0000000000000000000000000000000000000000..437bc5343c819389b9cbb68dc01073afd329a17a
 --- /dev/null
 +++ b/module_drivers/drivers/mfd/Kconfig
 @@ -0,0 +1,84 @@
@@ -40793,7 +40466,7 @@ index 000000000..437bc5343
 +	  different functionality of the device.
 diff --git a/module_drivers/drivers/mfd/Makefile b/module_drivers/drivers/mfd/Makefile
 new file mode 100644
-index 000000000..38370c278
+index 0000000000000000000000000000000000000000..38370c2784b24429e9135dd1a406883cf014a7c3
 --- /dev/null
 +++ b/module_drivers/drivers/mfd/Makefile
 @@ -0,0 +1,3 @@
@@ -40802,7 +40475,7 @@ index 000000000..38370c278
 +obj-$(CONFIG_MFD_INGENIC_TCU)   += ingenic-tcu.o
 diff --git a/module_drivers/drivers/mfd/ingenic-tcu.c b/module_drivers/drivers/mfd/ingenic-tcu.c
 new file mode 100644
-index 000000000..bb822d808
+index 0000000000000000000000000000000000000000..bb822d8086952e6af4bf2bbf51a46aff22782bce
 --- /dev/null
 +++ b/module_drivers/drivers/mfd/ingenic-tcu.c
 @@ -0,0 +1,987 @@
@@ -41795,7 +41468,7 @@ index 000000000..bb822d808
 +MODULE_LICENSE("GPL v2");
 diff --git a/module_drivers/drivers/mfd/ingenic_adc.h b/module_drivers/drivers/mfd/ingenic_adc.h
 new file mode 100644
-index 000000000..eb14b9c14
+index 0000000000000000000000000000000000000000..eb14b9c14e093a869d8f9f1d42b9ee47d408c1a1
 --- /dev/null
 +++ b/module_drivers/drivers/mfd/ingenic_adc.h
 @@ -0,0 +1,322 @@
@@ -42123,7 +41796,7 @@ index 000000000..eb14b9c14
 +#endif /*ingenic_adc.h*/
 diff --git a/module_drivers/drivers/mfd/ingenic_adc_aux.c b/module_drivers/drivers/mfd/ingenic_adc_aux.c
 new file mode 100644
-index 000000000..c96d0acc6
+index 0000000000000000000000000000000000000000..c96d0acc69bf641334a9ebfdc2770b5abef49c6d
 --- /dev/null
 +++ b/module_drivers/drivers/mfd/ingenic_adc_aux.c
 @@ -0,0 +1,385 @@
@@ -42514,7 +42187,7 @@ index 000000000..c96d0acc6
 +MODULE_DESCRIPTION("ingenic adc aux sample driver");
 diff --git a/module_drivers/drivers/mfd/ingenic_adc_v13.c b/module_drivers/drivers/mfd/ingenic_adc_v13.c
 new file mode 100644
-index 000000000..dc7e7776a
+index 0000000000000000000000000000000000000000..dc7e7776a76b556090bd3769995587607e7bdfcf
 --- /dev/null
 +++ b/module_drivers/drivers/mfd/ingenic_adc_v13.c
 @@ -0,0 +1,538 @@
@@ -43058,7 +42731,7 @@ index 000000000..dc7e7776a
 +MODULE_ALIAS("platform:T15-adc");
 diff --git a/module_drivers/drivers/misc/Kconfig b/module_drivers/drivers/misc/Kconfig
 new file mode 100644
-index 000000000..4b5ac7e20
+index 0000000000000000000000000000000000000000..4b5ac7e209485a8db30818c54cb52dbedd757754
 --- /dev/null
 +++ b/module_drivers/drivers/misc/Kconfig
 @@ -0,0 +1,51 @@
@@ -43115,7 +42788,7 @@ index 000000000..4b5ac7e20
 +	bcm-xxxx chips.
 diff --git a/module_drivers/drivers/misc/Makefile b/module_drivers/drivers/misc/Makefile
 new file mode 100644
-index 000000000..62efb7f79
+index 0000000000000000000000000000000000000000..62efb7f79b87f7a1cea350d88988bbf9b05a16d6
 --- /dev/null
 +++ b/module_drivers/drivers/misc/Makefile
 @@ -0,0 +1,3 @@
@@ -43124,7 +42797,7 @@ index 000000000..62efb7f79
 +obj-$(CONFIG_BCM_4345C5_RFKILL) += bt_power_bluesleep.o
 diff --git a/module_drivers/drivers/misc/bt_power_bluesleep.c b/module_drivers/drivers/misc/bt_power_bluesleep.c
 new file mode 100644
-index 000000000..6740803a0
+index 0000000000000000000000000000000000000000..6740803a0c27de4d8926fac2116f9ae21bb38a95
 --- /dev/null
 +++ b/module_drivers/drivers/misc/bt_power_bluesleep.c
 @@ -0,0 +1,289 @@
@@ -43419,14 +43092,14 @@ index 000000000..6740803a0
 +MODULE_VERSION("1.0");
 diff --git a/module_drivers/drivers/mmc/Makefile b/module_drivers/drivers/mmc/Makefile
 new file mode 100644
-index 000000000..4ed51fb9a
+index 0000000000000000000000000000000000000000..4ed51fb9af1606047c49c34732b26fa86216b6f1
 --- /dev/null
 +++ b/module_drivers/drivers/mmc/Makefile
 @@ -0,0 +1 @@
 +obj-y += host/
 diff --git a/module_drivers/drivers/mmc/host/Kconfig b/module_drivers/drivers/mmc/host/Kconfig
 new file mode 100644
-index 000000000..626b536d6
+index 0000000000000000000000000000000000000000..626b536d672c0e067f5344286cc2f4c20c169548
 --- /dev/null
 +++ b/module_drivers/drivers/mmc/host/Kconfig
 @@ -0,0 +1,41 @@
@@ -43473,7 +43146,7 @@ index 000000000..626b536d6
 +
 diff --git a/module_drivers/drivers/mmc/host/Makefile b/module_drivers/drivers/mmc/host/Makefile
 new file mode 100644
-index 000000000..f7336ad4a
+index 0000000000000000000000000000000000000000..f7336ad4a08d175c3d39fb103fe2714927b0b376
 --- /dev/null
 +++ b/module_drivers/drivers/mmc/host/Makefile
 @@ -0,0 +1,6 @@
@@ -43485,7 +43158,7 @@ index 000000000..f7336ad4a
 +obj-$(CONFIG_INGENIC_MMC_MMC1)  	+=  ingenic_sdio.o
 diff --git a/module_drivers/drivers/mmc/host/ingenic_mmc.h b/module_drivers/drivers/mmc/host/ingenic_mmc.h
 new file mode 100644
-index 000000000..c3d972b03
+index 0000000000000000000000000000000000000000..c3d972b0314c4e1924aee419be4f74450c4a5790
 --- /dev/null
 +++ b/module_drivers/drivers/mmc/host/ingenic_mmc.h
 @@ -0,0 +1,154 @@
@@ -43645,7 +43318,7 @@ index 000000000..c3d972b03
 +#endif /* __INGENIC_MMC_H__ */
 diff --git a/module_drivers/drivers/mmc/host/ingenic_mmc_reg.h b/module_drivers/drivers/mmc/host/ingenic_mmc_reg.h
 new file mode 100644
-index 000000000..b5bde10a8
+index 0000000000000000000000000000000000000000..b5bde10a8455bc172f18dc5eaf28436eb48ea0e8
 --- /dev/null
 +++ b/module_drivers/drivers/mmc/host/ingenic_mmc_reg.h
 @@ -0,0 +1,232 @@
@@ -43883,10 +43556,10 @@ index 000000000..b5bde10a8
 +#endif  /* __INGENIC_MMC_REG_H__ */
 diff --git a/module_drivers/drivers/mmc/host/ingenic_sdio.c b/module_drivers/drivers/mmc/host/ingenic_sdio.c
 new file mode 100644
-index 000000000..5d9722ee6
+index 0000000000000000000000000000000000000000..a000a0ca07d426050d3c0f17e77c93ca794a5956
 --- /dev/null
 +++ b/module_drivers/drivers/mmc/host/ingenic_sdio.c
-@@ -0,0 +1,170 @@
+@@ -0,0 +1,161 @@
 +#include <linux/platform_device.h>
 +#include <linux/clk.h>
 +#include <linux/device.h>
@@ -44048,21 +43721,12 @@ index 000000000..5d9722ee6
 +
 +}
 +EXPORT_SYMBOL(ingenic_bcmdhd_wlan_power_onoff);
-+
-+static int __init ender3_v3_ke_wifi_manual_insert(void)
-+{
-+	if (wifi_data.sdio_index != 1)
-+		return 0;
-+
-+	return ingenic_bcmdhd_wlan_power_onoff(MANUALLY_INSERT);
-+}
-+late_initcall(ender3_v3_ke_wifi_manual_insert);
 diff --git a/module_drivers/drivers/mmc/host/sdhci-ingenic.c b/module_drivers/drivers/mmc/host/sdhci-ingenic.c
 new file mode 100644
-index 000000000..0e11b25a9
+index 0000000000000000000000000000000000000000..a9ed7b1c338ca2a3260c1d8b6ac9429c7c1b7f41
 --- /dev/null
 +++ b/module_drivers/drivers/mmc/host/sdhci-ingenic.c
-@@ -0,0 +1,766 @@
+@@ -0,0 +1,743 @@
 +#include <linux/delay.h>
 +#include <linux/dma-mapping.h>
 +#include <linux/platform_device.h>
@@ -44083,9 +43747,6 @@ index 000000000..0e11b25a9
 +#include <linux/mmc/slot-gpio.h>
 +#include "sdhci.h"
 +#include "sdhci-ingenic.h"
-+
-+extern void mmc_power_up(struct mmc_host *host, u32 ocr);
-+extern void mmc_power_off(struct mmc_host *host);
 +
 +#define CLK_CTRL
 +/* Software redefinition caps */
@@ -44382,14 +44043,6 @@ index 000000000..0e11b25a9
 +	if (on) {
 +		dev_err(&sdhci_ing->pdev->dev, "card insert manually\n");
 +		set_bit(INGENIC_MMC_CARD_PRESENT, &sdhci_ing->flags);
-+		if (index == 1 && sdhci_ing->wlan_reg_on) {
-+			cancel_delayed_work_sync(&host->mmc->detect);
-+			mmc_power_off(host->mmc);
-+			gpiod_set_raw_value_cansleep(sdhci_ing->wlan_reg_on, 0);
-+			msleep(100);
-+			mmc_power_up(host->mmc, host->mmc->ocr_avail);
-+			gpiod_set_raw_value_cansleep(sdhci_ing->wlan_reg_on, 1);
-+		}
 +#ifdef CLK_CTRL
 +		ingenic_mmc_clk_onoff(sdhci_ing, 1);
 +#endif
@@ -44595,18 +44248,6 @@ index 000000000..0e11b25a9
 +	sdhci_ing->dev  = &pdev->dev;
 +	sdhci_ing->pdev = pdev;
 +	sdhci_ing->pdata = pdata;
-+
-+	if (pdev->id == 1) {
-+		sdhci_ing->wlan_reg_on = devm_gpiod_get_optional(dev,
-+			"wlan-reg-on", GPIOD_ASIS);
-+		if (IS_ERR(sdhci_ing->wlan_reg_on))
-+			return PTR_ERR(sdhci_ing->wlan_reg_on);
-+		if (sdhci_ing->wlan_reg_on) {
-+			ret = gpiod_direction_output_raw(sdhci_ing->wlan_reg_on, 0);
-+			if (ret)
-+				return ret;
-+		}
-+	}
 +
 +	host->ioaddr = of_iomap(pdev->dev.of_node, 0);
 +	if (IS_ERR(host->ioaddr)) {
@@ -44831,10 +44472,10 @@ index 000000000..0e11b25a9
 +MODULE_VERSION("20160808");
 diff --git a/module_drivers/drivers/mmc/host/sdhci-ingenic.h b/module_drivers/drivers/mmc/host/sdhci-ingenic.h
 new file mode 100644
-index 000000000..0f96dea11
+index 0000000000000000000000000000000000000000..2f9d611eaa874122bc44728128a16811f9080be0
 --- /dev/null
 +++ b/module_drivers/drivers/mmc/host/sdhci-ingenic.h
-@@ -0,0 +1,93 @@
+@@ -0,0 +1,92 @@
 +#ifndef __SDHCI_INGENIC_H__
 +#define __SDHCI_INGENIC_H__
 +
@@ -44920,7 +44561,6 @@ index 000000000..0f96dea11
 +	int             ext_cd_gpio;
 +	unsigned long           clk_rates;
 +	unsigned long           flags;
-+	struct gpio_desc        *wlan_reg_on;
 +};
 +
 +int ingenic_sdio_wlan_init(struct device *dev, int index);
@@ -44930,7 +44570,7 @@ index 000000000..0f96dea11
 +#endif  /* __SDHCI_INGENIC_H__ */
 diff --git a/module_drivers/drivers/pinctrl/Kconfig b/module_drivers/drivers/pinctrl/Kconfig
 new file mode 100644
-index 000000000..7326f4092
+index 0000000000000000000000000000000000000000..7326f4092d981fe82e60321c71c5d83f9de6e55e
 --- /dev/null
 +++ b/module_drivers/drivers/pinctrl/Kconfig
 @@ -0,0 +1,22 @@
@@ -44958,7 +44598,7 @@ index 000000000..7326f4092
 +
 diff --git a/module_drivers/drivers/pinctrl/Makefile b/module_drivers/drivers/pinctrl/Makefile
 new file mode 100644
-index 000000000..4cd81df4e
+index 0000000000000000000000000000000000000000..4cd81df4e084f02fa8a62985674963670a782420
 --- /dev/null
 +++ b/module_drivers/drivers/pinctrl/Makefile
 @@ -0,0 +1,2 @@
@@ -44966,7 +44606,7 @@ index 000000000..4cd81df4e
 +obj-$(CONFIG_PINCTRL_INGENIC_V2)   += pinctrl-ingenic.o
 diff --git a/module_drivers/drivers/pinctrl/pinctrl-ingenic.c b/module_drivers/drivers/pinctrl/pinctrl-ingenic.c
 new file mode 100644
-index 000000000..c9a46433b
+index 0000000000000000000000000000000000000000..69822206d0d4a10f027d667ba8dab05e38e4c4e3
 --- /dev/null
 +++ b/module_drivers/drivers/pinctrl/pinctrl-ingenic.c
 @@ -0,0 +1,2394 @@
@@ -45610,14 +45250,14 @@ index 000000000..c9a46433b
 +                                        unsigned pin)
 +{
 +	BUG_ON(pin > chip->ngpio);
-+	return pinctrl_gpio_direction_input(chip, pin);
++	return pinctrl_gpio_direction_input(chip->base + pin);
 +}
 +
 +static int ingenic_gpio_direction_output(struct gpio_chip *chip,
 +        unsigned pin, int value)
 +{
 +	ingenic_gpio_set(chip, pin, value);
-+	return pinctrl_gpio_direction_output(chip, pin);
++	return pinctrl_gpio_direction_output(chip->base + pin);
 +}
 +
 +static int ingenic_gpio_to_irq(struct gpio_chip *chip,
@@ -47366,7 +47006,7 @@ index 000000000..c9a46433b
 +MODULE_ALIAS("platform:pinctrl");
 diff --git a/module_drivers/drivers/pinctrl/pinctrl-ingenic.h b/module_drivers/drivers/pinctrl/pinctrl-ingenic.h
 new file mode 100644
-index 000000000..d1fd93c99
+index 0000000000000000000000000000000000000000..d1fd93c9902be902e376533ed732c90d0a370170
 --- /dev/null
 +++ b/module_drivers/drivers/pinctrl/pinctrl-ingenic.h
 @@ -0,0 +1,449 @@
@@ -47821,7 +47461,7 @@ index 000000000..d1fd93c99
 +#endif /*__PINCTRL_INGENIC_H__*/
 diff --git a/module_drivers/drivers/pwm/Kconfig b/module_drivers/drivers/pwm/Kconfig
 new file mode 100644
-index 000000000..e69b40a54
+index 0000000000000000000000000000000000000000..e69b40a5491bf1f3a19e3596b74ab3a073a2a534
 --- /dev/null
 +++ b/module_drivers/drivers/pwm/Kconfig
 @@ -0,0 +1,40 @@
@@ -47867,7 +47507,7 @@ index 000000000..e69b40a54
 +        Enable this option to generate sysfs attributes for PWM dump.
 diff --git a/module_drivers/drivers/pwm/Makefile b/module_drivers/drivers/pwm/Makefile
 new file mode 100644
-index 000000000..8a8b087fe
+index 0000000000000000000000000000000000000000..8a8b087feb59bdf5ee4154f557d3b559a76d87dc
 --- /dev/null
 +++ b/module_drivers/drivers/pwm/Makefile
 @@ -0,0 +1,2 @@
@@ -47875,7 +47515,7 @@ index 000000000..8a8b087fe
 +obj-$(CONFIG_PWM_INGENIC_V2)    += pwm-ingenic-v2.o
 diff --git a/module_drivers/drivers/pwm/pwm-ingenic-v2.c b/module_drivers/drivers/pwm/pwm-ingenic-v2.c
 new file mode 100644
-index 000000000..fb5c928df
+index 0000000000000000000000000000000000000000..fb5c928df9e6812a6e5ec034498183a19207e3ca
 --- /dev/null
 +++ b/module_drivers/drivers/pwm/pwm-ingenic-v2.c
 @@ -0,0 +1,977 @@
@@ -48858,7 +48498,7 @@ index 000000000..fb5c928df
 +MODULE_LICENSE("GPL");
 diff --git a/module_drivers/drivers/rtc/Kconfig b/module_drivers/drivers/rtc/Kconfig
 new file mode 100644
-index 000000000..128c20737
+index 0000000000000000000000000000000000000000..128c2073770840d707593a5c14177f19fd1ff19a
 --- /dev/null
 +++ b/module_drivers/drivers/rtc/Kconfig
 @@ -0,0 +1,30 @@
@@ -48894,14 +48534,14 @@ index 000000000..128c20737
 +          module will be called rtc-ingenic-v1.
 diff --git a/module_drivers/drivers/rtc/Makefile b/module_drivers/drivers/rtc/Makefile
 new file mode 100644
-index 000000000..d80c4d7be
+index 0000000000000000000000000000000000000000..d80c4d7be7e6fde7883522aaa82fc431489f05ec
 --- /dev/null
 +++ b/module_drivers/drivers/rtc/Makefile
 @@ -0,0 +1 @@
 +obj-$(CONFIG_RTC_DRV_INGENIC)	+= rtc-ingenic.o
 diff --git a/module_drivers/drivers/rtc/rtc-ingenic.c b/module_drivers/drivers/rtc/rtc-ingenic.c
 new file mode 100644
-index 000000000..2d1cd88ed
+index 0000000000000000000000000000000000000000..2d1cd88edb5fbd1be2f8f01d1c22a63b7cf27f73
 --- /dev/null
 +++ b/module_drivers/drivers/rtc/rtc-ingenic.c
 @@ -0,0 +1,679 @@
@@ -49586,7 +49226,7 @@ index 000000000..2d1cd88ed
 +MODULE_ALIAS("platform:ingenic-rtc");
 diff --git a/module_drivers/drivers/rtc/rtc-ingenic.h b/module_drivers/drivers/rtc/rtc-ingenic.h
 new file mode 100644
-index 000000000..9b7456fa6
+index 0000000000000000000000000000000000000000..9b7456fa649c8f192bf85207a50e315b1579ad08
 --- /dev/null
 +++ b/module_drivers/drivers/rtc/rtc-ingenic.h
 @@ -0,0 +1,142 @@
@@ -49734,14 +49374,14 @@ index 000000000..9b7456fa6
 +#endif /* __INGENIC_RTC_H__ */
 diff --git a/module_drivers/drivers/tty/Makefile b/module_drivers/drivers/tty/Makefile
 new file mode 100644
-index 000000000..dd3b9b662
+index 0000000000000000000000000000000000000000..dd3b9b6625ba589d8a987a51d3c6debc20c68e88
 --- /dev/null
 +++ b/module_drivers/drivers/tty/Makefile
 @@ -0,0 +1 @@
 +obj-y += serial/
 diff --git a/module_drivers/drivers/tty/serial/Kconfig b/module_drivers/drivers/tty/serial/Kconfig
 new file mode 100644
-index 000000000..79cd473a8
+index 0000000000000000000000000000000000000000..79cd473a8ab5cda1d12b24a13218f76853d4cf51
 --- /dev/null
 +++ b/module_drivers/drivers/tty/serial/Kconfig
 @@ -0,0 +1,41 @@
@@ -49788,14 +49428,14 @@ index 000000000..79cd473a8
 +
 diff --git a/module_drivers/drivers/tty/serial/Makefile b/module_drivers/drivers/tty/serial/Makefile
 new file mode 100644
-index 000000000..5610f781c
+index 0000000000000000000000000000000000000000..5610f781cc2b50a2e5c1895473eb9b801889c896
 --- /dev/null
 +++ b/module_drivers/drivers/tty/serial/Makefile
 @@ -0,0 +1 @@
 +obj-$(CONFIG_SERIAL_INGENIC_UART) += ingenic_uart.o
 diff --git a/module_drivers/drivers/tty/serial/ingenic_uart.c b/module_drivers/drivers/tty/serial/ingenic_uart.c
 new file mode 100644
-index 000000000..f3f9a8b40
+index 0000000000000000000000000000000000000000..f3f9a8b408f85f72a2f413657547a3607dc76c56
 --- /dev/null
 +++ b/module_drivers/drivers/tty/serial/ingenic_uart.c
 @@ -0,0 +1,1732 @@
@@ -51533,7 +51173,7 @@ index 000000000..f3f9a8b40
 +MODULE_ALIAS("platform:ingenic-uart");
 diff --git a/module_drivers/drivers/tty/serial/ingenic_uart.h b/module_drivers/drivers/tty/serial/ingenic_uart.h
 new file mode 100644
-index 000000000..d66613952
+index 0000000000000000000000000000000000000000..d666139525e689a169f71431244f2594d5b22a9f
 --- /dev/null
 +++ b/module_drivers/drivers/tty/serial/ingenic_uart.h
 @@ -0,0 +1,145 @@
@@ -51684,7 +51324,7 @@ index 000000000..d66613952
 +#endif /* __INGENIC_UART_H__ */
 diff --git a/module_drivers/drivers/usb/Makefile b/module_drivers/drivers/usb/Makefile
 new file mode 100644
-index 000000000..1d8eccd3a
+index 0000000000000000000000000000000000000000..1d8eccd3a7d2fa6f94204d4e48a38fcbabb880de
 --- /dev/null
 +++ b/module_drivers/drivers/usb/Makefile
 @@ -0,0 +1,2 @@
@@ -51692,7 +51332,7 @@ index 000000000..1d8eccd3a
 +obj-y += phy/
 diff --git a/module_drivers/drivers/usb/phy/Kconfig b/module_drivers/drivers/usb/phy/Kconfig
 new file mode 100644
-index 000000000..af4e65667
+index 0000000000000000000000000000000000000000..af4e65667d872d50562d3a883d8b31099a22ac47
 --- /dev/null
 +++ b/module_drivers/drivers/usb/phy/Kconfig
 @@ -0,0 +1,7 @@
@@ -51705,14 +51345,14 @@ index 000000000..af4e65667
 +
 diff --git a/module_drivers/drivers/usb/phy/Makefile b/module_drivers/drivers/usb/phy/Makefile
 new file mode 100644
-index 000000000..5dc93819c
+index 0000000000000000000000000000000000000000..5dc93819c6f374dc2dba137f94ac43d4d29f22d3
 --- /dev/null
 +++ b/module_drivers/drivers/usb/phy/Makefile
 @@ -0,0 +1 @@
 +obj-$(CONFIG_INGENIC_USB_PHY)		+= phy-ingenic.o phy-ingenic-x1000.o phy-ingenic-x1600.o phy-ingenic-x2000.o phy-ingenic-x2500.o phy-ingenic-x2600.o phy-ingenic-ad100.o
 diff --git a/module_drivers/drivers/usb/phy/phy-ingenic-ad100.c b/module_drivers/drivers/usb/phy/phy-ingenic-ad100.c
 new file mode 100644
-index 000000000..fa9e403f0
+index 0000000000000000000000000000000000000000..fa9e403f04f59268fb091da5cee796e6340822c0
 --- /dev/null
 +++ b/module_drivers/drivers/usb/phy/phy-ingenic-ad100.c
 @@ -0,0 +1,267 @@
@@ -51985,7 +51625,7 @@ index 000000000..fa9e403f0
 +};
 diff --git a/module_drivers/drivers/usb/phy/phy-ingenic-x1000.c b/module_drivers/drivers/usb/phy/phy-ingenic-x1000.c
 new file mode 100644
-index 000000000..2a7e158f5
+index 0000000000000000000000000000000000000000..2a7e158f50f92cfbb36f4825b4c5c79c78e82449
 --- /dev/null
 +++ b/module_drivers/drivers/usb/phy/phy-ingenic-x1000.c
 @@ -0,0 +1,69 @@
@@ -52061,7 +51701,7 @@ index 000000000..2a7e158f5
 \ No newline at end of file
 diff --git a/module_drivers/drivers/usb/phy/phy-ingenic-x1600.c b/module_drivers/drivers/usb/phy/phy-ingenic-x1600.c
 new file mode 100644
-index 000000000..75962c21c
+index 0000000000000000000000000000000000000000..75962c21ca09d33fd7df015d01ca2963f007785f
 --- /dev/null
 +++ b/module_drivers/drivers/usb/phy/phy-ingenic-x1600.c
 @@ -0,0 +1,201 @@
@@ -52268,7 +51908,7 @@ index 000000000..75962c21c
 +};
 diff --git a/module_drivers/drivers/usb/phy/phy-ingenic-x2000.c b/module_drivers/drivers/usb/phy/phy-ingenic-x2000.c
 new file mode 100644
-index 000000000..4c223aa3c
+index 0000000000000000000000000000000000000000..4c223aa3cadf7cace0f8b4806afb2c92659fb8e8
 --- /dev/null
 +++ b/module_drivers/drivers/usb/phy/phy-ingenic-x2000.c
 @@ -0,0 +1,150 @@
@@ -52424,7 +52064,7 @@ index 000000000..4c223aa3c
 +};
 diff --git a/module_drivers/drivers/usb/phy/phy-ingenic-x2500.c b/module_drivers/drivers/usb/phy/phy-ingenic-x2500.c
 new file mode 100644
-index 000000000..22c719ff1
+index 0000000000000000000000000000000000000000..22c719ff1e41926a2a3a7947cf81ccc22cd101c1
 --- /dev/null
 +++ b/module_drivers/drivers/usb/phy/phy-ingenic-x2500.c
 @@ -0,0 +1,117 @@
@@ -52547,7 +52187,7 @@ index 000000000..22c719ff1
 +};
 diff --git a/module_drivers/drivers/usb/phy/phy-ingenic-x2600.c b/module_drivers/drivers/usb/phy/phy-ingenic-x2600.c
 new file mode 100644
-index 000000000..08ec17f42
+index 0000000000000000000000000000000000000000..08ec17f4285a8c2e52ed10d4a0b91e2092ab9787
 --- /dev/null
 +++ b/module_drivers/drivers/usb/phy/phy-ingenic-x2600.c
 @@ -0,0 +1,362 @@
@@ -52915,7 +52555,7 @@ index 000000000..08ec17f42
 +};
 diff --git a/module_drivers/drivers/usb/phy/phy-ingenic.c b/module_drivers/drivers/usb/phy/phy-ingenic.c
 new file mode 100644
-index 000000000..7766f7641
+index 0000000000000000000000000000000000000000..7766f76412f269b393fb44872239bda37e4be588
 --- /dev/null
 +++ b/module_drivers/drivers/usb/phy/phy-ingenic.c
 @@ -0,0 +1,722 @@
@@ -53643,7 +53283,7 @@ index 000000000..7766f7641
 +module_exit(ingenic_usb_phy_exit);
 diff --git a/module_drivers/drivers/usb/phy/phy-ingenic.h b/module_drivers/drivers/usb/phy/phy-ingenic.h
 new file mode 100644
-index 000000000..2798afdf1
+index 0000000000000000000000000000000000000000..2798afdf1fd5b6193c76320e8f54db9c4b9435c2
 --- /dev/null
 +++ b/module_drivers/drivers/usb/phy/phy-ingenic.h
 @@ -0,0 +1,145 @@
@@ -53794,7 +53434,7 @@ index 000000000..2798afdf1
 +#endif /* _PHY_INGENIC_H_ */
 diff --git a/module_drivers/drivers/video/Makefile b/module_drivers/drivers/video/Makefile
 new file mode 100644
-index 000000000..3d943dbc9
+index 0000000000000000000000000000000000000000..3d943dbc9347e97e374488154eddcfdd6fa719a2
 --- /dev/null
 +++ b/module_drivers/drivers/video/Makefile
 @@ -0,0 +1,2 @@
@@ -53802,14 +53442,14 @@ index 000000000..3d943dbc9
 +obj-$(CONFIG_TRUE_COLOR_LOGO) += logo-ingenic/
 diff --git a/module_drivers/drivers/video/fbdev/Makefile b/module_drivers/drivers/video/fbdev/Makefile
 new file mode 100644
-index 000000000..10e2febc6
+index 0000000000000000000000000000000000000000..10e2febc6be86541d9c1d66bbf515658f4350001
 --- /dev/null
 +++ b/module_drivers/drivers/video/fbdev/Makefile
 @@ -0,0 +1 @@
 +obj-y += ingenic/
 diff --git a/module_drivers/drivers/video/fbdev/ingenic/Kconfig b/module_drivers/drivers/video/fbdev/ingenic/Kconfig
 new file mode 100644
-index 000000000..2d1cf2f5a
+index 0000000000000000000000000000000000000000..2d1cf2f5a8f9c3b83c01d0c5c1f2e24f65c62e1e
 --- /dev/null
 +++ b/module_drivers/drivers/video/fbdev/ingenic/Kconfig
 @@ -0,0 +1,78 @@
@@ -53893,7 +53533,7 @@ index 000000000..2d1cf2f5a
 +
 diff --git a/module_drivers/drivers/video/fbdev/ingenic/Makefile b/module_drivers/drivers/video/fbdev/ingenic/Makefile
 new file mode 100644
-index 000000000..fbd767120
+index 0000000000000000000000000000000000000000..fbd767120a2af0cb1345b928430ceb755049cf0d
 --- /dev/null
 +++ b/module_drivers/drivers/video/fbdev/ingenic/Makefile
 @@ -0,0 +1,5 @@
@@ -53904,10 +53544,10 @@ index 000000000..fbd767120
 +#obj-$(CONFIG_SPI_FB_V12)	+= spi_fb_v12/
 diff --git a/module_drivers/drivers/video/fbdev/ingenic/displays/Kconfig b/module_drivers/drivers/video/fbdev/ingenic/displays/Kconfig
 new file mode 100644
-index 000000000..a5f204c80
+index 0000000000000000000000000000000000000000..531cf344becac316d64a8a67d0c919cec1288f8e
 --- /dev/null
 +++ b/module_drivers/drivers/video/fbdev/ingenic/displays/Kconfig
-@@ -0,0 +1,259 @@
+@@ -0,0 +1,252 @@
 +menuconfig FB_INGENIC_DISPLAYS_STAGE
 +	tristate "display stage Supported lcd panels"
 +	depends on FB_INGENIC
@@ -54029,13 +53669,6 @@ index 000000000..a5f204c80
 +	depends on FB_INGENIC_DISPLAYS_STAGE
 +	help
 +		lcd panel ST7701S spi+rgb (fmt:rgb666) interface, for ingenicfb drivers.
-+
-+config STAGE_ENDER3_V3_KE_480X272
-+	tristate "Ender 3 V3 KE 480x272 TFT panel"
-+	depends on FB_INGENIC_DISPLAYS_STAGE
-+	help
-+		Framebuffer panel support for the 480x272 parallel-RGB TFT
-+		used by the Ender 3 V3 KE Nebula Pad.
 +
 +config STAGE_ST7701S_DX
 +	tristate "lcd panel st7701s_dx3.95ips"
@@ -54169,18 +53802,17 @@ index 000000000..a5f204c80
 +        lcd panel JD9365DA, for ingenicfb drivers
 diff --git a/module_drivers/drivers/video/fbdev/ingenic/displays/Makefile b/module_drivers/drivers/video/fbdev/ingenic/displays/Makefile
 new file mode 100644
-index 000000000..fca392d68
+index 0000000000000000000000000000000000000000..c678fb1d8a08a82ecbb1f8ffe592a93021c040ba
 --- /dev/null
 +++ b/module_drivers/drivers/video/fbdev/ingenic/displays/Makefile
-@@ -0,0 +1,5 @@
+@@ -0,0 +1,4 @@
 +obj-$(CONFIG_STAGE_JD9365D) += jd9365d/panel-jd9365d.o
 +obj-$(CONFIG_STAGE_JD9365) += jd9365/panel-jd9365.o
 +obj-$(CONFIG_STAGE_ST7701S_DX) += st7701s_dx3.95ips/panel-st7701sdx.o
-+obj-$(CONFIG_STAGE_ENDER3_V3_KE_480X272) += panel-ender3-v3-ke-480x272.o
 +obj-$(CONFIG_STAGE_ZC50289HSHD02) += panel-zc50289hshd02.o
 diff --git a/module_drivers/drivers/video/fbdev/ingenic/displays/lt9211.c b/module_drivers/drivers/video/fbdev/ingenic/displays/lt9211.c
 new file mode 100644
-index 000000000..6b6270bcc
+index 0000000000000000000000000000000000000000..6b6270bcce1a50e7011aa3d94fe9ca1ab925c895
 --- /dev/null
 +++ b/module_drivers/drivers/video/fbdev/ingenic/displays/lt9211.c
 @@ -0,0 +1,587 @@
@@ -54773,7 +54405,7 @@ index 000000000..6b6270bcc
 +}
 diff --git a/module_drivers/drivers/video/fbdev/ingenic/displays/lt9211.h b/module_drivers/drivers/video/fbdev/ingenic/displays/lt9211.h
 new file mode 100644
-index 000000000..2defb0f03
+index 0000000000000000000000000000000000000000..2defb0f031712b14c58eb5f7f7c72d4d5118929b
 --- /dev/null
 +++ b/module_drivers/drivers/video/fbdev/ingenic/displays/lt9211.h
 @@ -0,0 +1,58 @@
@@ -54835,265 +54467,9 @@ index 000000000..2defb0f03
 +};
 +
 +#endif
-diff --git a/module_drivers/drivers/video/fbdev/ingenic/displays/panel-ender3-v3-ke-480x272.c b/module_drivers/drivers/video/fbdev/ingenic/displays/panel-ender3-v3-ke-480x272.c
-new file mode 100644
-index 000000000..4cc14e8dd
---- /dev/null
-+++ b/module_drivers/drivers/video/fbdev/ingenic/displays/panel-ender3-v3-ke-480x272.c
-@@ -0,0 +1,250 @@
-+// SPDX-License-Identifier: GPL-2.0-only
-+/*
-+ * Fre3nder panel driver for the real Ender 3 V3
-+ * KE Nebula Pad's 480x272 parallel-RGB TFT panel.
-+ *
-+ * Derived from the GPL-licensed OpenKE/NebulaOS implementation:
-+ *   coreflake1/NebulaOS-kernel
-+ *   commit 88a0e1ecc6ace7c9e4ad99d6fa49e272180fd5a9
-+ *   panel-openke-general-480x272.c
-+ *
-+ *
-+ * The real device runs this panel via Creality's own closed `lcd_general_480x272.ko`
-+ * (no source ever published, see ANALYSIS in this workspace's FIRMWARE.md sec 7/9) -
-+ * this is a from-scratch driver for the ingenicfb "fb_stage" framework (the real,
-+ * complete, GPLv2 Ingenic display driver this workspace ported forward from the
-+ * 4.4.94 SDK to 6.6, see FIRMWARE.md sec 8), modeled on this SDK's own
-+ * panel-st7701s-rgb666.c (a real, complete LCD_TYPE_TFT example) - simplified
-+ * down to just the three required lcd_panel_ops callbacks (init/enable/disable),
-+ * since a plain "general" panel needs no command-interface init sequence the
-+ * way that example's smart-controller chip does, and no generic lcd-class
-+ * registration either (not required for ingenicfb_register_panel() to work).
-+ *
-+ * CONFIRMED from the real live device (read-only SSH, FIRMWARE.md sec 9):
-+ *   gpio_lcd_power_en = PC21
-+ *   gpio_lcd_rst      = PB16
-+ *   mode              = 480x272p-60 (confirmed via /sys/class/graphics/fb0/modes)
-+ *
-+ * CONFIRMED, later, by pulling the real device's own closed lcd_general_480x272.ko
-+ * and soc_fb.ko off the live printer (read-only scp) and disassembling them with a
-+ * real MIPS-capable objdump (host objdump has no MIPS backend; used the
-+ * pellcorp/k1-bash-build Docker image's toolchain instead) - not a datasheet, but
-+ * real bytes/code from the actual working driver for this exact panel:
-+ *   - xres=480, yres=272 at struct offsets +8/+12 - confirmed via jzfb_register_lcd's
-+ *     own range-check code (`(x-32) < 2016`), matching the live fb0 mode exactly.
-+ *   - Six adjacent struct fields (offsets 0x14/0x18/0x1c/0x20/0x24/0x28) all hold the
-+ *     literal value 20, and are summed in pairs inside jzfb_register_lcd in a pattern
-+ *     consistent with computing htotal/vtotal from margins+sync widths - strong
-+ *     circumstantial evidence the real left/right/upper/lower margins and hsync/vsync
-+ *     pulse widths are uniformly 20, not the asymmetric generic-reference values this
-+ *     driver used before (margins=2, hsync=41, vsync=10). Field order among the six
-+ *     couldn't be fully pinned down without the real header, but since all six are
-+ *     identical, that ambiguity doesn't actually matter here.
-+ *   - pixclock below is DERIVED from htotal=480+3*20=540, vtotal=272+3*20=332, and the
-+ *     confirmed 60Hz refresh (`htotal*vtotal*refresh`), not read directly as a static
-+ *     constant - the real driver computes this same value at registration time rather
-+ *     than storing it, per the disassembly.
-+ *   - Struct offset 0x34 (lcd "mode"/type selector) reads as 0, consistent with this
-+ *     driver's own LCD_TYPE_TFT=0 assumption.
-+ *   - A physical-size field pair (53mm, 95mm) was also found nearby, closely matching
-+ *     (within 1mm) this driver's already-guessed 54x95mm - left unchanged.
-+ *
-+ * STILL NOT CONFIRMED:
-+ *   - GPIO active-high/low polarity - hardcoded active-high here (this kernel's
-+ *     of_get_named_gpio() doesn't return the DT flags cell), easy to invert in
-+ *     this file if the panel powers up backwards.
-+ *   - Color depth/mode (RGB888 assumed here - could be RGB565/RGB666 on the real
-+ *     panel; wrong here would show as color-channel banding/miscoloring, not
-+ *     hardware risk).
-+ *   - The exact semantic identity of each of the six offset-20 fields (which is
-+ *     left_margin vs. hsync_len, etc.) - moot for correctness since all six carry
-+ *     the same value, but means this mapping is evidence-based, not header-verified.
-+ *
-+ * This file may be distributed under the terms of the GNU GPLv2 license.
-+ */
-+
-+#include <linux/init.h>
-+#include <linux/module.h>
-+#include <linux/platform_device.h>
-+#include <linux/gpio.h>
-+#include <linux/of_gpio.h>
-+#include <linux/delay.h>
-+
-+#include "../include/ingenicfb.h"
-+
-+struct panel_dev {
-+	struct device *dev;
-+	int vdd_en_gpio;
-+	int rst_gpio;
-+};
-+
-+static struct panel_dev *panel;
-+
-+static void panel_init(void *p)
-+{
-+	/* Nothing to do here for a plain RGB panel - all real setup happens in
-+	 * enable(), matching how the ingenicfb core calls init() once at probe
-+	 * time and enable()/disable() on every blank/unblank. */
-+}
-+
-+static void panel_enable(void *p)
-+{
-+	if (!panel)
-+		return;
-+	if (gpio_is_valid(panel->vdd_en_gpio))
-+		gpio_direction_output(panel->vdd_en_gpio, 1);
-+	/* Real panel reset pulse timing not confirmed - 10ms low, 10ms settle
-+	 * is a conservative, commonly-used default for this class of panel,
-+	 * not read from a datasheet for this exact part. */
-+	if (gpio_is_valid(panel->rst_gpio)) {
-+		gpio_direction_output(panel->rst_gpio, 0);
-+		mdelay(10);
-+		gpio_direction_output(panel->rst_gpio, 1);
-+		mdelay(10);
-+	}
-+}
-+
-+static void panel_disable(void *p)
-+{
-+	if (!panel)
-+		return;
-+	if (gpio_is_valid(panel->vdd_en_gpio))
-+		gpio_direction_output(panel->vdd_en_gpio, 0);
-+}
-+
-+static struct lcd_panel_ops panel_ops = {
-+	.init = panel_init,
-+	.enable = panel_enable,
-+	.disable = panel_disable,
-+};
-+
-+/* Timing derived from disassembling the real device's own lcd_general_480x272.ko/
-+ * soc_fb.ko (see the module header comment) - margins/sync widths are the real
-+ * device's own values (uniformly 20), pixclock is computed from those via the
-+ * standard htotal*vtotal*refresh relationship, matching this driver's own KHz
-+ * convention (confirmed against panel-st7701s-rgb666.c), not the picosecond
-+ * convention plain Linux fb.h normally uses. */
-+static struct fb_videomode panel_modes[] = {
-+	[0] = {
-+		.name           = "480x272",
-+		.refresh        = 60,
-+		.xres           = 480,
-+		.yres           = 272,
-+		.pixclock       = 10753,
-+		.left_margin    = 20,
-+		.right_margin   = 20,
-+		.upper_margin   = 20,
-+		.lower_margin   = 20,
-+		.hsync_len      = 20,
-+		.vsync_len      = 20,
-+		.vmode          = FB_VMODE_NONINTERLACED,
-+		.flag           = 0,
-+	},
-+};
-+
-+static struct tft_config fre3nder_ender3_v3_ke_480x272_cfg = {
-+	.pix_clk_inv = 0,
-+	.de_dl = 0,
-+	.sync_dl = 0,
-+	.color_even = TFT_LCD_COLOR_EVEN_RGB,
-+	.color_odd = TFT_LCD_COLOR_ODD_RGB,
-+	/* Isolated experiment #3 (ke-mainline-klipper display-quality mission).
-+	 * Experiments #1 (plain PARALLEL_666) and #2 (PARALLEL_666 +
-+	 * reference dither) were both wrong bus widths - this is now
-+	 * hardware-proven, not guessed: live devmem read of the real DC_TFT_CFG
-+	 * register (physical 0x13059010 = DPU base 0x13050000 + offset 0x9010)
-+	 * on stock booted and running gave 0x00000102. Decoded against this
-+	 * driver's own dpu_reg.h bitfield definitions (DC_MODE_LBIT=0,
-+	 * DC_MODE_HBIT=2): bits[2:0] = 0b010 = TFT_LCD_MODE_PARALLEL_565, not
-+	 * 888 or 666. Custom's own live value at the same register read
-+	 * 0x00000000 (mode=888, matching this driver's prior config exactly -
-+	 * confirms the read methodology is sound). COLOR_EVEN/COLOR_ODD bits
-+	 * matched (both RGB) - not touched here. Bit 8 (DC_SYNC_DL) also
-+	 * differed (stock=1, custom=0) but is left alone in this experiment -
-+	 * one isolated variable at a time. Revert if this doesn't fix the
-+	 * physical grain/noise defect. */
-+	.mode = TFT_LCD_MODE_PARALLEL_565,
-+};
-+
-+struct lcd_panel lcd_panel = {
-+	.name = "ender3_v3_ke_480x272",
-+	.num_modes = ARRAY_SIZE(panel_modes),
-+	.modes = panel_modes,
-+	.bpp = 32,
-+	.width = 95,   /* physical panel size in mm - not confirmed, cosmetic only */
-+	.height = 54,
-+
-+	.lcd_type = LCD_TYPE_TFT,
-+	.tft_config = &fre3nder_ender3_v3_ke_480x272_cfg,
-+
-+	.dither_enable = 0,
-+	.ops = &panel_ops,
-+};
-+
-+static int panel_probe(struct platform_device *pdev)
-+{
-+	struct device_node *np = pdev->dev.of_node;
-+	int ret;
-+
-+	panel = devm_kzalloc(&pdev->dev, sizeof(*panel), GFP_KERNEL);
-+	if (!panel)
-+		return -ENOMEM;
-+	panel->dev = &pdev->dev;
-+
-+	panel->vdd_en_gpio = of_get_named_gpio(np, "ingenic,vdd-en-gpio", 0);
-+	if (gpio_is_valid(panel->vdd_en_gpio)) {
-+		ret = devm_gpio_request_one(&pdev->dev, panel->vdd_en_gpio,
-+					     GPIOF_DIR_OUT, "lcd_vdd_en");
-+		if (ret < 0) {
-+			dev_err(&pdev->dev, "Failed to request vdd_en pin!\n");
-+			return ret;
-+		}
-+	} else {
-+		dev_warn(&pdev->dev, "invalid gpio vdd_en: %d\n", panel->vdd_en_gpio);
-+	}
-+
-+	panel->rst_gpio = of_get_named_gpio(np, "ingenic,rst-gpio", 0);
-+	if (gpio_is_valid(panel->rst_gpio)) {
-+		ret = devm_gpio_request_one(&pdev->dev, panel->rst_gpio,
-+					     GPIOF_DIR_OUT, "lcd_rst");
-+		if (ret < 0) {
-+			dev_err(&pdev->dev, "Failed to request rst pin!\n");
-+			return ret;
-+		}
-+	} else {
-+		dev_warn(&pdev->dev, "invalid gpio rst: %d\n", panel->rst_gpio);
-+	}
-+
-+	ret = ingenicfb_register_panel(&lcd_panel);
-+	if (ret < 0) {
-+		dev_err(&pdev->dev, "Failed to register lcd panel!\n");
-+		return ret;
-+	}
-+
-+	return 0;
-+}
-+
-+static int panel_remove(struct platform_device *pdev)
-+{
-+	panel_disable(NULL);
-+	return 0;
-+}
-+
-+static const struct of_device_id panel_of_match[] = {
-+	{ .compatible = "fre3nder,ender3-v3-ke-480x272", },
-+	{},
-+};
-+MODULE_DEVICE_TABLE(of, panel_of_match);
-+
-+static struct platform_driver panel_driver = {
-+	.probe  = panel_probe,
-+	.remove = panel_remove,
-+	.driver = {
-+		.name = "ender3_v3_ke_480x272",
-+		.of_match_table = panel_of_match,
-+	},
-+};
-+
-+module_platform_driver(panel_driver);
-+MODULE_LICENSE("GPL");
-+MODULE_DESCRIPTION("OpenKE best-effort panel driver for the Ender 3 V3 KE Nebula Pad's 480x272 panel");
 diff --git a/module_drivers/drivers/video/fbdev/ingenic/displays/panel-zc50289hshd02.c b/module_drivers/drivers/video/fbdev/ingenic/displays/panel-zc50289hshd02.c
 new file mode 100644
-index 000000000..c36b98098
+index 0000000000000000000000000000000000000000..c36b9809819b5e909b26dfbd4704bbb323238c48
 --- /dev/null
 +++ b/module_drivers/drivers/video/fbdev/ingenic/displays/panel-zc50289hshd02.c
 @@ -0,0 +1,921 @@
@@ -56020,7 +55396,7 @@ index 000000000..c36b98098
 +MODULE_LICENSE("GPL");
 diff --git a/module_drivers/drivers/video/fbdev/ingenic/fb_stage/Kconfig b/module_drivers/drivers/video/fbdev/ingenic/fb_stage/Kconfig
 new file mode 100644
-index 000000000..ec1535311
+index 0000000000000000000000000000000000000000..ec15353111e29884f00957bf126cf9037ae5f7be
 --- /dev/null
 +++ b/module_drivers/drivers/video/fbdev/ingenic/fb_stage/Kconfig
 @@ -0,0 +1,24 @@
@@ -56050,7 +55426,7 @@ index 000000000..ec1535311
 +
 diff --git a/module_drivers/drivers/video/fbdev/ingenic/fb_stage/Makefile b/module_drivers/drivers/video/fbdev/ingenic/fb_stage/Makefile
 new file mode 100644
-index 000000000..86a1692c4
+index 0000000000000000000000000000000000000000..86a1692c4e14b05ac368ac7c02e53a78cb4c16b1
 --- /dev/null
 +++ b/module_drivers/drivers/video/fbdev/ingenic/fb_stage/Makefile
 @@ -0,0 +1,7 @@
@@ -56063,7 +55439,7 @@ index 000000000..86a1692c4
 +obj-$(CONFIG_HW_COMPOSER_V4L2_M2M) += hw_composer_v4l2.o
 diff --git a/module_drivers/drivers/video/fbdev/ingenic/fb_stage/README.md b/module_drivers/drivers/video/fbdev/ingenic/fb_stage/README.md
 new file mode 100644
-index 000000000..c4c1fb77c
+index 0000000000000000000000000000000000000000..c4c1fb77ca9fb0b9cc8276beace291393d09ed28
 --- /dev/null
 +++ b/module_drivers/drivers/video/fbdev/ingenic/fb_stage/README.md
 @@ -0,0 +1,59 @@
@@ -56128,7 +55504,7 @@ index 000000000..c4c1fb77c
 +
 diff --git a/module_drivers/drivers/video/fbdev/ingenic/fb_stage/dpu_ctrl.c b/module_drivers/drivers/video/fbdev/ingenic/fb_stage/dpu_ctrl.c
 new file mode 100644
-index 000000000..68df9ee9f
+index 0000000000000000000000000000000000000000..68df9ee9fc7a63b675db03c643eff1949076ebe3
 --- /dev/null
 +++ b/module_drivers/drivers/video/fbdev/ingenic/fb_stage/dpu_ctrl.c
 @@ -0,0 +1,2394 @@
@@ -58528,7 +57904,7 @@ index 000000000..68df9ee9f
 +
 diff --git a/module_drivers/drivers/video/fbdev/ingenic/fb_stage/dpu_ctrl.h b/module_drivers/drivers/video/fbdev/ingenic/fb_stage/dpu_ctrl.h
 new file mode 100644
-index 000000000..982829f90
+index 0000000000000000000000000000000000000000..982829f905cb2c94a6f64badde997f7ff678c8d7
 --- /dev/null
 +++ b/module_drivers/drivers/video/fbdev/ingenic/fb_stage/dpu_ctrl.h
 @@ -0,0 +1,213 @@
@@ -58747,7 +58123,7 @@ index 000000000..982829f90
 +#endif
 diff --git a/module_drivers/drivers/video/fbdev/ingenic/fb_stage/dpu_dma_desc.h b/module_drivers/drivers/video/fbdev/ingenic/fb_stage/dpu_dma_desc.h
 new file mode 100644
-index 000000000..08cebd0ce
+index 0000000000000000000000000000000000000000..08cebd0ce5fa64b4f76c335bc54983919b93592b
 --- /dev/null
 +++ b/module_drivers/drivers/video/fbdev/ingenic/fb_stage/dpu_dma_desc.h
 @@ -0,0 +1,181 @@
@@ -58934,7 +58310,7 @@ index 000000000..08cebd0ce
 +#endif
 diff --git a/module_drivers/drivers/video/fbdev/ingenic/fb_stage/dpu_reg.h b/module_drivers/drivers/video/fbdev/ingenic/fb_stage/dpu_reg.h
 new file mode 100644
-index 000000000..44174350c
+index 0000000000000000000000000000000000000000..44174350cd62031d56108bf44b675fef6e375098
 --- /dev/null
 +++ b/module_drivers/drivers/video/fbdev/ingenic/fb_stage/dpu_reg.h
 @@ -0,0 +1,939 @@
@@ -59879,7 +59255,7 @@ index 000000000..44174350c
 +#endif /* _DPU_REG_H_ */
 diff --git a/module_drivers/drivers/video/fbdev/ingenic/fb_stage/hw_composer.c b/module_drivers/drivers/video/fbdev/ingenic/fb_stage/hw_composer.c
 new file mode 100644
-index 000000000..f356f5285
+index 0000000000000000000000000000000000000000..f356f5285c1ac13ae42b4f86a755c59b34891e13
 --- /dev/null
 +++ b/module_drivers/drivers/video/fbdev/ingenic/fb_stage/hw_composer.c
 @@ -0,0 +1,131 @@
@@ -60016,7 +59392,7 @@ index 000000000..f356f5285
 +EXPORT_SYMBOL(hw_composer_stop);
 diff --git a/module_drivers/drivers/video/fbdev/ingenic/fb_stage/hw_composer.h b/module_drivers/drivers/video/fbdev/ingenic/fb_stage/hw_composer.h
 new file mode 100644
-index 000000000..deb00b5da
+index 0000000000000000000000000000000000000000..deb00b5da4df54e2f2172833438034e788022757
 --- /dev/null
 +++ b/module_drivers/drivers/video/fbdev/ingenic/fb_stage/hw_composer.h
 @@ -0,0 +1,39 @@
@@ -60061,7 +59437,7 @@ index 000000000..deb00b5da
 +#endif
 diff --git a/module_drivers/drivers/video/fbdev/ingenic/fb_stage/hw_composer_fb.c b/module_drivers/drivers/video/fbdev/ingenic/fb_stage/hw_composer_fb.c
 new file mode 100644
-index 000000000..bd4332107
+index 0000000000000000000000000000000000000000..bd433210762ee6d7ff80745435e5e66c5b9b7746
 --- /dev/null
 +++ b/module_drivers/drivers/video/fbdev/ingenic/fb_stage/hw_composer_fb.c
 @@ -0,0 +1,860 @@
@@ -60927,7 +60303,7 @@ index 000000000..bd4332107
 +}
 diff --git a/module_drivers/drivers/video/fbdev/ingenic/fb_stage/hw_composer_fb.h b/module_drivers/drivers/video/fbdev/ingenic/fb_stage/hw_composer_fb.h
 new file mode 100644
-index 000000000..1ef7571bf
+index 0000000000000000000000000000000000000000..1ef7571bf03fe20b186f4dd98c893369b3e9e532
 --- /dev/null
 +++ b/module_drivers/drivers/video/fbdev/ingenic/fb_stage/hw_composer_fb.h
 @@ -0,0 +1,80 @@
@@ -61013,7 +60389,7 @@ index 000000000..1ef7571bf
 +#endif
 diff --git a/module_drivers/drivers/video/fbdev/ingenic/fb_stage/hw_composer_v4l2.c b/module_drivers/drivers/video/fbdev/ingenic/fb_stage/hw_composer_v4l2.c
 new file mode 100644
-index 000000000..70599491f
+index 0000000000000000000000000000000000000000..70599491f47bea349805c29afaf65dcc4caff71c
 --- /dev/null
 +++ b/module_drivers/drivers/video/fbdev/ingenic/fb_stage/hw_composer_v4l2.c
 @@ -0,0 +1,746 @@
@@ -61765,7 +61141,7 @@ index 000000000..70599491f
 +}
 diff --git a/module_drivers/drivers/video/fbdev/ingenic/fb_stage/hw_composer_v4l2.h b/module_drivers/drivers/video/fbdev/ingenic/fb_stage/hw_composer_v4l2.h
 new file mode 100644
-index 000000000..dc51686f5
+index 0000000000000000000000000000000000000000..dc51686f568da2817f9db68933bf44dc23843766
 --- /dev/null
 +++ b/module_drivers/drivers/video/fbdev/ingenic/fb_stage/hw_composer_v4l2.h
 @@ -0,0 +1,68 @@
@@ -61839,7 +61215,7 @@ index 000000000..dc51686f5
 +#endif      // __FB_HW_COMPOSER_V4L2_H__
 diff --git a/module_drivers/drivers/video/fbdev/ingenic/fb_stage/ingenicfb.c b/module_drivers/drivers/video/fbdev/ingenic/fb_stage/ingenicfb.c
 new file mode 100644
-index 000000000..ab5f0f3db
+index 0000000000000000000000000000000000000000..ab5f0f3db5814b3b1d7e092fb1f4ddb695ff2e97
 --- /dev/null
 +++ b/module_drivers/drivers/video/fbdev/ingenic/fb_stage/ingenicfb.c
 @@ -0,0 +1,1611 @@
@@ -63456,7 +62832,7 @@ index 000000000..ab5f0f3db
 +MODULE_LICENSE("GPL");
 diff --git a/module_drivers/drivers/video/fbdev/ingenic/fb_stage/sysfs.c b/module_drivers/drivers/video/fbdev/ingenic/fb_stage/sysfs.c
 new file mode 100644
-index 000000000..cfdee7c36
+index 0000000000000000000000000000000000000000..cfdee7c36b0ce7fad8d8ad0965aee1a2d05833c3
 --- /dev/null
 +++ b/module_drivers/drivers/video/fbdev/ingenic/fb_stage/sysfs.c
 @@ -0,0 +1,1166 @@
@@ -64628,7 +64004,7 @@ index 000000000..cfdee7c36
 +#endif  // CONFIG_SYSFS
 diff --git a/module_drivers/drivers/video/fbdev/ingenic/fb_stage/sysfs.h b/module_drivers/drivers/video/fbdev/ingenic/fb_stage/sysfs.h
 new file mode 100644
-index 000000000..7bae89973
+index 0000000000000000000000000000000000000000..7bae89973cfdb4166f80a714d6090f1c099cb36e
 --- /dev/null
 +++ b/module_drivers/drivers/video/fbdev/ingenic/fb_stage/sysfs.h
 @@ -0,0 +1,41 @@
@@ -64675,7 +64051,7 @@ index 000000000..7bae89973
 +#endif
 diff --git a/module_drivers/drivers/video/fbdev/ingenic/fb_stage/todo/colorbar.c b/module_drivers/drivers/video/fbdev/ingenic/fb_stage/todo/colorbar.c
 new file mode 100644
-index 000000000..5467129a0
+index 0000000000000000000000000000000000000000..5467129a03feaf9e8ba2f2904346b8953cd25724
 --- /dev/null
 +++ b/module_drivers/drivers/video/fbdev/ingenic/fb_stage/todo/colorbar.c
 @@ -0,0 +1,243 @@
@@ -64924,7 +64300,7 @@ index 000000000..5467129a0
 +}
 diff --git a/module_drivers/drivers/video/fbdev/ingenic/fb_stage/todo/sysfs.c b/module_drivers/drivers/video/fbdev/ingenic/fb_stage/todo/sysfs.c
 new file mode 100644
-index 000000000..1a08cb823
+index 0000000000000000000000000000000000000000..1a08cb823a60d439ec11661d239466360b4a5e0d
 --- /dev/null
 +++ b/module_drivers/drivers/video/fbdev/ingenic/fb_stage/todo/sysfs.c
 @@ -0,0 +1,1251 @@
@@ -66181,7 +65557,7 @@ index 000000000..1a08cb823
 +}
 diff --git a/module_drivers/drivers/video/fbdev/ingenic/include/ingenicfb.h b/module_drivers/drivers/video/fbdev/ingenic/include/ingenicfb.h
 new file mode 100644
-index 000000000..a732b9eda
+index 0000000000000000000000000000000000000000..a732b9eda662f164adc25728e39996440703333f
 --- /dev/null
 +++ b/module_drivers/drivers/video/fbdev/ingenic/include/ingenicfb.h
 @@ -0,0 +1,148 @@
@@ -66335,7 +65711,7 @@ index 000000000..a732b9eda
 +#endif
 diff --git a/module_drivers/drivers/video/fbdev/ingenic/include/jz_dsim.h b/module_drivers/drivers/video/fbdev/ingenic/include/jz_dsim.h
 new file mode 100644
-index 000000000..30b73c670
+index 0000000000000000000000000000000000000000..30b73c6708b9cad36ecec809dca550599661c7dc
 --- /dev/null
 +++ b/module_drivers/drivers/video/fbdev/ingenic/include/jz_dsim.h
 @@ -0,0 +1,323 @@
@@ -66664,7 +66040,7 @@ index 000000000..30b73c670
 +#endif /* _JZ_MIPI_DSIM_H */
 diff --git a/module_drivers/drivers/video/fbdev/ingenic/include/lcd_panel.h b/module_drivers/drivers/video/fbdev/ingenic/include/lcd_panel.h
 new file mode 100644
-index 000000000..da5cc0f5d
+index 0000000000000000000000000000000000000000..da5cc0f5d5211081757e7dad5f63f881b9b17c3a
 --- /dev/null
 +++ b/module_drivers/drivers/video/fbdev/ingenic/include/lcd_panel.h
 @@ -0,0 +1,157 @@
@@ -66827,7 +66203,7 @@ index 000000000..da5cc0f5d
 +#endif
 diff --git a/module_drivers/drivers/video/fbdev/ingenic/include/uapi_ingenicfb.h b/module_drivers/drivers/video/fbdev/ingenic/include/uapi_ingenicfb.h
 new file mode 100644
-index 000000000..61097b5d5
+index 0000000000000000000000000000000000000000..61097b5d57f8d661e9883920e740b56ec9675c1f
 --- /dev/null
 +++ b/module_drivers/drivers/video/fbdev/ingenic/include/uapi_ingenicfb.h
 @@ -0,0 +1,151 @@
@@ -66984,14 +66360,14 @@ index 000000000..61097b5d5
 +#endif
 diff --git a/module_drivers/drivers/video/fbdev/ingenic/jz_mipi_dsi/Makefile b/module_drivers/drivers/video/fbdev/ingenic/jz_mipi_dsi/Makefile
 new file mode 100644
-index 000000000..ecdc93d91
+index 0000000000000000000000000000000000000000..ecdc93d912f3f04107c1fbfcf1617338bd788e0c
 --- /dev/null
 +++ b/module_drivers/drivers/video/fbdev/ingenic/jz_mipi_dsi/Makefile
 @@ -0,0 +1 @@
 +obj-y += jz_mipi_dsi.o jz_mipi_dsi_lowlevel.o jz_mipi_dsih_hal.o jz_mipi_dsi_phy.o
 diff --git a/module_drivers/drivers/video/fbdev/ingenic/jz_mipi_dsi/jz_mipi_dsi.c b/module_drivers/drivers/video/fbdev/ingenic/jz_mipi_dsi/jz_mipi_dsi.c
 new file mode 100644
-index 000000000..bb3cc0aa3
+index 0000000000000000000000000000000000000000..bb3cc0aa30770c93b7e5e1a8f0228f507327da33
 --- /dev/null
 +++ b/module_drivers/drivers/video/fbdev/ingenic/jz_mipi_dsi/jz_mipi_dsi.c
 @@ -0,0 +1,1361 @@
@@ -68358,7 +67734,7 @@ index 000000000..bb3cc0aa3
 +}
 diff --git a/module_drivers/drivers/video/fbdev/ingenic/jz_mipi_dsi/jz_mipi_dsi_lowlevel.c b/module_drivers/drivers/video/fbdev/ingenic/jz_mipi_dsi/jz_mipi_dsi_lowlevel.c
 new file mode 100644
-index 000000000..623090534
+index 0000000000000000000000000000000000000000..6230905345507586d0ee17767efac2efdd46c168
 --- /dev/null
 +++ b/module_drivers/drivers/video/fbdev/ingenic/jz_mipi_dsi/jz_mipi_dsi_lowlevel.c
 @@ -0,0 +1,384 @@
@@ -68748,7 +68124,7 @@ index 000000000..623090534
 +}
 diff --git a/module_drivers/drivers/video/fbdev/ingenic/jz_mipi_dsi/jz_mipi_dsi_lowlevel.h b/module_drivers/drivers/video/fbdev/ingenic/jz_mipi_dsi/jz_mipi_dsi_lowlevel.h
 new file mode 100644
-index 000000000..b7d5c9655
+index 0000000000000000000000000000000000000000..b7d5c965506a515103d0591ff9463139fddf8d0d
 --- /dev/null
 +++ b/module_drivers/drivers/video/fbdev/ingenic/jz_mipi_dsi/jz_mipi_dsi_lowlevel.h
 @@ -0,0 +1,28 @@
@@ -68782,7 +68158,7 @@ index 000000000..b7d5c9655
 +#endif /* _JZ_MIPI_DSI_LOWLEVEL_H */
 diff --git a/module_drivers/drivers/video/fbdev/ingenic/jz_mipi_dsi/jz_mipi_dsi_phy.c b/module_drivers/drivers/video/fbdev/ingenic/jz_mipi_dsi/jz_mipi_dsi_phy.c
 new file mode 100644
-index 000000000..316c251d0
+index 0000000000000000000000000000000000000000..316c251d02a6387912c45b7d7e4fd34d6abc759c
 --- /dev/null
 +++ b/module_drivers/drivers/video/fbdev/ingenic/jz_mipi_dsi/jz_mipi_dsi_phy.c
 @@ -0,0 +1,878 @@
@@ -69666,7 +69042,7 @@ index 000000000..316c251d0
 +#endif
 diff --git a/module_drivers/drivers/video/fbdev/ingenic/jz_mipi_dsi/jz_mipi_dsi_phy.h b/module_drivers/drivers/video/fbdev/ingenic/jz_mipi_dsi/jz_mipi_dsi_phy.h
 new file mode 100644
-index 000000000..485770889
+index 0000000000000000000000000000000000000000..48577088997b89340a0b1c1a23570ded45cf3eb5
 --- /dev/null
 +++ b/module_drivers/drivers/video/fbdev/ingenic/jz_mipi_dsi/jz_mipi_dsi_phy.h
 @@ -0,0 +1,10 @@
@@ -69682,7 +69058,7 @@ index 000000000..485770889
 +#endif  // __JZ_MIPI_DSI_PHY_H__
 diff --git a/module_drivers/drivers/video/fbdev/ingenic/jz_mipi_dsi/jz_mipi_dsi_regs.h b/module_drivers/drivers/video/fbdev/ingenic/jz_mipi_dsi/jz_mipi_dsi_regs.h
 new file mode 100644
-index 000000000..35f37d290
+index 0000000000000000000000000000000000000000..35f37d2904a1489fd8fe9737da6ed3d8ab0c22f6
 --- /dev/null
 +++ b/module_drivers/drivers/video/fbdev/ingenic/jz_mipi_dsi/jz_mipi_dsi_regs.h
 @@ -0,0 +1,118 @@
@@ -69806,7 +69182,7 @@ index 000000000..35f37d290
 +
 diff --git a/module_drivers/drivers/video/fbdev/ingenic/jz_mipi_dsi/jz_mipi_dsih_hal.c b/module_drivers/drivers/video/fbdev/ingenic/jz_mipi_dsi/jz_mipi_dsih_hal.c
 new file mode 100644
-index 000000000..3b771929e
+index 0000000000000000000000000000000000000000..3b771929ebb402992eb275894ca42fb969c5e742
 --- /dev/null
 +++ b/module_drivers/drivers/video/fbdev/ingenic/jz_mipi_dsi/jz_mipi_dsih_hal.c
 @@ -0,0 +1,1247 @@
@@ -71059,7 +70435,7 @@ index 000000000..3b771929e
 +}
 diff --git a/module_drivers/drivers/video/fbdev/ingenic/jz_mipi_dsi/jz_mipi_dsih_hal.h b/module_drivers/drivers/video/fbdev/ingenic/jz_mipi_dsi/jz_mipi_dsih_hal.h
 new file mode 100644
-index 000000000..b2c31c93b
+index 0000000000000000000000000000000000000000..b2c31c93bf624554c337b802d2265ffe7868d123
 --- /dev/null
 +++ b/module_drivers/drivers/video/fbdev/ingenic/jz_mipi_dsi/jz_mipi_dsih_hal.h
 @@ -0,0 +1,147 @@
@@ -71212,14 +70588,14 @@ index 000000000..b2c31c93b
 +#endif /* MIPI_DSI_API_H_ */
 diff --git a/module_drivers/drivers/video/logo-ingenic/.gitignore b/module_drivers/drivers/video/logo-ingenic/.gitignore
 new file mode 100644
-index 000000000..c13fd5203
+index 0000000000000000000000000000000000000000..c13fd52032dee60c38c5f1f10809edded8517d03
 --- /dev/null
 +++ b/module_drivers/drivers/video/logo-ingenic/.gitignore
 @@ -0,0 +1 @@
 +logo.c
 diff --git a/module_drivers/drivers/video/logo-ingenic/Kconfig b/module_drivers/drivers/video/logo-ingenic/Kconfig
 new file mode 100644
-index 000000000..38a766ac7
+index 0000000000000000000000000000000000000000..38a766ac730efd986d2ec4715234e8e02680de89
 --- /dev/null
 +++ b/module_drivers/drivers/video/logo-ingenic/Kconfig
 @@ -0,0 +1,19 @@
@@ -71244,7 +70620,7 @@ index 000000000..38a766ac7
 +         set default background color.
 diff --git a/module_drivers/drivers/video/logo-ingenic/Makefile b/module_drivers/drivers/video/logo-ingenic/Makefile
 new file mode 100644
-index 000000000..a643e00dc
+index 0000000000000000000000000000000000000000..a643e00dc9683a729771f22becc5f38a778d4f65
 --- /dev/null
 +++ b/module_drivers/drivers/video/logo-ingenic/Makefile
 @@ -0,0 +1,12 @@
@@ -71619,7 +70995,7 @@ HcmV?d00001
 
 diff --git a/module_drivers/drivers/video/logo-ingenic/showlogo.c b/module_drivers/drivers/video/logo-ingenic/showlogo.c
 new file mode 100644
-index 000000000..f42770110
+index 0000000000000000000000000000000000000000..f42770110373c89a89de9253b60fca58b89f8c6b
 --- /dev/null
 +++ b/module_drivers/drivers/video/logo-ingenic/showlogo.c
 @@ -0,0 +1,132 @@
@@ -71757,7 +71133,7 @@ index 000000000..f42770110
 +//EXPORT_SYMBOL(logo_buf_initdata);
 diff --git a/module_drivers/drivers/watchdog/Kconfig b/module_drivers/drivers/watchdog/Kconfig
 new file mode 100644
-index 000000000..010b546d0
+index 0000000000000000000000000000000000000000..010b546d0f9a89a5f2529b7d759109e52381e7b3
 --- /dev/null
 +++ b/module_drivers/drivers/watchdog/Kconfig
 @@ -0,0 +1,20 @@
@@ -71783,14 +71159,14 @@ index 000000000..010b546d0
 +
 diff --git a/module_drivers/drivers/watchdog/Makefile b/module_drivers/drivers/watchdog/Makefile
 new file mode 100644
-index 000000000..dd6f22d48
+index 0000000000000000000000000000000000000000..dd6f22d4827556444b164ed148c5d06f4c225ba2
 --- /dev/null
 +++ b/module_drivers/drivers/watchdog/Makefile
 @@ -0,0 +1 @@
 +obj-$(CONFIG_INGENIC_WDT) += ingenic_wdt.o
 diff --git a/module_drivers/drivers/watchdog/ingenic_wdt.c b/module_drivers/drivers/watchdog/ingenic_wdt.c
 new file mode 100644
-index 000000000..089701465
+index 0000000000000000000000000000000000000000..0897014652c7cfbde51c2db2bb9bfe83bacf8b11
 --- /dev/null
 +++ b/module_drivers/drivers/watchdog/ingenic_wdt.c
 @@ -0,0 +1,365 @@
@@ -72161,7 +71537,7 @@ index 000000000..089701465
 +MODULE_ALIAS("platform:ingenic-wdt");
 diff --git a/module_drivers/drivers/watchdog/ingenic_wdt.h b/module_drivers/drivers/watchdog/ingenic_wdt.h
 new file mode 100644
-index 000000000..4aff0f2c0
+index 0000000000000000000000000000000000000000..4aff0f2c0557ddd162d492948d8a7eb88b169cc6
 --- /dev/null
 +++ b/module_drivers/drivers/watchdog/ingenic_wdt.h
 @@ -0,0 +1,65 @@
@@ -72232,7 +71608,7 @@ index 000000000..4aff0f2c0
 +#endif /* __INGENIC_WDT_H__*/
 diff --git a/module_drivers/dts/Makefile b/module_drivers/dts/Makefile
 new file mode 100644
-index 000000000..95352f13c
+index 0000000000000000000000000000000000000000..95352f13c44b96abea8f6899e1b2186ef2b4c178
 --- /dev/null
 +++ b/module_drivers/dts/Makefile
 @@ -0,0 +1,30 @@
@@ -72266,189 +71642,9 @@ index 000000000..95352f13c
 +
 +dtb-$(CONFIG_DT_ENDER3_V3_KE) += x2000/ender3-v3-ke.dtb
 +obj-$(CONFIG_BUILTIN_DTB)	+= $(addsuffix .o, $(dtb-y))
-diff --git a/module_drivers/dts/x2000/ender3-v3-ke.dts b/module_drivers/dts/x2000/ender3-v3-ke.dts
-new file mode 100644
-index 000000000..38ae644f4
---- /dev/null
-+++ b/module_drivers/dts/x2000/ender3-v3-ke.dts
-@@ -0,0 +1,174 @@
-+/dts-v1/;
-+
-+#include <dt-bindings/gpio/gpio.h>
-+#include "x2000.dtsi"
-+
-+/ {
-+	compatible = "creality,ender-3-v3-ke", "ingenic,x2000";
-+
-+	chosen {
-+		/* UART1 is reserved for the printer MCU and must not be the console. */
-+		bootargs = "console=ttyS4,115200 root=/dev/mmcblk0p8 rootwait rootfstype=squashfs ro";
-+	};
-+
-+	backlight {
-+		compatible = "gpio-backlight";
-+		gpios = <&gpc 22 GPIO_ACTIVE_HIGH INGENIC_GPIO_NOBIAS>;
-+	};
-+
-+	/*
-+	 * Ender-3 V3 KE onboard passive piezo on PC03 / X2000 PWM3.
-+	 * The X2000 pinctrl include already provides pwm3_pc for this pin.
-+	 */
-+	beeper {
-+		compatible = "pwm-beeper";
-+		pwms = <&pwm 3 1000000>;
-+		pinctrl-names = "default";
-+		pinctrl-0 = <&pwm3_pc>;
-+	};
-+
-+	fre3nder_panel: fre3nder-panel {
-+		compatible = "fre3nder,ender3-v3-ke-480x272";
-+		ingenic,rst-gpio = <&gpb 16 GPIO_ACTIVE_HIGH INGENIC_GPIO_NOBIAS>;
-+	};
-+
-+	memory@0 {
-+		device_type = "memory";
-+		reg = <0x0 0x10000000>;
-+	};
-+
-+	wifi_bt_power: wifi-bt-power {
-+		compatible = "regulator-fixed";
-+		regulator-name = "wifi_bt_power";
-+		regulator-min-microvolt = <3300000>;
-+		regulator-max-microvolt = <3300000>;
-+		gpio = <&gpa 1 GPIO_ACTIVE_LOW INGENIC_GPIO_NOBIAS>;
-+		regulator-always-on;
-+		regulator-boot-on;
-+	};
-+
-+	/*
-+	 * Onboard ADXL345 wiring and polarities, externally hardware-qualified by
-+	 * OpenKE/NebulaOS at commit 95f770a858a1076f7ffdb6b4541181034862f57e:
-+	 * https://github.com/coreflake1/NebulaOS-firmware/blob/95f770a858a1076f7ffdb6b4541181034862f57e/scripts/build/accelerometer-eeprom-bus-enable-variant.sh
-+	 * Fre3nder checked the polarity interpretation against the pinned Linux
-+	 * 6.6.18 spi-gpio driver. The spidev-compatible token is from that kernel's
-+	 * allowlist; it is not an assertion that a ROHM device is fitted.
-+	 */
-+	adxl_spi: spi-gpio-adxl345 {
-+		compatible = "spi-gpio";
-+		#address-cells = <1>;
-+		#size-cells = <0>;
-+		sck-gpios = <&gpe 16 GPIO_ACTIVE_HIGH INGENIC_GPIO_NOBIAS>;
-+		mosi-gpios = <&gpe 17 GPIO_ACTIVE_HIGH INGENIC_GPIO_NOBIAS>;
-+		miso-gpios = <&gpe 18 GPIO_ACTIVE_HIGH INGENIC_GPIO_NOBIAS>;
-+		cs-gpios = <&gpe 21 GPIO_ACTIVE_LOW INGENIC_GPIO_NOBIAS>;
-+		num-chipselects = <1>;
-+
-+		spidev@0 {
-+			compatible = "rohm,dh2228fv";
-+			reg = <0>;
-+			spi-max-frequency = <2000000>;
-+		};
-+	};
-+};
-+
-+&aliases {
-+	spi2 = &adxl_spi;
-+};
-+
-+&uart1_pin {
-+	uart1_pc_txrx: uart1-pc-txrx {
-+		ingenic,pinmux = <&gpc 23 24>;
-+		ingenic,pinmux-funcsel = <PINCTL_FUNCTION1>;
-+	};
-+};
-+
-+&uart1 {
-+	status = "okay";
-+	pinctrl-names = "default";
-+	pinctrl-0 = <&uart1_pc_txrx>;
-+};
-+
-+&msc0 {
-+	status = "okay";
-+	pinctrl-names = "default";
-+	pinctrl-0 = <&msc0_8bit>;
-+	mmc-hs200-1_8v;
-+	cap-mmc-highspeed;
-+	non-removable;
-+	max-frequency = <100000000>;
-+	bus-width = <8>;
-+	voltage-ranges = <1800 3300>;
-+	ingenic,rst-gpios = <0>;
-+};
-+
-+&msc1 {
-+	status = "okay";
-+	pinctrl-names = "default", "enable", "disable";
-+	pinctrl-0 = <&msc1_4bit>;
-+	pinctrl-1 = <&rtc32k_enable>;
-+	pinctrl-2 = <&rtc32k_disable>;
-+	cap-sd-highspeed;
-+	max-frequency = <100000000>;
-+	bus-width = <4>;
-+	voltage-ranges = <1800 3300>;
-+	non-removable;
-+	vmmc-supply = <&wifi_bt_power>;
-+	keep-power-in-suspend;
-+	ingenic,sdio_clk = <1>;
-+	ingenic,removal-manual;
-+	wlan-reg-on-gpios = <&gpd 4 GPIO_ACTIVE_HIGH INGENIC_GPIO_NOBIAS>;
-+};
-+
-+&otg {
-+	dr_mode = "otg";
-+	status = "okay";
-+};
-+
-+&otg_phy {
-+	/*
-+	 * Ender-3 V3 KE USB PHY wiring. GPC9 is not guessed: NebulaOS/OpenKE
-+	 * documents it as the VBUS-drive GPIO derived from the real Stock DTB:
-+	 * coreflake1/NebulaOS-kernel, commit
-+	 * c902097d1a79c21ef6717d7e4ecc1db2a9233990:
-+	 * https://github.com/coreflake1/NebulaOS-kernel/commit/c902097d1a79c21ef6717d7e4ecc1db2a9233990
-+	 *
-+	 * Fre3nder independently checked that the pinned X2000 USB PHY driver
-+	 * consumes this property with matching active-high semantics. GPD17
-+	 * VBUS-detect is likewise taken from that documented board configuration
-+	 * and checked against the local driver semantics.
-+	 */
-+	status = "okay";
-+	ingenic,vbus-dete-gpio = <&gpd 17 GPIO_ACTIVE_LOW INGENIC_GPIO_NOBIAS>;
-+	ingenic,drvvbus-gpio = <&gpc 9 GPIO_ACTIVE_HIGH INGENIC_GPIO_NOBIAS>;
-+};
-+
-+&uart3 {
-+	/*
-+	 * UART3 and I2C4 share GPC25/GPC26 on the Ender-3 V3 KE.
-+	 * Touch owns the static pinmux; Bluetooth would require a separate
-+	 * runtime pin hand-off if implemented later.
-+	 */
-+	status = "disabled";
-+};
-+
-+&i2c4 {
-+	status = "okay";
-+	pinctrl-names = "default";
-+	pinctrl-0 = <&i2c4_pc>;
-+
-+	touchscreen@48 {
-+		compatible = "nsiway,ns2009";
-+		reg = <0x48>;
-+		pendown-gpios = <&gpc 15 GPIO_ACTIVE_LOW INGENIC_GPIO_NOBIAS>;
-+	};
-+};
-+
-+&watchdog {
-+	status = "okay";
-+};
-+
-+&dpu {
-+	status = "okay";
-+};
 diff --git a/module_drivers/dts/x2000/x2000-pinctrl.dtsi b/module_drivers/dts/x2000/x2000-pinctrl.dtsi
 new file mode 100644
-index 000000000..5b7b30aa0
+index 0000000000000000000000000000000000000000..5b7b30aa0d21d82e87df63c495fa8647bd2acec9
 --- /dev/null
 +++ b/module_drivers/dts/x2000/x2000-pinctrl.dtsi
 @@ -0,0 +1,670 @@
@@ -73124,7 +72320,7 @@ index 000000000..5b7b30aa0
 +
 diff --git a/module_drivers/dts/x2000/x2000.dtsi b/module_drivers/dts/x2000/x2000.dtsi
 new file mode 100644
-index 000000000..ac3cf80d5
+index 0000000000000000000000000000000000000000..ac3cf80d53f160f9b741654704ea8acab0e74d17
 --- /dev/null
 +++ b/module_drivers/dts/x2000/x2000.dtsi
 @@ -0,0 +1,965 @@
@@ -74095,7 +73291,7 @@ index 000000000..ac3cf80d5
 +#include "x2000-pinctrl.dtsi"
 diff --git a/module_drivers/include/dt-bindings/clock/ingenic-tcu.h b/module_drivers/include/dt-bindings/clock/ingenic-tcu.h
 new file mode 100644
-index 000000000..e1e1a6af4
+index 0000000000000000000000000000000000000000..e1e1a6af482eba1c9274a13b8a6d3730fae8ac8c
 --- /dev/null
 +++ b/module_drivers/include/dt-bindings/clock/ingenic-tcu.h
 @@ -0,0 +1,29 @@
@@ -74130,7 +73326,7 @@ index 000000000..e1e1a6af4
 +#endif /* __DT_BINDINGS_CLOCK_INGENIC_TCU_H__ */
 diff --git a/module_drivers/include/dt-bindings/clock/ingenic-x2000.h b/module_drivers/include/dt-bindings/clock/ingenic-x2000.h
 new file mode 100644
-index 000000000..1a9e6772c
+index 0000000000000000000000000000000000000000..1a9e6772cb1ef5c3d3f19090033c7ece91628521
 --- /dev/null
 +++ b/module_drivers/include/dt-bindings/clock/ingenic-x2000.h
 @@ -0,0 +1,199 @@
@@ -74335,7 +73531,7 @@ index 000000000..1a9e6772c
 +#endif
 diff --git a/module_drivers/include/dt-bindings/dma/ingenic-pdma-x2000.h b/module_drivers/include/dt-bindings/dma/ingenic-pdma-x2000.h
 new file mode 100644
-index 000000000..b7dd2a6d9
+index 0000000000000000000000000000000000000000..b7dd2a6d9f594d3dae4b5e05d6734d4302be0a8d
 --- /dev/null
 +++ b/module_drivers/include/dt-bindings/dma/ingenic-pdma-x2000.h
 @@ -0,0 +1,45 @@
@@ -74386,7 +73582,7 @@ index 000000000..b7dd2a6d9
 +#endif  /* __INGENIC_PDMA_X2000_H__ */
 diff --git a/module_drivers/include/dt-bindings/dma/ingenic-pdma.h b/module_drivers/include/dt-bindings/dma/ingenic-pdma.h
 new file mode 100644
-index 000000000..78e490f93
+index 0000000000000000000000000000000000000000..78e490f9340249628db17d4181efc10ada78d20e
 --- /dev/null
 +++ b/module_drivers/include/dt-bindings/dma/ingenic-pdma.h
 @@ -0,0 +1,53 @@
@@ -74445,7 +73641,7 @@ index 000000000..78e490f93
 +#endif  /* __INGENIC_PDMA_H__ */
 diff --git a/module_drivers/include/dt-bindings/gpio/ingenic-gpio.h b/module_drivers/include/dt-bindings/gpio/ingenic-gpio.h
 new file mode 100644
-index 000000000..9cf0debd2
+index 0000000000000000000000000000000000000000..9cf0debd2725a3655048d71b85180b8d421b0531
 --- /dev/null
 +++ b/module_drivers/include/dt-bindings/gpio/ingenic-gpio.h
 @@ -0,0 +1,7 @@
@@ -74458,7 +73654,7 @@ index 000000000..9cf0debd2
 +#endif
 diff --git a/module_drivers/include/dt-bindings/interrupt-controller/mips-irq.h b/module_drivers/include/dt-bindings/interrupt-controller/mips-irq.h
 new file mode 100644
-index 000000000..d5e416b4b
+index 0000000000000000000000000000000000000000..d5e416b4b3106922c9effa5acf05bcf39c0288ff
 --- /dev/null
 +++ b/module_drivers/include/dt-bindings/interrupt-controller/mips-irq.h
 @@ -0,0 +1,16 @@
@@ -74480,7 +73676,7 @@ index 000000000..d5e416b4b
 +#endif
 diff --git a/module_drivers/include/dt-bindings/interrupt-controller/x2000-irq.h b/module_drivers/include/dt-bindings/interrupt-controller/x2000-irq.h
 new file mode 100644
-index 000000000..3040d2344
+index 0000000000000000000000000000000000000000..3040d23442cc7739c1e1cc0d5e29e1c293ec3805
 --- /dev/null
 +++ b/module_drivers/include/dt-bindings/interrupt-controller/x2000-irq.h
 @@ -0,0 +1,72 @@
@@ -74558,7 +73754,7 @@ index 000000000..3040d2344
 +#endif
 diff --git a/module_drivers/include/dt-bindings/net/ingenic_gmac.h b/module_drivers/include/dt-bindings/net/ingenic_gmac.h
 new file mode 100644
-index 000000000..9f3deae22
+index 0000000000000000000000000000000000000000..9f3deae2271d1582204a16fdeb60613fc1dd5d97
 --- /dev/null
 +++ b/module_drivers/include/dt-bindings/net/ingenic_gmac.h
 @@ -0,0 +1,19 @@
@@ -74583,7 +73779,7 @@ index 000000000..9f3deae22
 +#endif
 diff --git a/module_drivers/include/dt-bindings/pinctrl/ingenic-pinctrl.h b/module_drivers/include/dt-bindings/pinctrl/ingenic-pinctrl.h
 new file mode 100644
-index 000000000..4ebf80d93
+index 0000000000000000000000000000000000000000..4ebf80d9374c4c8dfac6262c5e98cd5377109f8e
 --- /dev/null
 +++ b/module_drivers/include/dt-bindings/pinctrl/ingenic-pinctrl.h
 @@ -0,0 +1,76 @@
@@ -74665,7 +73861,7 @@ index 000000000..4ebf80d93
 +#endif /*_DT_INGENIC_PINCTL_H__*/
 diff --git a/module_drivers/include/dt-bindings/sound/ingenic-baic.h b/module_drivers/include/dt-bindings/sound/ingenic-baic.h
 new file mode 100644
-index 000000000..74e5aba85
+index 0000000000000000000000000000000000000000..74e5aba85e0c845ff853a8ed1967243be41f8141
 --- /dev/null
 +++ b/module_drivers/include/dt-bindings/sound/ingenic-baic.h
 @@ -0,0 +1,34 @@
@@ -74705,7 +73901,7 @@ index 000000000..74e5aba85
 +#endif /*__INGENIC_BAIC_H__*/
 diff --git a/module_drivers/include/media/ingenic_video_nr.h b/module_drivers/include/media/ingenic_video_nr.h
 new file mode 100644
-index 000000000..d8d710d7a
+index 0000000000000000000000000000000000000000..d8d710d7a8952f4a21058d767096aca672114f04
 --- /dev/null
 +++ b/module_drivers/include/media/ingenic_video_nr.h
 @@ -0,0 +1,23 @@
@@ -74734,7 +73930,7 @@ index 000000000..d8d710d7a
 +#endif
 diff --git a/module_drivers/include/media/videobuf2-dma-contig-ingenic.h b/module_drivers/include/media/videobuf2-dma-contig-ingenic.h
 new file mode 100644
-index 000000000..173a5b16b
+index 0000000000000000000000000000000000000000..173a5b16b1a99b879d7e32e64c8601166f8998a0
 --- /dev/null
 +++ b/module_drivers/include/media/videobuf2-dma-contig-ingenic.h
 @@ -0,0 +1,32 @@
@@ -74772,7 +73968,7 @@ index 000000000..173a5b16b
 +#endif
 diff --git a/module_drivers/include/mfd/ingenic-tcu_v2.h b/module_drivers/include/mfd/ingenic-tcu_v2.h
 new file mode 100644
-index 000000000..d9cb19201
+index 0000000000000000000000000000000000000000..d9cb192019254ffdb56e0ff01c0dc5f0a5e8182d
 --- /dev/null
 +++ b/module_drivers/include/mfd/ingenic-tcu_v2.h
 @@ -0,0 +1,386 @@
@@ -75164,7 +74360,7 @@ index 000000000..d9cb19201
 +#endif /* __ingenic_TCU_H__ */
 diff --git a/module_drivers/include/user_triggered_module_init.h b/module_drivers/include/user_triggered_module_init.h
 new file mode 100644
-index 000000000..fb23914c6
+index 0000000000000000000000000000000000000000..fb23914c60133d73d36c2a819bb882bf7341eae5
 --- /dev/null
 +++ b/module_drivers/include/user_triggered_module_init.h
 @@ -0,0 +1,49 @@
@@ -75219,7 +74415,7 @@ index 000000000..fb23914c6
 +#endif
 \ No newline at end of file
 diff --git a/scripts/Makefile b/scripts/Makefile
-index 576cf64be..a4d08297f 100644
+index 576cf64be6677c28e1a048e082594e303a4c7f78..a4d08297f393866e83a3210a96de20c37cc6c853 100644
 --- a/scripts/Makefile
 +++ b/scripts/Makefile
 @@ -12,6 +12,7 @@ hostprogs-always-$(CONFIG_SYSTEM_EXTRA_CERTIFICATE)	+= insert-sys-cert
@@ -75239,7 +74435,7 @@ index 576cf64be..a4d08297f 100644
  HOSTLDLIBS_sorttable = -lpthread
  HOSTCFLAGS_asn1_compiler.o = -I$(srctree)/include
 diff --git a/scripts/Makefile.lib b/scripts/Makefile.lib
-index 4aecfb0a0..c7282efa8 100644
+index 4aecfb0a0ef6ae3a2322e99701440957511f0433..c7282efa86b6f6258c908b214fde754395044e7d 100644
 --- a/scripts/Makefile.lib
 +++ b/scripts/Makefile.lib
 @@ -243,9 +243,12 @@ cpp_flags      = -Wp,-MMD,$(depfile) $(NOSTDINC_FLAGS) $(LINUXINCLUDE)     \
@@ -75258,7 +74454,7 @@ index 4aecfb0a0..c7282efa8 100644
  ifdef CONFIG_OBJTOOL
 diff --git a/scripts/pic2logo-include/stb_image/stb_image.h b/scripts/pic2logo-include/stb_image/stb_image.h
 new file mode 100644
-index 000000000..00e766689
+index 0000000000000000000000000000000000000000..00e766689e75fe8b5a49d563afa503e65b589392
 --- /dev/null
 +++ b/scripts/pic2logo-include/stb_image/stb_image.h
 @@ -0,0 +1,7464 @@
@@ -82728,7 +81924,7 @@ index 000000000..00e766689
 +*/
 diff --git a/scripts/pic2logo-include/stb_image/stb_image_resize.h b/scripts/pic2logo-include/stb_image/stb_image_resize.h
 new file mode 100644
-index 000000000..031ca99dc
+index 0000000000000000000000000000000000000000..031ca99dc35627da0725862350023c659f79ae05
 --- /dev/null
 +++ b/scripts/pic2logo-include/stb_image/stb_image_resize.h
 @@ -0,0 +1,2627 @@
@@ -85361,7 +84557,7 @@ index 000000000..031ca99dc
 +*/
 diff --git a/scripts/pic2logo-include/stb_image/stb_image_write.h b/scripts/pic2logo-include/stb_image/stb_image_write.h
 new file mode 100644
-index 000000000..b6e717818
+index 0000000000000000000000000000000000000000..b6e71781895885f4b1cc7ef59d71016f86389167
 --- /dev/null
 +++ b/scripts/pic2logo-include/stb_image/stb_image_write.h
 @@ -0,0 +1,1568 @@
@@ -86935,7 +86131,7 @@ index 000000000..b6e717818
 +*/
 diff --git a/scripts/pic2logo.c b/scripts/pic2logo.c
 new file mode 100644
-index 000000000..f08e74b17
+index 0000000000000000000000000000000000000000..f08e74b1751c6b5e754fb337b48b73a2291776c1
 --- /dev/null
 +++ b/scripts/pic2logo.c
 @@ -0,0 +1,147 @@

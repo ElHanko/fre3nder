@@ -1,0 +1,77 @@
+diff --git a/module_drivers/drivers/mmc/host/ingenic_sdio.c b/module_drivers/drivers/mmc/host/ingenic_sdio.c
+index a000a0ca07d426050d3c0f17e77c93ca794a5956..5d9722ee60a73a3e6b443a0645a26137fa33a7d9 100644
+--- a/module_drivers/drivers/mmc/host/ingenic_sdio.c
++++ b/module_drivers/drivers/mmc/host/ingenic_sdio.c
+@@ -159,3 +159,12 @@ int ingenic_bcmdhd_wlan_power_onoff(int flag)
+ 
+ }
+ EXPORT_SYMBOL(ingenic_bcmdhd_wlan_power_onoff);
++
++static int __init ender3_v3_ke_wifi_manual_insert(void)
++{
++	if (wifi_data.sdio_index != 1)
++		return 0;
++
++	return ingenic_bcmdhd_wlan_power_onoff(MANUALLY_INSERT);
++}
++late_initcall(ender3_v3_ke_wifi_manual_insert);
+diff --git a/module_drivers/drivers/mmc/host/sdhci-ingenic.c b/module_drivers/drivers/mmc/host/sdhci-ingenic.c
+index a9ed7b1c338ca2a3260c1d8b6ac9429c7c1b7f41..0e11b25a9ba80442892fb2a8493c019225b17a1b 100644
+--- a/module_drivers/drivers/mmc/host/sdhci-ingenic.c
++++ b/module_drivers/drivers/mmc/host/sdhci-ingenic.c
+@@ -19,6 +19,9 @@
+ #include "sdhci.h"
+ #include "sdhci-ingenic.h"
+ 
++extern void mmc_power_up(struct mmc_host *host, u32 ocr);
++extern void mmc_power_off(struct mmc_host *host);
++
+ #define CLK_CTRL
+ /* Software redefinition caps */
+ #define CAPABILITIES1_SW    0x276dc898
+@@ -314,6 +317,14 @@ int ingenic_mmc_manual_detect(int index, int on)
+ 	if (on) {
+ 		dev_err(&sdhci_ing->pdev->dev, "card insert manually\n");
+ 		set_bit(INGENIC_MMC_CARD_PRESENT, &sdhci_ing->flags);
++		if (index == 1 && sdhci_ing->wlan_reg_on) {
++			cancel_delayed_work_sync(&host->mmc->detect);
++			mmc_power_off(host->mmc);
++			gpiod_set_raw_value_cansleep(sdhci_ing->wlan_reg_on, 0);
++			msleep(100);
++			mmc_power_up(host->mmc, host->mmc->ocr_avail);
++			gpiod_set_raw_value_cansleep(sdhci_ing->wlan_reg_on, 1);
++		}
+ #ifdef CLK_CTRL
+ 		ingenic_mmc_clk_onoff(sdhci_ing, 1);
+ #endif
+@@ -520,6 +531,18 @@ static int sdhci_ingenic_probe(struct platform_device *pdev)
+ 	sdhci_ing->pdev = pdev;
+ 	sdhci_ing->pdata = pdata;
+ 
++	if (pdev->id == 1) {
++		sdhci_ing->wlan_reg_on = devm_gpiod_get_optional(dev,
++			"wlan-reg-on", GPIOD_ASIS);
++		if (IS_ERR(sdhci_ing->wlan_reg_on))
++			return PTR_ERR(sdhci_ing->wlan_reg_on);
++		if (sdhci_ing->wlan_reg_on) {
++			ret = gpiod_direction_output_raw(sdhci_ing->wlan_reg_on, 0);
++			if (ret)
++				return ret;
++		}
++	}
++
+ 	host->ioaddr = of_iomap(pdev->dev.of_node, 0);
+ 	if (IS_ERR(host->ioaddr)) {
+ 		return PTR_ERR(host->ioaddr);
+diff --git a/module_drivers/drivers/mmc/host/sdhci-ingenic.h b/module_drivers/drivers/mmc/host/sdhci-ingenic.h
+index 2f9d611eaa874122bc44728128a16811f9080be0..0f96dea11949dc3b8b8f634ac9fa1bb40ec0565d 100644
+--- a/module_drivers/drivers/mmc/host/sdhci-ingenic.h
++++ b/module_drivers/drivers/mmc/host/sdhci-ingenic.h
+@@ -83,6 +83,7 @@ struct sdhci_ingenic {
+ 	int             ext_cd_gpio;
+ 	unsigned long           clk_rates;
+ 	unsigned long           flags;
++	struct gpio_desc        *wlan_reg_on;
+ };
+ 
+ int ingenic_sdio_wlan_init(struct device *dev, int index);

@@ -45,16 +45,45 @@ The RootFS uses an XBurst II target patch against upstream Buildroot and an
 internal Buildroot toolchain. The patch records its exact Ingenic SDK and
 upstream Buildroot provenance; no Ingenic userspace toolchain is redistributed.
 
-The productive kernel source is reconstructed from the pinned public Linux
-`v6.6.18-rt23` baseline at commit
-`fc3c8f4093aa9e32e67a51ba5eebd7338195b746`. Fre3nder applies the complete
-Ingenic kernel delta recorded in
-`patches/kernel/0001-ingenic-x2000-vendor-delta-v6.6.18-rt23.patch`. The
-resulting source tree is verified against Ingenic vendor tree
-`30cd72f68ffa1739f7f5b8d1158aad5f7d5a97f8`, derived from public Ingenic SDK
-commit `a98c2e1f22e4263ddd4153a4eca4db4dcfd2777b`. The Ingenic SDK is therefore
-vendor-delta provenance and reference material rather than a productive kernel
-source checkout.
+The productive kernel source starts from the official stable Linux
+`v6.6.157` release at commit
+`79643295eba17affbd16ca97f3ef04c90266b28c`, tree
+`e2963aecbdc92c10a52434a5ae11a82522dc38d5`.
+
+Fre3nder applies an ordered five-patch hardware-support series from
+`patches/kernel/`:
+
+1. `0001-ingenic-x2000-platform-v6.6.157.patch` contains the retained
+   Ingenic-derived X2000 platform support after Fre3nder pruning and
+   forward-porting.
+2. `0002-ender3-v3-ke-display-v6.6.157.patch` contains the Ender-3 V3 KE
+   display integration derived from the public NebulaOS/OpenKE implementation.
+3. `0003-ns2009-touch-v6.6.157.patch` contains the NS2009 touchscreen
+   integration derived from the public NebulaOS/OpenKE implementation.
+4. `0004-ingenic-ender3-v3-ke-wlan-v6.6.157.patch` contains the retained
+   Ingenic-derived WLAN power/reset/detect integration required by the
+   qualified Ender-3 V3 KE path.
+5. `0005-fre3nder-ender3-v3-ke-integration-v6.6.157.patch` contains
+   Fre3nder's board integration and the concrete forward-port adaptations
+   required for Linux `v6.6.157`.
+
+The Ingenic-derived layers are traceable to the public Ingenic X2000 kernel
+repository at commit
+`a98c2e1f22e4263ddd4153a4eca4db4dcfd2777b`. The display and touch layers
+record their derivation from `coreflake1/NebulaOS-kernel` at commit
+`88a0e1ecc6ace7c9e4ad99d6fa49e272180fd5a9`.
+
+Applied in order, the five patches produce source tree
+`40d8b5cee4341505c12373e9bb1386e80241f0d6`. This is exactly the same source
+tree that was built and hardware-qualified as `6.6.157-fre3nder` before the
+monolithic migration delta was mechanically split by provenance.
+
+The historical Ingenic SDK and RT23 trees remain provenance and migration
+reference material. Neither is a productive kernel source checkout.
+
+All files under `patches/kernel/**` are classified as `GPL-2.0-only` by
+`REUSE.toml`; upstream and third-party copyright notices remain applicable
+where present.
 
 Kernel and RootFS are both built with the upstream Buildroot internal GCC
 13.4.0/binutils 2.43.1 toolchain. They remain separate compiler contracts:

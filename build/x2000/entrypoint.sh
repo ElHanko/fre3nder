@@ -48,8 +48,12 @@ kernel_tag=v6.6.157
 kernel_commit=79643295eba17affbd16ca97f3ef04c90266b28c
 kernel_baseline_tree=e2963aecbdc92c10a52434a5ae11a82522dc38d5
 kernel_fre3nder_tree=40d8b5cee4341505c12373e9bb1386e80241f0d6
-kernel_fre3nder_patch="$project/patches/kernel/0001-fre3nder-x2000-direct-delta-v6.6.157.patch"
-kernel_fre3nder_patch_sha256=3d44d87703ffd6889c515a6010b23d8c83411c905c3c289b8b6db57030147795
+kernel_fre3nder_patch_dir="$project/patches/kernel"
+kernel_fre3nder_patch_series='0001-ingenic-x2000-platform-v6.6.157.patch:df0ab5b4f8041faf8aa715500dd9f3c4aa4c6e34360bdf03836c4a1487da072e
+0002-ender3-v3-ke-display-v6.6.157.patch:50e4ff298bea856a91183482ef8ed4d6578c6860e50833986601d9072f9c6516
+0003-ns2009-touch-v6.6.157.patch:121c9ed5f0123864c21077a7dfb207d9b1f366bb783df8dd18916eff0fa04ac5
+0004-ingenic-ender3-v3-ke-wlan-v6.6.157.patch:01a8a472de7235f06630e599ade5645aed9c803c0a2e7c516a97362eb2578085
+0005-fre3nder-ender3-v3-ke-integration-v6.6.157.patch:08f9eb4bf44d69d7083253b2d75f102e440f20bd0ccb41fdbf011fcefe8f4b30'
 kernel_release=6.6.157-fre3nder
 buildroot_url=https://gitlab.com/buildroot.org/buildroot.git
 buildroot_version=2025.02.18
@@ -1140,20 +1144,30 @@ prepare_kernel() {
 	[ "$(git -C "$k" rev-parse HEAD)" = "$kernel_commit" ]
 	[ "$(git -C "$k" rev-parse HEAD^{tree})" = "$kernel_baseline_tree" ]
 
-	actual_patch_sha256=$(sha256sum "$kernel_fre3nder_patch" | awk '{print $1}')
-	[ "$actual_patch_sha256" = "$kernel_fre3nder_patch_sha256" ] || {
-		echo "Fre3nder X2000 direct delta SHA256 mismatch" >&2
-		return 1
-	}
+	for patch_record in $kernel_fre3nder_patch_series; do
+		patch_name=${patch_record%%:*}
+		expected_patch_sha256=${patch_record#*:}
+		patch_path="$kernel_fre3nder_patch_dir/$patch_name"
+		actual_patch_sha256=$(sha256sum "$patch_path" | awk '{print $1}')
+		[ "$actual_patch_sha256" = "$expected_patch_sha256" ] || {
+			echo "Fre3nder kernel patch SHA256 mismatch: $patch_name" >&2
+			return 1
+		}
+	done
 
 	fre3nder_index="$work/kernel-fre3nder-index"
 	rm -f -- "$fre3nder_index"
 
 	GIT_INDEX_FILE="$fre3nder_index" git -C "$k" read-tree "$kernel_commit"
-	GIT_INDEX_FILE="$fre3nder_index" git -C "$k" apply \
-		--cached --whitespace=nowarn --check "$kernel_fre3nder_patch"
-	GIT_INDEX_FILE="$fre3nder_index" git -C "$k" apply \
-		--cached --whitespace=nowarn "$kernel_fre3nder_patch"
+
+	for patch_record in $kernel_fre3nder_patch_series; do
+		patch_name=${patch_record%%:*}
+		patch_path="$kernel_fre3nder_patch_dir/$patch_name"
+		GIT_INDEX_FILE="$fre3nder_index" git -C "$k" apply \
+			--cached --whitespace=nowarn --check "$patch_path"
+		GIT_INDEX_FILE="$fre3nder_index" git -C "$k" apply \
+			--cached --whitespace=nowarn "$patch_path"
+	done
 
 	actual_fre3nder_tree=$(
 		GIT_INDEX_FILE="$fre3nder_index" git -C "$k" write-tree
@@ -1166,9 +1180,13 @@ prepare_kernel() {
 		return 1
 	}
 
-	git -C "$k" apply --whitespace=nowarn --check "$kernel_fre3nder_patch"
-	git -C "$k" apply --whitespace=nowarn "$kernel_fre3nder_patch"
-	git -C "$k" apply --reverse --check "$kernel_fre3nder_patch"
+	for patch_record in $kernel_fre3nder_patch_series; do
+		patch_name=${patch_record%%:*}
+		patch_path="$kernel_fre3nder_patch_dir/$patch_name"
+		git -C "$k" apply --whitespace=nowarn --check "$patch_path"
+		git -C "$k" apply --whitespace=nowarn "$patch_path"
+		git -C "$k" apply --reverse --check "$patch_path"
+	done
 
 	cp "$project/configs/x2000/kernel-fre3nder.defconfig" "$k/.config"
 	cat "$project/configs/x2000/kernel.fragment" >> "$k/.config"

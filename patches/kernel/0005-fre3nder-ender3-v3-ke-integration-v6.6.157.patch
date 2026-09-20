@@ -1,0 +1,287 @@
+diff --git a/drivers/mmc/host/sdhci.c b/drivers/mmc/host/sdhci.c
+index 90f334fa6cec43c506b67e7c098039f47a2307b7..6d32ec7a90ed8c2dde35a882bb32710fc833da5f 100644
+--- a/drivers/mmc/host/sdhci.c
++++ b/drivers/mmc/host/sdhci.c
+@@ -3607,12 +3607,14 @@ static void sdhci_data_irq(struct sdhci_host *host, u32 intmask)
+ 		host->data->error = -EILSEQ;
+ 		if (!mmc_op_tuning(SDHCI_GET_CMD(sdhci_readw(host, SDHCI_COMMAND)))) {
+ 			sdhci_err_stats_inc(host, DAT_CRC);
++		}
+ 	} else if ((intmask & (SDHCI_INT_DATA_CRC | SDHCI_INT_TUNING_ERROR)) &&
+ 		SDHCI_GET_CMD(sdhci_readw(host, SDHCI_COMMAND))
+ 			!= MMC_BUS_TEST_R) {
+ 		host->data->error = -EILSEQ;
+ 		if (!mmc_op_tuning(SDHCI_GET_CMD(sdhci_readw(host, SDHCI_COMMAND)))) {
+ 			sdhci_err_stats_inc(host, DAT_CRC);
++		}
+ 		if (intmask & SDHCI_INT_TUNING_ERROR) {
+ 			u16 ctrl2 = sdhci_readw(host, SDHCI_HOST_CONTROL2);
+ 
+diff --git a/drivers/usb/dwc2/core_intr.c b/drivers/usb/dwc2/core_intr.c
+index 97f6a79baf1281c2e17c6a8a826ab74046e8d41c..049885ce8ebf3aaeffb1e48537998d4bde65b636 100644
+--- a/drivers/usb/dwc2/core_intr.c
++++ b/drivers/usb/dwc2/core_intr.c
+@@ -333,7 +333,6 @@ static void dwc2_handle_session_req_intr(struct dwc2_hsotg *hsotg)
+ void dwc2_wakeup_from_lpm_l1(struct dwc2_hsotg *hsotg, bool remotewakeup)
+ {
+ 	u32 glpmcfg;
+-	u32 pcgctl;
+ 	u32 dctl;
+ 
+ 	if (hsotg->lx_state != DWC2_L1) {
+@@ -348,10 +347,6 @@ void dwc2_wakeup_from_lpm_l1(struct dwc2_hsotg *hsotg, bool remotewakeup)
+ 		glpmcfg &= ~GLPMCFG_HIRD_THRES_MASK;
+ 		dwc2_writel(hsotg, glpmcfg, GLPMCFG);
+ 
+-		pcgctl = dwc2_readl(hsotg, PCGCTL);
+-		pcgctl &= ~PCGCTL_ENBL_SLEEP_GATING;
+-		dwc2_writel(hsotg, pcgctl, PCGCTL);
+-
+ 		glpmcfg = dwc2_readl(hsotg, GLPMCFG);
+ 		if (glpmcfg & GLPMCFG_ENBESL) {
+ 			glpmcfg |= GLPMCFG_RSTRSLPSTS;
+diff --git a/module_drivers/drivers/clocksource/ingenic_core_ost.c b/module_drivers/drivers/clocksource/ingenic_core_ost.c
+index acce90baab38149fe54c522f9d53c74b4edb2760..f06d7937c5cfff178956642d32b49799e29ea375 100644
+--- a/module_drivers/drivers/clocksource/ingenic_core_ost.c
++++ b/module_drivers/drivers/clocksource/ingenic_core_ost.c
+@@ -481,8 +481,6 @@ static int __init ingenic_ost_init(struct device_node *np)
+ 	void __iomem *g_iobase = NULL;
+ 	void __iomem *core_iobase = NULL;
+ 	int irq = -1;
+-	struct property *prop;
+-	const unsigned int *vp;
+ 	unsigned int pv;
+ 	int index = 0;
+ 
+@@ -503,7 +501,7 @@ static int __init ingenic_ost_init(struct device_node *np)
+ 		return -EINVAL;
+ 	}
+ 
+-	of_property_for_each_u32(np, "cpu-ost-map", prop, vp, pv) {
++	of_property_for_each_u32(np, "cpu-ost-map", pv) {
+ 		if (index % 2) {
+ 			cpu_ost_map[index / 2].dev_base = (unsigned int)core_iobase + pv;
+ 		} else {
+diff --git a/module_drivers/drivers/irqchip/irq-ingenic-chip.c b/module_drivers/drivers/irqchip/irq-ingenic-chip.c
+index 0ea31b4d4d5a13be9bcd483ec9ffd41ae029fd40..da183365cc3415b3cda8949bcb96d9012f980c85 100644
+--- a/module_drivers/drivers/irqchip/irq-ingenic-chip.c
++++ b/module_drivers/drivers/irqchip/irq-ingenic-chip.c
+@@ -342,8 +342,6 @@ static int __init ingenic_intc_of_init(struct device_node *node)
+ 	struct irq_domain *domain;
+ 	struct irq_chip_data *chip = &irq_chips->chip_data;
+ 	int irq;
+-	struct property *prop;
+-	const unsigned int *vp;
+ 	unsigned int pv;
+ 	int index = 0;
+ 
+@@ -363,7 +361,7 @@ static int __init ingenic_intc_of_init(struct device_node *node)
+ 
+ 	irq_chips->irq = irq;
+ 
+-	of_property_for_each_u32(node, "cpu-intc-map", prop, vp, pv) {
++	of_property_for_each_u32(node, "cpu-intc-map", pv) {
+ 		if (index % 2) {
+ 			cpu_intc_map[index / 2].dev_base = (unsigned int)iobase + pv;
+ 		} else {
+diff --git a/module_drivers/drivers/pinctrl/pinctrl-ingenic.c b/module_drivers/drivers/pinctrl/pinctrl-ingenic.c
+index 69822206d0d4a10f027d667ba8dab05e38e4c4e3..c9a46433b45add3aa58608007c5ec07c1301e01c 100644
+--- a/module_drivers/drivers/pinctrl/pinctrl-ingenic.c
++++ b/module_drivers/drivers/pinctrl/pinctrl-ingenic.c
+@@ -638,14 +638,14 @@ static int ingenic_gpio_direction_input(struct gpio_chip *chip,
+                                         unsigned pin)
+ {
+ 	BUG_ON(pin > chip->ngpio);
+-	return pinctrl_gpio_direction_input(chip->base + pin);
++	return pinctrl_gpio_direction_input(chip, pin);
+ }
+ 
+ static int ingenic_gpio_direction_output(struct gpio_chip *chip,
+         unsigned pin, int value)
+ {
+ 	ingenic_gpio_set(chip, pin, value);
+-	return pinctrl_gpio_direction_output(chip->base + pin);
++	return pinctrl_gpio_direction_output(chip, pin);
+ }
+ 
+ static int ingenic_gpio_to_irq(struct gpio_chip *chip,
+diff --git a/module_drivers/dts/x2000/ender3-v3-ke.dts b/module_drivers/dts/x2000/ender3-v3-ke.dts
+new file mode 100644
+index 0000000000000000000000000000000000000000..38ae644f4409d5ae649bb23d865dfb8f5380b6d1
+--- /dev/null
++++ b/module_drivers/dts/x2000/ender3-v3-ke.dts
+@@ -0,0 +1,174 @@
++/dts-v1/;
++
++#include <dt-bindings/gpio/gpio.h>
++#include "x2000.dtsi"
++
++/ {
++	compatible = "creality,ender-3-v3-ke", "ingenic,x2000";
++
++	chosen {
++		/* UART1 is reserved for the printer MCU and must not be the console. */
++		bootargs = "console=ttyS4,115200 root=/dev/mmcblk0p8 rootwait rootfstype=squashfs ro";
++	};
++
++	backlight {
++		compatible = "gpio-backlight";
++		gpios = <&gpc 22 GPIO_ACTIVE_HIGH INGENIC_GPIO_NOBIAS>;
++	};
++
++	/*
++	 * Ender-3 V3 KE onboard passive piezo on PC03 / X2000 PWM3.
++	 * The X2000 pinctrl include already provides pwm3_pc for this pin.
++	 */
++	beeper {
++		compatible = "pwm-beeper";
++		pwms = <&pwm 3 1000000>;
++		pinctrl-names = "default";
++		pinctrl-0 = <&pwm3_pc>;
++	};
++
++	fre3nder_panel: fre3nder-panel {
++		compatible = "fre3nder,ender3-v3-ke-480x272";
++		ingenic,rst-gpio = <&gpb 16 GPIO_ACTIVE_HIGH INGENIC_GPIO_NOBIAS>;
++	};
++
++	memory@0 {
++		device_type = "memory";
++		reg = <0x0 0x10000000>;
++	};
++
++	wifi_bt_power: wifi-bt-power {
++		compatible = "regulator-fixed";
++		regulator-name = "wifi_bt_power";
++		regulator-min-microvolt = <3300000>;
++		regulator-max-microvolt = <3300000>;
++		gpio = <&gpa 1 GPIO_ACTIVE_LOW INGENIC_GPIO_NOBIAS>;
++		regulator-always-on;
++		regulator-boot-on;
++	};
++
++	/*
++	 * Onboard ADXL345 wiring and polarities, externally hardware-qualified by
++	 * OpenKE/NebulaOS at commit 95f770a858a1076f7ffdb6b4541181034862f57e:
++	 * https://github.com/coreflake1/NebulaOS-firmware/blob/95f770a858a1076f7ffdb6b4541181034862f57e/scripts/build/accelerometer-eeprom-bus-enable-variant.sh
++	 * Fre3nder checked the polarity interpretation against the pinned Linux
++	 * 6.6.18 spi-gpio driver. The spidev-compatible token is from that kernel's
++	 * allowlist; it is not an assertion that a ROHM device is fitted.
++	 */
++	adxl_spi: spi-gpio-adxl345 {
++		compatible = "spi-gpio";
++		#address-cells = <1>;
++		#size-cells = <0>;
++		sck-gpios = <&gpe 16 GPIO_ACTIVE_HIGH INGENIC_GPIO_NOBIAS>;
++		mosi-gpios = <&gpe 17 GPIO_ACTIVE_HIGH INGENIC_GPIO_NOBIAS>;
++		miso-gpios = <&gpe 18 GPIO_ACTIVE_HIGH INGENIC_GPIO_NOBIAS>;
++		cs-gpios = <&gpe 21 GPIO_ACTIVE_LOW INGENIC_GPIO_NOBIAS>;
++		num-chipselects = <1>;
++
++		spidev@0 {
++			compatible = "rohm,dh2228fv";
++			reg = <0>;
++			spi-max-frequency = <2000000>;
++		};
++	};
++};
++
++&aliases {
++	spi2 = &adxl_spi;
++};
++
++&uart1_pin {
++	uart1_pc_txrx: uart1-pc-txrx {
++		ingenic,pinmux = <&gpc 23 24>;
++		ingenic,pinmux-funcsel = <PINCTL_FUNCTION1>;
++	};
++};
++
++&uart1 {
++	status = "okay";
++	pinctrl-names = "default";
++	pinctrl-0 = <&uart1_pc_txrx>;
++};
++
++&msc0 {
++	status = "okay";
++	pinctrl-names = "default";
++	pinctrl-0 = <&msc0_8bit>;
++	mmc-hs200-1_8v;
++	cap-mmc-highspeed;
++	non-removable;
++	max-frequency = <100000000>;
++	bus-width = <8>;
++	voltage-ranges = <1800 3300>;
++	ingenic,rst-gpios = <0>;
++};
++
++&msc1 {
++	status = "okay";
++	pinctrl-names = "default", "enable", "disable";
++	pinctrl-0 = <&msc1_4bit>;
++	pinctrl-1 = <&rtc32k_enable>;
++	pinctrl-2 = <&rtc32k_disable>;
++	cap-sd-highspeed;
++	max-frequency = <100000000>;
++	bus-width = <4>;
++	voltage-ranges = <1800 3300>;
++	non-removable;
++	vmmc-supply = <&wifi_bt_power>;
++	keep-power-in-suspend;
++	ingenic,sdio_clk = <1>;
++	ingenic,removal-manual;
++	wlan-reg-on-gpios = <&gpd 4 GPIO_ACTIVE_HIGH INGENIC_GPIO_NOBIAS>;
++};
++
++&otg {
++	dr_mode = "otg";
++	status = "okay";
++};
++
++&otg_phy {
++	/*
++	 * Ender-3 V3 KE USB PHY wiring. GPC9 is not guessed: NebulaOS/OpenKE
++	 * documents it as the VBUS-drive GPIO derived from the real Stock DTB:
++	 * coreflake1/NebulaOS-kernel, commit
++	 * c902097d1a79c21ef6717d7e4ecc1db2a9233990:
++	 * https://github.com/coreflake1/NebulaOS-kernel/commit/c902097d1a79c21ef6717d7e4ecc1db2a9233990
++	 *
++	 * Fre3nder independently checked that the pinned X2000 USB PHY driver
++	 * consumes this property with matching active-high semantics. GPD17
++	 * VBUS-detect is likewise taken from that documented board configuration
++	 * and checked against the local driver semantics.
++	 */
++	status = "okay";
++	ingenic,vbus-dete-gpio = <&gpd 17 GPIO_ACTIVE_LOW INGENIC_GPIO_NOBIAS>;
++	ingenic,drvvbus-gpio = <&gpc 9 GPIO_ACTIVE_HIGH INGENIC_GPIO_NOBIAS>;
++};
++
++&uart3 {
++	/*
++	 * UART3 and I2C4 share GPC25/GPC26 on the Ender-3 V3 KE.
++	 * Touch owns the static pinmux; Bluetooth would require a separate
++	 * runtime pin hand-off if implemented later.
++	 */
++	status = "disabled";
++};
++
++&i2c4 {
++	status = "okay";
++	pinctrl-names = "default";
++	pinctrl-0 = <&i2c4_pc>;
++
++	touchscreen@48 {
++		compatible = "nsiway,ns2009";
++		reg = <0x48>;
++		pendown-gpios = <&gpc 15 GPIO_ACTIVE_LOW INGENIC_GPIO_NOBIAS>;
++	};
++};
++
++&watchdog {
++	status = "okay";
++};
++
++&dpu {
++	status = "okay";
++};
