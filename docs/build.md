@@ -87,6 +87,9 @@ The ignored productive tree is organized as follows:
 ```text
 local/production/
 ├── work/x2000/
+├── keys/ota/
+│   ├── private.pem
+│   └── public.pem
 └── artifacts/x2000/
     ├── moonraker/
     ├── guppyscreen/
@@ -99,7 +102,44 @@ local/production/
 then the RootFS. `--kernel-build` adds a Kernel build before them, and
 `--f005-build` reproduces the F005 candidate before RootFS assembly; the Kernel
 and RootFS artifacts are composed into `full/` only when the Kernel was built
-in that same run. The individual builders are
+in that same run.
+
+A complete Kernel + RootFS composition also creates the signed platform-update
+artifact:
+
+```text
+fre3nder-<version>-ender3-v3-ke.ota
+```
+
+The package is a deterministic POSIX ustar archive containing
+`manifest.json`, `SHA256SUMS`, `SHA256SUMS.sig`, `kernel.uImage`, and
+`rootfs.squashfs`. The individual artifacts in `full/` remain available
+unchanged for development, inspection, and qualification.
+
+Before the first complete X2000 build on a development/release environment,
+create its local Ed25519 OTA signing keypair once:
+
+```sh
+scripts/generate-ota-keypair
+```
+
+The default key location is `local/production/keys/ota/`, which is already
+covered by the repository's ignored `local/` tree. The private key must remain
+local and must never be committed or copied into a target RootFS. Key generation
+refuses to overwrite an existing pair. Full X2000 composition fails before the
+expensive build starts if the required signing pair is absent.
+
+RootFS assembly consumes only the public half of that pair. It installs the
+trust anchor as `/ota/keys/public.pem`, creates an empty `/ota/packages/`
+staging directory, and records the public-key SHA-256 as
+`ota_public_key_sha256` in the RootFS build manifest. Complete OTA composition
+checks that this recorded trust anchor is the same public key paired with the
+private key used to sign the package.
+
+The OTA manifest reuses the existing build provenance rather than defining a
+second source of truth for release identity.
+
+The individual builders are
 `scripts/build-x2000-moonraker`, `scripts/build-x2000-guppyscreen`,
 `scripts/build-x2000-buildroot`, and `scripts/build-x2000-kernel`. The
 Buildroot builder's `--toolchain` phase precedes GuppyScreen compilation and its

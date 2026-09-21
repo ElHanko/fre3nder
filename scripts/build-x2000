@@ -8,6 +8,9 @@ moonraker_builder="$root/scripts/build-x2000-moonraker"
 guppyscreen_builder="$root/scripts/build-x2000-guppyscreen"
 f005_builder="$root/scripts/build-f005"
 artifact_root="$root/local/production/artifacts/x2000"
+ota_key_dir="$root/local/production/keys/ota"
+ota_private_key="$ota_key_dir/private.pem"
+ota_public_key="$ota_key_dir/public.pem"
 kernel_build=false
 f005_build=false
 develop=false
@@ -42,6 +45,42 @@ if [ "$develop" = true ]; then
 fi
 
 if [ "$kernel_build" = true ]; then
+	command -v openssl >/dev/null 2>&1 || {
+		echo 'openssl is required to create signed Fre3nder OTA packages' >&2
+		exit 1
+	}
+	for key in "$ota_private_key" "$ota_public_key"; do
+		[ -f "$key" ] && [ ! -L "$key" ] || {
+			echo "missing OTA signing key: $key" >&2
+			echo 'run scripts/generate-ota-keypair before a full X2000 build' >&2
+			exit 1
+		}
+	done
+
+	if ! openssl pkey -in "$ota_private_key" -text -noout 2>/dev/null |
+		grep -q '^ED25519 Private-Key:$'; then
+		echo 'OTA private key is not Ed25519' >&2
+		exit 1
+	fi
+	if ! openssl pkey -pubin -in "$ota_public_key" -text -noout 2>/dev/null |
+		grep -q '^ED25519 Public-Key:$'; then
+		echo 'OTA public key is not Ed25519' >&2
+		exit 1
+	fi
+
+	derived_public=$(mktemp)
+	if ! openssl pkey -in "$ota_private_key" -pubout -out "$derived_public"; then
+		rm -f -- "$derived_public"
+		echo 'cannot derive OTA public key from private key' >&2
+		exit 1
+	fi
+	if ! cmp -s "$derived_public" "$ota_public_key"; then
+		rm -f -- "$derived_public"
+		echo 'OTA private and public keys do not form a matching keypair' >&2
+		exit 1
+	fi
+	rm -f -- "$derived_public"
+
 	"$kernel_builder" $component_args
 fi
 
@@ -56,22 +95,29 @@ fi
 "$guppyscreen_builder" $component_args
 if [ -n "$f005_firmware" ]; then
 	FRE3NDER_F005_FIRMWARE="$f005_firmware" \
+	FRE3NDER_OTA_PUBLIC_KEY="$ota_public_key" \
 		"$buildroot_builder" --assemble $component_args
 else
-	"$buildroot_builder" --assemble $component_args
+	FRE3NDER_OTA_PUBLIC_KEY="$ota_public_key" \
+		"$buildroot_builder" --assemble $component_args
 fi
 
 if [ "$kernel_build" = true ]; then
 	python3 - "$artifact_root/kernel-only" "$artifact_root/rootfs-only" \
-		"$artifact_root/full" <<'PY'
+		"$artifact_root/full" "$ota_private_key" "$ota_public_key" <<'PY'
 import hashlib
+import io
 import json
 import pathlib
 import shutil
+import subprocess
 import sys
+import tarfile
 import tempfile
 
-kernel_dir, rootfs_dir, full_dir = map(pathlib.Path, sys.argv[1:])
+kernel_dir, rootfs_dir, full_dir, ota_private_key, ota_public_key = (
+    map(pathlib.Path, sys.argv[1:])
+)
 
 for directory, names in (
     (kernel_dir, ("kernel.uImage", "ender3-v3-ke.dtb", "effective-kernel-config")),
@@ -84,7 +130,20 @@ for directory, names in (
 
 kernel_manifest = json.loads((kernel_dir / "build-manifest.json").read_text())
 rootfs_manifest = json.loads((rootfs_dir / "build-manifest.json").read_text())
-for field in ("artifact_mode", "project_commit", "project_worktree_status", "build_input_sha256"):
+
+expected_ota_public_key_sha256 = hashlib.sha256(
+    ota_public_key.read_bytes()
+).hexdigest()
+if rootfs_manifest.get("ota_public_key_sha256") != expected_ota_public_key_sha256:
+    raise SystemExit("RootFS manifest OTA public key does not match signing keypair")
+
+for field in (
+    "version",
+    "artifact_mode",
+    "project_commit",
+    "project_worktree_status",
+    "build_input_sha256",
+):
     if kernel_manifest.get(field, "") != rootfs_manifest.get(field, ""):
         raise SystemExit(f"component manifests disagree on {field}")
 for directory, manifest, names in (
@@ -108,6 +167,121 @@ try:
         (rootfs_dir / "buildroot.config", "buildroot.config"),
     ):
         shutil.copyfile(source, stage / name)
+
+    payload_names = ("kernel.uImage", "rootfs.squashfs")
+    payload_hashes = {
+        name: hashlib.sha256((stage / name).read_bytes()).hexdigest()
+        for name in payload_names
+    }
+    payload_sizes = {
+        name: (stage / name).stat().st_size
+        for name in payload_names
+    }
+
+    ota_manifest = dict(rootfs_manifest)
+    ota_manifest["ota"] = {
+        "format": "fre3nder-ota",
+        "format_version": 1,
+        "platform": "ender3-v3-ke",
+        "signature": {
+            "algorithm": "Ed25519",
+            "file": "SHA256SUMS.sig",
+            "signed_file": "SHA256SUMS",
+        },
+    }
+    ota_manifest["artifacts"] = payload_hashes
+    ota_manifest["artifact_sizes"] = payload_sizes
+
+    ota_manifest_data = (
+        json.dumps(ota_manifest, indent=2, sort_keys=True) + "\n"
+    ).encode("utf-8")
+    manifest_sha256 = hashlib.sha256(ota_manifest_data).hexdigest()
+    ota_checksums_data = (
+        f"{manifest_sha256}  manifest.json\n"
+        + "".join(
+            f"{payload_hashes[name]}  {name}\n"
+            for name in payload_names
+        )
+    ).encode("utf-8")
+
+    ota_work = pathlib.Path(
+        tempfile.mkdtemp(prefix=".ota.", dir=full_dir.parent)
+    )
+    try:
+        manifest_path = ota_work / "manifest.json"
+        checksums_path = ota_work / "SHA256SUMS"
+        signature_path = ota_work / "SHA256SUMS.sig"
+
+        manifest_path.write_bytes(ota_manifest_data)
+        checksums_path.write_bytes(ota_checksums_data)
+
+        subprocess.run(
+            [
+                "openssl",
+                "pkeyutl",
+                "-sign",
+                "-rawin",
+                "-inkey",
+                str(ota_private_key),
+                "-in",
+                str(checksums_path),
+                "-out",
+                str(signature_path),
+            ],
+            check=True,
+        )
+        subprocess.run(
+            [
+                "openssl",
+                "pkeyutl",
+                "-verify",
+                "-rawin",
+                "-pubin",
+                "-inkey",
+                str(ota_public_key),
+                "-in",
+                str(checksums_path),
+                "-sigfile",
+                str(signature_path),
+            ],
+            check=True,
+            stdout=subprocess.DEVNULL,
+        )
+
+        package_name = (
+            f"fre3nder-{ota_manifest['version']}-ender3-v3-ke.ota"
+        )
+        package_path = stage / package_name
+
+        def tar_info(name, size):
+            info = tarfile.TarInfo(name)
+            info.size = size
+            info.mode = 0o644
+            info.uid = 0
+            info.gid = 0
+            info.uname = "root"
+            info.gname = "root"
+            info.mtime = 0
+            return info
+
+        with tarfile.open(
+            package_path,
+            "w",
+            format=tarfile.USTAR_FORMAT,
+        ) as archive:
+            for name in ("manifest.json", "SHA256SUMS", "SHA256SUMS.sig"):
+                data = (ota_work / name).read_bytes()
+                archive.addfile(tar_info(name, len(data)), io.BytesIO(data))
+
+            for name in payload_names:
+                source = stage / name
+                with source.open("rb") as stream:
+                    archive.addfile(
+                        tar_info(name, source.stat().st_size),
+                        stream,
+                    )
+    finally:
+        shutil.rmtree(ota_work)
 
     manifest = dict(rootfs_manifest)
     manifest["artifacts"] = {

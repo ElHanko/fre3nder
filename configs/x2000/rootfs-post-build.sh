@@ -2,6 +2,7 @@
 set -eu
 
 target=$1
+ota_public_key=${FRE3NDER_OTA_PUBLIC_KEY:?FRE3NDER_OTA_PUBLIC_KEY is required}
 linux_firmware_license="$BUILD_DIR/linux-firmware-20250211/LICENCE.cypress"
 
 [ -f "$linux_firmware_license" ]
@@ -22,6 +23,8 @@ rm -f -- \
 	"$target/etc/init.d/S09fre3nder-storage" \
 	"$target/etc/init.d/S10fre3nder-persistence"
 install -d -m 0755 "$target/home" "$target/rom" "$target/mnt/fre3nder-root"
+install -D -m 0644 "$ota_public_key" "$target/ota/keys/public.pem"
+install -d -m 0755 "$target/ota/packages"
 install -d -m 0700 "$target/root/.ssh"
 ln -snf ../run/fre3nder/resolv.conf "$target/etc/resolv.conf"
 rm -f "$target/etc/wpa_supplicant.conf"

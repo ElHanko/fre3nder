@@ -274,12 +274,90 @@ At minimum the release metadata must identify:
 * cryptographic hashes;
 * project/build provenance required by the release contract.
 
-Public release artifacts should support authenticity verification in addition
-to ordinary corruption detection.
+Public release artifacts require authenticity verification in addition to
+ordinary corruption detection.
 
-The exact package container and signature mechanism are implementation
-decisions. OTA v1 must not introduce a large general-purpose update framework
-solely to solve packaging.
+### OTA package format v1
+
+Fre3nder OTA v1 uses one self-contained release package with the `.ota`
+filename extension. The container is a deterministic POSIX ustar archive.
+
+The normal filename is:
+
+```text
+fre3nder-<version>-ender3-v3-ke.ota
+```
+
+The archive contains exactly five top-level regular files:
+
+```text
+manifest.json
+SHA256SUMS
+SHA256SUMS.sig
+kernel.uImage
+rootfs.squashfs
+```
+
+`manifest.json` carries the existing Fre3nder build and source provenance and
+adds the OTA package format version, target platform, packaged artifact sizes,
+and packaged artifact hashes.
+
+`SHA256SUMS` contains SHA-256 digests for `manifest.json`, `kernel.uImage`, and
+`rootfs.squashfs`. The manifest therefore does not contain a self-referential
+hash; its integrity is covered by the checksum file.
+
+`SHA256SUMS.sig` is an Ed25519 signature over the exact `SHA256SUMS` bytes.
+The private signing key is never stored in the repository or shipped on the
+printer. The corresponding public key is the OTA trust anchor used by the
+device-side verifier.
+
+The repository provides `scripts/generate-ota-keypair` to create a local
+keypair under the ignored `local/production/keys/ota/` path. Key generation is
+explicit and refuses to overwrite an existing pair.
+
+The `.ota` extension identifies the artifact as a Fre3nder update package; it
+does not define a proprietary container format. Standard tar tooling may be
+used to inspect it.
+
+### On-device OTA storage
+
+Fre3nder reserves `/ota` for the device-side OTA workflow:
+
+```text
+/ota/
+├── keys/
+│   └── public.pem
+└── packages/
+```
+
+`/ota/keys/public.pem` is delivered by the immutable RootFS and is the Ed25519
+trust anchor used to verify OTA packages. The RootFS build manifest records the
+SHA-256 digest of this public key as `ota_public_key_sha256`.
+
+`/ota/packages/` is the writable staging location for uploaded or otherwise
+locally staged `.ota` packages. Package files are runtime state in the `SYS`
+overlay; they are not persistent `HOME` data.
+
+This intentionally couples package cleanup to the existing update lifecycle.
+If verification or preflight aborts before activation, the staged package
+remains available for retry or inspection. After a successful inactive-slot
+write and activation, the target-specific `SYS` reset removes the staged package
+automatically. The freshly booted immutable RootFS then exposes an empty
+`/ota/packages/` directory again.
+
+OTA v1 therefore does not require a separate successful-update cleanup
+mechanism for staged packages.
+
+Normal OTA upload handling must write only below `/ota/packages/`; it must not
+replace the trust anchor below `/ota/keys/`.
+
+Package verification must establish the Ed25519 signature first and then require
+the checksum file, manifest metadata, declared sizes, and actual payload hashes
+to agree before any platform partition is written.
+
+The v1 format deliberately does not introduce a general-purpose update
+framework or certificate infrastructure. Future key rotation may extend the
+trust policy without replacing the package container.
 
 Verification must complete before destructive platform writes begin.
 

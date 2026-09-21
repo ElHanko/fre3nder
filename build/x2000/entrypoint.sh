@@ -136,6 +136,16 @@ manifest.update({
 })
 if os.environ["artifact_mode"] == "development":
     manifest["build_input_sha256"] = os.environ["build_input_sha256"]
+
+ota_public_key = os.environ.get("FRE3NDER_OTA_PUBLIC_KEY")
+if ota_public_key:
+    ota_public_key_path = pathlib.Path(ota_public_key)
+    if ota_public_key_path.is_symlink() or not ota_public_key_path.is_file():
+        raise SystemExit("OTA public key is missing, non-regular, or a symlink")
+    manifest["ota_public_key_sha256"] = hashlib.sha256(
+        ota_public_key_path.read_bytes()
+    ).hexdigest()
+
 manifest["artifacts"] = {
     name: hashlib.sha256(out.joinpath(name).read_bytes()).hexdigest()
     for name in artifact_names

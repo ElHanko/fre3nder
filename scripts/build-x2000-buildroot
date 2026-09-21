@@ -9,6 +9,7 @@ local_root="$root/local/production"
 work_root="$local_root/work/x2000"
 release_manifest="$root/configs/x2000/f005-mcu-release.json"
 f005_firmware=${FRE3NDER_F005_FIRMWARE:-"$local_root/artifacts/x2000/f005/klipper-f005-mainline.bin"}
+ota_public_key=${FRE3NDER_OTA_PUBLIC_KEY:-"$local_root/keys/ota/public.pem"}
 docker_cmd=${X2000_BUILD_DOCKER:-docker}
 artifact_mode=release
 phase=
@@ -51,6 +52,24 @@ if [ "$phase" = --toolchain ]; then
 	exit 0
 fi
 
+command -v openssl >/dev/null 2>&1 || {
+	echo 'openssl is required to validate the OTA public key' >&2
+	exit 1
+}
+[ -f "$ota_public_key" ] && [ ! -L "$ota_public_key" ] || {
+	echo "missing OTA public key: $ota_public_key" >&2
+	exit 1
+}
+openssl pkey -pubin -in "$ota_public_key" -noout >/dev/null 2>&1 || {
+	echo "invalid OTA public key: $ota_public_key" >&2
+	exit 1
+}
+openssl pkey -pubin -in "$ota_public_key" -text -noout 2>/dev/null |
+	grep -q '^ED25519 Public-Key:$' || {
+	echo "OTA public key is not Ed25519: $ota_public_key" >&2
+	exit 1
+}
+
 python3 - "$release_manifest" "$f005_firmware" <<'PY'
 import hashlib
 import json
@@ -82,7 +101,9 @@ PY
 	-e "FRE3NDER_ARTIFACT_MODE=$artifact_mode" \
 	-e FRE3NDER_REUSE_PREPARED_TOOLCHAIN=1 \
 	-e FRE3NDER_F005_FIRMWARE=/f005-firmware \
+	-e FRE3NDER_OTA_PUBLIC_KEY=/ota-public-key \
 	-v "$f005_firmware:/f005-firmware:ro" \
+	-v "$ota_public_key:/ota-public-key:ro" \
 	-v "$root:/project" \
 	-v "$work_root:/work" \
 	"$image" build-rootfs-only

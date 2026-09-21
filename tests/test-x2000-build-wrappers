@@ -8,12 +8,25 @@ buildroot_builder="$root/scripts/build-x2000-buildroot"
 moonraker_builder="$root/scripts/build-x2000-moonraker"
 guppyscreen_builder="$root/scripts/build-x2000-guppyscreen"
 guppyscreen_component="$root/build/x2000/guppyscreen-component.sh"
+key_generator="$root/scripts/generate-ota-keypair"
 tmp=$(mktemp -d)
 
 cleanup() {
 	rm -rf -- "$tmp"
 }
 trap cleanup EXIT HUP INT TERM
+
+generated_keys="$tmp/generated-keys"
+"$key_generator" "$generated_keys" >/dev/null
+[ -f "$generated_keys/private.pem" ]
+[ -f "$generated_keys/public.pem" ]
+[ "$(stat -c '%a' "$generated_keys/private.pem")" = 600 ]
+[ "$(stat -c '%a' "$generated_keys/public.pem")" = 644 ]
+if "$key_generator" "$generated_keys" >/dev/null 2>&1; then
+	echo 'OTA key generator overwrote an existing keypair' >&2
+	exit 1
+fi
+export FRE3NDER_OTA_PUBLIC_KEY="$generated_keys/public.pem"
 
 fake_docker="$tmp/docker"
 docker_log="$tmp/docker.log"
@@ -73,6 +86,8 @@ grep -Fq 'fetch-rootfs' "$docker_log"
 grep -Fq 'build-rootfs-only' "$docker_log"
 grep -Fq 'FRE3NDER_ARTIFACT_MODE=development' "$docker_log"
 grep -Fq 'FRE3NDER_REUSE_PREPARED_TOOLCHAIN=1' "$docker_log"
+grep -Fq 'FRE3NDER_OTA_PUBLIC_KEY=/ota-public-key' "$docker_log"
+grep -Fq -- "-v $generated_keys/public.pem:/ota-public-key:ro" "$docker_log"
 ! grep -Fq 'fetch-kernel' "$docker_log"
 
 for invalid in --kernel-build --f005-build --rootfs-only --kernel-only --unknown; do
@@ -142,8 +157,12 @@ if FRE3NDER_F005_FIRMWARE="$tmp/klipper-f005-mainline.bin" \
 fi
 
 fixture="$tmp/project"
-mkdir -p "$fixture/scripts" "$fixture/local/production/artifacts/x2000"
+mkdir -p "$fixture/scripts" \
+	"$fixture/local/production/artifacts/x2000" \
+	"$fixture/local/production/keys/ota"
 cp "$orchestrator" "$fixture/scripts/build-x2000"
+cp "$generated_keys/private.pem" "$fixture/local/production/keys/ota/private.pem"
+cp "$generated_keys/public.pem" "$fixture/local/production/keys/ota/public.pem"
 cat > "$fixture/scripts/build-x2000-kernel" <<'EOF'
 #!/bin/sh
 set -eu
@@ -157,7 +176,7 @@ printf config > "$dir/effective-kernel-config"
 kernel_hash=$(sha256sum "$dir/kernel.uImage" | awk '{print $1}')
 dtb_hash=$(sha256sum "$dir/ender3-v3-ke.dtb" | awk '{print $1}')
 config_hash=$(sha256sum "$dir/effective-kernel-config" | awk '{print $1}')
-printf '{"artifact_mode":"release","project_commit":"fixture","project_worktree_status":"clean","build_input_sha256":"","artifacts":{"kernel.uImage":"%s","ender3-v3-ke.dtb":"%s","effective-kernel-config":"%s"}}\n' \
+printf '{"version":"2026.4.a","artifact_mode":"release","project_commit":"fixture","project_worktree_status":"clean","build_input_sha256":"","artifacts":{"kernel.uImage":"%s","ender3-v3-ke.dtb":"%s","effective-kernel-config":"%s"}}\n' \
 	"$kernel_hash" "$dtb_hash" "$config_hash" > "$dir/build-manifest.json"
 EOF
 cat > "$fixture/scripts/build-x2000-buildroot" <<'EOF'
@@ -175,8 +194,9 @@ printf rootfs > "$dir/rootfs.squashfs"
 printf config > "$dir/buildroot.config"
 rootfs_hash=$(sha256sum "$dir/rootfs.squashfs" | awk '{print $1}')
 config_hash=$(sha256sum "$dir/buildroot.config" | awk '{print $1}')
-printf '{"artifact_mode":"release","project_commit":"fixture","project_worktree_status":"clean","build_input_sha256":"","artifacts":{"rootfs.squashfs":"%s","buildroot.config":"%s"}}\n' \
-	"$rootfs_hash" "$config_hash" > "$dir/build-manifest.json"
+ota_key_hash=$(sha256sum "$FRE3NDER_OTA_PUBLIC_KEY" | awk '{print $1}')
+printf '{"version":"2026.4.a","artifact_mode":"release","project_commit":"fixture","project_worktree_status":"clean","build_input_sha256":"","ota_public_key_sha256":"%s","artifacts":{"rootfs.squashfs":"%s","buildroot.config":"%s"}}\n' \
+	"$ota_key_hash" "$rootfs_hash" "$config_hash" > "$dir/build-manifest.json"
 EOF
 cat > "$fixture/scripts/build-x2000-moonraker" <<'EOF'
 #!/bin/sh
@@ -197,6 +217,43 @@ chmod 0755 "$fixture/scripts/build-x2000" \
 	"$fixture/scripts/build-x2000-moonraker" \
 	"$fixture/scripts/build-x2000-guppyscreen" \
 	"$fixture/scripts/build-f005"
+
+# A mismatched OTA public key must fail before any expensive component builder
+# is invoked.
+wrong_keys="$tmp/wrong-ota-keys"
+"$key_generator" "$wrong_keys" >/dev/null
+cp "$wrong_keys/public.pem" "$fixture/local/production/keys/ota/public.pem"
+: > "$tmp/wrapper.log"
+if X2000_WRAPPER_LOG="$tmp/wrapper.log" \
+	"$fixture/scripts/build-x2000" --kernel-build >/dev/null 2>&1; then
+	echo 'orchestrator accepted a mismatched OTA keypair' >&2
+	exit 1
+fi
+if [ -s "$tmp/wrapper.log" ]; then
+	echo 'orchestrator invoked a builder before rejecting mismatched OTA keys' >&2
+	exit 1
+fi
+cp "$generated_keys/public.pem" "$fixture/local/production/keys/ota/public.pem"
+
+# A valid but non-Ed25519 signing pair must be rejected before any expensive
+# component builder is invoked.
+rsa_keys="$tmp/rsa-ota-keys"
+mkdir -p "$rsa_keys"
+openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 	-out "$rsa_keys/private.pem" >/dev/null 2>&1
+openssl pkey -in "$rsa_keys/private.pem" -pubout 	-out "$rsa_keys/public.pem"
+cp "$rsa_keys/private.pem" "$fixture/local/production/keys/ota/private.pem"
+cp "$rsa_keys/public.pem" "$fixture/local/production/keys/ota/public.pem"
+: > "$tmp/wrapper.log"
+if X2000_WRAPPER_LOG="$tmp/wrapper.log" 	"$fixture/scripts/build-x2000" --kernel-build >/dev/null 2>&1; then
+	echo 'orchestrator accepted a non-Ed25519 OTA keypair' >&2
+	exit 1
+fi
+if [ -s "$tmp/wrapper.log" ]; then
+	echo 'orchestrator invoked a builder before rejecting non-Ed25519 OTA keys' >&2
+	exit 1
+fi
+cp "$generated_keys/private.pem" "$fixture/local/production/keys/ota/private.pem"
+cp "$generated_keys/public.pem" "$fixture/local/production/keys/ota/public.pem"
 
 run_orchestrator() {
 	rm -rf -- "$fixture/local/production/artifacts/x2000"
@@ -249,6 +306,64 @@ assert checksums == {
     for path in directory.iterdir()
     if path.name != "SHA256SUMS"
 }
+PY
+
+ota="$full/fre3nder-2026.4.a-ender3-v3-ke.ota"
+[ -f "$ota" ]
+
+tar -tf "$ota" > "$tmp/ota-members"
+printf '%s\n' \
+	'manifest.json' \
+	'SHA256SUMS' \
+	'SHA256SUMS.sig' \
+	'kernel.uImage' \
+	'rootfs.squashfs' | cmp -s - "$tmp/ota-members"
+
+ota_extract="$tmp/ota-extract"
+mkdir -p "$ota_extract"
+tar -xf "$ota" -C "$ota_extract"
+
+(
+	cd "$ota_extract" || exit 1
+	sha256sum -c SHA256SUMS >/dev/null
+)
+
+openssl pkeyutl -verify -rawin -pubin \
+	-inkey "$fixture/local/production/keys/ota/public.pem" \
+	-in "$ota_extract/SHA256SUMS" \
+	-sigfile "$ota_extract/SHA256SUMS.sig" >/dev/null
+
+python3 - "$ota_extract/manifest.json" "$ota_extract" \
+	"$fixture/local/production/keys/ota/public.pem" <<'PY'
+import hashlib
+import json
+import pathlib
+import sys
+
+manifest_path = pathlib.Path(sys.argv[1])
+directory = pathlib.Path(sys.argv[2])
+public_key_path = pathlib.Path(sys.argv[3])
+manifest = json.loads(manifest_path.read_text())
+
+assert manifest["version"] == "2026.4.a"
+assert manifest["ota_public_key_sha256"] == hashlib.sha256(
+    public_key_path.read_bytes()
+).hexdigest()
+assert manifest["ota"] == {
+    "format": "fre3nder-ota",
+    "format_version": 1,
+    "platform": "ender3-v3-ke",
+    "signature": {
+        "algorithm": "Ed25519",
+        "file": "SHA256SUMS.sig",
+        "signed_file": "SHA256SUMS",
+    },
+}
+
+for name in ("kernel.uImage", "rootfs.squashfs"):
+    payload = (directory / name).read_bytes()
+    assert manifest["artifacts"][name] == hashlib.sha256(payload).hexdigest()
+    assert manifest["artifact_sizes"][name] == len(payload)
 PY
 
 run_orchestrator --kernel-build --develop

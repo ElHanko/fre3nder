@@ -1,0 +1,46 @@
+#!/bin/sh
+set -eu
+
+root=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+
+usage() {
+	echo "usage: $0 [output-directory]" >&2
+	exit 2
+}
+
+[ "$#" -le 1 ] || usage
+
+key_dir=${1:-"$root/local/production/keys/ota"}
+private_key="$key_dir/private.pem"
+public_key="$key_dir/public.pem"
+
+command -v openssl >/dev/null 2>&1 || {
+	echo 'openssl is required to generate the OTA signing keypair' >&2
+	exit 1
+}
+
+if [ -e "$private_key" ] || [ -e "$public_key" ]; then
+	echo "OTA keypair already exists in $key_dir" >&2
+	exit 1
+fi
+
+mkdir -p "$key_dir"
+tmp=$(mktemp -d "$key_dir/.generate.XXXXXX")
+
+cleanup() {
+	rm -rf -- "$tmp"
+}
+trap cleanup EXIT HUP INT TERM
+
+umask 077
+openssl genpkey -algorithm ED25519 -out "$tmp/private.pem"
+openssl pkey -in "$tmp/private.pem" -pubout -out "$tmp/public.pem"
+
+chmod 0600 "$tmp/private.pem"
+chmod 0644 "$tmp/public.pem"
+
+mv "$tmp/private.pem" "$private_key"
+mv "$tmp/public.pem" "$public_key"
+
+printf 'OTA private key: %s\n' "$private_key"
+printf 'OTA public key:  %s\n' "$public_key"
