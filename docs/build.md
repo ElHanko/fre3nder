@@ -98,11 +98,26 @@ local/production/
     └── rootfs-only/
 ```
 
-`scripts/build-x2000` always builds the Moonraker and GuppyScreen components and
-then the RootFS. `--kernel-build` adds a Kernel build before them, and
-`--f005-build` reproduces the F005 candidate before RootFS assembly; the Kernel
-and RootFS artifacts are composed into `full/` only when the Kernel was built
-in that same run.
+`scripts/build-x2000` normally builds the Moonraker and GuppyScreen components
+and then the RootFS. `--kernel-build` adds a Kernel build before them and
+composes the resulting Kernel and RootFS artifacts into `full/`.
+`--f005-build` reproduces the F005 candidate before RootFS assembly.
+
+`--compose-only` performs no component build. It validates and composes the
+existing `kernel-only/` and `rootfs-only/` artifacts into `full/` and creates
+the signed OTA package. The mode is standalone and cannot be combined with
+`--develop`, `--kernel-build`, or `--f005-build`.
+
+Kernel and RootFS must agree on the Fre3nder version and artifact mode.
+`--compose-only` may intentionally reuse a Kernel from a different project
+commit or development build-input fingerprint. The resulting manifest records
+the Kernel and RootFS origins separately as `component_provenance`.
+The project state that performs the final signed composition is recorded
+separately as `composition_provenance`.
+
+A `--compose-only` run reports that validation has started and always ends with
+an explicit `PASS` or `FAIL`. Successful composition also reports the artifact
+mode, OTA package path, Kernel SHA-256, and RootFS SHA-256.
 
 A complete Kernel + RootFS composition also creates the signed platform-update
 artifact:

@@ -13,10 +13,21 @@ ota_private_key="$ota_key_dir/private.pem"
 ota_public_key="$ota_key_dir/public.pem"
 kernel_build=false
 f005_build=false
+compose_only=false
 develop=false
 
+compose_exit_report() {
+	rc=$?
+	trap - EXIT
+	if [ "$compose_only" = true ] && [ "$rc" -ne 0 ]; then
+		printf '\nX2000 composition: FAIL\n' >&2
+	fi
+	exit "$rc"
+}
+trap compose_exit_report EXIT
+
 usage() {
-	echo "usage: $0 [--develop] [--kernel-build] [--f005-build]" >&2
+	echo "usage: $0 [--develop] [--kernel-build] [--f005-build] [--compose-only]" >&2
 	exit 2
 }
 
@@ -34,17 +45,31 @@ while [ "$#" -gt 0 ]; do
 		[ "$f005_build" = false ] || usage
 		f005_build=true
 		;;
+	--compose-only)
+		[ "$compose_only" = false ] || usage
+		compose_only=true
+		;;
 	*) usage ;;
 	esac
 	shift
 done
+
+if [ "$compose_only" = true ]; then
+	[ "$kernel_build" = false ] || usage
+	[ "$f005_build" = false ] || usage
+	[ "$develop" = false ] || usage
+fi
 
 component_args=
 if [ "$develop" = true ]; then
 	component_args=--develop
 fi
 
-if [ "$kernel_build" = true ]; then
+if [ "$compose_only" = true ]; then
+	printf '%s\n' 'X2000 composition: validating existing artifacts'
+fi
+
+if [ "$kernel_build" = true ] || [ "$compose_only" = true ]; then
 	command -v openssl >/dev/null 2>&1 || {
 		echo 'openssl is required to create signed Fre3nder OTA packages' >&2
 		exit 1
@@ -81,30 +106,35 @@ if [ "$kernel_build" = true ]; then
 	fi
 	rm -f -- "$derived_public"
 
-	"$kernel_builder" $component_args
+	if [ "$kernel_build" = true ]; then
+		"$kernel_builder" $component_args
+	fi
 fi
 
-f005_firmware=
-if [ "$f005_build" = true ]; then
-	"$f005_builder"
-	f005_firmware="$root/local/production/artifacts/f005/candidate/klipper-f005-mainline.bin"
+if [ "$compose_only" = false ]; then
+	f005_firmware=
+	if [ "$f005_build" = true ]; then
+		"$f005_builder"
+		f005_firmware="$root/local/production/artifacts/f005/candidate/klipper-f005-mainline.bin"
+	fi
+
+	"$moonraker_builder" $component_args
+	"$buildroot_builder" --toolchain $component_args
+	"$guppyscreen_builder" $component_args
+	if [ -n "$f005_firmware" ]; then
+		FRE3NDER_F005_FIRMWARE="$f005_firmware" \
+		FRE3NDER_OTA_PUBLIC_KEY="$ota_public_key" \
+			"$buildroot_builder" --assemble $component_args
+	else
+		FRE3NDER_OTA_PUBLIC_KEY="$ota_public_key" \
+			"$buildroot_builder" --assemble $component_args
+	fi
 fi
 
-"$moonraker_builder" $component_args
-"$buildroot_builder" --toolchain $component_args
-"$guppyscreen_builder" $component_args
-if [ -n "$f005_firmware" ]; then
-	FRE3NDER_F005_FIRMWARE="$f005_firmware" \
-	FRE3NDER_OTA_PUBLIC_KEY="$ota_public_key" \
-		"$buildroot_builder" --assemble $component_args
-else
-	FRE3NDER_OTA_PUBLIC_KEY="$ota_public_key" \
-		"$buildroot_builder" --assemble $component_args
-fi
-
-if [ "$kernel_build" = true ]; then
+if [ "$kernel_build" = true ] || [ "$compose_only" = true ]; then
 	python3 - "$artifact_root/kernel-only" "$artifact_root/rootfs-only" \
-		"$artifact_root/full" "$ota_private_key" "$ota_public_key" <<'PY'
+		"$artifact_root/full" "$ota_private_key" "$ota_public_key" \
+		"$compose_only" "$root" <<'PY'
 import hashlib
 import io
 import json
@@ -116,8 +146,10 @@ import tarfile
 import tempfile
 
 kernel_dir, rootfs_dir, full_dir, ota_private_key, ota_public_key = (
-    map(pathlib.Path, sys.argv[1:])
+    map(pathlib.Path, sys.argv[1:6])
 )
+compose_only = sys.argv[6] == "true"
+project_root = pathlib.Path(sys.argv[7])
 
 for directory, names in (
     (kernel_dir, ("kernel.uImage", "ender3-v3-ke.dtb", "effective-kernel-config")),
@@ -131,6 +163,43 @@ for directory, names in (
 kernel_manifest = json.loads((kernel_dir / "build-manifest.json").read_text())
 rootfs_manifest = json.loads((rootfs_dir / "build-manifest.json").read_text())
 
+current_version = (project_root / "VERSION").read_text().strip()
+if current_version != rootfs_manifest.get("version"):
+    raise SystemExit("component version differs from current Fre3nder VERSION")
+
+composition_commit = subprocess.run(
+    ["git", "-C", str(project_root), "rev-parse", "HEAD"],
+    check=True,
+    capture_output=True,
+    text=True,
+).stdout.strip()
+
+composition_status = subprocess.run(
+    ["git", "-C", str(project_root), "status", "--porcelain=v1"],
+    check=True,
+    capture_output=True,
+    text=True,
+).stdout
+
+composition_provenance = {
+    "project_commit": composition_commit,
+    "project_worktree_status": "dirty" if composition_status else "clean",
+}
+
+if rootfs_manifest.get("artifact_mode") == "development":
+    composition_provenance["build_input_sha256"] = subprocess.run(
+        [
+            str(project_root / "scripts/x2000-build-input-sha256"),
+            "--root",
+            str(project_root),
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+elif composition_status:
+    raise SystemExit("release composition requires a clean project worktree")
+
 expected_ota_public_key_sha256 = hashlib.sha256(
     ota_public_key.read_bytes()
 ).hexdigest()
@@ -140,12 +209,18 @@ if rootfs_manifest.get("ota_public_key_sha256") != expected_ota_public_key_sha25
 for field in (
     "version",
     "artifact_mode",
-    "project_commit",
-    "project_worktree_status",
-    "build_input_sha256",
 ):
     if kernel_manifest.get(field, "") != rootfs_manifest.get(field, ""):
         raise SystemExit(f"component manifests disagree on {field}")
+
+if not compose_only:
+    for field in (
+        "project_commit",
+        "project_worktree_status",
+        "build_input_sha256",
+    ):
+        if kernel_manifest.get(field, "") != rootfs_manifest.get(field, ""):
+            raise SystemExit(f"component manifests disagree on {field}")
 for directory, manifest, names in (
     (kernel_dir, kernel_manifest, ("kernel.uImage", "ender3-v3-ke.dtb", "effective-kernel-config")),
     (rootfs_dir, rootfs_manifest, ("rootfs.squashfs", "buildroot.config")),
@@ -178,7 +253,28 @@ try:
         for name in payload_names
     }
 
+    provenance_fields = (
+        "version",
+        "artifact_mode",
+        "project_commit",
+        "project_worktree_status",
+        "build_input_sha256",
+    )
+    component_provenance = {
+        component: {
+            field: manifest[field]
+            for field in provenance_fields
+            if field in manifest
+        }
+        for component, manifest in (
+            ("kernel", kernel_manifest),
+            ("rootfs", rootfs_manifest),
+        )
+    }
+
     ota_manifest = dict(rootfs_manifest)
+    ota_manifest["component_provenance"] = component_provenance
+    ota_manifest["composition_provenance"] = composition_provenance
     ota_manifest["ota"] = {
         "format": "fre3nder-ota",
         "format_version": 1,
@@ -284,6 +380,8 @@ try:
         shutil.rmtree(ota_work)
 
     manifest = dict(rootfs_manifest)
+    manifest["component_provenance"] = component_provenance
+    manifest["composition_provenance"] = composition_provenance
     manifest["artifacts"] = {
         path.name: hashlib.sha256(path.read_bytes()).hexdigest()
         for path in sorted(stage.iterdir())
@@ -301,6 +399,13 @@ try:
         shutil.rmtree(full_dir)
     stage.rename(full_dir)
     stage = None
+
+    if compose_only:
+        print("X2000 composition: PASS")
+        print(f"Mode:     {ota_manifest['artifact_mode']}")
+        print(f"OTA:      {full_dir / package_name}")
+        print(f"Kernel:   {payload_hashes['kernel.uImage']}")
+        print(f"RootFS:   {payload_hashes['rootfs.squashfs']}")
 finally:
     if stage is not None:
         shutil.rmtree(stage)

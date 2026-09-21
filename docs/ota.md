@@ -300,7 +300,12 @@ rootfs.squashfs
 
 `manifest.json` carries the existing Fre3nder build and source provenance and
 adds the OTA package format version, target platform, packaged artifact sizes,
-and packaged artifact hashes.
+and packaged artifact hashes. Kernel and RootFS may originate from different
+project commits or development build-input fingerprints when an unchanged
+Kernel is intentionally reused. `component_provenance` records those two build
+origins separately. `composition_provenance` records the project state that
+created the final signed package. The components must still agree on Fre3nder
+version and artifact mode.
 
 `SHA256SUMS` contains SHA-256 digests for `manifest.json`, `kernel.uImage`, and
 `rootfs.squashfs`. The manifest therefore does not contain a self-referential

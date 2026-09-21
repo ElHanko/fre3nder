@@ -1,0 +1,306 @@
+#!/bin/sh
+set -eu
+
+root=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+orchestrator="$root/scripts/build-x2000"
+tmp=$(mktemp -d)
+
+cleanup() {
+	rm -rf -- "$tmp"
+}
+trap cleanup EXIT HUP INT TERM
+
+fixture="$tmp/project"
+artifact_root="$fixture/local/production/artifacts/x2000"
+key_dir="$fixture/local/production/keys/ota"
+log="$tmp/builders.log"
+
+mkdir -p \
+	"$fixture/scripts" \
+	"$artifact_root/kernel-only" \
+	"$artifact_root/rootfs-only" \
+	"$key_dir"
+
+cp "$orchestrator" "$fixture/scripts/build-x2000"
+chmod 0755 "$fixture/scripts/build-x2000"
+
+printf '2026.4.a\n' > "$fixture/VERSION"
+printf '/local/\n' > "$fixture/.gitignore"
+
+cat > "$fixture/scripts/x2000-build-input-sha256" <<'FINGERPRINT_EOF'
+#!/bin/sh
+printf '%064d\n' 0 | tr '0' '3'
+FINGERPRINT_EOF
+chmod 0755 "$fixture/scripts/x2000-build-input-sha256"
+
+# Compose-only must never invoke a component builder.
+for name in \
+	build-x2000-kernel \
+	build-x2000-buildroot \
+	build-x2000-moonraker \
+	build-x2000-guppyscreen \
+	build-f005
+do
+	cat > "$fixture/scripts/$name" <<'STUB_EOF'
+#!/bin/sh
+printf '%s %s\n' "$0" "$*" >> "$X2000_COMPOSE_TEST_LOG"
+exit 99
+STUB_EOF
+	chmod 0755 "$fixture/scripts/$name"
+done
+
+git -C "$fixture" init -q
+git -C "$fixture" config user.name "Fre3nder Fixture"
+git -C "$fixture" config user.email "fixture@example.invalid"
+git -C "$fixture" add .
+git -C "$fixture" commit -qm "fixture"
+fixture_commit=$(git -C "$fixture" rev-parse HEAD)
+
+: > "$log"
+export X2000_COMPOSE_TEST_LOG="$log"
+
+openssl genpkey \
+	-algorithm ED25519 \
+	-out "$key_dir/private.pem" \
+	>/dev/null 2>&1
+
+openssl pkey \
+	-in "$key_dir/private.pem" \
+	-pubout \
+	-out "$key_dir/public.pem" \
+	>/dev/null 2>&1
+
+kernel_dir="$artifact_root/kernel-only"
+rootfs_dir="$artifact_root/rootfs-only"
+
+printf 'fixture-kernel\n' > "$kernel_dir/kernel.uImage"
+printf 'fixture-dtb\n' > "$kernel_dir/ender3-v3-ke.dtb"
+printf 'fixture-kernel-config\n' > "$kernel_dir/effective-kernel-config"
+
+printf 'fixture-rootfs\n' > "$rootfs_dir/rootfs.squashfs"
+printf 'fixture-buildroot-config\n' > "$rootfs_dir/buildroot.config"
+
+python3 - \
+	"$kernel_dir" \
+	"$rootfs_dir" \
+	"$key_dir/public.pem" <<'MANIFEST_PY'
+import hashlib
+import json
+import pathlib
+import sys
+
+kernel_dir = pathlib.Path(sys.argv[1])
+rootfs_dir = pathlib.Path(sys.argv[2])
+public_key = pathlib.Path(sys.argv[3])
+
+def digest(path):
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+kernel = {
+    "version": "2026.4.a",
+    "artifact_mode": "development",
+    "project_commit": "kernel-commit",
+    "project_worktree_status": "clean",
+    "build_input_sha256": "1" * 64,
+    "artifacts": {
+        name: digest(kernel_dir / name)
+        for name in (
+            "kernel.uImage",
+            "ender3-v3-ke.dtb",
+            "effective-kernel-config",
+        )
+    },
+}
+
+rootfs = {
+    "version": "2026.4.a",
+    "artifact_mode": "development",
+    "project_commit": "rootfs-commit",
+    "project_worktree_status": "dirty",
+    "build_input_sha256": "2" * 64,
+    "ota_public_key_sha256": digest(public_key),
+    "artifacts": {
+        name: digest(rootfs_dir / name)
+        for name in (
+            "rootfs.squashfs",
+            "buildroot.config",
+        )
+    },
+}
+
+(kernel_dir / "build-manifest.json").write_text(
+    json.dumps(kernel, indent=2, sort_keys=True) + "\n"
+)
+(rootfs_dir / "build-manifest.json").write_text(
+    json.dumps(rootfs, indent=2, sort_keys=True) + "\n"
+)
+MANIFEST_PY
+
+kernel_sha=$(sha256sum "$kernel_dir/kernel.uImage" | awk '{print $1}')
+rootfs_sha=$(sha256sum "$rootfs_dir/rootfs.squashfs" | awk '{print $1}')
+
+compose_output=$("$fixture/scripts/build-x2000" --compose-only)
+
+printf '%s\n' "$compose_output" |
+	grep -Fq 'X2000 composition: validating existing artifacts'
+printf '%s\n' "$compose_output" |
+	grep -Fq 'X2000 composition: PASS'
+printf '%s\n' "$compose_output" |
+	grep -Fq 'Mode:     development'
+printf '%s\n' "$compose_output" |
+	grep -Fq "OTA:      $artifact_root/full/fre3nder-2026.4.a-ender3-v3-ke.ota"
+printf '%s\n' "$compose_output" |
+	grep -Fq "Kernel:   $kernel_sha"
+printf '%s\n' "$compose_output" |
+	grep -Fq "RootFS:   $rootfs_sha"
+
+if [ -s "$log" ]; then
+	echo 'compose-only invoked a component builder' >&2
+	cat "$log" >&2
+	exit 1
+fi
+
+full="$artifact_root/full"
+ota="$full/fre3nder-2026.4.a-ender3-v3-ke.ota"
+
+[ -f "$ota" ]
+[ -f "$full/build-manifest.json" ]
+[ -f "$full/SHA256SUMS" ]
+
+python3 - "$ota" "$full/build-manifest.json" "$fixture_commit" <<'VERIFY_PY'
+import json
+import pathlib
+import sys
+import tarfile
+
+ota = pathlib.Path(sys.argv[1])
+full_manifest_path = pathlib.Path(sys.argv[2])
+fixture_commit = sys.argv[3]
+
+with tarfile.open(ota, "r:") as archive:
+    assert tuple(member.name for member in archive.getmembers()) == (
+        "manifest.json",
+        "SHA256SUMS",
+        "SHA256SUMS.sig",
+        "kernel.uImage",
+        "rootfs.squashfs",
+    )
+
+    stream = archive.extractfile("manifest.json")
+    assert stream is not None
+    manifest = json.load(stream)
+
+expected = {
+    "kernel": {
+        "version": "2026.4.a",
+        "artifact_mode": "development",
+        "project_commit": "kernel-commit",
+        "project_worktree_status": "clean",
+        "build_input_sha256": "1" * 64,
+    },
+    "rootfs": {
+        "version": "2026.4.a",
+        "artifact_mode": "development",
+        "project_commit": "rootfs-commit",
+        "project_worktree_status": "dirty",
+        "build_input_sha256": "2" * 64,
+    },
+}
+
+assert manifest["component_provenance"] == expected
+
+expected_composition = {
+    "project_commit": fixture_commit,
+    "project_worktree_status": "clean",
+    "build_input_sha256": "3" * 64,
+}
+assert manifest["composition_provenance"] == expected_composition
+
+full_manifest = json.loads(full_manifest_path.read_text())
+assert full_manifest["component_provenance"] == expected
+assert full_manifest["composition_provenance"] == expected_composition
+VERIFY_PY
+
+extract="$tmp/extract"
+mkdir -p "$extract"
+tar -xf "$ota" -C "$extract"
+
+(
+	cd "$extract"
+	sha256sum -c SHA256SUMS >/dev/null
+)
+
+openssl pkeyutl \
+	-verify \
+	-rawin \
+	-pubin \
+	-inkey "$key_dir/public.pem" \
+	-in "$extract/SHA256SUMS" \
+	-sigfile "$extract/SHA256SUMS.sig" \
+	>/dev/null
+
+# Version remains a hard compatibility boundary.
+cp "$kernel_dir/build-manifest.json" "$tmp/kernel-manifest.json"
+
+python3 - "$kernel_dir/build-manifest.json" <<'BAD_VERSION_PY'
+import json
+import pathlib
+import sys
+
+path = pathlib.Path(sys.argv[1])
+manifest = json.loads(path.read_text())
+manifest["version"] = "9999.1.a"
+path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n")
+BAD_VERSION_PY
+
+if failure_output=$("$fixture/scripts/build-x2000" --compose-only 2>&1); then
+	echo 'compose-only accepted mismatched component versions' >&2
+	exit 1
+fi
+
+printf '%s\n' "$failure_output" |
+	grep -Fq 'component manifests disagree on version'
+printf '%s\n' "$failure_output" |
+	grep -Fq 'X2000 composition: FAIL'
+
+cp "$tmp/kernel-manifest.json" "$kernel_dir/build-manifest.json"
+
+# Artifact mode also remains a hard compatibility boundary.
+python3 - "$kernel_dir/build-manifest.json" <<'BAD_MODE_PY'
+import json
+import pathlib
+import sys
+
+path = pathlib.Path(sys.argv[1])
+manifest = json.loads(path.read_text())
+manifest["artifact_mode"] = "release"
+path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n")
+BAD_MODE_PY
+
+if "$fixture/scripts/build-x2000" --compose-only >/dev/null 2>&1; then
+	echo 'compose-only accepted mismatched artifact modes' >&2
+	exit 1
+fi
+
+cp "$tmp/kernel-manifest.json" "$kernel_dir/build-manifest.json"
+
+# Compose-only is intentionally standalone.
+for args in \
+	'--compose-only --develop' \
+	'--compose-only --kernel-build' \
+	'--compose-only --f005-build' \
+	'--compose-only --compose-only'
+do
+	if "$fixture/scripts/build-x2000" $args >/dev/null 2>&1; then
+		echo "orchestrator accepted invalid arguments: $args" >&2
+		exit 1
+	fi
+done
+
+if [ -s "$log" ]; then
+	echo 'a rejected compose-only path invoked a component builder' >&2
+	cat "$log" >&2
+	exit 1
+fi
+
+echo 'fre3nder X2000 compose-only fixtures: PASS'
