@@ -185,6 +185,74 @@ def expect_invalid(package, public_key, text):
         raise AssertionError(f"package unexpectedly verified: {package}")
 
 
+def make_runtime(
+    directory,
+    *,
+    active_root="/dev/mmcblk0p7",
+    status="active",
+    duplicate_sys=False,
+    home_mount_source="/dev/fre3nder-home",
+    home_fs_type="ext4",
+):
+    directory.mkdir()
+
+    version = directory / "VERSION"
+    root_status = directory / "status"
+    cmdline = directory / "cmdline"
+    mounts = directory / "mounts"
+    blkid = directory / "blkid"
+
+    version.write_text("2026.3\n")
+    root_status.write_text(status + "\n")
+    cmdline.write_text(
+        f"console=ttyS4 root={active_root} rootwait\n"
+    )
+
+    mounts.write_text(
+        "/dev/fre3nder-sys /run/fre3nder-root/system "
+        "ext4 rw 0 0\n"
+        f"{home_mount_source} /home {home_fs_type} rw 0 0\n"
+    )
+
+    blkid_lines = [
+        '/dev/fre3nder-sys: LABEL="FRE3NDERSYS" TYPE="ext4"',
+        '/dev/fre3nder-home: LABEL="FRE3NDERHOME" TYPE="ext4"',
+    ]
+    if duplicate_sys:
+        blkid_lines.append(
+            '/dev/duplicate-sys: LABEL="FRE3NDERSYS" TYPE="ext4"'
+        )
+
+    blkid.write_text(
+        "#!/bin/sh\n"
+        "cat <<'BLKID_OUTPUT'\n"
+        + "\n".join(blkid_lines)
+        + "\nBLKID_OUTPUT\n"
+    )
+    blkid.chmod(0o755)
+
+    return {
+        "installed_version_path": version,
+        "root_status_path": root_status,
+        "cmdline_path": cmdline,
+        "mounts_path": mounts,
+        "blkid_command": blkid,
+    }
+
+
+def expect_preflight_invalid(package, public_key, runtime, text):
+    try:
+        module.preflight_package(
+            package,
+            public_key=public_key,
+            **runtime,
+        )
+    except ValueError as exc:
+        assert text in str(exc), (text, str(exc))
+    else:
+        raise AssertionError("preflight unexpectedly succeeded")
+
+
 def main():
     assert "BR2_PACKAGE_LIBOPENSSL_BIN=y\n" in BUILDROOT_FRAGMENT.read_text()
     assert VERIFIER.stat().st_mode & 0o111
@@ -196,6 +264,98 @@ def main():
         package = temporary / "valid.ota"
         make_package(package, private_key, public_key)
         expect_valid(package, public_key)
+
+        runtime = make_runtime(temporary / "runtime-a")
+        plan = module.preflight_package(
+            package,
+            public_key=public_key,
+            **runtime,
+        )
+        assert plan["installed_version"] == "2026.3"
+        assert plan["package_version"] == "2026.4.fixture"
+        assert plan["active_slot"] == "A"
+        assert plan["active_root"] == "/dev/mmcblk0p7"
+        assert plan["target_slot"] == "B"
+        assert plan["target_kernel"] == "/dev/mmcblk0p6"
+        assert plan["target_rootfs"] == "/dev/mmcblk0p8"
+        assert plan["sys_source"] == "/dev/fre3nder-sys"
+        assert plan["home_source"] == "/dev/fre3nder-home"
+
+        output = module.format_preflight(plan, package)
+        assert "Package status:  VALID" in output
+        assert "Active slot:     A" in output
+        assert "Target slot:     B" in output
+        assert "PREFLIGHT: PASS" in output
+        assert output.endswith("No changes have been made.")
+
+        runtime = make_runtime(
+            temporary / "runtime-b",
+            active_root="/dev/mmcblk0p8",
+        )
+        plan = module.preflight_package(
+            package,
+            public_key=public_key,
+            **runtime,
+        )
+        assert plan["active_slot"] == "B"
+        assert plan["target_slot"] == "A"
+        assert plan["target_kernel"] == "/dev/mmcblk0p5"
+        assert plan["target_rootfs"] == "/dev/mmcblk0p7"
+
+        runtime = make_runtime(
+            temporary / "runtime-invalid-root",
+            active_root="/dev/mmcblk0p9",
+        )
+        expect_preflight_invalid(
+            package,
+            public_key,
+            runtime,
+            "active root is not a Fre3nder A/B root",
+        )
+
+        runtime = make_runtime(
+            temporary / "runtime-duplicate-sys",
+            duplicate_sys=True,
+        )
+        expect_preflight_invalid(
+            package,
+            public_key,
+            runtime,
+            "expected exactly one FRE3NDERSYS backend",
+        )
+
+        runtime = make_runtime(
+            temporary / "runtime-inactive",
+            status="immutable-root",
+        )
+        expect_preflight_invalid(
+            package,
+            public_key,
+            runtime,
+            "writable runtime is not active",
+        )
+
+        runtime = make_runtime(
+            temporary / "runtime-wrong-home-mount",
+            home_mount_source="/dev/wrong-home",
+        )
+        expect_preflight_invalid(
+            package,
+            public_key,
+            runtime,
+            "HOME backend mounted at /home does not match",
+        )
+
+        runtime = make_runtime(
+            temporary / "runtime-wrong-home-type",
+            home_fs_type="tmpfs",
+        )
+        expect_preflight_invalid(
+            package,
+            public_key,
+            runtime,
+            "HOME mounted at /home is not ext4",
+        )
 
         package = temporary / "bad-signature.ota"
         make_package(

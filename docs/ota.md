@@ -388,6 +388,54 @@ trust policy without replacing the package container.
 
 Verification must complete before destructive platform writes begin.
 
+### Device-side technical preflight
+
+The immutable RootFS also provides:
+
+    fre3nder-ota preflight <package.ota>
+
+This command is the read-only technical preflight used before the later
+backup, confirmation, and write stages. It first performs the complete v1
+package verification described above.
+
+After successful package verification it requires the writable Fre3nder
+runtime to be active and determines the currently running A/B slot from the
+actual `root=` argument in `/proc/cmdline`. The running root is authoritative;
+the boot-selector contents are not used to infer which slot is currently
+executing.
+
+The supported roots are:
+
+    /dev/mmcblk0p7 -> active A, target B
+    /dev/mmcblk0p8 -> active B, target A
+
+Any other root, or an ambiguous `root=` command line, fails closed.
+
+The technical preflight also resolves exactly one `FRE3NDERSYS` and exactly one
+`FRE3NDERHOME` backend through `blkid`. It then requires:
+
+* `SYS` to be mounted exactly once at `/run/fre3nder-root/system`;
+* `HOME` to be mounted exactly once at `/home`;
+* each mounted source to match the backend resolved from its logical label;
+* both mounted persistence filesystems to be `ext4`;
+* `SYS` and `HOME` to resolve to different backends.
+
+On success the command reports the installed and target versions, active and
+target slots, inactive kernel and RootFS targets, persistence-role resolution,
+and the intended `SYS` reset / `HOME` preserve policy.
+
+The command remains read-only. It does not write p1 or p3-p8, create a reset
+marker, modify `SYS` or `HOME`, change the boot selector, or reboot.
+
+Offline fixtures cover both A-to-B and B-to-A slot discovery together with
+fail-closed persistence and runtime-state cases. The implementation has also
+been exercised on the project reference X2000 system against the real
+`/proc/cmdline`, `/proc/mounts`, `blkid` state, installed trust anchor, and
+OpenSSL verifier.
+
+This technical preflight does not yet implement the complete architectural
+preflight below: backup choices and user confirmation remain later OTA stages.
+
 ## Preflight
 
 Before writing the inactive A/B slot, OTA performs a preflight.

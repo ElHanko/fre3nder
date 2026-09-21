@@ -3,6 +3,7 @@
 
 import hashlib
 import json
+import os
 import pathlib
 import re
 import shutil
@@ -35,6 +36,25 @@ MAX_MANIFEST_SIZE = 64 * 1024
 MAX_CHECKSUMS_SIZE = 1024
 ED25519_SIGNATURE_SIZE = 64
 SHA256_RE = re.compile(r"[0-9a-f]{64}")
+
+INSTALLED_VERSION = pathlib.Path("/usr/share/fre3nder/VERSION")
+ROOT_STATUS = pathlib.Path("/run/fre3nder-root/status")
+CMDLINE = pathlib.Path("/proc/cmdline")
+MOUNTS = pathlib.Path("/proc/mounts")
+BLKID = pathlib.Path("/sbin/blkid")
+SYS_MOUNT = "/run/fre3nder-root/system"
+HOME_MOUNT = "/home"
+
+SLOTS = {
+    "A": {
+        "kernel": "/dev/mmcblk0p5",
+        "rootfs": "/dev/mmcblk0p7",
+    },
+    "B": {
+        "kernel": "/dev/mmcblk0p6",
+        "rootfs": "/dev/mmcblk0p8",
+    },
+}
 
 
 def require_regular_file(path, description):
@@ -243,21 +263,286 @@ def verify_package(package, public_key=TRUSTED_PUBLIC_KEY):
     return manifest
 
 
-def main():
-    if len(sys.argv) != 3 or sys.argv[1] != "verify":
-        raise ValueError("usage: fre3nder-ota verify <package.ota>")
+def read_single_line(path, description):
+    path = pathlib.Path(path)
+    try:
+        text = path.read_text()
+    except OSError as exc:
+        raise ValueError(f"cannot read {description}: {path}") from exc
 
-    manifest = verify_package(sys.argv[2])
-    mode = manifest.get("artifact_mode", "unknown")
-    print(
-        f"VALID version={manifest['version']} "
-        f"platform={PLATFORM} mode={mode}"
+    lines = text.splitlines()
+    if len(lines) != 1 or not lines[0]:
+        raise ValueError(f"{description} is missing or invalid")
+    return lines[0]
+
+
+def discover_active_slot(cmdline):
+    roots = [
+        argument.removeprefix("root=")
+        for argument in cmdline.split()
+        if argument.startswith("root=")
+    ]
+    if len(roots) != 1:
+        raise ValueError("expected exactly one root= argument")
+
+    active_root = roots[0]
+    if active_root == SLOTS["A"]["rootfs"]:
+        return "A", "B", active_root
+    if active_root == SLOTS["B"]["rootfs"]:
+        return "B", "A", active_root
+
+    raise ValueError(
+        f"active root is not a Fre3nder A/B root: {active_root}"
     )
+
+
+def parse_blkid_roles(output):
+    roles = {
+        "SYS": [],
+        "HOME": [],
+    }
+
+    for line in output.splitlines():
+        if ":" not in line:
+            continue
+
+        device, metadata = line.split(":", 1)
+        fields = metadata.split()
+
+        if 'LABEL="FRE3NDERSYS"' in fields:
+            roles["SYS"].append(device)
+        if 'LABEL="FRE3NDERHOME"' in fields:
+            roles["HOME"].append(device)
+
+    for role, label in (
+        ("SYS", "FRE3NDERSYS"),
+        ("HOME", "FRE3NDERHOME"),
+    ):
+        devices = list(dict.fromkeys(roles[role]))
+        if len(devices) != 1:
+            raise ValueError(
+                f"expected exactly one {label} backend, found {len(devices)}"
+            )
+        roles[role] = devices[0]
+
+    if os.path.realpath(roles["SYS"]) == os.path.realpath(roles["HOME"]):
+        raise ValueError("SYS and HOME resolve to the same backend")
+
+    return roles
+
+
+def decode_mount_field(value):
+    return (
+        value
+        .replace(r"\\040", " ")
+        .replace(r"\\011", "\t")
+        .replace(r"\\012", "\n")
+        .replace(r"\\134", "\\")
+    )
+
+
+def parse_mounts(text):
+    entries = []
+    for line in text.splitlines():
+        fields = line.split()
+        if len(fields) < 3:
+            continue
+        entries.append(
+            (
+                decode_mount_field(fields[0]),
+                decode_mount_field(fields[1]),
+                fields[2],
+            )
+        )
+    return entries
+
+
+def require_role_mount(entries, mountpoint, source, role):
+    matches = [
+        (mounted_source, fs_type)
+        for mounted_source, mounted_at, fs_type in entries
+        if mounted_at == mountpoint
+    ]
+
+    if len(matches) != 1:
+        raise ValueError(
+            f"{role} is not mounted exactly once at {mountpoint}"
+        )
+
+    mounted_source, fs_type = matches[0]
+
+    if os.path.realpath(mounted_source) != os.path.realpath(source):
+        raise ValueError(
+            f"{role} backend mounted at {mountpoint} "
+            "does not match its resolved label"
+        )
+
+    if fs_type != "ext4":
+        raise ValueError(
+            f"{role} mounted at {mountpoint} is not ext4: {fs_type}"
+        )
+
+
+def build_preflight(
+    manifest,
+    installed_version,
+    root_status,
+    cmdline,
+    blkid_output,
+    mounts,
+):
+    if root_status != "active":
+        raise ValueError(
+            f"Fre3nder writable runtime is not active: {root_status}"
+        )
+
+    active_slot, target_slot, active_root = discover_active_slot(cmdline)
+    roles = parse_blkid_roles(blkid_output)
+    mount_entries = parse_mounts(mounts)
+
+    require_role_mount(
+        mount_entries,
+        SYS_MOUNT,
+        roles["SYS"],
+        "SYS",
+    )
+    require_role_mount(
+        mount_entries,
+        HOME_MOUNT,
+        roles["HOME"],
+        "HOME",
+    )
+
+    return {
+        "package_version": manifest["version"],
+        "artifact_mode": manifest.get("artifact_mode", "unknown"),
+        "installed_version": installed_version,
+        "active_slot": active_slot,
+        "active_root": active_root,
+        "target_slot": target_slot,
+        "target_kernel": SLOTS[target_slot]["kernel"],
+        "target_rootfs": SLOTS[target_slot]["rootfs"],
+        "sys_source": roles["SYS"],
+        "home_source": roles["HOME"],
+    }
+
+
+def preflight_package(
+    package,
+    public_key=TRUSTED_PUBLIC_KEY,
+    installed_version_path=INSTALLED_VERSION,
+    root_status_path=ROOT_STATUS,
+    cmdline_path=CMDLINE,
+    mounts_path=MOUNTS,
+    blkid_command=BLKID,
+):
+    manifest = verify_package(package, public_key)
+
+    installed_version = read_single_line(
+        installed_version_path,
+        "installed Fre3nder version",
+    )
+    root_status = read_single_line(
+        root_status_path,
+        "Fre3nder root status",
+    )
+
+    try:
+        cmdline = pathlib.Path(cmdline_path).read_text().strip()
+    except OSError as exc:
+        raise ValueError("cannot read kernel command line") from exc
+
+    try:
+        mounts = pathlib.Path(mounts_path).read_text()
+    except OSError as exc:
+        raise ValueError("cannot read mount table") from exc
+
+    try:
+        result = subprocess.run(
+            [str(blkid_command)],
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except OSError as exc:
+        raise ValueError(f"cannot execute blkid: {blkid_command}") from exc
+
+    if result.returncode != 0:
+        raise ValueError("cannot resolve Fre3nder persistence backends")
+
+    return build_preflight(
+        manifest,
+        installed_version,
+        root_status,
+        cmdline,
+        result.stdout,
+        mounts,
+    )
+
+
+def format_preflight(plan, package):
+    return "\n".join(
+        (
+            "Fre3nder OTA preflight",
+            "",
+            f"Package:         {package}",
+            "Package status:  VALID",
+            f"Current version: {plan['installed_version']}",
+            f"Target version:  {plan['package_version']}",
+            f"Mode:            {plan['artifact_mode']}",
+            "",
+            f"Active slot:     {plan['active_slot']}",
+            f"Active root:     {plan['active_root']}",
+            f"Target slot:     {plan['target_slot']}",
+            f"Target kernel:   {plan['target_kernel']}",
+            f"Target rootfs:   {plan['target_rootfs']}",
+            "",
+            f"SYS:             RESOLVED ({plan['sys_source']})",
+            f"HOME:            RESOLVED ({plan['home_source']})",
+            "SYS action:      RESET on successful activation",
+            "HOME action:     PRESERVE",
+            "",
+            "Write plan:",
+            f"  kernel.uImage   -> {plan['target_kernel']}",
+            f"  rootfs.squashfs -> {plan['target_rootfs']}",
+            "",
+            "PREFLIGHT: PASS",
+            "No changes have been made.",
+        )
+    )
+
+
+def main():
+    if len(sys.argv) != 3 or sys.argv[1] not in ("verify", "preflight"):
+        raise ValueError(
+            "usage: fre3nder-ota {verify|preflight} <package.ota>"
+        )
+
+    action = sys.argv[1]
+    package = sys.argv[2]
+
+    if action == "verify":
+        manifest = verify_package(package)
+        mode = manifest.get("artifact_mode", "unknown")
+        print(
+            f"VALID version={manifest['version']} "
+            f"platform={PLATFORM} mode={mode}"
+        )
+        return
+
+    plan = preflight_package(package)
+    print(format_preflight(plan, package))
 
 
 if __name__ == "__main__":
     try:
         main()
     except (OSError, ValueError) as exc:
-        print(f"fre3nder-ota: {exc}", file=sys.stderr)
+        if len(sys.argv) > 1 and sys.argv[1] == "preflight":
+            print("PREFLIGHT: FAIL", file=sys.stderr)
+            print(f"Reason: {exc}", file=sys.stderr)
+            print("No changes have been made.", file=sys.stderr)
+        else:
+            print(f"fre3nder-ota: {exc}", file=sys.stderr)
         sys.exit(1)
