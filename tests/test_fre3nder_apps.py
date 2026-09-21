@@ -20,7 +20,8 @@ import zipfile
 
 
 ROOT = Path(__file__).resolve().parents[1]
-DISPATCHER = ROOT / "configs/x2000/rootfs-overlay/usr/bin/fre3nder"
+CLI = ROOT / "configs/x2000/rootfs-overlay/usr/bin/fre3nder"
+DISPATCHER = ROOT / "configs/x2000/rootfs-overlay/usr/libexec/fre3nder-app-core"
 SERVICE = ROOT / "apps/fluidd/service"
 INFO = {"project_name": "fluidd", "project_owner": "fluidd-core", "version": "v0.0.0-fixture"}
 sys.dont_write_bytecode = True
@@ -54,11 +55,21 @@ class AppFixtures(unittest.TestCase):
             "FRE3NDER_APP_REF_FILE": str(self.ref),
             "FRE3NDER_FLUIDD_FIXTURE_DIR": str(self.fixtures),
             "FRE3NDER_PYTHON": sys.executable,
+            "FRE3NDER_APP_CORE": str(DISPATCHER),
         })
 
     def run_cli(self, *args, ok=True, handler=False):
-        command = ["sh", str(SERVICE)] if handler else [sys.executable, str(DISPATCHER)]
-        result = subprocess.run(command + list(args), env=self.env, capture_output=True, text=True)
+        command = (
+            ["sh", str(SERVICE)]
+            if handler
+            else [sys.executable, str(CLI), "app"]
+        )
+        result = subprocess.run(
+            command + list(args),
+            env=self.env,
+            capture_output=True,
+            text=True,
+        )
         if ok:
             self.assertEqual(result.returncode, 0, result.stderr)
         else:

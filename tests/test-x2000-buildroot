@@ -1234,6 +1234,9 @@ moonraker_root="$moonraker_overlay/opt/fre3nder/moonraker"
 
 target=$tmp/target
 build_dir=$tmp/build
+ota_public_key=$tmp/ota-public.pem
+printf '%s\n' 'fixture OTA public key' > "$ota_public_key"
+export FRE3NDER_OTA_PUBLIC_KEY="$ota_public_key"
 mkdir -p "$build_dir/linux-firmware-20250211"
 printf '%s\n' 'fixture Cypress license' > \
 	"$build_dir/linux-firmware-20250211/LICENCE.cypress"
@@ -1244,6 +1247,10 @@ install -D -m 0644 "$nvram" \
 install -D -m 0644 "$nvram_license" \
 	"$target/usr/share/licenses/radxa-rkwifibt/LICENSE"
 cp "$root/configs/x2000/rootfs-overlay/usr/bin/fre3nder" "$target/usr/bin/"
+cp "$root/configs/x2000/rootfs-overlay/usr/libexec/fre3nder-app-core" \
+	"$target/usr/libexec/"
+cp "$root/configs/x2000/rootfs-overlay/usr/libexec/fre3nder-ota-core" \
+	"$target/usr/libexec/"
 touch "$target/etc/init.d/fre3nder-root" \
 	"$target/etc/init.d/S20fre3nder-provision" \
 	"$target/etc/init.d/S40fre3nder-network" \
@@ -1260,12 +1267,15 @@ touch "$target/etc/init.d/fre3nder-root" \
 	"$target/usr/libexec/fre3nder-udhcpc"
 cp -a "$moonraker_overlay/." "$target/"
 "$post_build" "$target"
+cmp "$ota_public_key" "$target/ota/keys/public.pem"
 cmp "$build_dir/linux-firmware-20250211/LICENCE.cypress" \
 	"$target/usr/share/licenses/linux-firmware/LICENCE.cypress"
 cmp "$nvram" "$target/lib/firmware/brcm/brcmfmac43430-sdio.txt"
 cmp "$nvram_license" \
 	"$target/usr/share/licenses/radxa-rkwifibt/LICENSE"
 [ -x "$target/usr/bin/fre3nder" ]
+[ -x "$target/usr/libexec/fre3nder-app-core" ]
+[ -x "$target/usr/libexec/fre3nder-ota-core" ]
 [ -x "$target/etc/init.d/S59fre3nder-klipper-mcu" ]
 [ -x "$target/etc/init.d/S62fre3nder-web" ]
 [ -x "$target/etc/init.d/S63fre3nder-camera" ]

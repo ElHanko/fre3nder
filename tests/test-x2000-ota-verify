@@ -6,6 +6,7 @@ import importlib.machinery
 import importlib.util
 import io
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -16,10 +17,14 @@ sys.dont_write_bytecode = True
 
 
 ROOT = Path(__file__).resolve().parent.parent
-VERIFIER = ROOT / "configs/x2000/rootfs-overlay/usr/bin/fre3nder-ota"
+CORE = ROOT / "configs/x2000/rootfs-overlay/usr/libexec/fre3nder-ota-core"
+CLI = ROOT / "configs/x2000/rootfs-overlay/usr/bin/fre3nder"
 BUILDROOT_FRAGMENT = ROOT / "configs/x2000/buildroot.fragment"
 
-loader = importlib.machinery.SourceFileLoader("fre3nder_ota", str(VERIFIER))
+loader = importlib.machinery.SourceFileLoader(
+    "fre3nder_ota_core",
+    str(CORE),
+)
 spec = importlib.util.spec_from_loader(loader.name, loader)
 module = importlib.util.module_from_spec(spec)
 loader.exec_module(module)
@@ -27,6 +32,103 @@ loader.exec_module(module)
 
 def run(*args, **kwargs):
     return subprocess.run(args, check=True, **kwargs)
+
+
+def run_cli(core, operation, package):
+    environment = os.environ.copy()
+    environment["FRE3NDER_OTA_CORE"] = str(core)
+
+    return subprocess.run(
+        [str(CLI), "ota", operation, str(package)],
+        env=environment,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+
+def run_core_process(operation, package):
+    return subprocess.run(
+        [str(CORE), operation, str(package)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+
+def make_fake_core(path):
+    path.write_text(
+        """#!/usr/bin/python3
+import json
+import sys
+
+operation = sys.argv[1]
+package = sys.argv[2]
+
+if package.endswith("fail.ota"):
+    print(json.dumps({
+        "api_version": 1,
+        "ok": False,
+        "operation": operation,
+        "error": "fixture core failure",
+    }))
+    raise SystemExit(1)
+
+if operation == "verify":
+    response = {
+        "api_version": 1,
+        "ok": True,
+        "operation": "verify",
+        "package": {
+            "path": package,
+            "status": "valid",
+            "version": "2026.4.fixture",
+            "platform": "ender3-v3-ke",
+            "artifact_mode": "development",
+        },
+    }
+elif operation == "preflight":
+    response = {
+        "api_version": 1,
+        "ok": True,
+        "operation": "preflight",
+        "package": {
+            "path": package,
+            "status": "valid",
+            "version": "2026.4.fixture",
+            "platform": "ender3-v3-ke",
+            "artifact_mode": "development",
+        },
+        "runtime": {
+            "installed_version": "2026.3",
+            "active_slot": "A",
+            "active_root": "/dev/mmcblk0p7",
+        },
+        "target": {
+            "slot": "B",
+            "kernel": "/dev/mmcblk0p6",
+            "rootfs": "/dev/mmcblk0p8",
+        },
+        "persistence": {
+            "sys": {
+                "status": "resolved",
+                "source": "/dev/fre3nder-sys",
+                "action": "reset",
+            },
+            "home": {
+                "status": "resolved",
+                "source": "/dev/fre3nder-home",
+                "action": "preserve",
+            },
+        },
+    }
+else:
+    raise SystemExit(2)
+
+print(json.dumps(response))
+"""
+    )
+    path.chmod(0o755)
 
 
 def generate_keys(directory):
@@ -255,10 +357,24 @@ def expect_preflight_invalid(package, public_key, runtime, text):
 
 def main():
     assert "BR2_PACKAGE_LIBOPENSSL_BIN=y\n" in BUILDROOT_FRAGMENT.read_text()
-    assert VERIFIER.stat().st_mode & 0o111
+    assert CORE.stat().st_mode & 0o111
+    assert CLI.stat().st_mode & 0o111
 
     with tempfile.TemporaryDirectory() as temporary:
         temporary = Path(temporary)
+
+        result = run_core_process(
+            "verify",
+            temporary / "missing.ota",
+        )
+        assert result.returncode == 1
+        assert result.stderr == ""
+        response = json.loads(result.stdout)
+        assert response["api_version"] == 1
+        assert response["ok"] is False
+        assert response["operation"] == "verify"
+        assert "OTA package is missing" in response["error"]
+
         private_key, public_key = generate_keys(temporary)
 
         package = temporary / "valid.ota"
@@ -281,12 +397,26 @@ def main():
         assert plan["sys_source"] == "/dev/fre3nder-sys"
         assert plan["home_source"] == "/dev/fre3nder-home"
 
-        output = module.format_preflight(plan, package)
-        assert "Package status:  VALID" in output
-        assert "Active slot:     A" in output
-        assert "Target slot:     B" in output
-        assert "PREFLIGHT: PASS" in output
-        assert output.endswith("No changes have been made.")
+        response = module.preflight_response(
+            package,
+            public_key=public_key,
+            **runtime,
+        )
+        assert response["api_version"] == 1
+        assert response["ok"] is True
+        assert response["operation"] == "preflight"
+        assert response["package"]["status"] == "valid"
+        assert response["package"]["version"] == "2026.4.fixture"
+        assert response["package"]["platform"] == "ender3-v3-ke"
+        assert response["runtime"]["installed_version"] == "2026.3"
+        assert response["runtime"]["active_slot"] == "A"
+        assert response["target"]["slot"] == "B"
+        assert response["target"]["kernel"] == "/dev/mmcblk0p6"
+        assert response["target"]["rootfs"] == "/dev/mmcblk0p8"
+        assert response["persistence"]["sys"]["status"] == "resolved"
+        assert response["persistence"]["sys"]["action"] == "reset"
+        assert response["persistence"]["home"]["status"] == "resolved"
+        assert response["persistence"]["home"]["action"] == "preserve"
 
         runtime = make_runtime(
             temporary / "runtime-b",
@@ -356,6 +486,39 @@ def main():
             runtime,
             "HOME mounted at /home is not ext4",
         )
+
+        fake_core = temporary / "fake-core"
+        make_fake_core(fake_core)
+
+        result = run_cli(fake_core, "verify", package)
+        assert result.returncode == 0, result.stderr
+        assert result.stdout.strip() == (
+            "VALID version=2026.4.fixture "
+            "platform=ender3-v3-ke mode=development"
+        )
+
+        result = run_cli(fake_core, "preflight", package)
+        assert result.returncode == 0, result.stderr
+        assert "Package status:  VALID" in result.stdout
+        assert "Active slot:     A" in result.stdout
+        assert "Target slot:     B" in result.stdout
+        assert "PREFLIGHT: PASS" in result.stdout
+        assert result.stdout.rstrip().endswith(
+            "No changes have been made."
+        )
+
+        result = run_cli(
+            fake_core,
+            "preflight",
+            temporary / "fail.ota",
+        )
+        assert result.returncode == 1
+        assert result.stdout == ""
+        assert result.stderr.splitlines() == [
+            "PREFLIGHT: FAIL",
+            "Reason: fixture core failure",
+            "No changes have been made.",
+        ]
 
         package = temporary / "bad-signature.ota"
         make_package(

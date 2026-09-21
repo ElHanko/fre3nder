@@ -1527,6 +1527,8 @@ check_rootfs() {
 	find "$numpy_dir/core" -type f -name '_multiarray_umath*.so' \
 		-print -quit | grep -q .
 	[ -x "$target/usr/bin/fre3nder" ]
+	[ -x "$target/usr/libexec/fre3nder-app-core" ]
+	[ -x "$target/usr/libexec/fre3nder-ota-core" ]
 	[ -x "$target/usr/sbin/lighttpd" ]
 	[ -f "$target/usr/lib/lighttpd/mod_proxy.so" ]
 	[ -x "$target/etc/init.d/S62fre3nder-web" ]

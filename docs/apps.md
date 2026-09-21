@@ -2,8 +2,9 @@
 
 Status: **HARDWARE QUALIFIED ON THE REFERENCE SYSTEM**.
 
-Fre3nder supplies a small application dispatcher, `/usr/bin/fre3nder`, and
-optional Lighttpd web infrastructure in the RootFS build inputs. The official
+Fre3nder supplies a common CLI frontend, `/usr/bin/fre3nder`, backed by
+`/usr/libexec/fre3nder-app-core` for application lifecycle logic. Optional
+Lighttpd web infrastructure is provided in the RootFS build inputs. The official
 app catalog is the repository directory `apps/`:
 
 ```text
@@ -25,17 +26,17 @@ web-frontend selection.
 ## Interface and storage
 
 ```sh
-fre3nder install fluidd
-fre3nder uninstall fluidd
-fre3nder status fluidd
-fre3nder restore fluidd
+fre3nder app install fluidd
+fre3nder app uninstall fluidd
+fre3nder app status fluidd
+fre3nder app restore fluidd
 ```
 
-The CLI accepts exactly an action and an app name. Names match
+The `app` CLI namespace accepts exactly an action and an app name. Names match
 `[a-z][a-z0-9_-]{0,63}`. Invalid calls fail with a diagnostic and nonzero exit
-code. A handler receives exactly one action; the dispatcher replaces itself
-with that process and preserves its exit code. No other lifecycle or version
-model is imposed on apps.
+code. The common CLI dispatches the request to `fre3nder-app-core`. A handler
+receives exactly one action; the app core replaces itself with that process and
+preserves its exit code. No other lifecycle or version model is imposed on apps.
 
 For every action, the handler is selected using the source/cache rules below
 and installed as `/opt/fre3nder/apps/<name>/service`. A handler must be regular
@@ -56,7 +57,8 @@ runtime handler.
 
 | Role | Fluidd path | Persistence |
 | --- | --- | --- |
-| Generic CLI | `/usr/bin/fre3nder` | RootFS baseline |
+| Common CLI frontend | `/usr/bin/fre3nder` | RootFS baseline |
+| Application core | `/usr/libexec/fre3nder-app-core` | RootFS baseline |
 | Generic source binding | `/usr/share/fre3nder/APP_REF` | Generated RootFS build provenance |
 | Loaded app definition | `/opt/fre3nder/apps/fluidd/service` | Reconstructible system OverlayFS |
 | Handler provenance | `/opt/fre3nder/apps/fluidd/APP_REF` | Commit of the cached executable; absent for local overrides |
@@ -116,7 +118,7 @@ cannot be reconstructed from HEAD alone. Such builds can execute an already
 installed local handler or use an explicitly selected local source checkout:
 
 ```sh
-FRE3NDER_APP_SOURCE_DIR=<project-root> fre3nder install fluidd
+FRE3NDER_APP_SOURCE_DIR=<project-root> fre3nder app install fluidd
 ```
 
 That override always reads and stages `<project-root>/apps/fluidd/service`
@@ -142,7 +144,7 @@ scripts/install-development-app <printer-host> fluidd
 The helper validates the repository app definition, verifies that the target
 is running with the active Fre3nder persistent root, transfers only that
 definition through SSH/stdin, verifies its SHA256 on the target, and invokes
-`fre3nder install <app>` with `/tmp/fre3nder-app-source` as the explicit local
+`fre3nder app install <app>` with `/tmp/fre3nder-app-source` as the explicit local
 source. This default form installs the app without restarting running services.
 
 The explicit apply form is:
@@ -154,13 +156,13 @@ scripts/install-development-app --apply <printer-host> <app>
 After a successful install, it restarts Moonraker and then the web server. It
 does not restart Klipper. Both forms are development workflows. After a system-overlay reset, a
 separately installed application is reconstructed through the explicit
-`fre3nder restore <app>` lifecycle. Automatic desired-state reconciliation is
+`fre3nder app restore <app>` lifecycle. Automatic desired-state reconciliation is
 deferred beyond `2026.2`.
 
 In summary, a clean build whose `APP_REF` names a published commit uses:
 
 ```sh
-fre3nder install <app>
+fre3nder app install <app>
 ```
 
 A dirty build carrying `APP_REF=unpublished` uses:
@@ -229,7 +231,7 @@ remain unchanged. It is idempotent. The cached handler is retained, subject to
 the same provenance checks on subsequent calls. It does not modify
 the main Moonraker configuration, databases, update metadata, other apps,
 other printer data, or platform components. In particular, the platform-owned
-`fre3nder/camera.conf` and S63 camera service survive `fre3nder uninstall
+`fre3nder/camera.conf` and S63 camera service survive `fre3nder app uninstall
 fluidd`. Unsafe symlink paths are refused; they are not followed for deletion.
 
 Status is read-only within the handler and emits:
@@ -433,7 +435,7 @@ Selection changes print `/etc/init.d/S62fre3nder-web restart`; they do not
 restart or enable the service automatically. A running server uses its prior
 document root until explicitly restarted.
 
-**`fre3nder install fluidd` setzt den eingebauten Lighttpd nicht voraus.**
+**`fre3nder app install fluidd` setzt den eingebauten Lighttpd nicht voraus.**
 
 Installation requires neither an enabled/running S62 nor a free port 80.
 An external nginx, Caddy, Apache or other server may serve
@@ -525,9 +527,9 @@ Moonraker fragment, and active frontend selection under `/home` survived while
 the reconstructible `/opt/fre3nder/web/fluidd` payload was absent, causing the
 expected `payload-unavailable` web-service state.
 
-`fre3nder status fluidd` reported `desired=installed`, a present compatible app
+`fre3nder app status fluidd` reported `desired=installed`, a present compatible app
 handler, a missing payload, and present Moonraker configuration/include state.
-`fre3nder restore fluidd` reconstructed the payload. After the documented web
+`fre3nder app restore fluidd` reconstructed the payload. After the documented web
 and Moonraker restarts, Lighttpd returned HTTP 200, `/server/info` reported
 ready Klippy state with no failed components or warnings, and the expected
 qualified F005 MCU remained connected.
@@ -539,7 +541,7 @@ system-overlay restore path and normal-reboot persistence on the investigated
 reference system.
 
 Subsequent testing on 2026-09-14 qualified normal printer status and control
-through the Fluidd UI and the explicit `fre3nder uninstall fluidd` path. The
+through the Fluidd UI and the explicit `fre3nder app uninstall fluidd` path. The
 resulting `web=no-frontend` state is expected after removing the selected
 frontend and is not a service failure.
 

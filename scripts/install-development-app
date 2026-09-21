@@ -70,7 +70,7 @@ remote_sha=$(
 	die "transferred app definition SHA256 mismatch"
 
 if ssh -o BatchMode=yes "$host" \
-	"FRE3NDER_APP_SOURCE_DIR=$remote_root /usr/bin/fre3nder install '$app'"; then
+	"FRE3NDER_APP_SOURCE_DIR=$remote_root /usr/bin/fre3nder app install '$app'"; then
 	:
 else
 	rc=$?

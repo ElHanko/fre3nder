@@ -42,7 +42,7 @@ case "$command" in
 		sha256sum "$TEST_TRANSFERRED"
 	fi
 	;;
-"FRE3NDER_APP_SOURCE_DIR=/tmp/fre3nder-app-source /usr/bin/fre3nder install 'sample'")
+"FRE3NDER_APP_SOURCE_DIR=/tmp/fre3nder-app-source /usr/bin/fre3nder app install 'sample'")
 	exit "${TEST_INSTALL_RC:-0}"
 	;;
 "/etc/init.d/S61fre3nder-moonraker restart")
@@ -129,7 +129,7 @@ if TEST_SHA_MISMATCH=1 run_helper host sample >/dev/null 2>&1; then
 	exit 1
 fi
 cmp -s "$fixture/apps/sample/service" "$transferred"
-! grep -Fq '/usr/bin/fre3nder install' "$log"
+! grep -Fq '/usr/bin/fre3nder app install' "$log"
 
 rm -f "$log" "$transferred"
 run_helper host sample
@@ -140,7 +140,7 @@ grep -Fxq \
 [ "$(grep -Fc 'ssh-host:host' "$log")" -eq 4 ]
 grep -Fq "chmod 0755 '/tmp/fre3nder-app-source/apps/sample/service'" "$log"
 grep -Fxq \
-	"ssh-command:FRE3NDER_APP_SOURCE_DIR=/tmp/fre3nder-app-source /usr/bin/fre3nder install 'sample'" \
+	"ssh-command:FRE3NDER_APP_SOURCE_DIR=/tmp/fre3nder-app-source /usr/bin/fre3nder app install 'sample'" \
 	"$log"
 ! grep -Eq 'S60|S61|S62|restart|scp|sftp|rsync' "$log"
 ! grep -Eq '(^|[^[:alnum:]_])(scp|sftp|rsync)([^[:alnum:]_]|$)' "$helper"
@@ -161,7 +161,7 @@ grep -Fxq \
 	"$log"
 [ "$(grep -Fc 'ssh-host:host' "$log")" -eq 6 ]
 grep -Fxq \
-	"ssh-command:FRE3NDER_APP_SOURCE_DIR=/tmp/fre3nder-app-source /usr/bin/fre3nder install 'sample'" \
+	"ssh-command:FRE3NDER_APP_SOURCE_DIR=/tmp/fre3nder-app-source /usr/bin/fre3nder app install 'sample'" \
 	"$log"
 grep -Fxq \
 	'ssh-command:/etc/init.d/S61fre3nder-moonraker restart' \
@@ -170,7 +170,7 @@ grep -Fxq \
 	'ssh-command:/etc/init.d/S62fre3nder-web restart' \
 	"$log"
 install_line=$(grep -nFx \
-	"ssh-command:FRE3NDER_APP_SOURCE_DIR=/tmp/fre3nder-app-source /usr/bin/fre3nder install 'sample'" \
+	"ssh-command:FRE3NDER_APP_SOURCE_DIR=/tmp/fre3nder-app-source /usr/bin/fre3nder app install 'sample'" \
 	"$log" | cut -d: -f1)
 s61_line=$(grep -nFx \
 	'ssh-command:/etc/init.d/S61fre3nder-moonraker restart' \
@@ -189,7 +189,7 @@ TEST_INSTALL_RC=23 run_helper --apply host sample >/dev/null 2>&1
 rc=$?
 set -e
 [ "$rc" -eq 23 ]
-grep -Fq '/usr/bin/fre3nder install' "$log"
+grep -Fq '/usr/bin/fre3nder app install' "$log"
 ! grep -Fq 'S61fre3nder-moonraker' "$log"
 ! grep -Fq 'S62fre3nder-web' "$log"
 
@@ -199,7 +199,7 @@ TEST_S61_RC=24 run_helper --apply host sample >/dev/null 2>&1
 rc=$?
 set -e
 [ "$rc" -eq 24 ]
-grep -Fq '/usr/bin/fre3nder install' "$log"
+grep -Fq '/usr/bin/fre3nder app install' "$log"
 grep -Fq 'S61fre3nder-moonraker' "$log"
 ! grep -Fq 'S62fre3nder-web' "$log"
 
@@ -209,7 +209,7 @@ TEST_S62_RC=25 run_helper --apply host sample >/dev/null 2>&1
 rc=$?
 set -e
 [ "$rc" -eq 25 ]
-grep -Fq '/usr/bin/fre3nder install' "$log"
+grep -Fq '/usr/bin/fre3nder app install' "$log"
 grep -Fq 'S61fre3nder-moonraker' "$log"
 grep -Fq 'S62fre3nder-web' "$log"
 ! grep -Fq 'S60fre3nder-klipper' "$log"

@@ -244,6 +244,72 @@ backups, persistence handling, or activation.
 
 They should expose the same operations and state provided by the OTA core.
 
+### Core/frontend contract
+
+The first implementation separates OTA behavior from its CLI presentation:
+
+    /usr/libexec/fre3nder-ota-core
+        OTA verification, discovery, validation, and planning
+
+    /usr/bin/fre3nder
+        common human-facing CLI frontend; OTA namespace: `fre3nder ota`
+
+The core owns OTA decisions and platform knowledge. Frontends must not
+independently implement package verification, A/B slot mapping, active-slot
+discovery, persistence-role resolution, target selection, backup policy,
+write sequencing, activation rules, or rollback policy.
+
+The OTA namespace of the common CLI frontend is deliberately limited to
+invoking the OTA core, validating the returned protocol response, and
+presenting that state to a human operator.
+
+Future GuppyScreen and Moonraker/web integrations must consume the same logical
+core operations and state rather than parsing CLI text or reimplementing OTA
+behavior.
+
+The current core/frontend transport is a local process invocation. The core
+writes exactly one JSON response to standard output and uses its process exit
+status to distinguish success, operation failure, and invocation errors.
+
+The JSON contract carries:
+
+    api_version
+    ok
+    operation
+
+Successful responses additionally carry structured operation-specific state.
+Failed responses carry an error description intended for presentation by the
+calling frontend.
+
+The initial internal API version is:
+
+    api_version = 1
+
+The implemented operations are currently:
+
+    verify
+    preflight
+
+`verify` returns structured package identity and verification state.
+
+`preflight` additionally returns structured runtime, target-slot, and
+persistence state. The core, not the frontend, determines the active slot,
+inactive target devices, `SYS`/`HOME` resolution, and their intended update
+actions.
+
+Human-readable strings such as the CLI preflight report are not part of the
+core API and must not be consumed by another frontend.
+
+The process transport is an implementation detail rather than a requirement
+that the core remain a short-lived command forever. A later privileged OTA
+service may expose the same logical operations and response model when
+long-running update execution, progress reporting, or mutual exclusion require
+it.
+
+Incompatible changes to the structured interface require an API version change.
+Compatible additions may extend operation-specific response objects without
+moving OTA decisions into a frontend.
+
 ## Update sources
 
 The initial OTA architecture supports local release packages.
@@ -364,7 +430,7 @@ to agree before any platform partition is written.
 
 The immutable RootFS provides:
 
-    fre3nder-ota verify <package.ota>
+    fre3nder ota verify <package.ota>
 
 The v1 verifier is deliberately read-only. It does not select a slot, write a
 kernel or RootFS partition, change the boot selector, create a SYS reset marker,
@@ -392,7 +458,7 @@ Verification must complete before destructive platform writes begin.
 
 The immutable RootFS also provides:
 
-    fre3nder-ota preflight <package.ota>
+    fre3nder ota preflight <package.ota>
 
 This command is the read-only technical preflight used before the later
 backup, confirmation, and write stages. It first performs the complete v1

@@ -1,5 +1,5 @@
 #!/usr/bin/python3
-"""Verify a Fre3nder OTA v1 package without modifying platform state."""
+"""Fre3nder OTA core."""
 
 import hashlib
 import json
@@ -481,68 +481,103 @@ def preflight_package(
     )
 
 
-def format_preflight(plan, package):
-    return "\n".join(
-        (
-            "Fre3nder OTA preflight",
-            "",
-            f"Package:         {package}",
-            "Package status:  VALID",
-            f"Current version: {plan['installed_version']}",
-            f"Target version:  {plan['package_version']}",
-            f"Mode:            {plan['artifact_mode']}",
-            "",
-            f"Active slot:     {plan['active_slot']}",
-            f"Active root:     {plan['active_root']}",
-            f"Target slot:     {plan['target_slot']}",
-            f"Target kernel:   {plan['target_kernel']}",
-            f"Target rootfs:   {plan['target_rootfs']}",
-            "",
-            f"SYS:             RESOLVED ({plan['sys_source']})",
-            f"HOME:            RESOLVED ({plan['home_source']})",
-            "SYS action:      RESET on successful activation",
-            "HOME action:     PRESERVE",
-            "",
-            "Write plan:",
-            f"  kernel.uImage   -> {plan['target_kernel']}",
-            f"  rootfs.squashfs -> {plan['target_rootfs']}",
-            "",
-            "PREFLIGHT: PASS",
-            "No changes have been made.",
-        )
-    )
+
+API_VERSION = 1
+
+
+def verify_response(package, public_key=TRUSTED_PUBLIC_KEY):
+    manifest = verify_package(package, public_key)
+
+    return {
+        "api_version": API_VERSION,
+        "ok": True,
+        "operation": "verify",
+        "package": {
+            "path": str(package),
+            "status": "valid",
+            "version": manifest["version"],
+            "platform": PLATFORM,
+            "artifact_mode": manifest.get("artifact_mode", "unknown"),
+        },
+    }
+
+
+def preflight_response(package, **kwargs):
+    plan = preflight_package(package, **kwargs)
+
+    return {
+        "api_version": API_VERSION,
+        "ok": True,
+        "operation": "preflight",
+        "package": {
+            "path": str(package),
+            "status": "valid",
+            "version": plan["package_version"],
+            "platform": PLATFORM,
+            "artifact_mode": plan["artifact_mode"],
+        },
+        "runtime": {
+            "installed_version": plan["installed_version"],
+            "active_slot": plan["active_slot"],
+            "active_root": plan["active_root"],
+        },
+        "target": {
+            "slot": plan["target_slot"],
+            "kernel": plan["target_kernel"],
+            "rootfs": plan["target_rootfs"],
+        },
+        "persistence": {
+            "sys": {
+                "status": "resolved",
+                "source": plan["sys_source"],
+                "action": "reset",
+            },
+            "home": {
+                "status": "resolved",
+                "source": plan["home_source"],
+                "action": "preserve",
+            },
+        },
+    }
+
+
+def error_response(operation, message):
+    return {
+        "api_version": API_VERSION,
+        "ok": False,
+        "operation": operation,
+        "error": str(message),
+    }
 
 
 def main():
     if len(sys.argv) != 3 or sys.argv[1] not in ("verify", "preflight"):
-        raise ValueError(
-            "usage: fre3nder-ota {verify|preflight} <package.ota>"
+        print(
+            json.dumps(
+                error_response(
+                    None,
+                    "usage: fre3nder-ota-core {verify|preflight} <package.ota>",
+                ),
+                sort_keys=True,
+            )
         )
+        return 2
 
-    action = sys.argv[1]
+    operation = sys.argv[1]
     package = sys.argv[2]
 
-    if action == "verify":
-        manifest = verify_package(package)
-        mode = manifest.get("artifact_mode", "unknown")
-        print(
-            f"VALID version={manifest['version']} "
-            f"platform={PLATFORM} mode={mode}"
-        )
-        return
+    try:
+        if operation == "verify":
+            response = verify_response(package)
+        else:
+            response = preflight_response(package)
+    except (OSError, ValueError) as exc:
+        print(json.dumps(error_response(operation, exc), sort_keys=True))
+        return 1
 
-    plan = preflight_package(package)
-    print(format_preflight(plan, package))
+    print(json.dumps(response, sort_keys=True))
+    return 0
 
 
 if __name__ == "__main__":
-    try:
-        main()
-    except (OSError, ValueError) as exc:
-        if len(sys.argv) > 1 and sys.argv[1] == "preflight":
-            print("PREFLIGHT: FAIL", file=sys.stderr)
-            print(f"Reason: {exc}", file=sys.stderr)
-            print("No changes have been made.", file=sys.stderr)
-        else:
-            print(f"fre3nder-ota: {exc}", file=sys.stderr)
-        sys.exit(1)
+    sys.exit(main())

@@ -33,6 +33,8 @@ rm -f "$target/etc/init.d/S50lighttpd"
 
 chmod 0755 \
 	"$target/usr/bin/fre3nder" \
+	"$target/usr/libexec/fre3nder-app-core" \
+	"$target/usr/libexec/fre3nder-ota-core" \
 	"$target/etc/init.d/fre3nder-root" \
 	"$target/etc/init.d/S20fre3nder-provision" \
 	"$target/etc/init.d/S40fre3nder-network" \
