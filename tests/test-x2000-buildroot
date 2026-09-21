@@ -230,7 +230,7 @@ assert series["baseline_commit"] == (
 )
 
 assert series["result_tree"] == (
-    "40d8b5cee4341505c12373e9bb1386e80241f0d6"
+    "fd3535dcfe9b4adca5c2e77f10b7672ae6a0a786"
 )
 
 assert [
@@ -264,7 +264,7 @@ assert [
     (
         5,
         "patches/kernel/0005-fre3nder-ender3-v3-ke-integration-v6.6.157.patch",
-        "08f9eb4bf44d69d7083253b2d75f102e440f20bd0ccb41fdbf011fcefe8f4b30",
+        "3d06a959c58136ac747014396ff4f71d4a04d375814e7da83983303625461206",
     ),
 ]
 PY
@@ -281,7 +281,7 @@ do
 done
 
 grep -Fq \
-    'kernel_fre3nder_tree=40d8b5cee4341505c12373e9bb1386e80241f0d6' \
+    'kernel_fre3nder_tree=fd3535dcfe9b4adca5c2e77f10b7672ae6a0a786' \
     "$entrypoint"
 
 ! grep -Fq \

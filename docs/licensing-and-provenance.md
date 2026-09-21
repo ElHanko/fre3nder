@@ -73,10 +73,15 @@ repository at commit
 record their derivation from `coreflake1/NebulaOS-kernel` at commit
 `88a0e1ecc6ace7c9e4ad99d6fa49e272180fd5a9`.
 
-Applied in order, the five patches produce source tree
-`40d8b5cee4341505c12373e9bb1386e80241f0d6`. This is exactly the same source
-tree that was built and hardware-qualified as `6.6.157-fre3nder` before the
-monolithic migration delta was mechanically split by provenance.
+Applied in order, the current five patches produce source tree
+`fd3535dcfe9b4adca5c2e77f10b7672ae6a0a786`.
+
+The original provenance split produced
+`40d8b5cee4341505c12373e9bb1386e80241f0d6`, matching the source tree that had
+already been built and hardware-qualified as `6.6.157-fre3nder`. The later
+A/B slot-neutral kernel change updated the Fre3nder-specific board-integration
+layer to remove embedded slot-specific boot arguments, producing the current
+tree while retaining the same provenance-separated patch structure.
 
 The historical Ingenic SDK and RT23 trees remain provenance and migration
 reference material. Neither is a productive kernel source checkout.

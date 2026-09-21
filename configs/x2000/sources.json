@@ -23,7 +23,7 @@
     "patch_series": {
       "role": "productive ordered Fre3nder X2000 kernel patch series on upstream Linux v6.6.157",
       "baseline_commit": "79643295eba17affbd16ca97f3ef04c90266b28c",
-      "result_tree": "40d8b5cee4341505c12373e9bb1386e80241f0d6",
+      "result_tree": "fd3535dcfe9b4adca5c2e77f10b7672ae6a0a786",
       "patches": [
         {
           "order": 1,
@@ -61,7 +61,7 @@
           "order": 5,
           "role": "Fre3nder Ender-3 V3 KE board integration and Linux v6.6.157 forward-port fixes",
           "patch": "patches/kernel/0005-fre3nder-ender3-v3-ke-integration-v6.6.157.patch",
-          "patch_sha256": "08f9eb4bf44d69d7083253b2d75f102e440f20bd0ccb41fdbf011fcefe8f4b30"
+          "patch_sha256": "3d06a959c58136ac747014396ff4f71d4a04d375814e7da83983303625461206"
         }
       ]
     },
