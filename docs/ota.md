@@ -355,6 +355,28 @@ Package verification must establish the Ed25519 signature first and then require
 the checksum file, manifest metadata, declared sizes, and actual payload hashes
 to agree before any platform partition is written.
 
+### Device-side verify-only command
+
+The immutable RootFS provides:
+
+    fre3nder-ota verify <package.ota>
+
+The v1 verifier is deliberately read-only. It does not select a slot, write a
+kernel or RootFS partition, change the boot selector, create a SYS reset marker,
+or reboot the printer.
+
+Verification requires exactly the five v1 top-level regular TAR members in their
+defined order. It authenticates `SHA256SUMS` with Ed25519 and
+`/ota/keys/public.pem` before trusting any declared digest. It then validates the
+manifest format and `ender3-v3-ke` platform, requires the package trust-anchor
+hash to match the installed v1 trust anchor, and streams both payloads while
+checking their signed SHA-256 digests and declared sizes. Kernel and RootFS
+payloads are not extracted to `/tmp` and are not loaded into memory as complete
+files.
+
+The RootFS includes the OpenSSL command-line utility for Ed25519 verification;
+Python handles TAR structure, JSON metadata, size checks, and streaming SHA-256.
+
 The v1 format deliberately does not introduce a general-purpose update
 framework or certificate infrastructure. Future key rotation may extend the
 trust policy without replacing the package container.

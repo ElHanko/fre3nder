@@ -1,0 +1,258 @@
+#!/usr/bin/python3
+"""Offline fixtures for the read-only Fre3nder OTA v1 verifier."""
+
+import hashlib
+import importlib.machinery
+import importlib.util
+import io
+import json
+from pathlib import Path
+import subprocess
+import sys
+import tarfile
+import tempfile
+
+sys.dont_write_bytecode = True
+
+
+ROOT = Path(__file__).resolve().parent.parent
+VERIFIER = ROOT / "configs/x2000/rootfs-overlay/usr/bin/fre3nder-ota"
+BUILDROOT_FRAGMENT = ROOT / "configs/x2000/buildroot.fragment"
+
+loader = importlib.machinery.SourceFileLoader("fre3nder_ota", str(VERIFIER))
+spec = importlib.util.spec_from_loader(loader.name, loader)
+module = importlib.util.module_from_spec(spec)
+loader.exec_module(module)
+
+
+def run(*args, **kwargs):
+    return subprocess.run(args, check=True, **kwargs)
+
+
+def generate_keys(directory):
+    private_key = directory / "private.pem"
+    public_key = directory / "public.pem"
+    run(
+        "openssl",
+        "genpkey",
+        "-algorithm",
+        "ED25519",
+        "-out",
+        str(private_key),
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    run(
+        "openssl",
+        "pkey",
+        "-in",
+        str(private_key),
+        "-pubout",
+        "-out",
+        str(public_key),
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    return private_key, public_key
+
+
+def make_package(
+    path,
+    private_key,
+    public_key,
+    *,
+    platform="ender3-v3-ke",
+    key_hash=None,
+    tamper_rootfs=False,
+    extra_member=False,
+    symlink_rootfs=False,
+    corrupt_signature=False,
+):
+    kernel = b"fixture-kernel\n"
+    signed_rootfs = b"fixture-rootfs\n"
+    archived_rootfs = b"tampered-rootfs\n" if tamper_rootfs else signed_rootfs
+
+    payload_hashes = {
+        "kernel.uImage": hashlib.sha256(kernel).hexdigest(),
+        "rootfs.squashfs": hashlib.sha256(signed_rootfs).hexdigest(),
+    }
+    payload_sizes = {
+        "kernel.uImage": len(kernel),
+        "rootfs.squashfs": len(archived_rootfs),
+    }
+    manifest = {
+        "version": "2026.4.fixture",
+        "artifact_mode": "development",
+        "ota_public_key_sha256": (
+            key_hash
+            if key_hash is not None
+            else hashlib.sha256(public_key.read_bytes()).hexdigest()
+        ),
+        "artifacts": payload_hashes,
+        "artifact_sizes": payload_sizes,
+        "ota": {
+            "format": "fre3nder-ota",
+            "format_version": 1,
+            "platform": platform,
+            "signature": {
+                "algorithm": "Ed25519",
+                "file": "SHA256SUMS.sig",
+                "signed_file": "SHA256SUMS",
+            },
+        },
+    }
+    manifest_data = (
+        json.dumps(manifest, indent=2, sort_keys=True) + "\n"
+    ).encode()
+    checksums_data = (
+        f"{hashlib.sha256(manifest_data).hexdigest()}  manifest.json\n"
+        f"{payload_hashes['kernel.uImage']}  kernel.uImage\n"
+        f"{payload_hashes['rootfs.squashfs']}  rootfs.squashfs\n"
+    ).encode()
+
+    with tempfile.TemporaryDirectory() as temporary:
+        temporary = Path(temporary)
+        sums = temporary / "SHA256SUMS"
+        signature = temporary / "SHA256SUMS.sig"
+        sums.write_bytes(checksums_data)
+        run(
+            "openssl",
+            "pkeyutl",
+            "-sign",
+            "-rawin",
+            "-inkey",
+            str(private_key),
+            "-in",
+            str(sums),
+            "-out",
+            str(signature),
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        signature_data = bytearray(signature.read_bytes())
+    if corrupt_signature:
+        signature_data[0] ^= 1
+
+    def info(name, size):
+        entry = tarfile.TarInfo(name)
+        entry.size = size
+        entry.mode = 0o644
+        entry.uid = 0
+        entry.gid = 0
+        entry.uname = "root"
+        entry.gname = "root"
+        entry.mtime = 0
+        return entry
+
+    with tarfile.open(path, "w", format=tarfile.USTAR_FORMAT) as archive:
+        for name, data in (
+            ("manifest.json", manifest_data),
+            ("SHA256SUMS", checksums_data),
+            ("SHA256SUMS.sig", bytes(signature_data)),
+            ("kernel.uImage", kernel),
+        ):
+            archive.addfile(info(name, len(data)), io.BytesIO(data))
+
+        if symlink_rootfs:
+            entry = tarfile.TarInfo("rootfs.squashfs")
+            entry.type = tarfile.SYMTYPE
+            entry.linkname = "kernel.uImage"
+            entry.mode = 0o777
+            entry.mtime = 0
+            archive.addfile(entry)
+        else:
+            archive.addfile(
+                info("rootfs.squashfs", len(archived_rootfs)),
+                io.BytesIO(archived_rootfs),
+            )
+
+        if extra_member:
+            data = b"extra\n"
+            archive.addfile(info("extra", len(data)), io.BytesIO(data))
+
+
+def expect_valid(package, public_key):
+    manifest = module.verify_package(package, public_key)
+    assert manifest["version"] == "2026.4.fixture"
+
+
+def expect_invalid(package, public_key, text):
+    try:
+        module.verify_package(package, public_key)
+    except ValueError as exc:
+        assert text in str(exc), (text, str(exc))
+    else:
+        raise AssertionError(f"package unexpectedly verified: {package}")
+
+
+def main():
+    assert "BR2_PACKAGE_LIBOPENSSL_BIN=y\n" in BUILDROOT_FRAGMENT.read_text()
+    assert VERIFIER.stat().st_mode & 0o111
+
+    with tempfile.TemporaryDirectory() as temporary:
+        temporary = Path(temporary)
+        private_key, public_key = generate_keys(temporary)
+
+        package = temporary / "valid.ota"
+        make_package(package, private_key, public_key)
+        expect_valid(package, public_key)
+
+        package = temporary / "bad-signature.ota"
+        make_package(
+            package,
+            private_key,
+            public_key,
+            corrupt_signature=True,
+        )
+        expect_invalid(package, public_key, "signature verification failed")
+
+        package = temporary / "tampered-rootfs.ota"
+        make_package(
+            package,
+            private_key,
+            public_key,
+            tamper_rootfs=True,
+        )
+        expect_invalid(package, public_key, "payload checksum mismatch")
+
+        package = temporary / "extra-member.ota"
+        make_package(
+            package,
+            private_key,
+            public_key,
+            extra_member=True,
+        )
+        expect_invalid(package, public_key, "exactly the five v1 members")
+
+        package = temporary / "symlink-member.ota"
+        make_package(
+            package,
+            private_key,
+            public_key,
+            symlink_rootfs=True,
+        )
+        expect_invalid(package, public_key, "regular files")
+
+        package = temporary / "wrong-platform.ota"
+        make_package(
+            package,
+            private_key,
+            public_key,
+            platform="other-platform",
+        )
+        expect_invalid(package, public_key, "different platform")
+
+        package = temporary / "wrong-anchor.ota"
+        make_package(
+            package,
+            private_key,
+            public_key,
+            key_hash="0" * 64,
+        )
+        expect_invalid(package, public_key, "trust anchor differs")
+
+    print("fre3nder OTA verifier fixtures: PASS")
+
+
+if __name__ == "__main__":
+    main()

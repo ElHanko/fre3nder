@@ -1,0 +1,263 @@
+#!/usr/bin/python3
+"""Verify a Fre3nder OTA v1 package without modifying platform state."""
+
+import hashlib
+import json
+import pathlib
+import re
+import shutil
+import stat
+import subprocess
+import sys
+import tarfile
+import tempfile
+
+
+EXPECTED_MEMBERS = (
+    "manifest.json",
+    "SHA256SUMS",
+    "SHA256SUMS.sig",
+    "kernel.uImage",
+    "rootfs.squashfs",
+)
+CHECKSUM_MEMBERS = (
+    "manifest.json",
+    "kernel.uImage",
+    "rootfs.squashfs",
+)
+PAYLOAD_MEMBERS = (
+    "kernel.uImage",
+    "rootfs.squashfs",
+)
+TRUSTED_PUBLIC_KEY = pathlib.Path("/ota/keys/public.pem")
+PLATFORM = "ender3-v3-ke"
+MAX_MANIFEST_SIZE = 64 * 1024
+MAX_CHECKSUMS_SIZE = 1024
+ED25519_SIGNATURE_SIZE = 64
+SHA256_RE = re.compile(r"[0-9a-f]{64}")
+
+
+def require_regular_file(path, description):
+    try:
+        metadata = path.lstat()
+    except FileNotFoundError as exc:
+        raise ValueError(f"{description} is missing: {path}") from exc
+    if path.is_symlink() or not stat.S_ISREG(metadata.st_mode):
+        raise ValueError(f"{description} must be a regular non-symlink file: {path}")
+
+
+def read_small_member(archive, member, maximum, description):
+    if member.size > maximum:
+        raise ValueError(f"{description} is too large")
+    stream = archive.extractfile(member)
+    if stream is None:
+        raise ValueError(f"cannot read {description}")
+    data = stream.read(maximum + 1)
+    if len(data) != member.size or len(data) > maximum:
+        raise ValueError(f"cannot read complete {description}")
+    return data
+
+
+def verify_signature(checksums_data, signature_data, public_key):
+    require_regular_file(public_key, "OTA public key")
+    openssl = shutil.which("openssl")
+    if openssl is None:
+        raise ValueError("openssl command is unavailable")
+
+    with tempfile.TemporaryDirectory(prefix="fre3nder-ota-") as temporary:
+        temporary = pathlib.Path(temporary)
+        checksums_path = temporary / "SHA256SUMS"
+        signature_path = temporary / "SHA256SUMS.sig"
+        checksums_path.write_bytes(checksums_data)
+        signature_path.write_bytes(signature_data)
+
+        result = subprocess.run(
+            [
+                openssl,
+                "pkeyutl",
+                "-verify",
+                "-rawin",
+                "-pubin",
+                "-inkey",
+                str(public_key),
+                "-in",
+                str(checksums_path),
+                "-sigfile",
+                str(signature_path),
+            ],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        )
+    if result.returncode != 0:
+        raise ValueError("Ed25519 signature verification failed")
+
+
+def parse_checksums(data):
+    try:
+        text = data.decode("ascii")
+    except UnicodeDecodeError as exc:
+        raise ValueError("SHA256SUMS is not ASCII") from exc
+
+    if not text.endswith("\n"):
+        raise ValueError("SHA256SUMS must end with a newline")
+
+    lines = text.splitlines()
+    if len(lines) != len(CHECKSUM_MEMBERS):
+        raise ValueError("SHA256SUMS has unexpected entries")
+
+    checksums = {}
+    for line, expected_name in zip(lines, CHECKSUM_MEMBERS):
+        match = re.fullmatch(r"([0-9a-f]{64})  ([A-Za-z0-9._-]+)", line)
+        if match is None:
+            raise ValueError("SHA256SUMS has invalid syntax")
+        digest, name = match.groups()
+        if name != expected_name:
+            raise ValueError("SHA256SUMS has unexpected member order or name")
+        checksums[name] = digest
+    return checksums
+
+
+def sha256_stream(stream):
+    digest = hashlib.sha256()
+    size = 0
+    for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+        digest.update(chunk)
+        size += len(chunk)
+    return digest.hexdigest(), size
+
+
+def validate_manifest(manifest, checksums, members, public_key):
+    if not isinstance(manifest, dict):
+        raise ValueError("manifest.json must contain a JSON object")
+
+    version = manifest.get("version")
+    if not isinstance(version, str) or not version or len(version) > 64:
+        raise ValueError("manifest version is missing or invalid")
+
+    ota = manifest.get("ota")
+    if not isinstance(ota, dict):
+        raise ValueError("manifest OTA metadata is missing")
+    if ota.get("format") != "fre3nder-ota" or ota.get("format_version") != 1:
+        raise ValueError("unsupported OTA format")
+    if ota.get("platform") != PLATFORM:
+        raise ValueError("OTA package targets a different platform")
+
+    signature = ota.get("signature")
+    if not isinstance(signature, dict) or signature != {
+        "algorithm": "Ed25519",
+        "file": "SHA256SUMS.sig",
+        "signed_file": "SHA256SUMS",
+    }:
+        raise ValueError("unsupported OTA signature contract")
+
+    artifacts = manifest.get("artifacts")
+    sizes = manifest.get("artifact_sizes")
+    if not isinstance(artifacts, dict) or set(artifacts) != set(PAYLOAD_MEMBERS):
+        raise ValueError("manifest artifact hashes are incomplete")
+    if not isinstance(sizes, dict) or set(sizes) != set(PAYLOAD_MEMBERS):
+        raise ValueError("manifest artifact sizes are incomplete")
+
+    for name in PAYLOAD_MEMBERS:
+        digest = artifacts.get(name)
+        size = sizes.get(name)
+        if not isinstance(digest, str) or SHA256_RE.fullmatch(digest) is None:
+            raise ValueError(f"manifest hash is invalid: {name}")
+        if digest != checksums[name]:
+            raise ValueError(f"manifest hash disagrees with SHA256SUMS: {name}")
+        if type(size) is not int or size < 0:
+            raise ValueError(f"manifest size is invalid: {name}")
+        if size != members[name].size:
+            raise ValueError(f"manifest size disagrees with TAR member: {name}")
+
+    expected_key_hash = hashlib.sha256(public_key.read_bytes()).hexdigest()
+    if manifest.get("ota_public_key_sha256") != expected_key_hash:
+        raise ValueError("OTA package trust anchor differs from installed trust anchor")
+
+    return version
+
+
+def verify_package(package, public_key=TRUSTED_PUBLIC_KEY):
+    package = pathlib.Path(package)
+    public_key = pathlib.Path(public_key)
+    require_regular_file(package, "OTA package")
+
+    try:
+        archive = tarfile.open(package, mode="r:")
+    except (OSError, tarfile.TarError) as exc:
+        raise ValueError(f"cannot open OTA package: {exc}") from exc
+
+    with archive:
+        members_list = archive.getmembers()
+        names = tuple(member.name for member in members_list)
+        if names != EXPECTED_MEMBERS:
+            raise ValueError("OTA package must contain exactly the five v1 members in order")
+        if any(not member.isfile() for member in members_list):
+            raise ValueError("all OTA package members must be regular files")
+        members = {member.name: member for member in members_list}
+
+        checksums_data = read_small_member(
+            archive,
+            members["SHA256SUMS"],
+            MAX_CHECKSUMS_SIZE,
+            "SHA256SUMS",
+        )
+        signature_data = read_small_member(
+            archive,
+            members["SHA256SUMS.sig"],
+            ED25519_SIGNATURE_SIZE,
+            "SHA256SUMS.sig",
+        )
+        if len(signature_data) != ED25519_SIGNATURE_SIZE:
+            raise ValueError("SHA256SUMS.sig is not an Ed25519 signature")
+
+        verify_signature(checksums_data, signature_data, public_key)
+        checksums = parse_checksums(checksums_data)
+
+        manifest_data = read_small_member(
+            archive,
+            members["manifest.json"],
+            MAX_MANIFEST_SIZE,
+            "manifest.json",
+        )
+        if hashlib.sha256(manifest_data).hexdigest() != checksums["manifest.json"]:
+            raise ValueError("manifest.json checksum mismatch")
+        try:
+            manifest = json.loads(manifest_data)
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise ValueError("manifest.json is invalid JSON") from exc
+
+        validate_manifest(manifest, checksums, members, public_key)
+
+        for name in PAYLOAD_MEMBERS:
+            stream = archive.extractfile(members[name])
+            if stream is None:
+                raise ValueError(f"cannot read payload: {name}")
+            digest, size = sha256_stream(stream)
+            if size != members[name].size:
+                raise ValueError(f"payload size changed while reading: {name}")
+            if digest != checksums[name]:
+                raise ValueError(f"payload checksum mismatch: {name}")
+
+    return manifest
+
+
+def main():
+    if len(sys.argv) != 3 or sys.argv[1] != "verify":
+        raise ValueError("usage: fre3nder-ota verify <package.ota>")
+
+    manifest = verify_package(sys.argv[2])
+    mode = manifest.get("artifact_mode", "unknown")
+    print(
+        f"VALID version={manifest['version']} "
+        f"platform={PLATFORM} mode={mode}"
+    )
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except (OSError, ValueError) as exc:
+        print(f"fre3nder-ota: {exc}", file=sys.stderr)
+        sys.exit(1)
