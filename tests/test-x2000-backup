@@ -1,0 +1,631 @@
+#!/usr/bin/python3
+"""Offline fixtures for the Fre3nder backup engine."""
+
+import importlib.machinery
+import importlib.util
+import json
+import os
+from pathlib import Path
+import subprocess
+import sys
+import tarfile
+import tempfile
+
+
+sys.dont_write_bytecode = True
+
+
+ROOT = Path(__file__).resolve().parent.parent
+
+CORE = (
+    ROOT
+    / "configs/x2000/rootfs-overlay/usr/libexec"
+    / "fre3nder-backup-core"
+)
+
+
+loader = importlib.machinery.SourceFileLoader(
+    "fre3nder_backup_core",
+    str(CORE),
+)
+
+spec = importlib.util.spec_from_loader(
+    loader.name,
+    loader,
+)
+
+module = importlib.util.module_from_spec(
+    spec
+)
+
+loader.exec_module(module)
+
+
+def make_usb_helper(
+    path,
+    *,
+    status="mounted",
+    source="/dev/fixture-usb",
+    filesystem="exfat",
+    writable=True,
+):
+    lines = [
+        "api_version=1",
+        f"status={status}",
+        "mount=/run/fre3nder/usb",
+    ]
+
+    if status == "mounted":
+        lines.extend(
+            (
+                f"source={source}",
+                f"filesystem={filesystem}",
+                (
+                    "writable=true"
+                    if writable
+                    else "writable=false"
+                ),
+            )
+        )
+
+    payload = "\n".join(lines) + "\n"
+
+    path.write_text(
+        "#!/bin/sh\n"
+        "cat <<'USB_STATUS'\n"
+        + payload
+        + "USB_STATUS\n"
+    )
+    path.chmod(0o755)
+
+    return path
+
+
+def run_core(*arguments):
+    return subprocess.run(
+        [
+            str(CORE),
+            *map(str, arguments),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+
+def test_archive_primitive():
+    with tempfile.TemporaryDirectory() as temporary:
+        temporary = Path(temporary)
+
+        source = temporary / "source"
+        target = temporary / "target"
+
+        source.mkdir()
+
+        (source / "etc").mkdir()
+
+        (
+            source
+            / "etc"
+            / "printer.conf"
+        ).write_text(
+            "fixture\n"
+        )
+
+        (source / "data").mkdir()
+
+        (
+            source
+            / "data"
+            / "value.txt"
+        ).write_text(
+            "value\n"
+        )
+
+        (
+            source / "link"
+        ).symlink_to(
+            "etc/printer.conf"
+        )
+
+        excluded = (
+            source
+            / "Fre3nderBackup"
+        )
+
+        excluded.mkdir()
+
+        (
+            excluded
+            / "old-backup.tar"
+        ).write_text(
+            "must not be archived\n"
+        )
+
+        result = (
+            module.create_backup_archive(
+                source,
+                target,
+                "SYS",
+                "2026.4.fixture",
+                excluded_paths=(
+                    excluded,
+                ),
+            )
+        )
+
+        archive_path = Path(
+            result["archive"]
+        )
+
+        assert archive_path.is_file()
+
+        assert (
+            result["size"]
+            == archive_path.stat().st_size
+        )
+
+        with archive_path.open(
+            "rb"
+        ) as stream:
+            digest, size = (
+                module.sha256_stream(
+                    stream
+                )
+            )
+
+        assert digest == result["sha256"]
+        assert size == result["size"]
+
+        with tarfile.open(
+            archive_path,
+            mode="r:",
+        ) as archive:
+            names = set(
+                archive.getnames()
+            )
+
+            assert names == {
+                "sys",
+                "sys/etc",
+                "sys/etc/printer.conf",
+                "sys/data",
+                "sys/data/value.txt",
+                "sys/link",
+            }
+
+            link = archive.getmember(
+                "sys/link"
+            )
+
+            assert link.issym()
+
+            assert (
+                link.linkname
+                == "etc/printer.conf"
+            )
+
+        verified = (
+            module.verify_backup_archive(
+                archive_path,
+                result["size"],
+                result["sha256"],
+            )
+        )
+
+        assert (
+            verified["status"]
+            == "valid"
+        )
+
+        assert not list(
+            target.glob(".*.tmp")
+        )
+
+
+def test_offer_plan_and_execute():
+    with tempfile.TemporaryDirectory() as temporary:
+        temporary = Path(temporary)
+
+        home = temporary / "home"
+        sys_upper = temporary / "sys-upper"
+        usb_mount = temporary / "usb"
+        home_backup = home / "Fre3nderBackup"
+        usb_backup = usb_mount / "Fre3nderBackup"
+
+        home.mkdir()
+        sys_upper.mkdir()
+        usb_mount.mkdir()
+
+        (home / "home.txt").write_text(
+            "home fixture\n"
+        )
+
+        (sys_upper / "sys.txt").write_text(
+            "sys fixture\n"
+        )
+
+        usb_helper = make_usb_helper(
+            temporary / "fre3nder-usb",
+            source="/dev/sdz1",
+            filesystem="ext4",
+        )
+
+        offer = module.backup_offer_response(
+            usb_helper,
+            home_backup,
+            usb_backup,
+        )
+
+        assert offer["ok"] is True
+        assert offer["runtime_usb"][
+            "backup_available"
+        ] is True
+
+        assert offer["backup_offer"]["home"][
+            "targets"
+        ] == ["usb"]
+
+        assert offer["backup_offer"]["sys"][
+            "targets"
+        ] == ["usb", "home"]
+
+        plan = module.backup_plan_response(
+            (
+                "--home",
+                "--sys",
+                "home",
+            ),
+            usb_helper,
+            home_backup,
+            usb_backup,
+        )
+
+        assert plan["backup_selection"] == {
+            "complete": True,
+            "home": {
+                "selected": True,
+                "target": "usb",
+            },
+            "sys": {
+                "selected": True,
+                "target": "home",
+            },
+        }
+
+        executed = module.execute_backup(
+            "2026.4.fixture",
+            (
+                "--home",
+                "--sys",
+                "home",
+            ),
+            home_source=home,
+            sys_source=sys_upper,
+            home_backup_directory=home_backup,
+            usb_backup_directory=usb_backup,
+            usb_helper=usb_helper,
+        )
+
+        assert executed[
+            "backup_result"
+        ]["complete"] is True
+
+        home_result = executed[
+            "backup_result"
+        ]["home"]
+
+        sys_result = executed[
+            "backup_result"
+        ]["sys"]
+
+        assert Path(
+            home_result["archive"]
+        ).parent == usb_backup
+
+        assert Path(
+            sys_result["archive"]
+        ).parent == home_backup
+
+        assert Path(
+            home_result["archive"]
+        ).is_file()
+
+        assert Path(
+            sys_result["archive"]
+        ).is_file()
+
+        # HOME ran first and therefore must not contain
+        # the SYS archive subsequently placed below HOME.
+        with tarfile.open(
+            home_result["archive"],
+            "r:",
+        ) as archive:
+            assert all(
+                "Fre3nderBackup"
+                not in name
+                for name in archive.getnames()
+            )
+
+
+def test_execute_rejects_changed_usb():
+    with tempfile.TemporaryDirectory() as temporary:
+        temporary = Path(temporary)
+
+        home = temporary / "home"
+        sys_upper = temporary / "sys-upper"
+        usb_mount = temporary / "usb"
+
+        home.mkdir()
+        sys_upper.mkdir()
+        usb_mount.mkdir()
+
+        (home / "fixture").write_text(
+            "fixture\n"
+        )
+
+        usb_helper = make_usb_helper(
+            temporary / "fre3nder-usb",
+            source="/dev/new-usb",
+            filesystem="exfat",
+        )
+
+        usb_backup = (
+            usb_mount / "Fre3nderBackup"
+        )
+
+        try:
+            module.execute_backup(
+                "2026.4.fixture",
+                (
+                    "--home",
+                    "--no-sys",
+                ),
+                home_source=home,
+                sys_source=sys_upper,
+                usb_backup_directory=usb_backup,
+                usb_helper=usb_helper,
+                expected_usb={
+                    "source": "/dev/old-usb",
+                    "filesystem": "exfat",
+                },
+            )
+        except ValueError as exc:
+            assert (
+                "runtime USB volume changed after preflight"
+                in str(exc)
+            )
+        else:
+            raise AssertionError(
+                "changed runtime USB was accepted"
+            )
+
+        assert not usb_backup.exists()
+
+
+def test_vfat_offer_rejects_backup():
+    with tempfile.TemporaryDirectory() as temporary:
+        temporary = Path(temporary)
+
+        usb_helper = make_usb_helper(
+            temporary / "fre3nder-usb",
+            source="/dev/sdz1",
+            filesystem="vfat",
+        )
+
+        response = module.backup_offer_response(
+            usb_helper,
+        )
+
+        assert response["runtime_usb"][
+            "available"
+        ] is True
+
+        assert response["runtime_usb"][
+            "backup_available"
+        ] is False
+
+        assert response["backup_offer"][
+            "home"
+        ]["offered"] is False
+
+        assert response["backup_offer"][
+            "sys"
+        ]["targets"] == ["home"]
+
+
+def test_execute_response_version_source():
+    with tempfile.TemporaryDirectory() as temporary:
+        temporary = Path(temporary)
+
+        version_file = temporary / "VERSION"
+        version_file.write_text(
+            "2026.4.fixture\n"
+        )
+
+        previous = os.environ.get(
+            "FRE3NDER_BACKUP_VERSION"
+        )
+
+        try:
+            os.environ.pop(
+                "FRE3NDER_BACKUP_VERSION",
+                None,
+            )
+
+            assert (
+                module.read_installed_version(
+                    version_file
+                )
+                == "2026.4.fixture"
+            )
+
+            os.environ[
+                "FRE3NDER_BACKUP_VERSION"
+            ] = "2026.5.bound"
+
+            # The adapter override is deliberately independent
+            # from the installed-version file.
+            assert (
+                os.environ[
+                    "FRE3NDER_BACKUP_VERSION"
+                ]
+                == "2026.5.bound"
+            )
+
+        finally:
+            if previous is None:
+                os.environ.pop(
+                    "FRE3NDER_BACKUP_VERSION",
+                    None,
+                )
+            else:
+                os.environ[
+                    "FRE3NDER_BACKUP_VERSION"
+                ] = previous
+
+
+def test_cli_create_and_verify():
+    with tempfile.TemporaryDirectory() as temporary:
+        temporary = Path(temporary)
+
+        source = temporary / "home"
+        target = temporary / "backup"
+
+        source.mkdir()
+
+        (
+            source
+            / "printer.cfg"
+        ).write_text(
+            "fixture\n"
+        )
+
+        result = run_core(
+            "archive",
+            "HOME",
+            source,
+            target,
+            "2026.4.fixture",
+        )
+
+        assert result.returncode == 0, (
+            result.stderr
+        )
+
+        response = json.loads(
+            result.stdout
+        )
+
+        assert response["ok"] is True
+
+        assert (
+            response["operation"]
+            == "archive"
+        )
+
+        backup = response["backup"]
+
+        assert (
+            backup["role"]
+            == "HOME"
+        )
+
+        archive = Path(
+            backup["archive"]
+        )
+
+        assert archive.is_file()
+
+        result = run_core(
+            "verify",
+            archive,
+            backup["size"],
+            backup["sha256"],
+        )
+
+        assert result.returncode == 0
+
+        response = json.loads(
+            result.stdout
+        )
+
+        assert response["ok"] is True
+
+        assert (
+            response["backup"]["status"]
+            == "valid"
+        )
+
+
+def test_verify_rejects_tampering():
+    with tempfile.TemporaryDirectory() as temporary:
+        temporary = Path(temporary)
+
+        source = temporary / "sys"
+        target = temporary / "backup"
+
+        source.mkdir()
+
+        (
+            source
+            / "fixture"
+        ).write_text(
+            "original\n"
+        )
+
+        backup = (
+            module.create_backup_archive(
+                source,
+                target,
+                "SYS",
+                "2026.4.fixture",
+            )
+        )
+
+        archive = Path(
+            backup["archive"]
+        )
+
+        with archive.open("ab") as stream:
+            stream.write(
+                b"tamper"
+            )
+
+        result = run_core(
+            "verify",
+            archive,
+            backup["size"],
+            backup["sha256"],
+        )
+
+        assert result.returncode == 1
+
+        response = json.loads(
+            result.stdout
+        )
+
+        assert response["ok"] is False
+
+        assert (
+            "size mismatch"
+            in response["error"]
+        )
+
+
+def main():
+    test_archive_primitive()
+    test_offer_plan_and_execute()
+    test_execute_rejects_changed_usb()
+    test_vfat_offer_rejects_backup()
+    test_execute_response_version_source()
+    test_cli_create_and_verify()
+    test_verify_rejects_tampering()
+
+    print(
+        "fre3nder backup fixtures: PASS"
+    )
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,1236 @@
+#!/usr/bin/python3
+"""Fre3nder backup engine."""
+
+import hashlib
+import json
+import os
+import pathlib
+import re
+import stat
+import subprocess
+import sys
+import tarfile
+import tempfile
+import time
+
+
+API_VERSION = 1
+
+ROLES = {
+    "HOME",
+    "SYS",
+}
+
+INSTALLED_VERSION = pathlib.Path(
+    os.environ.get(
+        "FRE3NDER_BACKUP_VERSION_FILE",
+        "/usr/share/fre3nder/VERSION",
+    )
+)
+
+HOME_SOURCE = pathlib.Path(
+    os.environ.get(
+        "FRE3NDER_BACKUP_HOME_SOURCE",
+        "/home",
+    )
+)
+SYS_SOURCE = pathlib.Path(
+    os.environ.get(
+        "FRE3NDER_BACKUP_SYS_SOURCE",
+        "/run/fre3nder-root/system/upper",
+    )
+)
+
+USB_MOUNT = "/run/fre3nder/usb"
+USB_HELPER = pathlib.Path(
+    os.environ.get(
+        "FRE3NDER_BACKUP_USB_HELPER",
+        pathlib.Path(__file__).resolve().with_name(
+            "fre3nder-usb"
+        ),
+    )
+)
+
+HOME_BACKUP_DIRECTORY = pathlib.Path(
+    os.environ.get(
+        "FRE3NDER_BACKUP_HOME_DIRECTORY",
+        "/home/Fre3nderBackup",
+    )
+)
+USB_BACKUP_DIRECTORY = pathlib.Path(
+    os.environ.get(
+        "FRE3NDER_BACKUP_USB_DIRECTORY",
+        "/run/fre3nder/usb/Fre3nderBackup",
+    )
+)
+
+
+def sha256_stream(stream):
+    digest = hashlib.sha256()
+    size = 0
+
+    for chunk in iter(
+        lambda: stream.read(1024 * 1024),
+        b"",
+    ):
+        digest.update(chunk)
+        size += len(chunk)
+
+    return digest.hexdigest(), size
+
+
+def require_regular_file(path, description):
+    path = pathlib.Path(path)
+
+    try:
+        metadata = path.lstat()
+    except OSError as exc:
+        raise ValueError(
+            f"{description} is missing: {path}"
+        ) from exc
+
+    if (
+        path.is_symlink()
+        or not stat.S_ISREG(metadata.st_mode)
+    ):
+        raise ValueError(
+            f"{description} must be a regular "
+            f"non-symlink file: {path}"
+        )
+
+    return metadata
+
+
+def require_directory(path, description):
+    path = pathlib.Path(path)
+
+    try:
+        metadata = path.lstat()
+    except OSError as exc:
+        raise ValueError(
+            f"{description} is missing: {path}"
+        ) from exc
+
+    if (
+        path.is_symlink()
+        or not stat.S_ISDIR(metadata.st_mode)
+    ):
+        raise ValueError(
+            f"{description} must be a directory, "
+            f"not a symlink: {path}"
+        )
+
+    return metadata
+
+
+def ensure_backup_directory(path):
+    path = pathlib.Path(path)
+
+    if path.exists() or path.is_symlink():
+        require_directory(
+            path,
+            "backup directory",
+        )
+        return path
+
+    try:
+        path.mkdir(mode=0o700)
+    except OSError as exc:
+        raise ValueError(
+            f"cannot create backup directory: {path}"
+        ) from exc
+
+    return path
+
+
+def add_backup_tree(
+    archive,
+    source,
+    arcname,
+    root_device,
+    excluded_paths=(),
+):
+    source = pathlib.Path(source)
+
+    if source in excluded_paths:
+        return
+
+    try:
+        metadata = source.lstat()
+    except OSError as exc:
+        raise ValueError(
+            f"cannot inspect backup source: {source}"
+        ) from exc
+
+    if metadata.st_dev != root_device:
+        return
+
+    info = archive.gettarinfo(
+        str(source),
+        arcname=arcname,
+    )
+
+    if info is None:
+        return
+
+    if info.isfile():
+        try:
+            with source.open("rb") as stream:
+                archive.addfile(
+                    info,
+                    stream,
+                )
+        except OSError as exc:
+            raise ValueError(
+                f"cannot read backup source: {source}"
+            ) from exc
+
+        return
+
+    archive.addfile(info)
+
+    if not info.isdir():
+        return
+
+    try:
+        children = sorted(
+            source.iterdir(),
+            key=lambda child: child.name,
+        )
+    except OSError as exc:
+        raise ValueError(
+            f"cannot read backup source: {source}"
+        ) from exc
+
+    for child in children:
+        try:
+            child_metadata = child.lstat()
+        except OSError as exc:
+            raise ValueError(
+                f"cannot inspect backup source: {child}"
+            ) from exc
+
+        if child_metadata.st_dev != root_device:
+            continue
+
+        add_backup_tree(
+            archive,
+            child,
+            f"{arcname}/{child.name}",
+            root_device,
+            excluded_paths,
+        )
+
+
+def create_backup_archive(
+    source,
+    target_directory,
+    role,
+    version,
+    excluded_paths=(),
+):
+    source = pathlib.Path(source)
+    target_directory = pathlib.Path(
+        target_directory
+    )
+
+    if role not in ROLES:
+        raise ValueError(
+            f"unsupported backup role: {role}"
+        )
+
+    excluded_paths = tuple(
+        pathlib.Path(item)
+        for item in excluded_paths
+    )
+
+    source_metadata = require_directory(
+        source,
+        f"{role} backup source",
+    )
+
+    ensure_backup_directory(
+        target_directory
+    )
+
+    safe_version = re.sub(
+        r"[^A-Za-z0-9._-]+",
+        "_",
+        version,
+    )
+
+    if not safe_version:
+        raise ValueError(
+            "version is invalid for backup filename"
+        )
+
+    stamp = time.strftime(
+        "%Y%m%dT%H%M%SZ",
+        time.gmtime(),
+    )
+
+    filename = (
+        f"fre3nder-{role.lower()}-"
+        f"{safe_version}-{stamp}.tar"
+    )
+
+    archive_path = (
+        target_directory / filename
+    )
+
+    if (
+        archive_path.exists()
+        or archive_path.is_symlink()
+    ):
+        raise ValueError(
+            f"backup archive already exists: "
+            f"{archive_path}"
+        )
+
+    temporary = tempfile.NamedTemporaryFile(
+        mode="w+b",
+        prefix=f".{filename}.",
+        suffix=".tmp",
+        dir=target_directory,
+        delete=False,
+    )
+
+    temporary_path = pathlib.Path(
+        temporary.name
+    )
+
+    try:
+        with temporary:
+            with tarfile.open(
+                fileobj=temporary,
+                mode="w",
+                format=tarfile.PAX_FORMAT,
+            ) as archive:
+                add_backup_tree(
+                    archive,
+                    source,
+                    role.lower(),
+                    source_metadata.st_dev,
+                    excluded_paths,
+                )
+
+            temporary.flush()
+            os.fsync(
+                temporary.fileno()
+            )
+
+        if (
+            archive_path.exists()
+            or archive_path.is_symlink()
+        ):
+            raise ValueError(
+                f"backup archive already exists: "
+                f"{archive_path}"
+            )
+
+        temporary_path.rename(
+            archive_path
+        )
+
+    except Exception:
+        try:
+            temporary_path.unlink()
+        except OSError:
+            pass
+
+        raise
+
+    try:
+        with archive_path.open(
+            "rb"
+        ) as stream:
+            digest, size = sha256_stream(
+                stream
+            )
+    except OSError as exc:
+        raise ValueError(
+            "cannot verify created backup "
+            f"archive: {archive_path}"
+        ) from exc
+
+    return {
+        "role": role,
+        "archive": str(archive_path),
+        "size": size,
+        "sha256": digest,
+    }
+
+
+def verify_backup_archive(
+    archive,
+    expected_size,
+    expected_sha256,
+):
+    archive = pathlib.Path(archive)
+
+    metadata = require_regular_file(
+        archive,
+        "backup archive",
+    )
+
+    if metadata.st_size != expected_size:
+        raise ValueError(
+            "backup archive size mismatch"
+        )
+
+    try:
+        with archive.open("rb") as stream:
+            digest, size = sha256_stream(
+                stream
+            )
+    except OSError as exc:
+        raise ValueError(
+            f"cannot read backup archive: {archive}"
+        ) from exc
+
+    if size != expected_size:
+        raise ValueError(
+            "backup archive size mismatch"
+        )
+
+    if digest != expected_sha256:
+        raise ValueError(
+            "backup archive checksum mismatch"
+        )
+
+    return {
+        "archive": str(archive),
+        "size": size,
+        "sha256": digest,
+        "status": "valid",
+    }
+
+
+def parse_runtime_usb_status(text):
+    values = {}
+
+    for line in text.splitlines():
+        if not line:
+            continue
+
+        key, separator, value = line.partition("=")
+
+        if (
+            not separator
+            or not key
+            or key in values
+        ):
+            raise ValueError(
+                "runtime USB helper returned invalid status"
+            )
+
+        values[key] = value
+
+    if values.get("api_version") != "1":
+        raise ValueError(
+            "unsupported runtime USB status API version"
+        )
+
+    status = values.get("status")
+
+    if not status:
+        raise ValueError(
+            "runtime USB helper returned no status"
+        )
+
+    return values
+
+
+def runtime_usb_state(values):
+    status = values["status"]
+
+    if status != "mounted":
+        return {
+            "available": False,
+            "status": status,
+            "mount": None,
+        }
+
+    mount = values.get("mount")
+    source = values.get("source")
+    filesystem = values.get("filesystem")
+    writable = values.get("writable")
+
+    if (
+        mount != USB_MOUNT
+        or not source
+        or not filesystem
+        or writable not in ("true", "false")
+    ):
+        return {
+            "available": False,
+            "status": "mount-mismatch",
+            "mount": None,
+        }
+
+    supported_filesystems = {
+        "vfat",
+        "exfat",
+        "ext4",
+        "ntfs3",
+    }
+
+    if filesystem not in supported_filesystems:
+        return {
+            "available": False,
+            "status": "unsupported-filesystem",
+            "mount": None,
+        }
+
+    if writable != "true":
+        return {
+            "available": False,
+            "status": "not-writable",
+            "mount": None,
+        }
+
+    return {
+        "available": True,
+        "status": "mounted",
+        "mount": mount,
+        "source": source,
+        "filesystem": filesystem,
+        "backup_available": (
+            filesystem != "vfat"
+        ),
+    }
+
+
+def read_runtime_usb_state(
+    usb_helper=USB_HELPER,
+):
+    try:
+        result = subprocess.run(
+            [
+                str(usb_helper),
+                "status",
+            ],
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except OSError as exc:
+        raise ValueError(
+            "cannot execute runtime USB helper"
+        ) from exc
+
+    if result.returncode != 0:
+        raise ValueError(
+            "runtime USB helper failed"
+        )
+
+    return runtime_usb_state(
+        parse_runtime_usb_status(
+            result.stdout
+        )
+    )
+
+
+def build_backup_offer(
+    usb,
+    home_backup_directory=HOME_BACKUP_DIRECTORY,
+    usb_backup_directory=USB_BACKUP_DIRECTORY,
+):
+    usb_available = usb.get(
+        "backup_available",
+        False,
+    )
+
+    return {
+        "selection_required": True,
+        "home": {
+            "role": "HOME",
+            "offered": usb_available,
+            "required": False,
+            "targets": (
+                ["usb"]
+                if usb_available
+                else []
+            ),
+        },
+        "sys": {
+            "role": "SYS",
+            "offered": True,
+            "required": False,
+            "targets": (
+                ["usb", "home"]
+                if usb_available
+                else ["home"]
+            ),
+        },
+        "targets": {
+            "home": {
+                "available": True,
+                "path": str(
+                    home_backup_directory
+                ),
+            },
+            "usb": {
+                "available": usb_available,
+                "path": (
+                    str(
+                        usb_backup_directory
+                    )
+                    if usb_available
+                    else None
+                ),
+            },
+        },
+    }
+
+
+def parse_backup_plan_args(
+    arguments,
+    backup_offer,
+):
+    home = None
+    sys_backup = None
+    index = 0
+
+    while index < len(arguments):
+        argument = arguments[index]
+
+        if argument == "--home":
+            if home is not None:
+                raise ValueError(
+                    "HOME backup selection "
+                    "specified more than once"
+                )
+
+            home = {
+                "selected": True,
+                "target": "usb",
+            }
+
+            index += 1
+            continue
+
+        if argument == "--no-home":
+            if home is not None:
+                raise ValueError(
+                    "HOME backup selection "
+                    "specified more than once"
+                )
+
+            home = {
+                "selected": False,
+                "target": None,
+            }
+
+            index += 1
+            continue
+
+        if argument == "--sys":
+            if sys_backup is not None:
+                raise ValueError(
+                    "SYS backup selection "
+                    "specified more than once"
+                )
+
+            if index + 1 >= len(arguments):
+                raise ValueError(
+                    "--sys requires target usb or home"
+                )
+
+            target = arguments[index + 1]
+
+            if target not in (
+                "usb",
+                "home",
+            ):
+                raise ValueError(
+                    "SYS backup target must "
+                    "be usb or home"
+                )
+
+            sys_backup = {
+                "selected": True,
+                "target": target,
+            }
+
+            index += 2
+            continue
+
+        if argument == "--no-sys":
+            if sys_backup is not None:
+                raise ValueError(
+                    "SYS backup selection "
+                    "specified more than once"
+                )
+
+            sys_backup = {
+                "selected": False,
+                "target": None,
+            }
+
+            index += 1
+            continue
+
+        raise ValueError(
+            "unsupported backup selection "
+            f"argument: {argument}"
+        )
+
+    if home is None:
+        raise ValueError(
+            "HOME backup must be explicitly "
+            "selected or declined"
+        )
+
+    if sys_backup is None:
+        raise ValueError(
+            "SYS backup must be explicitly "
+            "selected or declined"
+        )
+
+    if home["selected"]:
+        home_offer = backup_offer["home"]
+
+        if (
+            home_offer["offered"] is not True
+            or "usb"
+            not in home_offer["targets"]
+        ):
+            raise ValueError(
+                "HOME backup requires a "
+                "backup-capable runtime USB volume"
+            )
+
+    if sys_backup["selected"]:
+        if (
+            sys_backup["target"]
+            not in backup_offer["sys"]["targets"]
+        ):
+            raise ValueError(
+                "SYS backup target "
+                f"{sys_backup['target']} "
+                "is not available"
+            )
+
+    return {
+        "home": home,
+        "sys": sys_backup,
+    }
+
+
+def backup_offer_response(
+    usb_helper=USB_HELPER,
+    home_backup_directory=HOME_BACKUP_DIRECTORY,
+    usb_backup_directory=USB_BACKUP_DIRECTORY,
+):
+    usb = read_runtime_usb_state(
+        usb_helper,
+    )
+
+    offer = build_backup_offer(
+        usb,
+        home_backup_directory,
+        usb_backup_directory,
+    )
+
+    return {
+        "api_version": API_VERSION,
+        "ok": True,
+        "operation": "offer",
+        "runtime_usb": usb,
+        "backup_offer": offer,
+    }
+
+
+def backup_plan_response(
+    arguments,
+    usb_helper=USB_HELPER,
+    home_backup_directory=HOME_BACKUP_DIRECTORY,
+    usb_backup_directory=USB_BACKUP_DIRECTORY,
+):
+    response = backup_offer_response(
+        usb_helper,
+        home_backup_directory,
+        usb_backup_directory,
+    )
+
+    selection = parse_backup_plan_args(
+        arguments,
+        response["backup_offer"],
+    )
+
+    response["operation"] = "plan"
+    response["backup_selection"] = {
+        "complete": True,
+        "home": selection["home"],
+        "sys": selection["sys"],
+    }
+
+    return response
+
+
+def read_installed_version(
+    path=INSTALLED_VERSION,
+):
+    path = pathlib.Path(path)
+
+    try:
+        value = path.read_text().strip()
+    except OSError as exc:
+        raise ValueError(
+            f"cannot read installed Fre3nder version: {path}"
+        ) from exc
+
+    if (
+        not value
+        or "\n" in value
+        or "\r" in value
+    ):
+        raise ValueError(
+            "installed Fre3nder version is invalid"
+        )
+
+    return value
+
+
+def execute_backup(
+    version,
+    arguments,
+    home_source=HOME_SOURCE,
+    sys_source=SYS_SOURCE,
+    home_backup_directory=HOME_BACKUP_DIRECTORY,
+    usb_backup_directory=USB_BACKUP_DIRECTORY,
+    usb_helper=USB_HELPER,
+    expected_usb=None,
+):
+    initial_usb = read_runtime_usb_state(
+        usb_helper,
+    )
+
+    offer = build_backup_offer(
+        initial_usb,
+        home_backup_directory,
+        usb_backup_directory,
+    )
+
+    selection = parse_backup_plan_args(
+        arguments,
+        offer,
+    )
+
+    usb_selected = (
+        selection["home"]["selected"]
+        or (
+            selection["sys"]["selected"]
+            and selection["sys"]["target"]
+            == "usb"
+        )
+    )
+
+    if usb_selected:
+        if expected_usb is not None:
+            if (
+                not isinstance(expected_usb, dict)
+                or initial_usb.get("source")
+                != expected_usb.get("source")
+                or initial_usb.get("filesystem")
+                != expected_usb.get("filesystem")
+            ):
+                raise ValueError(
+                    "runtime USB volume changed after preflight"
+                )
+
+        current_usb = read_runtime_usb_state(
+            usb_helper,
+        )
+
+        if (
+            current_usb.get(
+                "backup_available"
+            )
+            is not True
+        ):
+            raise ValueError(
+                "backup-capable runtime USB volume "
+                "is no longer available"
+            )
+
+        if (
+            current_usb.get("source")
+            != initial_usb.get("source")
+            or current_usb.get("filesystem")
+            != initial_usb.get("filesystem")
+        ):
+            raise ValueError(
+                "runtime USB volume changed "
+                "after backup planning"
+            )
+
+    home_source = pathlib.Path(
+        home_source
+    )
+
+    sys_source = pathlib.Path(
+        sys_source
+    )
+
+    home_backup_directory = pathlib.Path(
+        home_backup_directory
+    )
+
+    usb_backup_directory = pathlib.Path(
+        usb_backup_directory
+    )
+
+    result = {
+        "complete": False,
+        "home": {
+            "selected": (
+                selection["home"]["selected"]
+            ),
+            "target": (
+                selection["home"]["target"]
+            ),
+        },
+        "sys": {
+            "selected": (
+                selection["sys"]["selected"]
+            ),
+            "target": (
+                selection["sys"]["target"]
+            ),
+        },
+    }
+
+    # HOME deliberately runs first. SYS may subsequently
+    # write below HOME and must not become part of this
+    # HOME archive.
+    if selection["home"]["selected"]:
+        if (
+            offer["targets"]["usb"][
+                "available"
+            ]
+            is not True
+        ):
+            raise ValueError(
+                "HOME backup requires a "
+                "backup-capable runtime USB volume"
+            )
+
+        result["home"].update(
+            create_backup_archive(
+                home_source,
+                usb_backup_directory,
+                "HOME",
+                version,
+                excluded_paths=(
+                    home_source
+                    / "Fre3nderBackup",
+                ),
+            )
+        )
+
+    if selection["sys"]["selected"]:
+        target_name = (
+            selection["sys"]["target"]
+        )
+
+        if target_name == "usb":
+            if (
+                offer["targets"]["usb"][
+                    "available"
+                ]
+                is not True
+            ):
+                raise ValueError(
+                    "SYS USB backup target "
+                    "is not available"
+                )
+
+            target = usb_backup_directory
+
+        elif target_name == "home":
+            target = home_backup_directory
+
+        else:
+            raise ValueError(
+                "unsupported SYS backup target: "
+                f"{target_name}"
+            )
+
+        result["sys"].update(
+            create_backup_archive(
+                sys_source,
+                target,
+                "SYS",
+                version,
+            )
+        )
+
+    result["complete"] = True
+
+    return {
+        "runtime_usb": initial_usb,
+        "backup_offer": offer,
+        "backup_selection": {
+            "complete": True,
+            "home": selection["home"],
+            "sys": selection["sys"],
+        },
+        "backup_result": result,
+    }
+
+
+def execute_response(arguments):
+    version = os.environ.get(
+        "FRE3NDER_BACKUP_VERSION"
+    )
+
+    if version is None:
+        version = read_installed_version()
+
+    elif (
+        not version
+        or "\n" in version
+        or "\r" in version
+    ):
+        raise ValueError(
+            "backup version is invalid"
+        )
+
+    expected_source = os.environ.get(
+        "FRE3NDER_BACKUP_EXPECTED_USB_SOURCE"
+    )
+    expected_filesystem = os.environ.get(
+        "FRE3NDER_BACKUP_EXPECTED_USB_FILESYSTEM"
+    )
+
+    if (
+        (expected_source is None)
+        != (expected_filesystem is None)
+    ):
+        raise ValueError(
+            "expected USB identity is incomplete"
+        )
+
+    expected_usb = None
+
+    if expected_source is not None:
+        expected_usb = {
+            "source": expected_source,
+            "filesystem": expected_filesystem,
+        }
+
+    result = execute_backup(
+        version,
+        arguments,
+        expected_usb=expected_usb,
+    )
+
+    return {
+        "api_version": API_VERSION,
+        "ok": True,
+        "operation": "execute",
+        **result,
+    }
+
+
+def parse_archive(arguments):
+    if len(arguments) < 4:
+        raise ValueError(
+            "archive requires ROLE SOURCE "
+            "TARGET-DIRECTORY VERSION"
+        )
+
+    role = arguments[0]
+    source = arguments[1]
+    target = arguments[2]
+    version = arguments[3]
+
+    excludes = []
+    index = 4
+
+    while index < len(arguments):
+        if arguments[index] != "--exclude":
+            raise ValueError(
+                "unsupported create argument: "
+                f"{arguments[index]}"
+            )
+
+        if index + 1 >= len(arguments):
+            raise ValueError(
+                "--exclude requires a path"
+            )
+
+        excludes.append(
+            arguments[index + 1]
+        )
+
+        index += 2
+
+    return (
+        role,
+        source,
+        target,
+        version,
+        excludes,
+    )
+
+
+def archive_response(arguments):
+    (
+        role,
+        source,
+        target,
+        version,
+        excludes,
+    ) = parse_archive(arguments)
+
+    result = create_backup_archive(
+        source,
+        target,
+        role,
+        version,
+        excluded_paths=excludes,
+    )
+
+    return {
+        "api_version": API_VERSION,
+        "ok": True,
+        "operation": "archive",
+        "backup": result,
+    }
+
+
+def verify_response(arguments):
+    if len(arguments) != 3:
+        raise ValueError(
+            "verify requires ARCHIVE SIZE SHA256"
+        )
+
+    archive = arguments[0]
+
+    try:
+        size = int(arguments[1], 10)
+    except ValueError as exc:
+        raise ValueError(
+            "backup size is invalid"
+        ) from exc
+
+    if size < 0:
+        raise ValueError(
+            "backup size is invalid"
+        )
+
+    sha256 = arguments[2]
+
+    if re.fullmatch(
+        r"[0-9a-f]{64}",
+        sha256,
+    ) is None:
+        raise ValueError(
+            "backup SHA256 is invalid"
+        )
+
+    result = verify_backup_archive(
+        archive,
+        size,
+        sha256,
+    )
+
+    return {
+        "api_version": API_VERSION,
+        "ok": True,
+        "operation": "verify",
+        "backup": result,
+    }
+
+
+def error_response(operation, error):
+    return {
+        "api_version": API_VERSION,
+        "ok": False,
+        "operation": operation,
+        "error": str(error),
+    }
+
+
+def main():
+    if len(sys.argv) < 2:
+        print(
+            json.dumps(
+                error_response(
+                    "unknown",
+                    ValueError(
+                        "usage: fre3nder-backup-core "
+                        "{offer|plan|execute|archive|verify} ..."
+                    ),
+                ),
+                sort_keys=True,
+            )
+        )
+        return 2
+
+    operation = sys.argv[1]
+    arguments = sys.argv[2:]
+
+    try:
+        if operation == "offer":
+            if arguments:
+                raise ValueError(
+                    "offer takes no arguments"
+                )
+
+            response = backup_offer_response()
+
+        elif operation == "plan":
+            response = backup_plan_response(
+                arguments
+            )
+
+        elif operation == "execute":
+            response = execute_response(
+                arguments
+            )
+
+        elif operation == "archive":
+            response = archive_response(
+                arguments
+            )
+
+        elif operation == "verify":
+            response = verify_response(
+                arguments
+            )
+
+        else:
+            raise ValueError(
+                f"unsupported backup operation: "
+                f"{operation}"
+            )
+
+    except (OSError, ValueError) as exc:
+        print(
+            json.dumps(
+                error_response(
+                    operation,
+                    exc,
+                ),
+                sort_keys=True,
+            )
+        )
+        return 1
+
+    print(
+        json.dumps(
+            response,
+            sort_keys=True,
+        )
+    )
+
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
