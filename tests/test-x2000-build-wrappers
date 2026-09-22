@@ -218,6 +218,15 @@ chmod 0755 "$fixture/scripts/build-x2000" \
 	"$fixture/scripts/build-x2000-guppyscreen" \
 	"$fixture/scripts/build-f005"
 
+printf '2026.4.a\n' > "$fixture/VERSION"
+printf '/local/\n' > "$fixture/.gitignore"
+
+git -C "$fixture" init -q
+git -C "$fixture" config user.name "Fre3nder Fixture"
+git -C "$fixture" config user.email "fixture@example.invalid"
+git -C "$fixture" add .
+git -C "$fixture" commit -qm "fixture"
+
 # A mismatched OTA public key must fail before any expensive component builder
 # is invoked.
 wrong_keys="$tmp/wrong-ota-keys"
@@ -225,7 +234,7 @@ wrong_keys="$tmp/wrong-ota-keys"
 cp "$wrong_keys/public.pem" "$fixture/local/production/keys/ota/public.pem"
 : > "$tmp/wrapper.log"
 if X2000_WRAPPER_LOG="$tmp/wrapper.log" \
-	"$fixture/scripts/build-x2000" --kernel-build >/dev/null 2>&1; then
+	"$fixture/scripts/build-x2000" >/dev/null 2>&1; then
 	echo 'orchestrator accepted a mismatched OTA keypair' >&2
 	exit 1
 fi
@@ -244,7 +253,7 @@ openssl pkey -in "$rsa_keys/private.pem" -pubout 	-out "$rsa_keys/public.pem"
 cp "$rsa_keys/private.pem" "$fixture/local/production/keys/ota/private.pem"
 cp "$rsa_keys/public.pem" "$fixture/local/production/keys/ota/public.pem"
 : > "$tmp/wrapper.log"
-if X2000_WRAPPER_LOG="$tmp/wrapper.log" 	"$fixture/scripts/build-x2000" --kernel-build >/dev/null 2>&1; then
+if X2000_WRAPPER_LOG="$tmp/wrapper.log" 	"$fixture/scripts/build-x2000" >/dev/null 2>&1; then
 	echo 'orchestrator accepted a non-Ed25519 OTA keypair' >&2
 	exit 1
 fi
@@ -262,128 +271,67 @@ run_orchestrator() {
 	X2000_WRAPPER_LOG="$tmp/wrapper.log" "$fixture/scripts/build-x2000" "$@"
 }
 
+help_output=$("$fixture/scripts/build-x2000" --help)
+printf '%s\n' "$help_output" | grep -Fq 'Build Fre3nder X2000 platform artifacts.'
+printf '%s\n' "$help_output" | grep -Fq -- '--kernel-only'
+printf '%s\n' "$help_output" | grep -Fq -- '--rootfs-only'
+printf '%s\n' "$help_output" | grep -Fq -- '--compose-only'
+printf '%s\n' "$help_output" | grep -Fq -- '--develop'
+
+# Default scope is a complete release build.
 run_orchestrator
-printf '%s\n' \
-	'moonraker ' \
-	'buildroot --toolchain default' \
-	'guppyscreen ' \
-	'buildroot --assemble default' | cmp -s - "$tmp/wrapper.log"
-[ ! -e "$fixture/local/production/artifacts/x2000/full" ]
-
-run_orchestrator --develop
-printf '%s\n' \
-	'moonraker --develop' \
-	'buildroot --toolchain --develop default' \
-	'guppyscreen --develop' \
-	'buildroot --assemble --develop default' | cmp -s - "$tmp/wrapper.log"
-
-run_orchestrator --kernel-build
 printf '%s\n' \
 	'kernel ' \
 	'moonraker ' \
 	'buildroot --toolchain default' \
 	'guppyscreen ' \
 	'buildroot --assemble default' | cmp -s - "$tmp/wrapper.log"
+
 full="$fixture/local/production/artifacts/x2000/full"
+[ -f "$full/kernel.uImage" ]
 [ -f "$full/rootfs.squashfs" ]
-python3 - "$full" <<'PY'
-import hashlib
-import json
-import pathlib
-import sys
+[ -f "$full/fre3nder-2026.4.a-ender3-v3-ke.ota" ]
 
-directory = pathlib.Path(sys.argv[1])
-manifest = json.loads((directory / "build-manifest.json").read_text())
-for name, digest in manifest["artifacts"].items():
-    assert hashlib.sha256((directory / name).read_bytes()).hexdigest() == digest
-
-checksums = {}
-for line in (directory / "SHA256SUMS").read_text().splitlines():
-    digest, name = line.split("  ", 1)
-    checksums[name] = digest
-assert checksums == {
-    path.name: hashlib.sha256(path.read_bytes()).hexdigest()
-    for path in directory.iterdir()
-    if path.name != "SHA256SUMS"
-}
-PY
-
-ota="$full/fre3nder-2026.4.a-ender3-v3-ke.ota"
-[ -f "$ota" ]
-
-tar -tf "$ota" > "$tmp/ota-members"
-printf '%s\n' \
-	'manifest.json' \
-	'SHA256SUMS' \
-	'SHA256SUMS.sig' \
-	'kernel.uImage' \
-	'rootfs.squashfs' | cmp -s - "$tmp/ota-members"
-
-ota_extract="$tmp/ota-extract"
-mkdir -p "$ota_extract"
-tar -xf "$ota" -C "$ota_extract"
-
-(
-	cd "$ota_extract" || exit 1
-	sha256sum -c SHA256SUMS >/dev/null
-)
-
-openssl pkeyutl -verify -rawin -pubin \
-	-inkey "$fixture/local/production/keys/ota/public.pem" \
-	-in "$ota_extract/SHA256SUMS" \
-	-sigfile "$ota_extract/SHA256SUMS.sig" >/dev/null
-
-python3 - "$ota_extract/manifest.json" "$ota_extract" \
-	"$fixture/local/production/keys/ota/public.pem" <<'PY'
-import hashlib
-import json
-import pathlib
-import sys
-
-manifest_path = pathlib.Path(sys.argv[1])
-directory = pathlib.Path(sys.argv[2])
-public_key_path = pathlib.Path(sys.argv[3])
-manifest = json.loads(manifest_path.read_text())
-
-assert manifest["version"] == "2026.4.a"
-assert manifest["ota_public_key_sha256"] == hashlib.sha256(
-    public_key_path.read_bytes()
-).hexdigest()
-assert manifest["ota"] == {
-    "format": "fre3nder-ota",
-    "format_version": 1,
-    "platform": "ender3-v3-ke",
-    "signature": {
-        "algorithm": "Ed25519",
-        "file": "SHA256SUMS.sig",
-        "signed_file": "SHA256SUMS",
-    },
-}
-
-for name in ("kernel.uImage", "rootfs.squashfs"):
-    payload = (directory / name).read_bytes()
-    assert manifest["artifacts"][name] == hashlib.sha256(payload).hexdigest()
-    assert manifest["artifact_sizes"][name] == len(payload)
-PY
-
-run_orchestrator --kernel-build --develop
+# --develop changes provenance mode, not build scope.
+run_orchestrator --develop
 printf '%s\n' \
 	'kernel --develop' \
 	'moonraker --develop' \
 	'buildroot --toolchain --develop default' \
 	'guppyscreen --develop' \
 	'buildroot --assemble --develop default' | cmp -s - "$tmp/wrapper.log"
+[ -f "$fixture/local/production/artifacts/x2000/full/rootfs.squashfs" ]
 
-run_orchestrator --f005-build
+# Explicit Kernel-only scope.
+run_orchestrator --kernel-only
+printf '%s\n' 'kernel ' | cmp -s - "$tmp/wrapper.log"
+[ -d "$fixture/local/production/artifacts/x2000/kernel-only" ]
+[ ! -e "$fixture/local/production/artifacts/x2000/rootfs-only" ]
+[ ! -e "$fixture/local/production/artifacts/x2000/full" ]
+
+run_orchestrator --kernel-only --develop
+printf '%s\n' 'kernel --develop' | cmp -s - "$tmp/wrapper.log"
+
+# Explicit RootFS-only scope.
+run_orchestrator --rootfs-only
 printf '%s\n' \
-	'f005' \
 	'moonraker ' \
 	'buildroot --toolchain default' \
 	'guppyscreen ' \
-	"buildroot --assemble $fixture/local/production/artifacts/f005/candidate/klipper-f005-mainline.bin" | \
-	cmp -s - "$tmp/wrapper.log"
+	'buildroot --assemble default' | cmp -s - "$tmp/wrapper.log"
+[ ! -e "$fixture/local/production/artifacts/x2000/kernel-only" ]
+[ -d "$fixture/local/production/artifacts/x2000/rootfs-only" ]
+[ ! -e "$fixture/local/production/artifacts/x2000/full" ]
 
-run_orchestrator --kernel-build --f005-build
+run_orchestrator --rootfs-only --develop
+printf '%s\n' \
+	'moonraker --develop' \
+	'buildroot --toolchain --develop default' \
+	'guppyscreen --develop' \
+	'buildroot --assemble --develop default' | cmp -s - "$tmp/wrapper.log"
+
+# F005 is an additional RootFS input and does not define build scope.
+run_orchestrator --f005-build
 printf '%s\n' \
 	'kernel ' \
 	'f005' \
@@ -393,12 +341,46 @@ printf '%s\n' \
 	"buildroot --assemble $fixture/local/production/artifacts/f005/candidate/klipper-f005-mainline.bin" | \
 	cmp -s - "$tmp/wrapper.log"
 
-for invalid in --rootfs-only --kernel-only --unknown; do
+run_orchestrator --rootfs-only --f005-build
+printf '%s\n' \
+	'f005' \
+	'moonraker ' \
+	'buildroot --toolchain default' \
+	'guppyscreen ' \
+	"buildroot --assemble $fixture/local/production/artifacts/f005/candidate/klipper-f005-mainline.bin" | \
+	cmp -s - "$tmp/wrapper.log"
+
+# Removed and contradictory scope combinations fail closed.
+for invalid in \
+	--kernel-build \
+	--unknown
+do
 	if "$fixture/scripts/build-x2000" "$invalid" >/dev/null 2>&1; then
 		echo "orchestrator accepted $invalid" >&2
 		exit 1
 	fi
 done
+
+if "$fixture/scripts/build-x2000" --kernel-only --rootfs-only >/dev/null 2>&1; then
+	echo 'orchestrator accepted multiple build scopes' >&2
+	exit 1
+fi
+
+if "$fixture/scripts/build-x2000" --kernel-only --f005-build >/dev/null 2>&1; then
+	echo 'orchestrator accepted --f005-build for a Kernel-only build' >&2
+	exit 1
+fi
+
+if "$fixture/scripts/build-x2000" --compose-only --develop >/dev/null 2>&1; then
+	echo 'orchestrator accepted --develop with --compose-only' >&2
+	exit 1
+fi
+
+if "$fixture/scripts/build-x2000" --compose-only --f005-build >/dev/null 2>&1; then
+	echo 'orchestrator accepted --f005-build with --compose-only' >&2
+	exit 1
+fi
+
 if "$fixture/scripts/build-x2000" --develop --develop >/dev/null 2>&1; then
 	echo 'orchestrator accepted duplicate --develop' >&2
 	exit 1

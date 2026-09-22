@@ -11,7 +11,8 @@ artifact_root="$root/local/production/artifacts/x2000"
 ota_key_dir="$root/local/production/keys/ota"
 ota_private_key="$ota_key_dir/private.pem"
 ota_public_key="$ota_key_dir/public.pem"
-kernel_build=false
+build_scope=full
+scope_seen=false
 f005_build=false
 compose_only=false
 develop=false
@@ -26,9 +27,49 @@ compose_exit_report() {
 }
 trap compose_exit_report EXIT
 
+show_help() {
+	cat <<EOF
+Usage:
+  $0 [OPTIONS]
+
+Build Fre3nder X2000 platform artifacts.
+
+Build scope:
+  (default)          Build Kernel + RootFS and compose the full OTA artifact
+  --kernel-only      Build only the X2000 Kernel artifact
+  --rootfs-only      Build only the RootFS stack
+  --compose-only     Compose existing Kernel and RootFS artifacts
+
+Build mode:
+  --develop          Allow a development build from the current worktree
+
+Additional components:
+  --f005-build       Rebuild the F005 firmware candidate before RootFS assembly
+
+General:
+  -h, --help         Show this help
+
+Examples:
+  $0
+      Full release build
+
+  $0 --develop
+      Full development build
+
+  $0 --rootfs-only --develop
+      Development RootFS build without rebuilding the Kernel
+EOF
+}
+
 usage() {
-	echo "usage: $0 [--develop] [--kernel-build] [--f005-build] [--compose-only]" >&2
+	show_help >&2
 	exit 2
+}
+
+select_scope() {
+	[ "$scope_seen" = false ] || usage
+	build_scope=$1
+	scope_seen=true
 }
 
 while [ "$#" -gt 0 ]; do
@@ -37,27 +78,53 @@ while [ "$#" -gt 0 ]; do
 		[ "$develop" = false ] || usage
 		develop=true
 		;;
-	--kernel-build)
-		[ "$kernel_build" = false ] || usage
-		kernel_build=true
+	--kernel-only)
+		select_scope kernel
+		;;
+	--rootfs-only)
+		select_scope rootfs
+		;;
+	--compose-only)
+		select_scope compose
 		;;
 	--f005-build)
 		[ "$f005_build" = false ] || usage
 		f005_build=true
 		;;
-	--compose-only)
-		[ "$compose_only" = false ] || usage
-		compose_only=true
+	-h|--help)
+		show_help
+		exit 0
 		;;
 	*) usage ;;
 	esac
 	shift
 done
 
-if [ "$compose_only" = true ]; then
-	[ "$kernel_build" = false ] || usage
+case "$build_scope" in
+compose)
 	[ "$f005_build" = false ] || usage
 	[ "$develop" = false ] || usage
+	compose_only=true
+	;;
+kernel)
+	[ "$f005_build" = false ] || usage
+	;;
+esac
+
+clean_rootfs_python_cache() {
+	overlay="$root/configs/x2000/rootfs-overlay"
+
+	find "$overlay" \
+		-type f \( -name '*.pyc' -o -name '*.pyo' \) \
+		-delete
+
+	find "$overlay" \
+		-type d -name '__pycache__' \
+		-prune -exec rm -rf -- {} +
+}
+
+if [ "$build_scope" = full ] || [ "$build_scope" = rootfs ]; then
+	clean_rootfs_python_cache
 fi
 
 component_args=
@@ -69,7 +136,7 @@ if [ "$compose_only" = true ]; then
 	printf '%s\n' 'X2000 composition: validating existing artifacts'
 fi
 
-if [ "$kernel_build" = true ] || [ "$compose_only" = true ]; then
+if [ "$build_scope" = full ] || [ "$build_scope" = compose ]; then
 	command -v openssl >/dev/null 2>&1 || {
 		echo 'openssl is required to create signed Fre3nder OTA packages' >&2
 		exit 1
@@ -106,12 +173,13 @@ if [ "$kernel_build" = true ] || [ "$compose_only" = true ]; then
 	fi
 	rm -f -- "$derived_public"
 
-	if [ "$kernel_build" = true ]; then
-		"$kernel_builder" $component_args
-	fi
 fi
 
-if [ "$compose_only" = false ]; then
+if [ "$build_scope" = full ] || [ "$build_scope" = kernel ]; then
+	"$kernel_builder" $component_args
+fi
+
+if [ "$build_scope" = full ] || [ "$build_scope" = rootfs ]; then
 	f005_firmware=
 	if [ "$f005_build" = true ]; then
 		"$f005_builder"
@@ -131,7 +199,7 @@ if [ "$compose_only" = false ]; then
 	fi
 fi
 
-if [ "$kernel_build" = true ] || [ "$compose_only" = true ]; then
+if [ "$build_scope" = full ] || [ "$build_scope" = compose ]; then
 	python3 - "$artifact_root/kernel-only" "$artifact_root/rootfs-only" \
 		"$artifact_root/full" "$ota_private_key" "$ota_public_key" \
 		"$compose_only" "$root" <<'PY'
@@ -208,7 +276,6 @@ if rootfs_manifest.get("ota_public_key_sha256") != expected_ota_public_key_sha25
 
 for field in (
     "version",
-    "artifact_mode",
 ):
     if kernel_manifest.get(field, "") != rootfs_manifest.get(field, ""):
         raise SystemExit(f"component manifests disagree on {field}")

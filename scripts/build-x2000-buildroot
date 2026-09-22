@@ -35,6 +35,20 @@ while [ "$#" -gt 0 ]; do
 done
 [ -n "$phase" ] || usage
 
+clean_rootfs_python_cache() {
+	overlay="$root/configs/x2000/rootfs-overlay"
+
+	find "$overlay" \
+		-type f \( -name '*.pyc' -o -name '*.pyo' \) \
+		-delete
+
+	find "$overlay" \
+		-type d -name '__pycache__' \
+		-prune -exec rm -rf -- {} +
+}
+
+clean_rootfs_python_cache
+
 git -C "$root" check-ignore -q local/production
 "$docker_cmd" build -t "$image" "$root/build/x2000"
 mkdir -p "$work_root"

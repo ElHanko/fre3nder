@@ -98,15 +98,24 @@ local/production/
     └── rootfs-only/
 ```
 
-`scripts/build-x2000` normally builds the Moonraker and GuppyScreen components
-and then the RootFS. `--kernel-build` adds a Kernel build before them and
-composes the resulting Kernel and RootFS artifacts into `full/`.
-`--f005-build` reproduces the F005 candidate before RootFS assembly.
+`scripts/build-x2000` builds a complete X2000 platform by default: Kernel,
+Moonraker, the Buildroot toolchain, GuppyScreen, and the RootFS are built before
+the resulting Kernel and RootFS artifacts are composed into `full/` together
+with the signed OTA package.
+
+`--develop` changes only the artifact mode and provenance rules. It does not
+change the build scope, so `scripts/build-x2000 --develop` is the development
+equivalent of the default full release build.
+
+Use `--kernel-only` to build only the Kernel artifact or `--rootfs-only` to
+build the Moonraker, Buildroot, GuppyScreen, and RootFS stack without rebuilding
+the Kernel. `--f005-build` reproduces the F005 candidate before RootFS assembly
+and is valid for full and RootFS-only builds.
 
 `--compose-only` performs no component build. It validates and composes the
 existing `kernel-only/` and `rootfs-only/` artifacts into `full/` and creates
-the signed OTA package. The mode is standalone and cannot be combined with
-`--develop`, `--kernel-build`, or `--f005-build`.
+the signed OTA package. It is a standalone scope and cannot be combined with
+`--develop`, `--kernel-only`, `--rootfs-only`, or `--f005-build`.
 
 Kernel and RootFS must agree on the Fre3nder version and artifact mode.
 `--compose-only` may intentionally reuse a Kernel from a different project
