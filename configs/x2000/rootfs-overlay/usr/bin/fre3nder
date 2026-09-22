@@ -12,6 +12,7 @@ API_VERSION = 1
 
 DEFAULT_APP_CORE = pathlib.Path("/usr/libexec/fre3nder-app-core")
 DEFAULT_OTA_CORE = pathlib.Path("/usr/libexec/fre3nder-ota-core")
+DEFAULT_BACKUP_CORE = pathlib.Path("/usr/libexec/fre3nder-backup-core")
 
 APP_ACTIONS = (
     "install",
@@ -25,6 +26,10 @@ OTA_ACTIONS = (
     "preflight",
     "backup-plan",
     "backup",
+    "confirm",
+    "write",
+    "readback",
+    "prepare-activation",
 )
 
 
@@ -33,6 +38,17 @@ def app_core_path():
     if override:
         return pathlib.Path(override)
     return DEFAULT_APP_CORE
+
+
+def backup_core_path():
+    override = os.environ.get(
+        "FRE3NDER_BACKUP_CORE"
+    )
+
+    if override:
+        return pathlib.Path(override)
+
+    return DEFAULT_BACKUP_CORE
 
 
 def ota_core_path():
@@ -56,6 +72,33 @@ def usage():
         "(--home|--no-home) (--sys <usb|home>|--no-sys)",
         file=sys.stderr,
     )
+    print(
+        "       fre3nder ota confirm <package.ota> <transaction-id>",
+        file=sys.stderr,
+    )
+    print(
+        "       fre3nder ota write <package.ota> <transaction-id>",
+        file=sys.stderr,
+    )
+    print(
+        "       fre3nder ota readback <package.ota> <transaction-id>",
+        file=sys.stderr,
+    )
+    print(
+        "       fre3nder ota prepare-activation "
+        "<package.ota> <transaction-id>",
+        file=sys.stderr,
+    )
+    print(
+        "       fre3nder ota reboot <transaction-id>",
+        file=sys.stderr,
+    )
+    print(
+        "       fre3nder backup create "
+        "[--home <usb|none>] "
+        "[--sys <usb|home|none>]",
+        file=sys.stderr,
+    )
     return 2
 
 
@@ -73,6 +116,74 @@ def run_app_core(action, app):
         )
     except OSError as exc:
         raise RuntimeError(f"cannot execute app core: {core}") from exc
+
+
+def run_backup_core(
+    operation,
+    arguments=(),
+):
+    core = backup_core_path()
+
+    try:
+        result = subprocess.run(
+            [
+                str(core),
+                operation,
+                *arguments,
+            ],
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except OSError as exc:
+        raise RuntimeError(
+            f"cannot execute backup core: {core}"
+        ) from exc
+
+    try:
+        response = json.loads(
+            result.stdout
+        )
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(
+            "backup core returned invalid JSON"
+        ) from exc
+
+    if not isinstance(response, dict):
+        raise RuntimeError(
+            "backup core returned an invalid response"
+        )
+
+    if response.get("api_version") != API_VERSION:
+        raise RuntimeError(
+            "unsupported backup core API version"
+        )
+
+    if response.get("operation") != operation:
+        raise RuntimeError(
+            "backup core operation mismatch"
+        )
+
+    if result.returncode != 0:
+        message = response.get("error")
+
+        if (
+            not isinstance(message, str)
+            or not message
+        ):
+            raise RuntimeError(
+                "backup core failed without an error message"
+            )
+
+        raise ValueError(message)
+
+    if response.get("ok") is not True:
+        raise RuntimeError(
+            "backup core returned inconsistent success state"
+        )
+
+    return response
 
 
 def run_ota_core(operation, package, arguments=()):
@@ -118,6 +229,352 @@ def run_ota_core(operation, package, arguments=()):
         raise RuntimeError("OTA core returned inconsistent success state")
 
     return response
+
+
+def parse_backup_create_arguments(arguments):
+    if not arguments:
+        return None
+
+    selection = {
+        "home": None,
+        "sys": None,
+    }
+
+    index = 0
+
+    while index < len(arguments):
+        option = arguments[index]
+
+        if option not in ("--home", "--sys"):
+            raise ValueError(
+                f"unsupported backup option: {option}"
+            )
+
+        role = option[2:]
+
+        if selection[role] is not None:
+            raise ValueError(
+                f"{option} specified more than once"
+            )
+
+        if index + 1 >= len(arguments):
+            raise ValueError(
+                f"{option} requires a target"
+            )
+
+        target = arguments[index + 1]
+
+        allowed = (
+            ("usb", "none")
+            if role == "home"
+            else ("usb", "home", "none")
+        )
+
+        if target not in allowed:
+            raise ValueError(
+                f"invalid {role.upper()} backup target: "
+                f"{target}"
+            )
+
+        selection[role] = target
+        index += 2
+
+    if (
+        selection["home"] is None
+        or selection["sys"] is None
+    ):
+        raise ValueError(
+            "non-interactive backup requires "
+            "both --home and --sys"
+        )
+
+    if (
+        selection["home"] == "none"
+        and selection["sys"] == "none"
+    ):
+        raise ValueError(
+            "at least one backup must be selected"
+        )
+
+    return selection
+
+
+def prompt_backup_choice(label, choices):
+    while True:
+        value = input(
+            f"{label} [{'/'.join(choices)}]: "
+        ).strip().lower()
+
+        if value in choices:
+            return value
+
+        print(
+            "Invalid selection. Choose: "
+            + ", ".join(choices),
+            file=sys.stderr,
+        )
+
+
+def interactive_backup_selection():
+    response = run_backup_core("offer")
+    offer = response.get("backup_offer")
+
+    if not isinstance(offer, dict):
+        raise RuntimeError(
+            "backup core returned invalid offer"
+        )
+
+    home = offer.get("home")
+    sys_backup = offer.get("sys")
+
+    if (
+        not isinstance(home, dict)
+        or not isinstance(sys_backup, dict)
+    ):
+        raise RuntimeError(
+            "backup core returned invalid offer"
+        )
+
+    home_targets = home.get("targets")
+    sys_targets = sys_backup.get("targets")
+
+    if (
+        not isinstance(home_targets, list)
+        or not isinstance(sys_targets, list)
+    ):
+        raise RuntimeError(
+            "backup core returned invalid targets"
+        )
+
+    while True:
+        print("Fre3nder backup")
+        print("")
+
+        selection = {
+            "home": prompt_backup_choice(
+                "HOME backup",
+                [*home_targets, "none"],
+            ),
+            "sys": prompt_backup_choice(
+                "SYS backup",
+                [*sys_targets, "none"],
+            ),
+        }
+
+        if not (
+            selection["home"] == "none"
+            and selection["sys"] == "none"
+        ):
+            return selection
+
+        print(
+            "At least one backup must be selected.",
+            file=sys.stderr,
+        )
+
+
+def backup_core_selection_arguments(selection):
+    arguments = []
+
+    if selection["home"] == "usb":
+        arguments.append("--home")
+    else:
+        arguments.append("--no-home")
+
+    if selection["sys"] == "none":
+        arguments.append("--no-sys")
+    else:
+        arguments.extend(
+            ("--sys", selection["sys"])
+        )
+
+    return tuple(arguments)
+
+
+def verify_created_backups(response):
+    selection = response.get("backup_selection")
+    result = response.get("backup_result")
+
+    if (
+        not isinstance(selection, dict)
+        or selection.get("complete") is not True
+        or not isinstance(result, dict)
+        or result.get("complete") is not True
+    ):
+        raise RuntimeError(
+            "backup core returned incomplete result"
+        )
+
+    verified = {}
+
+    for role in ("home", "sys"):
+        selected = selection.get(role)
+        created = result.get(role)
+
+        if (
+            not isinstance(selected, dict)
+            or not isinstance(created, dict)
+        ):
+            raise RuntimeError(
+                "backup core returned invalid result"
+            )
+
+        if (
+            created.get("selected")
+            != selected.get("selected")
+            or created.get("target")
+            != selected.get("target")
+        ):
+            raise RuntimeError(
+                "backup core returned inconsistent result"
+            )
+
+        if selected.get("selected") is not True:
+            verified[role] = None
+            continue
+
+        archive = created.get("archive")
+        size = created.get("size")
+        digest = created.get("sha256")
+
+        if (
+            not isinstance(archive, str)
+            or not archive
+            or type(size) is not int
+            or size < 0
+            or not isinstance(digest, str)
+            or len(digest) != 64
+        ):
+            raise RuntimeError(
+                f"backup core returned invalid "
+                f"{role.upper()} archive metadata"
+            )
+
+        check = run_backup_core(
+            "verify",
+            (
+                archive,
+                str(size),
+                digest,
+            ),
+        )
+
+        backup = check.get("backup")
+
+        if (
+            not isinstance(backup, dict)
+            or backup.get("status") != "valid"
+            or backup.get("archive") != archive
+            or backup.get("size") != size
+            or backup.get("sha256") != digest
+        ):
+            raise RuntimeError(
+                f"{role.upper()} backup verification failed"
+            )
+
+        verified[role] = backup
+
+    return verified
+
+
+def format_backup_create(response, verified):
+    selection = response["backup_selection"]
+    result = response["backup_result"]
+
+    lines = [
+        "Fre3nder backup",
+        "",
+    ]
+
+    for role, label in (
+        ("home", "HOME"),
+        ("sys", "SYS"),
+    ):
+        selected = selection[role]
+        created = result[role]
+
+        if not selected["selected"]:
+            lines.append(
+                f"{label} backup:     NOT SELECTED"
+            )
+            continue
+
+        if verified.get(role) is None:
+            raise RuntimeError(
+                f"{label} backup was not verified"
+            )
+
+        lines.extend(
+            (
+                f"{label} backup:     "
+                f"{selected['target'].upper()}",
+                f"{label} archive:    "
+                f"{created['archive']}",
+                f"{label} size:       "
+                f"{created['size']} bytes",
+                f"{label} SHA256:     "
+                f"{created['sha256']}",
+                f"{label} verify:     PASS",
+            )
+        )
+
+    lines.extend(
+        (
+            "",
+            "BACKUP: COMPLETE",
+        )
+    )
+
+    return "\n".join(lines)
+
+
+def run_backup_create(arguments):
+    try:
+        selection = parse_backup_create_arguments(
+            arguments
+        )
+
+        if selection is None:
+            selection = interactive_backup_selection()
+
+        response = run_backup_core(
+            "execute",
+            backup_core_selection_arguments(
+                selection
+            ),
+        )
+
+        verified = verify_created_backups(
+            response
+        )
+
+        output = format_backup_create(
+            response,
+            verified,
+        )
+
+    except EOFError:
+        print(
+            "fre3nder backup: interactive input ended",
+            file=sys.stderr,
+        )
+        return 1
+
+    except (
+        KeyError,
+        TypeError,
+        AttributeError,
+        RuntimeError,
+        ValueError,
+    ) as exc:
+        print(
+            f"fre3nder backup: {exc}",
+            file=sys.stderr,
+        )
+        return 1
+
+    print(output)
+    return 0
 
 
 def format_ota_verify(response):
@@ -258,6 +715,22 @@ def format_ota_backup_plan(response):
 def format_ota_backup(response):
     selection = response["backup_selection"]
     result = response["backup_result"]
+    confirmation = response["confirmation"]
+    transaction_id = confirmation["transaction_id"]
+
+    if (
+        confirmation["required"] is not True
+        or confirmation["state"] != "awaiting-confirmation"
+        or not isinstance(transaction_id, str)
+        or len(transaction_id) != 32
+        or any(
+            character not in "0123456789abcdef"
+            for character in transaction_id
+        )
+    ):
+        raise RuntimeError(
+            "OTA core returned invalid confirmation state"
+        )
 
     if (
         selection["complete"] is not True
@@ -320,11 +793,145 @@ def format_ota_backup(response):
         (
             "",
             "BACKUP: COMPLETE",
+            "",
+            "Confirmation:    REQUIRED",
+            f"Transaction ID:  {transaction_id}",
             "OTA target slots have not been modified.",
         )
     )
 
     return "\n".join(lines)
+
+
+def format_ota_confirm(response):
+    confirmation = response["confirmation"]
+    transaction_id = confirmation["transaction_id"]
+
+    if (
+        confirmation["state"] != "confirmed"
+        or not isinstance(transaction_id, str)
+        or len(transaction_id) != 32
+        or any(
+            character not in "0123456789abcdef"
+            for character in transaction_id
+        )
+    ):
+        raise RuntimeError(
+            "OTA core returned invalid confirmed state"
+        )
+
+    return "\n".join(
+        (
+            "Fre3nder OTA confirmation",
+            "",
+            f"Transaction ID:  {transaction_id}",
+            "State:           CONFIRMED",
+            "",
+            "CONFIRM: COMPLETE",
+            "OTA target slots have not been modified.",
+        )
+    )
+
+
+def format_ota_write(response):
+    result = response["write_result"]
+    transaction = response["transaction"]
+
+    if (
+        result["complete"] is not True
+        or transaction["state"]
+        != "written-awaiting-readback"
+    ):
+        raise RuntimeError(
+            "OTA core returned invalid write state"
+        )
+
+    return "\n".join(
+        (
+            "Fre3nder OTA inactive-slot write",
+            "",
+            (
+                f"RootFS:          "
+                f"{result['rootfs']['size']} bytes -> "
+                f"{result['rootfs']['target']}"
+            ),
+            (
+                f"Kernel:          "
+                f"{result['kernel']['size']} bytes -> "
+                f"{result['kernel']['target']}"
+            ),
+            "",
+            "WRITE: COMPLETE",
+            "READBACK: PENDING",
+            "Boot selector has not been modified.",
+        )
+    )
+
+
+def format_ota_readback(response):
+    result = response["readback_result"]
+    transaction = response["transaction"]
+
+    if (
+        result["complete"] is not True
+        or transaction["state"] != "readback-verified"
+    ):
+        raise RuntimeError(
+            "OTA core returned invalid readback state"
+        )
+
+    return "\n".join(
+        (
+            "Fre3nder OTA readback verification",
+            "",
+            (
+                f"RootFS:          VERIFIED "
+                f"({result['rootfs']['size']} bytes)"
+            ),
+            (
+                f"Kernel:          VERIFIED "
+                f"({result['kernel']['size']} bytes)"
+            ),
+            "",
+            "READBACK: PASS",
+            "Activation has not been prepared.",
+            "Boot selector has not been modified.",
+        )
+    )
+
+
+def format_ota_prepare_activation(response):
+    activation = response["activation"]
+    selector = activation["selector"]
+    transaction = response["transaction"]
+
+    if (
+        activation["complete"] is not True
+        or transaction["state"]
+        != "activation-prepared"
+    ):
+        raise RuntimeError(
+            "OTA core returned invalid activation state"
+        )
+
+    return "\n".join(
+        (
+            "Fre3nder OTA activation preparation",
+            "",
+            (
+                f"Selector:        "
+                f"{selector['previous_slot']} -> "
+                f"{selector['target_slot']}"
+            ),
+            (
+                f"Target root:     "
+                f"{response['target']['rootfs']}"
+            ),
+            "",
+            "ACTIVATION: PREPARED",
+            "Reboot has not been performed.",
+        )
+    )
 
 
 def run_ota(operation, package, arguments=()):
@@ -339,6 +946,14 @@ def run_ota(operation, package, arguments=()):
             output = format_ota_backup_plan(response)
         elif operation == "backup":
             output = format_ota_backup(response)
+        elif operation == "confirm":
+            output = format_ota_confirm(response)
+        elif operation == "write":
+            output = format_ota_write(response)
+        elif operation == "readback":
+            output = format_ota_readback(response)
+        elif operation == "prepare-activation":
+            output = format_ota_prepare_activation(response)
         else:
             raise RuntimeError(
                 f"unsupported OTA operation: {operation}"
@@ -365,6 +980,73 @@ def run_ota(operation, package, arguments=()):
     return 0
 
 
+def run_ota_reboot(transaction_id):
+    core = ota_core_path()
+
+    try:
+        result = subprocess.run(
+            [
+                str(core),
+                "reboot",
+                transaction_id,
+            ],
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except OSError as exc:
+        print(
+            f"fre3nder ota: cannot execute OTA core: {core}",
+            file=sys.stderr,
+        )
+        return 1
+
+    # A real reboot may terminate the process before a response
+    # becomes observable. If the core does return, validate it.
+    if result.stdout:
+        try:
+            response = json.loads(result.stdout)
+        except json.JSONDecodeError:
+            print(
+                "fre3nder ota: OTA core returned invalid JSON",
+                file=sys.stderr,
+            )
+            return 1
+
+        if (
+            not isinstance(response, dict)
+            or response.get("api_version") != API_VERSION
+            or response.get("operation") != "reboot"
+        ):
+            print(
+                "fre3nder ota: OTA core returned invalid reboot state",
+                file=sys.stderr,
+            )
+            return 1
+
+        if result.returncode != 0:
+            message = response.get(
+                "error",
+                "reboot operation failed",
+            )
+            print(
+                f"fre3nder ota: {message}",
+                file=sys.stderr,
+            )
+            return 1
+
+    elif result.returncode != 0:
+        print(
+            "fre3nder ota: reboot operation failed",
+            file=sys.stderr,
+        )
+        return 1
+
+    print("Fre3nder OTA reboot requested")
+    return 0
+
+
 def main():
     if len(sys.argv) < 2:
         return usage()
@@ -383,7 +1065,26 @@ def main():
 
         raise RuntimeError("app core unexpectedly returned")
 
+    if namespace == "backup":
+        if (
+            len(sys.argv) < 3
+            or sys.argv[2] != "create"
+        ):
+            return usage()
+
+        return run_backup_create(
+            tuple(sys.argv[3:])
+        )
+
     if namespace == "ota":
+        if (
+            len(sys.argv) == 4
+            and sys.argv[2] == "reboot"
+        ):
+            return run_ota_reboot(
+                sys.argv[3]
+            )
+
         if len(sys.argv) < 4:
             return usage()
 

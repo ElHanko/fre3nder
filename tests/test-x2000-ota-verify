@@ -93,6 +93,22 @@ def run_cli(core, operation, package, *arguments):
     )
 
 
+def run_cli_reboot(core, transaction_id):
+    environment = os.environ.copy()
+    environment["FRE3NDER_OTA_CORE"] = str(core)
+
+    return subprocess.run(
+        [
+            str(CLI),
+            "ota",
+            "reboot",
+            transaction_id,
+        ],
+        env=environment,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
 
 
 def run_core_process(operation, package):
@@ -111,6 +127,32 @@ import json
 import sys
 
 operation = sys.argv[1]
+
+if operation == "reboot":
+    arguments = sys.argv[2:]
+
+    if arguments != [
+        "0123456789abcdef0123456789abcdef"
+    ]:
+        raise SystemExit(2)
+
+    print(json.dumps({
+        "api_version": 1,
+        "ok": True,
+        "operation": "reboot",
+        "state": "reboot-requested",
+        "transaction_id": (
+            "0123456789abcdef"
+            "0123456789abcdef"
+        ),
+        "target": {
+            "slot": "B",
+            "kernel": "/dev/mmcblk0p6",
+            "rootfs": "/dev/mmcblk0p8",
+        },
+    }))
+    raise SystemExit(0)
+
 package = sys.argv[2]
 arguments = sys.argv[3:]
 
@@ -262,6 +304,154 @@ elif operation == "backup":
                 "size": 456,
                 "sha256": "b" * 64,
             },
+        },
+        "confirmation": {
+            "required": True,
+            "state": "awaiting-confirmation",
+            "transaction_id": (
+                "0123456789abcdef"
+                "0123456789abcdef"
+            ),
+        },
+    }
+elif operation == "confirm":
+    if arguments != [
+        "0123456789abcdef0123456789abcdef"
+    ]:
+        raise SystemExit(2)
+
+    response = {
+        "api_version": 1,
+        "ok": True,
+        "operation": "confirm",
+        "package": {
+            "path": package,
+            "status": "valid",
+            "version": "2026.4.fixture",
+            "platform": "ender3-v3-ke",
+            "artifact_mode": "development",
+        },
+        "runtime": {
+            "installed_version": "2026.3",
+            "active_slot": "A",
+            "active_root": "/dev/mmcblk0p7",
+        },
+        "target": {
+            "slot": "B",
+            "kernel": "/dev/mmcblk0p6",
+            "rootfs": "/dev/mmcblk0p8",
+        },
+        "confirmation": {
+            "state": "confirmed",
+            "transaction_id": (
+                "0123456789abcdef"
+                "0123456789abcdef"
+            ),
+        },
+    }
+elif operation == "write":
+    if arguments != [
+        "0123456789abcdef0123456789abcdef"
+    ]:
+        raise SystemExit(2)
+
+    response = {
+        "api_version": 1,
+        "ok": True,
+        "operation": "write",
+        "write_result": {
+            "complete": True,
+            "rootfs": {
+                "target": "/dev/mmcblk0p8",
+                "size": 200,
+                "sha256": "b" * 64,
+            },
+            "kernel": {
+                "target": "/dev/mmcblk0p6",
+                "size": 100,
+                "sha256": "a" * 64,
+            },
+        },
+        "transaction": {
+            "state": "written-awaiting-readback",
+            "transaction_id": (
+                "0123456789abcdef"
+                "0123456789abcdef"
+            ),
+        },
+    }
+elif operation == "readback":
+    if arguments != [
+        "0123456789abcdef0123456789abcdef"
+    ]:
+        raise SystemExit(2)
+
+    response = {
+        "api_version": 1,
+        "ok": True,
+        "operation": "readback",
+        "readback_result": {
+            "complete": True,
+            "rootfs": {
+                "target": "/dev/mmcblk0p8",
+                "size": 200,
+                "sha256": "b" * 64,
+            },
+            "kernel": {
+                "target": "/dev/mmcblk0p6",
+                "size": 100,
+                "sha256": "a" * 64,
+            },
+        },
+        "transaction": {
+            "state": "readback-verified",
+            "transaction_id": (
+                "0123456789abcdef"
+                "0123456789abcdef"
+            ),
+        },
+    }
+elif operation == "prepare-activation":
+    if arguments != [
+        "0123456789abcdef0123456789abcdef"
+    ]:
+        raise SystemExit(2)
+
+    response = {
+        "api_version": 1,
+        "ok": True,
+        "operation": "prepare-activation",
+        "target": {
+            "slot": "B",
+            "kernel": "/dev/mmcblk0p6",
+            "rootfs": "/dev/mmcblk0p8",
+        },
+        "activation": {
+            "complete": True,
+            "record": (
+                "/run/fre3nder-root/system/"
+                ".fre3nder-ota-activation.json"
+            ),
+            "reset_marker": (
+                "/run/fre3nder-root/system/"
+                ".fre3nder-reset-target"
+            ),
+            "selector": {
+                "previous_slot": "A",
+                "target_slot": "B",
+                "size": 512,
+                "sha256": (
+                    "29a335bc1f2935f9ee79955da3566d5f"
+                    "70d1b0591421745395fd714c8351bdc4"
+                ),
+            },
+        },
+        "transaction": {
+            "state": "activation-prepared",
+            "transaction_id": (
+                "0123456789abcdef"
+                "0123456789abcdef"
+            ),
         },
     }
 else:
@@ -2427,7 +2617,107 @@ def main():
             "SYS SHA256:     " + "b" * 64,
             "",
             "BACKUP: COMPLETE",
+            "",
+            "Confirmation:    REQUIRED",
+            (
+                "Transaction ID:  "
+                "0123456789abcdef"
+                "0123456789abcdef"
+            ),
             "OTA target slots have not been modified.",
+        ]
+
+        result = run_cli(
+            fake_core,
+            "confirm",
+            package,
+            "0123456789abcdef0123456789abcdef",
+        )
+
+        assert result.returncode == 0, result.stderr
+        assert result.stderr == ""
+        assert result.stdout.splitlines() == [
+            "Fre3nder OTA confirmation",
+            "",
+            (
+                "Transaction ID:  "
+                "0123456789abcdef"
+                "0123456789abcdef"
+            ),
+            "State:           CONFIRMED",
+            "",
+            "CONFIRM: COMPLETE",
+            "OTA target slots have not been modified.",
+        ]
+
+        result = run_cli(
+            fake_core,
+            "write",
+            package,
+            "0123456789abcdef0123456789abcdef",
+        )
+
+        assert result.returncode == 0, result.stderr
+        assert result.stderr == ""
+        assert result.stdout.splitlines() == [
+            "Fre3nder OTA inactive-slot write",
+            "",
+            "RootFS:          200 bytes -> /dev/mmcblk0p8",
+            "Kernel:          100 bytes -> /dev/mmcblk0p6",
+            "",
+            "WRITE: COMPLETE",
+            "READBACK: PENDING",
+            "Boot selector has not been modified.",
+        ]
+
+        result = run_cli(
+            fake_core,
+            "readback",
+            package,
+            "0123456789abcdef0123456789abcdef",
+        )
+
+        assert result.returncode == 0, result.stderr
+        assert result.stderr == ""
+        assert result.stdout.splitlines() == [
+            "Fre3nder OTA readback verification",
+            "",
+            "RootFS:          VERIFIED (200 bytes)",
+            "Kernel:          VERIFIED (100 bytes)",
+            "",
+            "READBACK: PASS",
+            "Activation has not been prepared.",
+            "Boot selector has not been modified.",
+        ]
+
+        result = run_cli(
+            fake_core,
+            "prepare-activation",
+            package,
+            "0123456789abcdef0123456789abcdef",
+        )
+
+        assert result.returncode == 0, result.stderr
+        assert result.stderr == ""
+        assert result.stdout.splitlines() == [
+            "Fre3nder OTA activation preparation",
+            "",
+            "Selector:        A -> B",
+            "Target root:     /dev/mmcblk0p8",
+            "",
+            "ACTIVATION: PREPARED",
+            "Reboot has not been performed.",
+        ]
+
+        result = run_cli_reboot(
+            fake_core,
+            "0123456789abcdef0123456789abcdef",
+        )
+
+        assert result.returncode == 0, result.stderr
+        assert result.stderr == ""
+        assert result.stdout.splitlines() == [
+            "Fre3nder OTA reboot requested",
         ]
 
         result = run_cli(

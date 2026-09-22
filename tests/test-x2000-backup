@@ -485,6 +485,207 @@ def test_execute_response_version_source():
                 ] = previous
 
 
+def test_public_backup_create():
+    with tempfile.TemporaryDirectory() as temporary:
+        temporary = Path(temporary)
+
+        cli = (
+            ROOT
+            / "configs/x2000/rootfs-overlay/usr/bin"
+            / "fre3nder"
+        )
+
+        fake_core = temporary / "backup-core"
+
+        fake_core.write_text(
+            """#!/usr/bin/python3
+import json
+import os
+import sys
+
+operation = sys.argv[1]
+arguments = sys.argv[2:]
+
+if operation == "offer":
+    response = {
+        "api_version": 1,
+        "ok": True,
+        "operation": "offer",
+        "backup_offer": {
+            "selection_required": True,
+            "home": {
+                "role": "HOME",
+                "offered": True,
+                "required": False,
+                "targets": ["usb"],
+            },
+            "sys": {
+                "role": "SYS",
+                "offered": True,
+                "required": False,
+                "targets": ["usb", "home"],
+            },
+        },
+    }
+
+elif operation == "execute":
+    if arguments != [
+        "--home",
+        "--sys",
+        "home",
+    ]:
+        print(json.dumps({
+            "api_version": 1,
+            "ok": False,
+            "operation": "execute",
+            "error": "unexpected fixture selection",
+        }))
+        raise SystemExit(1)
+
+    response = {
+        "api_version": 1,
+        "ok": True,
+        "operation": "execute",
+        "backup_selection": {
+            "complete": True,
+            "home": {
+                "selected": True,
+                "target": "usb",
+            },
+            "sys": {
+                "selected": True,
+                "target": "home",
+            },
+        },
+        "backup_result": {
+            "complete": True,
+            "home": {
+                "selected": True,
+                "target": "usb",
+                "archive": "/usb/home.tar",
+                "size": 111,
+                "sha256": "a" * 64,
+            },
+            "sys": {
+                "selected": True,
+                "target": "home",
+                "archive": "/home/sys.tar",
+                "size": 222,
+                "sha256": "b" * 64,
+            },
+        },
+    }
+
+elif operation == "verify":
+    if os.environ.get(
+        "FAKE_BACKUP_VERIFY_FAIL"
+    ) == "1":
+        print(json.dumps({
+            "api_version": 1,
+            "ok": False,
+            "operation": "verify",
+            "error": "fixture verification failure",
+        }))
+        raise SystemExit(1)
+
+    if len(arguments) != 3:
+        raise SystemExit(2)
+
+    response = {
+        "api_version": 1,
+        "ok": True,
+        "operation": "verify",
+        "backup": {
+            "status": "valid",
+            "archive": arguments[0],
+            "size": int(arguments[1]),
+            "sha256": arguments[2],
+        },
+    }
+
+else:
+    raise SystemExit(2)
+
+print(json.dumps(response))
+"""
+        )
+
+        fake_core.chmod(0o755)
+
+        environment = os.environ.copy()
+        environment[
+            "FRE3NDER_BACKUP_CORE"
+        ] = str(fake_core)
+
+        # Non-interactive user path.
+        result = subprocess.run(
+            [
+                str(cli),
+                "backup",
+                "create",
+                "--home",
+                "usb",
+                "--sys",
+                "home",
+            ],
+            env=environment,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+        assert result.returncode == 0, result.stderr
+        assert "HOME verify:     PASS" in result.stdout
+        assert "SYS verify:     PASS" in result.stdout
+        assert "BACKUP: COMPLETE" in result.stdout
+
+        # Interactive user path.
+        result = subprocess.run(
+            [
+                str(cli),
+                "backup",
+                "create",
+            ],
+            env=environment,
+            input="usb\nhome\n",
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+        assert result.returncode == 0, result.stderr
+        assert "BACKUP: COMPLETE" in result.stdout
+
+        # Verification is mandatory for user-visible success.
+        failed_environment = environment.copy()
+        failed_environment[
+            "FAKE_BACKUP_VERIFY_FAIL"
+        ] = "1"
+
+        result = subprocess.run(
+            [
+                str(cli),
+                "backup",
+                "create",
+                "--home",
+                "usb",
+                "--sys",
+                "home",
+            ],
+            env=failed_environment,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+        assert result.returncode == 1
+        assert "BACKUP: COMPLETE" not in result.stdout
+        assert (
+            "fixture verification failure"
+            in result.stderr
+        )
+
+
 def test_cli_create_and_verify():
     with tempfile.TemporaryDirectory() as temporary:
         temporary = Path(temporary)
@@ -614,6 +815,7 @@ def test_verify_rejects_tampering():
 
 
 def main():
+    test_public_backup_create()
     test_archive_primitive()
     test_offer_plan_and_execute()
     test_execute_rejects_changed_usb()
