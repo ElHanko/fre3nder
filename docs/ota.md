@@ -289,16 +289,27 @@ The implemented operations are currently:
 
     verify
     preflight
+    backup-plan
+    backup
 
 `verify` returns structured package identity and verification state.
 
-`preflight` additionally returns structured runtime, target-slot, and
-persistence state. The core, not the frontend, determines the active slot,
-inactive target devices, `SYS`/`HOME` resolution, and their intended update
-actions.
+`preflight` additionally returns structured runtime, target-slot,
+persistence, runtime-USB, and backup-offer state. The core, not the frontend,
+determines the active slot, inactive target devices, `SYS`/`HOME` resolution,
+their intended update actions, and which logical backup targets are currently
+available.
 
-Human-readable strings such as the CLI preflight report are not part of the
-core API and must not be consumed by another frontend.
+`backup-plan` re-runs package verification and technical preflight, then
+accepts an explicit selection or decline for `HOME` and `SYS`. It remains
+read-only and does not create an archive.
+
+`backup` performs the same verification, preflight, and selection validation,
+then creates every selected archive and returns its path, size, and SHA-256.
+It does not write the inactive kernel or RootFS slots.
+
+Human-readable strings such as the CLI reports are not part of the core API
+and must not be consumed by another frontend.
 
 The process transport is an implementation detail rather than a requirement
 that the core remain a short-lived command forever. A later privileged OTA
@@ -488,7 +499,8 @@ The technical preflight also resolves exactly one `FRE3NDERSYS` and exactly one
 
 On success the command reports the installed and target versions, active and
 target slots, inactive kernel and RootFS targets, persistence-role resolution,
-and the intended `SYS` reset / `HOME` preserve policy.
+the intended `SYS` reset / `HOME` preserve policy, and the backup roles offered
+before a later write operation.
 
 The command remains read-only. It does not write p1 or p3-p8, create a reset
 marker, modify `SYS` or `HOME`, change the boot selector, or reboot.
@@ -499,8 +511,10 @@ been exercised on the project reference X2000 system against the real
 `/proc/cmdline`, `/proc/mounts`, `blkid` state, installed trust anchor, and
 OpenSSL verifier.
 
-This technical preflight does not yet implement the complete architectural
-preflight below: backup choices and user confirmation remain later OTA stages.
+This technical preflight now exposes the backup-offer policy but remains
+read-only. It does not create a backup, record a backup selection, request user
+confirmation, or authorize a later write operation. Those remain subsequent
+OTA stages.
 
 ## Preflight
 
@@ -547,6 +561,87 @@ overlay is intentionally discarded by a normal platform update.
 Backup logic consumes the logical storage roles. It must not contain physical
 partition assumptions owned by the installer/storage layer.
 
+### Backup targets
+
+Backup target selection is intentionally separate from persistence-role
+resolution.
+
+All backup archives are stored below `Fre3nderBackup/` at the root of
+the selected storage.
+
+A `HOME` backup has exactly one valid destination:
+
+    /run/fre3nder/usb/Fre3nderBackup/
+
+It is offered only when runtime USB exposes a backup-capable writable
+filesystem.
+
+A `SYS` backup may use either runtime USB or the preserved `HOME` role:
+
+    /run/fre3nder/usb/Fre3nderBackup/
+    /home/Fre3nderBackup/
+
+No arbitrary backup target path is part of the OTA API.
+
+Early boot provisioning and runtime USB are deliberately separate. Provisioning
+continues to inspect VFAT media read-only and unmounts it again. The late
+runtime USB layer mounts supported removable storage at `/run/fre3nder/usb`.
+
+The runtime USB implementation recognizes `vfat`, `exfat`, `ext4`, and
+`ntfs3`. VFAT remains useful for provisioning and normal runtime files, but it
+is intentionally not offered as an OTA backup target because a single FAT32
+file cannot exceed 4 GiB. USB backups therefore require `exfat`, `ext4`, or
+`ntfs3`.
+
+The kernel configuration enables these runtime filesystems, and the selection
+logic is covered by offline fixtures. exFAT/ext4/NTFS3 runtime USB support is
+not claimed as hardware-qualified until it has been built and exercised on the
+reference X2000 system.
+
+The OTA core consumes only the logical runtime USB mount and does not scan,
+mount, or select physical `/dev/sdX` devices itself. Physical-device handling
+belongs to the runtime USB layer.
+
+Backup execution reads only from the already active Fre3nder runtime mounts.
+It does not mount or read the resolved persistence block devices directly.
+
+The backup sources are:
+
+    HOME -> /home
+    SYS  -> /run/fre3nder-root/system/upper
+
+For `SYS`, only the active OverlayFS `upper/` tree is backup content.
+`work/` and OTA reset markers are runtime implementation state and are not
+included.
+
+The initial `SYS` archive is intended to preserve previous system
+customizations for inspection and manual recovery. It is not specified as a
+complete automatically restorable OverlayFS snapshot.
+
+The initial backup archive format is uncompressed POSIX tar. Backup execution
+must not cross into other mounted filesystems below a backup source. Symlinks
+are archived as symlinks rather than followed.
+
+The backup archive format and execution details are owned by the backup
+operation itself. Backup-offer and backup-selection state must not imply that a
+backup has already been created.
+
+### Backup selection and execution
+
+After `BACKUP_OFFER`, the user must explicitly select or decline each offered
+backup.
+
+For a normal Fre3nder update:
+
+    HOME backup -> selected to runtime USB, or declined
+    SYS backup  -> selected to runtime USB or HOME, or declined
+
+A later platform write may proceed only after every offered backup has an
+explicit selection and every selected backup has completed successfully.
+
+Declining an optional backup is a valid explicit selection. It does not weaken
+the normal contract that `HOME` itself is preserved across a Fre3nder update.
+
 ## Fre3nder-to-Fre3nder OTA
 
 A normal Fre3nder platform update follows this logical sequence:
@@ -563,6 +658,10 @@ RESOLVE_SYS_HOME
 PREFLIGHT
     |
 BACKUP_OFFER
+    |
+BACKUP_SELECTION
+    |
+BACKUP_EXECUTION
     |
 CONFIRM
     |

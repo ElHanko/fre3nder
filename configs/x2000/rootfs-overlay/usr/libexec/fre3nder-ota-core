@@ -12,6 +12,7 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import time
 
 
 EXPECTED_MEMBERS = (
@@ -44,6 +45,10 @@ MOUNTS = pathlib.Path("/proc/mounts")
 BLKID = pathlib.Path("/sbin/blkid")
 SYS_MOUNT = "/run/fre3nder-root/system"
 HOME_MOUNT = "/home"
+USB_MOUNT = "/run/fre3nder/usb"
+USB_STATUS = pathlib.Path("/run/fre3nder/usb-runtime/status")
+HOME_BACKUP_DIRECTORY = "/home/Fre3nderBackup"
+USB_BACKUP_DIRECTORY = "/run/fre3nder/usb/Fre3nderBackup"
 
 SLOTS = {
     "A": {
@@ -357,6 +362,125 @@ def parse_mounts(text):
     return entries
 
 
+def runtime_usb_state(status, mounts):
+    if status != "mounted":
+        return {
+            "available": False,
+            "status": status,
+            "mount": None,
+        }
+
+    matches = []
+    for line in mounts.splitlines():
+        fields = line.split()
+        if len(fields) < 4:
+            continue
+
+        mounted_source = decode_mount_field(fields[0])
+        mounted_at = decode_mount_field(fields[1])
+        fs_type = fields[2]
+        options = fields[3].split(",")
+
+        if mounted_at == USB_MOUNT:
+            matches.append(
+                (mounted_source, fs_type, options)
+            )
+
+    if len(matches) != 1:
+        return {
+            "available": False,
+            "status": "mount-mismatch",
+            "mount": None,
+        }
+
+    source, fs_type, options = matches[0]
+
+    supported_filesystems = {
+        "vfat",
+        "exfat",
+        "ext4",
+        "ntfs3",
+    }
+
+    if fs_type not in supported_filesystems:
+        return {
+            "available": False,
+            "status": "unsupported-filesystem",
+            "mount": None,
+        }
+
+    if "rw" not in options:
+        return {
+            "available": False,
+            "status": "not-writable",
+            "mount": None,
+        }
+
+    return {
+        "available": True,
+        "status": "mounted",
+        "mount": USB_MOUNT,
+        "source": source,
+        "filesystem": fs_type,
+        "backup_available": fs_type != "vfat",
+    }
+
+
+def read_runtime_usb_state(
+    usb_status_path=USB_STATUS,
+    mounts_path=MOUNTS,
+):
+    try:
+        status = pathlib.Path(usb_status_path).read_text().strip()
+    except OSError:
+        status = "absent"
+
+    try:
+        mounts = pathlib.Path(mounts_path).read_text()
+    except OSError as exc:
+        raise ValueError("cannot read mount table") from exc
+
+    return runtime_usb_state(status, mounts)
+
+
+def build_backup_offer(usb):
+    usb_available = usb.get("backup_available", False)
+
+    return {
+        "selection_required": True,
+        "home": {
+            "role": "HOME",
+            "offered": usb_available,
+            "required": False,
+            "targets": ["usb"] if usb_available else [],
+        },
+        "sys": {
+            "role": "SYS",
+            "offered": True,
+            "required": False,
+            "targets": (
+                ["usb", "home"]
+                if usb_available
+                else ["home"]
+            ),
+        },
+        "targets": {
+            "home": {
+                "available": True,
+                "path": HOME_BACKUP_DIRECTORY,
+            },
+            "usb": {
+                "available": usb_available,
+                "path": (
+                    USB_BACKUP_DIRECTORY
+                    if usb_available
+                    else None
+                ),
+            },
+        },
+    }
+
+
 def require_role_mount(entries, mountpoint, source, role):
     matches = [
         (mounted_source, fs_type)
@@ -435,6 +559,7 @@ def preflight_package(
     cmdline_path=CMDLINE,
     mounts_path=MOUNTS,
     blkid_command=BLKID,
+    usb_status_path=USB_STATUS,
 ):
     manifest = verify_package(package, public_key)
 
@@ -458,6 +583,13 @@ def preflight_package(
         raise ValueError("cannot read mount table") from exc
 
     try:
+        usb_status = pathlib.Path(usb_status_path).read_text().strip()
+    except OSError:
+        usb_status = "absent"
+
+    usb = runtime_usb_state(usb_status, mounts)
+
+    try:
         result = subprocess.run(
             [str(blkid_command)],
             stdin=subprocess.DEVNULL,
@@ -471,7 +603,7 @@ def preflight_package(
     if result.returncode != 0:
         raise ValueError("cannot resolve Fre3nder persistence backends")
 
-    return build_preflight(
+    plan = build_preflight(
         manifest,
         installed_version,
         root_status,
@@ -479,6 +611,8 @@ def preflight_package(
         result.stdout,
         mounts,
     )
+    plan["usb"] = usb
+    return plan
 
 
 
@@ -538,7 +672,419 @@ def preflight_response(package, **kwargs):
                 "action": "preserve",
             },
         },
+        "runtime_usb": plan["usb"],
+        "backup_offer": build_backup_offer(plan["usb"]),
     }
+
+
+def require_directory(path, description):
+    path = pathlib.Path(path)
+
+    try:
+        metadata = path.lstat()
+    except FileNotFoundError as exc:
+        raise ValueError(f"{description} is missing: {path}") from exc
+
+    if path.is_symlink() or not stat.S_ISDIR(metadata.st_mode):
+        raise ValueError(
+            f"{description} must be a directory, not a symlink: {path}"
+        )
+
+    return metadata
+
+
+def add_backup_tree(
+    archive,
+    source,
+    arcname,
+    root_device,
+    excluded_paths=(),
+):
+    if source in excluded_paths:
+        return
+
+    metadata = source.lstat()
+
+    if metadata.st_dev != root_device:
+        return
+
+    info = archive.gettarinfo(str(source), arcname=arcname)
+
+    if info is None:
+        return
+
+    if info.isfile():
+        with source.open("rb") as stream:
+            archive.addfile(info, stream)
+        return
+
+    archive.addfile(info)
+
+    if not info.isdir():
+        return
+
+    try:
+        children = sorted(source.iterdir(), key=lambda child: child.name)
+    except OSError as exc:
+        raise ValueError(f"cannot read backup source: {source}") from exc
+
+    for child in children:
+        try:
+            child_metadata = child.lstat()
+        except OSError as exc:
+            raise ValueError(f"cannot inspect backup source: {child}") from exc
+
+        if child_metadata.st_dev != root_device:
+            continue
+
+        add_backup_tree(
+            archive,
+            child,
+            f"{arcname}/{child.name}",
+            root_device,
+            excluded_paths,
+        )
+
+
+def create_backup_archive(
+    source,
+    target_directory,
+    role,
+    version,
+    excluded_paths=(),
+):
+    source = pathlib.Path(source)
+    target_directory = pathlib.Path(target_directory)
+    excluded_paths = tuple(
+        pathlib.Path(item)
+        for item in excluded_paths
+    )
+
+    source_metadata = require_directory(
+        source,
+        f"{role} backup source",
+    )
+    require_directory(
+        target_directory,
+        f"{role} backup target",
+    )
+
+    safe_version = re.sub(r"[^A-Za-z0-9._-]+", "_", version)
+    if not safe_version:
+        raise ValueError("installed version is invalid for backup filename")
+
+    stamp = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
+    filename = f"fre3nder-{role.lower()}-{safe_version}-{stamp}.tar"
+    archive_path = target_directory / filename
+
+    if archive_path.exists() or archive_path.is_symlink():
+        raise ValueError(f"backup archive already exists: {archive_path}")
+
+    temporary = tempfile.NamedTemporaryFile(
+        mode="w+b",
+        prefix=f".{filename}.",
+        suffix=".tmp",
+        dir=target_directory,
+        delete=False,
+    )
+    temporary_path = pathlib.Path(temporary.name)
+
+    try:
+        with temporary:
+            with tarfile.open(
+                fileobj=temporary,
+                mode="w",
+                format=tarfile.PAX_FORMAT,
+            ) as archive:
+                add_backup_tree(
+                    archive,
+                    source,
+                    role.lower(),
+                    source_metadata.st_dev,
+                    excluded_paths,
+                )
+
+            temporary.flush()
+            os.fsync(temporary.fileno())
+
+        if archive_path.exists() or archive_path.is_symlink():
+            raise ValueError(
+                f"backup archive already exists: {archive_path}"
+            )
+
+        temporary_path.rename(archive_path)
+
+    except Exception:
+        try:
+            temporary_path.unlink()
+        except OSError:
+            pass
+        raise
+
+    try:
+        with archive_path.open("rb") as stream:
+            digest, size = sha256_stream(stream)
+    except OSError as exc:
+        raise ValueError(
+            f"cannot verify created backup archive: {archive_path}"
+        ) from exc
+
+    return {
+        "archive": str(archive_path),
+        "size": size,
+        "sha256": digest,
+    }
+
+
+def ensure_backup_directory(path):
+    path = pathlib.Path(path)
+
+    if path.exists() or path.is_symlink():
+        require_directory(path, "backup directory")
+        return path
+
+    try:
+        path.mkdir(mode=0o700)
+    except OSError as exc:
+        raise ValueError(
+            f"cannot create backup directory: {path}"
+        ) from exc
+
+    return path
+
+
+def parse_backup_plan_args(arguments, backup_offer):
+    home = None
+    sys_backup = None
+    index = 0
+
+    while index < len(arguments):
+        argument = arguments[index]
+
+        if argument == "--home":
+            if home is not None:
+                raise ValueError("HOME backup selection specified more than once")
+            home = {
+                "selected": True,
+                "target": "usb",
+            }
+            index += 1
+            continue
+
+        if argument == "--no-home":
+            if home is not None:
+                raise ValueError("HOME backup selection specified more than once")
+            home = {
+                "selected": False,
+                "target": None,
+            }
+            index += 1
+            continue
+
+        if argument == "--sys":
+            if sys_backup is not None:
+                raise ValueError("SYS backup selection specified more than once")
+            if index + 1 >= len(arguments):
+                raise ValueError("--sys requires target usb or home")
+
+            target = arguments[index + 1]
+            if target not in ("usb", "home"):
+                raise ValueError("SYS backup target must be usb or home")
+
+            sys_backup = {
+                "selected": True,
+                "target": target,
+            }
+            index += 2
+            continue
+
+        if argument == "--no-sys":
+            if sys_backup is not None:
+                raise ValueError("SYS backup selection specified more than once")
+            sys_backup = {
+                "selected": False,
+                "target": None,
+            }
+            index += 1
+            continue
+
+        raise ValueError(f"unsupported backup selection argument: {argument}")
+
+    if home is None:
+        raise ValueError("HOME backup must be explicitly selected or declined")
+
+    if sys_backup is None:
+        raise ValueError("SYS backup must be explicitly selected or declined")
+
+    if home["selected"]:
+        home_offer = backup_offer["home"]
+        if (
+            home_offer["offered"] is not True
+            or "usb" not in home_offer["targets"]
+        ):
+            raise ValueError(
+                "HOME backup requires a backup-capable runtime USB volume"
+            )
+
+    if sys_backup["selected"]:
+        if sys_backup["target"] not in backup_offer["sys"]["targets"]:
+            raise ValueError(
+                f"SYS backup target {sys_backup['target']} is not available"
+            )
+
+    return {
+        "home": home,
+        "sys": sys_backup,
+    }
+
+def backup_response(
+    package,
+    arguments,
+    home_source=pathlib.Path(HOME_MOUNT),
+    sys_source=pathlib.Path(SYS_MOUNT) / "upper",
+    home_backup_directory=pathlib.Path(HOME_BACKUP_DIRECTORY),
+    usb_backup_directory=pathlib.Path(USB_BACKUP_DIRECTORY),
+    **kwargs,
+):
+    response = preflight_response(package, **kwargs)
+    offer = response["backup_offer"]
+
+    selection = parse_backup_plan_args(
+        arguments,
+        offer,
+    )
+
+    installed_version = response["runtime"]["installed_version"]
+
+    usb_selected = (
+        selection["home"]["selected"]
+        or (
+            selection["sys"]["selected"]
+            and selection["sys"]["target"] == "usb"
+        )
+    )
+
+    if usb_selected:
+        current_usb = read_runtime_usb_state(
+            kwargs.get("usb_status_path", USB_STATUS),
+            kwargs.get("mounts_path", MOUNTS),
+        )
+        initial_usb = response["runtime_usb"]
+
+        if current_usb.get("backup_available") is not True:
+            raise ValueError(
+                "backup-capable runtime USB volume is no longer available"
+            )
+
+        if (
+            current_usb.get("source") != initial_usb.get("source")
+            or current_usb.get("filesystem")
+            != initial_usb.get("filesystem")
+        ):
+            raise ValueError(
+                "runtime USB volume changed after preflight"
+            )
+
+    home_source = pathlib.Path(home_source)
+    sys_source = pathlib.Path(sys_source)
+    home_backup_directory = pathlib.Path(home_backup_directory)
+    usb_backup_directory = pathlib.Path(usb_backup_directory)
+
+    result = {
+        "complete": False,
+        "home": {
+            "selected": selection["home"]["selected"],
+            "target": selection["home"]["target"],
+        },
+        "sys": {
+            "selected": selection["sys"]["selected"],
+            "target": selection["sys"]["target"],
+        },
+    }
+
+    # HOME deliberately runs first. SYS may subsequently write its archive
+    # below HOME, which must not become part of this HOME backup.
+    if selection["home"]["selected"]:
+        if offer["targets"]["usb"]["available"] is not True:
+            raise ValueError(
+                "HOME backup requires a backup-capable runtime USB volume"
+            )
+
+        target = ensure_backup_directory(
+            usb_backup_directory
+        )
+
+        result["home"].update(
+            create_backup_archive(
+                home_source,
+                target,
+                "HOME",
+                installed_version,
+                excluded_paths=(
+                    home_source / "Fre3nderBackup",
+                ),
+            )
+        )
+
+    if selection["sys"]["selected"]:
+        target_name = selection["sys"]["target"]
+
+        if target_name == "usb":
+            if offer["targets"]["usb"]["available"] is not True:
+                raise ValueError(
+                    "SYS USB backup target is not available"
+                )
+            target = ensure_backup_directory(
+                usb_backup_directory
+            )
+
+        elif target_name == "home":
+            target = ensure_backup_directory(
+                home_backup_directory
+            )
+
+        else:
+            raise ValueError(
+                f"unsupported SYS backup target: {target_name}"
+            )
+
+        result["sys"].update(
+            create_backup_archive(
+                sys_source,
+                target,
+                "SYS",
+                installed_version,
+            )
+        )
+
+    result["complete"] = True
+
+    response["operation"] = "backup"
+    response["backup_selection"] = {
+        "complete": True,
+        "home": selection["home"],
+        "sys": selection["sys"],
+    }
+    response["backup_result"] = result
+
+    return response
+
+
+def backup_plan_response(package, arguments, **kwargs):
+    response = preflight_response(package, **kwargs)
+    selection = parse_backup_plan_args(
+        arguments,
+        response["backup_offer"],
+    )
+
+    response["operation"] = "backup-plan"
+    response["backup_selection"] = {
+        "complete": True,
+        "home": selection["home"],
+        "sys": selection["sys"],
+    }
+
+    return response
 
 
 def error_response(operation, message):
@@ -551,12 +1097,19 @@ def error_response(operation, message):
 
 
 def main():
-    if len(sys.argv) != 3 or sys.argv[1] not in ("verify", "preflight"):
+    if len(sys.argv) < 3 or sys.argv[1] not in (
+        "verify",
+        "preflight",
+        "backup-plan",
+        "backup",
+    ):
         print(
             json.dumps(
                 error_response(
                     None,
-                    "usage: fre3nder-ota-core {verify|preflight} <package.ota>",
+                    "usage: fre3nder-ota-core "
+                    "{verify|preflight|backup-plan|backup} "
+                    "<package.ota> [options]",
                 ),
                 sort_keys=True,
             )
@@ -565,12 +1118,29 @@ def main():
 
     operation = sys.argv[1]
     package = sys.argv[2]
+    arguments = sys.argv[3:]
+
+    if operation in ("verify", "preflight") and arguments:
+        print(
+            json.dumps(
+                error_response(
+                    operation,
+                    f"{operation} does not accept additional arguments",
+                ),
+                sort_keys=True,
+            )
+        )
+        return 2
 
     try:
         if operation == "verify":
             response = verify_response(package)
-        else:
+        elif operation == "preflight":
             response = preflight_response(package)
+        elif operation == "backup-plan":
+            response = backup_plan_response(package, arguments)
+        else:
+            response = backup_response(package, arguments)
     except (OSError, ValueError) as exc:
         print(json.dumps(error_response(operation, exc), sort_keys=True))
         return 1

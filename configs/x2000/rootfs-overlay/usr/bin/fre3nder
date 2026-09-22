@@ -23,6 +23,8 @@ APP_ACTIONS = (
 OTA_ACTIONS = (
     "verify",
     "preflight",
+    "backup-plan",
+    "backup",
 )
 
 
@@ -49,6 +51,11 @@ def usage():
         "       fre3nder ota {verify|preflight} <package.ota>",
         file=sys.stderr,
     )
+    print(
+        "       fre3nder ota {backup-plan|backup} <package.ota> "
+        "(--home|--no-home) (--sys <usb|home>|--no-sys)",
+        file=sys.stderr,
+    )
     return 2
 
 
@@ -68,7 +75,7 @@ def run_app_core(action, app):
         raise RuntimeError(f"cannot execute app core: {core}") from exc
 
 
-def run_ota_core(operation, package):
+def run_ota_core(operation, package, arguments=()):
     core = ota_core_path()
 
     try:
@@ -77,6 +84,7 @@ def run_ota_core(operation, package):
                 str(core),
                 operation,
                 package,
+                *arguments,
             ],
             stdin=subprocess.DEVNULL,
             capture_output=True,
@@ -133,6 +141,9 @@ def format_ota_preflight(response):
     persistence = response["persistence"]
     sys_state = persistence["sys"]
     home_state = persistence["home"]
+    backup_offer = response["backup_offer"]
+    home_backup = backup_offer["home"]
+    sys_backup = backup_offer["sys"]
 
     action_text = {
         "reset": "RESET on successful activation",
@@ -150,6 +161,22 @@ def format_ota_preflight(response):
     status = package["status"]
     if status != "valid":
         raise RuntimeError("OTA core returned an unsupported package status")
+
+    if backup_offer["selection_required"] is not True:
+        raise RuntimeError(
+            "OTA core returned an unsupported backup selection policy"
+        )
+
+    if (
+        home_backup["role"] != "HOME"
+        or home_backup["required"] is not False
+        or sys_backup["role"] != "SYS"
+        or sys_backup["offered"] is not True
+        or sys_backup["required"] is not False
+    ):
+        raise RuntimeError(
+            "OTA core returned an unsupported backup offer"
+        )
 
     return "\n".join(
         (
@@ -174,6 +201,19 @@ def format_ota_preflight(response):
             f"SYS action:      {sys_action}",
             f"HOME action:     {home_action}",
             "",
+            "Backup offer:",
+            (
+                "  HOME:            OFFERED -> USB"
+                if home_backup["offered"]
+                else "  HOME:            UNAVAILABLE (no backup-capable USB)"
+            ),
+            (
+                "  SYS:             OFFERED -> USB or HOME"
+                if "usb" in sys_backup["targets"]
+                else "  SYS:             OFFERED -> HOME"
+            ),
+            "  Selection:       REQUIRED before write",
+            "",
             "Write plan:",
             f"  kernel.uImage   -> {target['kernel']}",
             f"  rootfs.squashfs -> {target['rootfs']}",
@@ -184,14 +224,125 @@ def format_ota_preflight(response):
     )
 
 
-def run_ota(operation, package):
+def format_ota_backup_plan(response):
+    selection = response["backup_selection"]
+    home = selection["home"]
+    sys_backup = selection["sys"]
+
+    if selection["complete"] is not True:
+        raise RuntimeError(
+            "OTA core returned incomplete backup selection"
+        )
+
+    return "\n".join(
+        (
+            "Fre3nder OTA backup plan",
+            "",
+            (
+                f"HOME backup:     {home['target'].upper()}"
+                if home["selected"]
+                else "HOME backup:     DECLINED"
+            ),
+            (
+                f"SYS backup:      {sys_backup['target'].upper()}"
+                if sys_backup["selected"]
+                else "SYS backup:      DECLINED"
+            ),
+            "",
+            "BACKUP PLAN: COMPLETE",
+            "No backup has been created.",
+        )
+    )
+
+
+def format_ota_backup(response):
+    selection = response["backup_selection"]
+    result = response["backup_result"]
+
+    if (
+        selection["complete"] is not True
+        or result["complete"] is not True
+    ):
+        raise RuntimeError(
+            "OTA core returned incomplete backup result"
+        )
+
+    lines = [
+        "Fre3nder OTA backup",
+        "",
+    ]
+
+    for role, label in (
+        ("home", "HOME"),
+        ("sys", "SYS"),
+    ):
+        selected = selection[role]
+        created = result[role]
+
+        if (
+            created["selected"] != selected["selected"]
+            or created["target"] != selected["target"]
+        ):
+            raise RuntimeError(
+                "OTA core returned inconsistent backup result"
+            )
+
+        if not selected["selected"]:
+            lines.append(f"{label} backup:     DECLINED")
+            continue
+
+        archive = created["archive"]
+        size = created["size"]
+        digest = created["sha256"]
+
+        if (
+            not isinstance(archive, str)
+            or not archive
+            or not isinstance(size, int)
+            or size < 0
+            or not isinstance(digest, str)
+            or len(digest) != 64
+        ):
+            raise RuntimeError(
+                "OTA core returned invalid backup archive metadata"
+            )
+
+        lines.extend(
+            (
+                f"{label + ' backup:':<17}{selected['target'].upper()}",
+                f"{label} archive:    {archive}",
+                f"{label} size:       {size} bytes",
+                f"{label} SHA256:     {digest}",
+            )
+        )
+
+    lines.extend(
+        (
+            "",
+            "BACKUP: COMPLETE",
+            "OTA target slots have not been modified.",
+        )
+    )
+
+    return "\n".join(lines)
+
+
+def run_ota(operation, package, arguments=()):
     try:
-        response = run_ota_core(operation, package)
+        response = run_ota_core(operation, package, arguments)
 
         if operation == "verify":
             output = format_ota_verify(response)
-        else:
+        elif operation == "preflight":
             output = format_ota_preflight(response)
+        elif operation == "backup-plan":
+            output = format_ota_backup_plan(response)
+        elif operation == "backup":
+            output = format_ota_backup(response)
+        else:
+            raise RuntimeError(
+                f"unsupported OTA operation: {operation}"
+            )
     except (KeyError, TypeError, AttributeError) as exc:
         exc = RuntimeError("OTA core returned an invalid response")
         if operation == "preflight":
@@ -233,10 +384,28 @@ def main():
         raise RuntimeError("app core unexpectedly returned")
 
     if namespace == "ota":
-        if len(sys.argv) != 4 or sys.argv[2] not in OTA_ACTIONS:
+        if len(sys.argv) < 4:
             return usage()
 
-        return run_ota(sys.argv[2], sys.argv[3])
+        operation = sys.argv[2]
+
+        if operation not in OTA_ACTIONS:
+            return usage()
+
+        if operation in ("verify", "preflight"):
+            if len(sys.argv) != 4:
+                return usage()
+
+            return run_ota(
+                operation,
+                sys.argv[3],
+            )
+
+        return run_ota(
+            operation,
+            sys.argv[3],
+            tuple(sys.argv[4:]),
+        )
 
     return usage()
 

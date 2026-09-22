@@ -34,12 +34,18 @@ def run(*args, **kwargs):
     return subprocess.run(args, check=True, **kwargs)
 
 
-def run_cli(core, operation, package):
+def run_cli(core, operation, package, *arguments):
     environment = os.environ.copy()
     environment["FRE3NDER_OTA_CORE"] = str(core)
 
     return subprocess.run(
-        [str(CLI), "ota", operation, str(package)],
+        [
+            str(CLI),
+            "ota",
+            operation,
+            str(package),
+            *arguments,
+        ],
         env=environment,
         capture_output=True,
         text=True,
@@ -64,6 +70,7 @@ import sys
 
 operation = sys.argv[1]
 package = sys.argv[2]
+arguments = sys.argv[3:]
 
 if package.endswith("fail.ota"):
     print(json.dumps({
@@ -121,6 +128,99 @@ elif operation == "preflight":
                 "action": "preserve",
             },
         },
+        "runtime_usb": {
+            "available": False,
+            "status": "absent",
+            "mount": None,
+        },
+        "backup_offer": {
+            "selection_required": True,
+            "home": {
+                "role": "HOME",
+                "offered": False,
+                "required": False,
+                "targets": [],
+            },
+            "sys": {
+                "role": "SYS",
+                "offered": True,
+                "required": False,
+                "targets": ["home"],
+            },
+            "targets": {
+                "home": {
+                    "available": True,
+                    "path": "/home/Fre3nderBackup",
+                },
+                "usb": {
+                    "available": False,
+                    "path": None,
+                },
+            },
+        },
+    }
+elif operation == "backup-plan":
+    if arguments != ["--no-home", "--sys", "home"]:
+        raise SystemExit(2)
+
+    response = {
+        "api_version": 1,
+        "ok": True,
+        "operation": "backup-plan",
+        "backup_selection": {
+            "complete": True,
+            "home": {
+                "selected": False,
+                "target": None,
+            },
+            "sys": {
+                "selected": True,
+                "target": "home",
+            },
+        },
+    }
+elif operation == "backup":
+    if arguments != ["--home", "--sys", "usb"]:
+        raise SystemExit(2)
+
+    response = {
+        "api_version": 1,
+        "ok": True,
+        "operation": "backup",
+        "backup_selection": {
+            "complete": True,
+            "home": {
+                "selected": True,
+                "target": "usb",
+            },
+            "sys": {
+                "selected": True,
+                "target": "usb",
+            },
+        },
+        "backup_result": {
+            "complete": True,
+            "home": {
+                "selected": True,
+                "target": "usb",
+                "archive": (
+                    "/run/fre3nder/usb/Fre3nderBackup/"
+                    "fre3nder-home-fixture.tar"
+                ),
+                "size": 123,
+                "sha256": "a" * 64,
+            },
+            "sys": {
+                "selected": True,
+                "target": "usb",
+                "archive": (
+                    "/run/fre3nder/usb/Fre3nderBackup/"
+                    "fre3nder-sys-fixture.tar"
+                ),
+                "size": 456,
+                "sha256": "b" * 64,
+            },
+        },
     }
 else:
     raise SystemExit(2)
@@ -129,6 +229,568 @@ print(json.dumps(response))
 """
     )
     path.chmod(0o755)
+
+
+def test_backup_archive_primitive():
+    with tempfile.TemporaryDirectory() as temporary:
+        temporary = Path(temporary)
+
+        source = temporary / "source"
+        target = temporary / "target"
+        source.mkdir()
+        target.mkdir()
+
+        (source / "etc").mkdir()
+        (source / "etc" / "printer.conf").write_text("fixture\n")
+        (source / "data").mkdir()
+        (source / "data" / "value.txt").write_text("value\n")
+        (source / "link").symlink_to("etc/printer.conf")
+
+        excluded = source / "Fre3nderBackup"
+        excluded.mkdir()
+        (excluded / "old-backup.tar").write_text(
+            "must not be archived\n"
+        )
+
+        result = module.create_backup_archive(
+            source,
+            target,
+            "SYS",
+            "2026.4.fixture",
+            excluded_paths=(excluded,),
+        )
+
+        archive_path = Path(result["archive"])
+        assert archive_path.is_file()
+        assert result["size"] == archive_path.stat().st_size
+
+        with archive_path.open("rb") as stream:
+            digest, size = module.sha256_stream(stream)
+
+        assert digest == result["sha256"]
+        assert size == result["size"]
+
+        with tarfile.open(archive_path, mode="r:") as archive:
+            names = set(archive.getnames())
+
+            assert names == {
+                "sys",
+                "sys/etc",
+                "sys/etc/printer.conf",
+                "sys/data",
+                "sys/data/value.txt",
+                "sys/link",
+            }
+
+            link = archive.getmember("sys/link")
+            assert link.issym()
+            assert link.linkname == "etc/printer.conf"
+
+            content = archive.extractfile(
+                archive.getmember("sys/etc/printer.conf")
+            )
+            assert content is not None
+            assert content.read() == b"fixture\n"
+
+        assert not list(target.glob(".*.tmp"))
+
+
+def test_backup_execution():
+    with tempfile.TemporaryDirectory() as temporary:
+        temporary = Path(temporary)
+
+        private_key, public_key = generate_keys(temporary)
+
+        package = temporary / "backup.ota"
+        make_package(
+            package,
+            private_key,
+            public_key,
+        )
+
+        home_source = temporary / "home"
+        sys_source = temporary / "sys-upper"
+        usb_root = temporary / "usb"
+
+        home_source.mkdir()
+        sys_source.mkdir()
+        usb_root.mkdir()
+
+        (home_source / "printer_data").mkdir()
+        (
+            home_source
+            / "printer_data"
+            / "fixture.cfg"
+        ).write_text("home fixture\n")
+
+        home_backup_directory = (
+            home_source / "Fre3nderBackup"
+        )
+        home_backup_directory.mkdir()
+        (
+            home_backup_directory / "old.tar"
+        ).write_text(
+            "old backup must not enter HOME archive\n"
+        )
+
+        (sys_source / "etc").mkdir()
+        (
+            sys_source
+            / "etc"
+            / "fixture.conf"
+        ).write_text("sys fixture\n")
+
+        usb_backup_directory = (
+            usb_root / "Fre3nderBackup"
+        )
+
+        # USB available: HOME and SYS both go to USB.
+        runtime = make_runtime(
+            temporary / "runtime-backup-usb"
+        )
+
+        usb_status = (
+            temporary
+            / "runtime-backup-usb"
+            / "usb-status"
+        )
+        usb_status.write_text("mounted\n")
+        runtime["usb_status_path"] = usb_status
+
+        mounts = runtime["mounts_path"]
+        mounts.write_text(
+            mounts.read_text()
+            + "/dev/fixture-usb /run/fre3nder/usb "
+            "exfat rw,nosuid,nodev,noexec 0 0\n"
+        )
+
+        response = module.backup_response(
+            package,
+            ["--home", "--sys", "usb"],
+            home_source=home_source,
+            sys_source=sys_source,
+            home_backup_directory=home_backup_directory,
+            usb_backup_directory=usb_backup_directory,
+            public_key=public_key,
+            **runtime,
+        )
+
+        assert response["operation"] == "backup"
+
+        result = response["backup_result"]
+
+        assert result["complete"] is True
+        assert result["home"]["selected"] is True
+        assert result["home"]["target"] == "usb"
+        assert result["sys"]["selected"] is True
+        assert result["sys"]["target"] == "usb"
+
+        home_archive = Path(
+            result["home"]["archive"]
+        )
+        sys_archive = Path(
+            result["sys"]["archive"]
+        )
+
+        assert (
+            home_archive.parent
+            == usb_backup_directory
+        )
+        assert (
+            sys_archive.parent
+            == usb_backup_directory
+        )
+
+        assert home_archive.is_file()
+        assert sys_archive.is_file()
+
+        with tarfile.open(
+            home_archive,
+            mode="r:",
+        ) as archive:
+            names = set(archive.getnames())
+
+            assert (
+                "home/printer_data/fixture.cfg"
+                in names
+            )
+
+            assert not any(
+                name == "home/Fre3nderBackup"
+                or name.startswith(
+                    "home/Fre3nderBackup/"
+                )
+                for name in names
+            )
+
+        with tarfile.open(
+            sys_archive,
+            mode="r:",
+        ) as archive:
+            assert (
+                "sys/etc/fixture.conf"
+                in archive.getnames()
+            )
+
+        assert not list(
+            usb_backup_directory.glob(".*.tmp")
+        )
+
+        # No USB: HOME is declined and SYS may go to HOME.
+        runtime = make_runtime(
+            temporary / "runtime-backup-home"
+        )
+
+        response = module.backup_response(
+            package,
+            ["--no-home", "--sys", "home"],
+            home_source=home_source,
+            sys_source=sys_source,
+            home_backup_directory=home_backup_directory,
+            usb_backup_directory=usb_backup_directory,
+            public_key=public_key,
+            **runtime,
+        )
+
+        result = response["backup_result"]
+
+        assert result["complete"] is True
+
+        assert result["home"] == {
+            "selected": False,
+            "target": None,
+        }
+
+        assert result["sys"]["selected"] is True
+        assert result["sys"]["target"] == "home"
+
+        sys_home_archive = Path(
+            result["sys"]["archive"]
+        )
+
+        assert (
+            sys_home_archive.parent
+            == home_backup_directory
+        )
+        assert sys_home_archive.is_file()
+
+        with tarfile.open(
+            sys_home_archive,
+            mode="r:",
+        ) as archive:
+            assert (
+                "sys/etc/fixture.conf"
+                in archive.getnames()
+            )
+
+        assert not list(
+            home_backup_directory.glob(".*.tmp")
+        )
+
+
+        # A selected USB backup must be revalidated immediately before
+        # writing. If the runtime USB disappeared after preflight, no target
+        # directory or archive may be created.
+        runtime = make_runtime(
+            temporary / "runtime-backup-disappeared"
+        )
+
+        usb_status = (
+            temporary
+            / "runtime-backup-disappeared"
+            / "usb-status"
+        )
+        usb_status.write_text("mounted\n")
+        runtime["usb_status_path"] = usb_status
+
+        mounts = runtime["mounts_path"]
+        mounts.write_text(
+            mounts.read_text()
+            + "/dev/fixture-usb /run/fre3nder/usb "
+            "exfat rw,nosuid,nodev,noexec 0 0\n"
+        )
+
+        vanished_target = (
+            temporary
+            / "vanished-usb"
+            / "Fre3nderBackup"
+        )
+
+        original_read_runtime_usb_state = (
+            module.read_runtime_usb_state
+        )
+
+        module.read_runtime_usb_state = (
+            lambda *args, **kwargs: {
+                "available": False,
+                "status": "absent",
+                "mount": None,
+            }
+        )
+
+        try:
+            try:
+                module.backup_response(
+                    package,
+                    ["--home", "--no-sys"],
+                    home_source=home_source,
+                    sys_source=sys_source,
+                    home_backup_directory=home_backup_directory,
+                    usb_backup_directory=vanished_target,
+                    public_key=public_key,
+                    **runtime,
+                )
+            except ValueError as exc:
+                assert (
+                    "backup-capable runtime USB volume "
+                    "is no longer available"
+                    in str(exc)
+                )
+            else:
+                raise AssertionError(
+                    "backup unexpectedly continued after USB disappeared"
+                )
+        finally:
+            module.read_runtime_usb_state = (
+                original_read_runtime_usb_state
+            )
+
+        assert not vanished_target.exists()
+
+
+
+def test_runtime_usb_backup_offer():
+    absent = module.runtime_usb_state("absent", "")
+    assert absent == {
+        "available": False,
+        "status": "absent",
+        "mount": None,
+    }
+
+    absent_offer = module.build_backup_offer(absent)
+    assert absent_offer == {
+        "selection_required": True,
+        "home": {
+            "role": "HOME",
+            "offered": False,
+            "required": False,
+            "targets": [],
+        },
+        "sys": {
+            "role": "SYS",
+            "offered": True,
+            "required": False,
+            "targets": ["home"],
+        },
+        "targets": {
+            "home": {
+                "available": True,
+                "path": "/home/Fre3nderBackup",
+            },
+            "usb": {
+                "available": False,
+                "path": None,
+            },
+        },
+    }
+
+    mounts = (
+        "/dev/sdz1 /run/fre3nder/usb "
+        "exfat rw,nosuid,nodev,noexec 0 0\n"
+    )
+    mounted = module.runtime_usb_state("mounted", mounts)
+
+    assert mounted == {
+        "available": True,
+        "status": "mounted",
+        "mount": "/run/fre3nder/usb",
+        "source": "/dev/sdz1",
+        "filesystem": "exfat",
+        "backup_available": True,
+    }
+
+    mounted_offer = module.build_backup_offer(mounted)
+    assert mounted_offer == {
+        "selection_required": True,
+        "home": {
+            "role": "HOME",
+            "offered": True,
+            "required": False,
+            "targets": ["usb"],
+        },
+        "sys": {
+            "role": "SYS",
+            "offered": True,
+            "required": False,
+            "targets": ["usb", "home"],
+        },
+        "targets": {
+            "home": {
+                "available": True,
+                "path": "/home/Fre3nderBackup",
+            },
+            "usb": {
+                "available": True,
+                "path": "/run/fre3nder/usb/Fre3nderBackup",
+            },
+        },
+    }
+
+    vfat_mounts = (
+        "/dev/sdz1 /run/fre3nder/usb "
+        "vfat rw,nosuid,nodev,noexec 0 0\n"
+    )
+    vfat = module.runtime_usb_state(
+        "mounted",
+        vfat_mounts,
+    )
+    assert vfat == {
+        "available": True,
+        "status": "mounted",
+        "mount": "/run/fre3nder/usb",
+        "source": "/dev/sdz1",
+        "filesystem": "vfat",
+        "backup_available": False,
+    }
+
+    vfat_offer = module.build_backup_offer(vfat)
+    assert vfat_offer["home"]["offered"] is False
+    assert vfat_offer["home"]["targets"] == []
+    assert vfat_offer["sys"]["targets"] == ["home"]
+    assert vfat_offer["targets"]["usb"]["available"] is False
+
+    readonly_mounts = (
+        "/dev/sdz1 /run/fre3nder/usb "
+        "vfat ro,nosuid,nodev,noexec 0 0\n"
+    )
+    readonly = module.runtime_usb_state(
+        "mounted",
+        readonly_mounts,
+    )
+    assert readonly == {
+        "available": False,
+        "status": "not-writable",
+        "mount": None,
+    }
+
+
+def test_backup_plan_arguments():
+    no_usb_offer = module.build_backup_offer(
+        module.runtime_usb_state("absent", "")
+    )
+
+    usb_mounts = (
+        "/dev/sdz1 /run/fre3nder/usb "
+        "exfat rw,nosuid,nodev,noexec 0 0\\n"
+    )
+    usb_offer = module.build_backup_offer(
+        module.runtime_usb_state("mounted", usb_mounts)
+    )
+
+    selection = module.parse_backup_plan_args(
+        ["--no-home", "--sys", "home"],
+        no_usb_offer,
+    )
+    assert selection == {
+        "home": {
+            "selected": False,
+            "target": None,
+        },
+        "sys": {
+            "selected": True,
+            "target": "home",
+        },
+    }
+
+    selection = module.parse_backup_plan_args(
+        ["--home", "--sys", "usb"],
+        usb_offer,
+    )
+    assert selection == {
+        "home": {
+            "selected": True,
+            "target": "usb",
+        },
+        "sys": {
+            "selected": True,
+            "target": "usb",
+        },
+    }
+
+    selection = module.parse_backup_plan_args(
+        ["--home", "--sys", "home"],
+        usb_offer,
+    )
+    assert selection["home"]["target"] == "usb"
+    assert selection["sys"]["target"] == "home"
+
+    selection = module.parse_backup_plan_args(
+        ["--no-home", "--no-sys"],
+        no_usb_offer,
+    )
+    assert selection == {
+        "home": {
+            "selected": False,
+            "target": None,
+        },
+        "sys": {
+            "selected": False,
+            "target": None,
+        },
+    }
+
+    invalid = (
+        (
+            ["--home", "--no-sys"],
+            no_usb_offer,
+            "backup-capable runtime USB",
+        ),
+        (
+            ["--no-home", "--sys", "usb"],
+            no_usb_offer,
+            "not available",
+        ),
+        (
+            ["--no-home", "--sys", "other"],
+            usb_offer,
+            "must be usb or home",
+        ),
+        (
+            ["--no-home"],
+            usb_offer,
+            "SYS backup must be explicitly",
+        ),
+        (
+            ["--no-sys"],
+            usb_offer,
+            "HOME backup must be explicitly",
+        ),
+        (
+            ["--home", "--no-home", "--no-sys"],
+            usb_offer,
+            "HOME backup selection specified more than once",
+        ),
+        (
+            ["--no-home", "--sys", "home", "--no-sys"],
+            usb_offer,
+            "SYS backup selection specified more than once",
+        ),
+        (
+            ["--home-target", "/tmp/backup", "--no-sys"],
+            usb_offer,
+            "unsupported backup selection argument",
+        ),
+    )
+
+    for arguments, offer, expected in invalid:
+        try:
+            module.parse_backup_plan_args(arguments, offer)
+        except ValueError as exc:
+            assert expected in str(exc)
+        else:
+            raise AssertionError(
+                f"invalid backup selection accepted: {arguments}"
+            )
 
 
 def generate_keys(directory):
@@ -357,6 +1019,10 @@ def expect_preflight_invalid(package, public_key, runtime, text):
 
 def main():
     assert "BR2_PACKAGE_LIBOPENSSL_BIN=y\n" in BUILDROOT_FRAGMENT.read_text()
+    test_backup_archive_primitive()
+    test_backup_execution()
+    test_runtime_usb_backup_offer()
+    test_backup_plan_arguments()
     assert CORE.stat().st_mode & 0o111
     assert CLI.stat().st_mode & 0o111
 
@@ -417,6 +1083,34 @@ def main():
         assert response["persistence"]["sys"]["action"] == "reset"
         assert response["persistence"]["home"]["status"] == "resolved"
         assert response["persistence"]["home"]["action"] == "preserve"
+        assert response["backup_offer"]["selection_required"] is True
+        assert response["runtime_usb"] == {
+            "available": False,
+            "status": "absent",
+            "mount": None,
+        }
+        assert response["backup_offer"]["home"] == {
+            "role": "HOME",
+            "offered": False,
+            "required": False,
+            "targets": [],
+        }
+        assert response["backup_offer"]["sys"] == {
+            "role": "SYS",
+            "offered": True,
+            "required": False,
+            "targets": ["home"],
+        }
+        assert response["backup_offer"]["targets"] == {
+            "home": {
+                "available": True,
+                "path": "/home/Fre3nderBackup",
+            },
+            "usb": {
+                "available": False,
+                "path": None,
+            },
+        }
 
         runtime = make_runtime(
             temporary / "runtime-b",
@@ -502,10 +1196,72 @@ def main():
         assert "Package status:  VALID" in result.stdout
         assert "Active slot:     A" in result.stdout
         assert "Target slot:     B" in result.stdout
+        assert "Backup offer:" in result.stdout
+        assert (
+            "HOME:            UNAVAILABLE (no backup-capable USB)"
+            in result.stdout
+        )
+        assert "SYS:             OFFERED -> HOME" in result.stdout
+        assert "Selection:       REQUIRED before write" in result.stdout
         assert "PREFLIGHT: PASS" in result.stdout
         assert result.stdout.rstrip().endswith(
             "No changes have been made."
         )
+
+        result = run_cli(
+            fake_core,
+            "backup-plan",
+            package,
+            "--no-home",
+            "--sys",
+            "home",
+        )
+        assert result.returncode == 0, result.stderr
+        assert result.stderr == ""
+        assert result.stdout.splitlines() == [
+            "Fre3nder OTA backup plan",
+            "",
+            "HOME backup:     DECLINED",
+            "SYS backup:      HOME",
+            "",
+            "BACKUP PLAN: COMPLETE",
+            "No backup has been created.",
+        ]
+
+        result = run_cli(
+            fake_core,
+            "backup",
+            package,
+            "--home",
+            "--sys",
+            "usb",
+        )
+        assert result.returncode == 0, result.stderr
+        assert result.stderr == ""
+
+        assert result.stdout.splitlines() == [
+            "Fre3nder OTA backup",
+            "",
+            "HOME backup:     USB",
+            (
+                "HOME archive:    "
+                "/run/fre3nder/usb/Fre3nderBackup/"
+                "fre3nder-home-fixture.tar"
+            ),
+            "HOME size:       123 bytes",
+            "HOME SHA256:     " + "a" * 64,
+            "SYS backup:      USB",
+            (
+                "SYS archive:    "
+                "/run/fre3nder/usb/Fre3nderBackup/"
+                "fre3nder-sys-fixture.tar"
+            ),
+            "SYS size:       456 bytes",
+            "SYS SHA256:     " + "b" * 64,
+            "",
+            "BACKUP: COMPLETE",
+            "OTA target slots have not been modified.",
+        ]
 
         result = run_cli(
             fake_core,
