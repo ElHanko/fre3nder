@@ -239,10 +239,12 @@ later:
     local display
 ```
 
-The web UI and display must not reimplement slot selection, validation,
-backups, persistence handling, or activation.
+The web UI and display must not reimplement slot selection, package
+validation, persistence handling, activation, or backup internals.
 
-They should expose the same operations and state provided by the OTA core.
+OTA frontends consume the OTA core. Backup frontends consume the standalone
+backup core. A frontend may expose both capabilities without duplicating their
+platform logic.
 
 ### Core/frontend contract
 
@@ -254,10 +256,13 @@ The first implementation separates OTA behavior from its CLI presentation:
     /usr/bin/fre3nder
         common human-facing CLI frontend; OTA namespace: `fre3nder ota`
 
-The core owns OTA decisions and platform knowledge. Frontends must not
-independently implement package verification, A/B slot mapping, active-slot
-discovery, persistence-role resolution, target selection, backup policy,
+The OTA core owns OTA decisions and OTA platform knowledge. Frontends
+must not independently implement package verification, A/B slot mapping,
+active-slot discovery, persistence-role resolution, OTA target selection,
 write sequencing, activation rules, or rollback policy.
+
+The standalone backup core owns backup-target policy, selection validation,
+archive creation, and archive verification.
 
 The OTA namespace of the common CLI frontend is deliberately limited to
 invoking the OTA core, validating the returned protocol response, and
@@ -291,22 +296,216 @@ The implemented operations are currently:
     preflight
     backup-plan
     backup
+    confirm
+    write
+    readback
+    prepare-activation
 
 `verify` returns structured package identity and verification state.
 
 `preflight` additionally returns structured runtime, target-slot,
-persistence, runtime-USB, and backup-offer state. The core, not the frontend,
-determines the active slot, inactive target devices, `SYS`/`HOME` resolution,
-their intended update actions, and which logical backup targets are currently
-available.
+persistence, runtime-USB, and backup-offer state. The OTA core determines the
+active slot, inactive target devices, `SYS`/`HOME` resolution, and their
+intended update actions. Backup availability and logical backup targets are
+obtained from the standalone backup core and included in the composed preflight
+response.
 
 `backup-plan` re-runs package verification and technical preflight, then
-accepts an explicit selection or decline for `HOME` and `SYS`. It remains
-read-only and does not create an archive.
+delegates explicit `HOME` and `SYS` selection validation to the backup core.
+It remains read-only and does not create an archive.
 
-`backup` performs the same verification, preflight, and selection validation,
-then creates every selected archive and returns its path, size, and SHA-256.
-It does not write the inactive kernel or RootFS slots.
+`backup` performs the same verification and preflight, then delegates the
+selected backup execution to the backup core. It returns each resulting
+archive path, size, and SHA-256.
+After successful backup execution it also creates a volatile pending OTA
+transaction for the subsequent confirmation boundary. It does not write the
+inactive kernel or RootFS slots.
+
+`confirm` requires the transaction ID returned by the successful `backup`
+operation. It re-verifies the OTA package, re-runs technical preflight, requires
+the same active and target slot state, and re-verifies every selected backup
+archive against its recorded size and SHA-256. On success it atomically changes
+the volatile transaction from `awaiting-confirmation` to `confirmed`. It still
+does not write the inactive kernel or RootFS slots.
+
+`write` requires that same transaction to be in the `confirmed` state. Before
+writing it again validates the package, runtime, inactive target slot, and
+selected backup archives.
+
+Before the first physical write, the production path additionally requires the
+established X2000 A/B partition identity:
+
+    p5  kernel   16384 sectors    PARTLABEL=kernel
+    p6  kernel2  16384 sectors    PARTLABEL=kernel2
+    p7  rootfs   1024000 sectors  PARTLABEL=rootfs
+    p8  rootfs2  1024000 sectors  PARTLABEL=rootfs2
+
+The selected kernel and RootFS must be the exact partitions belonging to the
+inactive logical slot, their sysfs partition numbers and sizes must match, they
+must reside on the same block device as the active root, and any available
+partlabel infrastructure must resolve the expected labels to those devices.
+
+Both inactive targets must also be unmounted and large enough for their signed
+payloads.
+
+The initial write order is:
+
+    rootfs.squashfs -> inactive RootFS
+    kernel.uImage   -> inactive kernel
+
+Each payload is streamed directly from the verified OTA package and the target
+is synchronized before continuing. The source stream is checked against the
+signed payload size and SHA-256 while it is written.
+
+After both writes complete, the volatile transaction becomes:
+
+    written-awaiting-readback
+
+`readback` requires that transaction state and reads exactly the signed payload
+length back from the inactive RootFS and kernel targets. The read bytes must
+match the signed SHA-256 values from the OTA package. A mismatch leaves the
+transaction in `written-awaiting-readback` and activation remains prohibited.
+
+Only after both inactive-slot payloads pass readback verification does the
+transaction become:
+
+    readback-verified
+
+Neither `write` nor `readback` prepares activation, changes the boot selector,
+creates the activation/reset marker, or reboots. Those remain later OTA stages.
+
+### Persistent activation handoff
+
+The volatile OTA transaction below `/run/fre3nder/ota/` intentionally does not
+survive reboot. `PREPARE_ACTIVATION` therefore requires a small persistent
+handoff before changing the boot selector.
+
+The handoff record is stored at:
+
+    /run/fre3nder-root/system/.fre3nder-ota-activation.json
+
+It resides at the root of the logical `SYS` filesystem rather than inside
+`upper/` or `work/`. The targeted system-overlay reset therefore does not remove
+it.
+
+The initial record carries the transaction ID, verified package identity,
+previous runtime slot, intended target slot, and the completed write/readback
+results needed for post-boot validation.
+
+Before selector activation, OTA also prepares the existing targeted reset marker:
+
+    /run/fre3nder-root/system/.fre3nder-reset-target
+
+with the established payload:
+
+    RESET_ON_NEXT_BOOT_ROOT=<target-root>
+
+Both persistent handoff objects must be established and verified before the
+selector may change. This ensures that an immediate reboot after selector
+activation still leaves enough persistent state for target-boot validation.
+
+The OTA implementation uses the same established 512-byte selector payload
+contract as `scripts/x2000-ab`. The historical selector classifications map to
+the logical boot slots as follows:
+
+    A -> ota:kernel
+    B -> ota:kernel2
+
+The historical names `STOCK_A` and `DEVELOP_B` are not used as payload
+semantics by OTA; only logical slot A/B matters.
+
+A selector transition must verify that the currently stored selector agrees
+with the active runtime slot, write exactly the 512-byte target record without
+truncating the partition, synchronize it, and verify the resulting known
+selector hash by readback.
+
+The existing `.fre3nder-reset-target` boot behavior remains unchanged: the SYS
+overlay is reset only when the actual booted `root=` matches the recorded target
+root. If the old slot remains active, the reset is deferred.
+
+`prepare-activation` requires a `readback-verified` transaction. Immediately
+before activation it re-verifies the signed package, active/target runtime
+binding, selected backup archives, and the actual inactive kernel/RootFS bytes.
+
+It then establishes and verifies the persistent activation record and targeted
+SYS reset marker before touching the boot selector.
+
+The selector transition requires the current selector to agree with the active
+runtime slot. The exact established 512-byte target selector is then written,
+synchronized, and verified by readback.
+
+After successful selector verification the persistent activation record and the
+volatile runtime transaction both become:
+
+    activation-prepared
+
+The operation is idempotent. If the selector write succeeded but a later state
+update was interrupted, a retry before reboot may observe that the selector
+already points to the intended target and finish the remaining state transition
+without rewriting the selector.
+
+If power is lost after the verified selector write but before the persistent
+record advances from `preparing` to `activation-prepared`, the target boot may
+complete that boundary during post-boot validation. This recovery is accepted
+only when the actual booted root, previous runtime slot, and exact known selector
+all match the persistent activation handoff.
+
+`prepare-activation` does not reboot the printer.
+
+### Reboot boundary
+
+After `activation-prepared`, the OTA core may request the reboot without needing
+the original `.ota` package to remain available. The inactive kernel and RootFS
+have already been written and readback-verified at this point.
+
+Immediately before reboot the core verifies again that:
+
+* the volatile transaction is `activation-prepared`;
+* the persistent activation record describes the same transaction;
+* `.fre3nder-reset-target` names the intended target root;
+* the current selector is still the prepared target selector;
+* selector-device identity remains valid.
+
+Only after those checks does the core synchronize mounted filesystems and invoke
+the system reboot command.
+
+The reboot itself does not mark the update successful. Success is established
+only by the subsequent persistent post-boot validation and known-good update.
+
+### Post-boot validation and known-good state
+
+After the target slot boots, Fre3nder performs local post-boot validation from
+the persistent activation record. The validation requires:
+
+* the actual `root=` device to match the prepared target slot;
+* the boot selector to match that same slot;
+* the installed Fre3nder version to match the prepared package;
+* the writable Fre3nder root state to report `active`;
+* `/` to be writable OverlayFS;
+* `/rom` to be read-only SquashFS;
+* `/home` to be writable ext4;
+* the logical `SYS` mount to be writable ext4;
+* the targeted SYS reset marker to have been consumed.
+
+On success the current release is recorded persistently as:
+
+    /run/fre3nder-root/system/.fre3nder-ota-known-good.json
+
+Only then is the transient activation record removed.
+
+A failed post-boot validation leaves the activation record intact and does not
+replace the previous known-good record. This preserves the information needed
+for recovery and later rollback handling.
+
+The initial post-boot implementation does not yet provide automatic rollback
+when the target kernel or RootFS fails before userspace becomes reachable.
+A boot-attempt or bootloader-level rollback mechanism is still required before
+that failure class can be called automatically recoverable.
+
+The inactive-slot write path is covered offline using regular files as simulated
+partition targets. This does not qualify physical writes to the reference X2000
+system; real block-device execution remains a separate hardware-controlled
+validation step.
 
 Human-readable strings such as the CLI reports are not part of the core API
 and must not be consumed by another frontend.
@@ -536,111 +735,41 @@ The preflight must determine and present at least:
 No block-device write starts before preflight, package validation, backup
 selection, and required user confirmation have completed successfully.
 
-## Backup policy
+## Backup integration
 
-Before a platform write begins, the user is offered a backup.
+Backup is a standalone Fre3nder platform capability, not an OTA
+implementation detail.
 
-### HOME
+Its target policy, archive format, execution rules, standalone CLI, and
+internal core API are documented in [backup.md](backup.md).
 
-OTA must offer a `HOME` backup.
+OTA consumes the backup core through its internal API.
 
-`HOME` remains persistent across a normal Fre3nder update even when no backup is
-requested.
+During preflight, OTA obtains the currently available backup targets from the
+backup core. The OTA workflow then requires an explicit selection or decline
+for `HOME` and `SYS`, invokes backup execution, and binds the returned archive
+metadata to the volatile OTA transaction.
 
-The backup is an additional recovery measure and does not replace the normal
-preserve-`HOME` contract.
+OTA owns that transaction binding. The backup core owns backup availability,
+selection validation, archive creation, and archive verification.
 
-### SYS
+The OTA transaction records the verified package identity, active and target
+slot, explicit backup selection, actual backup results, and a random
+transaction ID. The state is runtime-only and disappears on reboot.
 
-OTA must offer an optional `SYS` backup.
+A new OTA backup transaction is refused while another OTA transaction or
+persistent activation handoff is still active. OTA state is never implicitly
+discarded by starting another update.
 
-The purpose of this backup is primarily to preserve previous system
-customizations for inspection or manual recovery because the active `SYS`
-overlay is intentionally discarded by a normal platform update.
+Before confirmation, platform writes, and activation preparation, OTA
+revalidates every selected backup against its recorded archive path, size, and
+SHA-256.
 
-Backup logic consumes the logical storage roles. It must not contain physical
-partition assumptions owned by the installer/storage layer.
-
-### Backup targets
-
-Backup target selection is intentionally separate from persistence-role
-resolution.
-
-All backup archives are stored below `Fre3nderBackup/` at the root of
-the selected storage.
-
-A `HOME` backup has exactly one valid destination:
-
-    /run/fre3nder/usb/Fre3nderBackup/
-
-It is offered only when runtime USB exposes a backup-capable writable
-filesystem.
-
-A `SYS` backup may use either runtime USB or the preserved `HOME` role:
-
-    /run/fre3nder/usb/Fre3nderBackup/
-    /home/Fre3nderBackup/
-
-No arbitrary backup target path is part of the OTA API.
-
-Early boot provisioning and runtime USB are deliberately separate. Provisioning
-continues to inspect VFAT media read-only and unmounts it again. The late
-runtime USB layer mounts supported removable storage at `/run/fre3nder/usb`.
-
-The runtime USB implementation recognizes `vfat`, `exfat`, `ext4`, and
-`ntfs3`. VFAT remains useful for provisioning and normal runtime files, but it
-is intentionally not offered as an OTA backup target because a single FAT32
-file cannot exceed 4 GiB. USB backups therefore require `exfat`, `ext4`, or
-`ntfs3`.
-
-The kernel configuration enables these runtime filesystems, and the selection
-logic is covered by offline fixtures. exFAT/ext4/NTFS3 runtime USB support is
-not claimed as hardware-qualified until it has been built and exercised on the
-reference X2000 system.
-
-The OTA core consumes only the logical runtime USB mount and does not scan,
-mount, or select physical `/dev/sdX` devices itself. Physical-device handling
-belongs to the runtime USB layer.
-
-Backup execution reads only from the already active Fre3nder runtime mounts.
-It does not mount or read the resolved persistence block devices directly.
-
-The backup sources are:
-
-    HOME -> /home
-    SYS  -> /run/fre3nder-root/system/upper
-
-For `SYS`, only the active OverlayFS `upper/` tree is backup content.
-`work/` and OTA reset markers are runtime implementation state and are not
-included.
-
-The initial `SYS` archive is intended to preserve previous system
-customizations for inspection and manual recovery. It is not specified as a
-complete automatically restorable OverlayFS snapshot.
-
-The initial backup archive format is uncompressed POSIX tar. Backup execution
-must not cross into other mounted filesystems below a backup source. Symlinks
-are archived as symlinks rather than followed.
-
-The backup archive format and execution details are owned by the backup
-operation itself. Backup-offer and backup-selection state must not imply that a
-backup has already been created.
-
-### Backup selection and execution
-
-After `BACKUP_OFFER`, the user must explicitly select or decline each offered
-backup.
-
-For a normal Fre3nder update:
-
-    HOME backup -> selected to runtime USB, or declined
-    SYS backup  -> selected to runtime USB or HOME, or declined
-
-A later platform write may proceed only after every offered backup has an
+A normal platform write may proceed only after every offered backup has an
 explicit selection and every selected backup has completed successfully.
 
-Declining an optional backup is a valid explicit selection. It does not weaken
-the normal contract that `HOME` itself is preserved across a Fre3nder update.
+Declining an optional backup is valid. It does not change the normal contract
+that `HOME` itself is preserved across a Fre3nder update.
 
 ## Fre3nder-to-Fre3nder OTA
 

@@ -1,5 +1,5 @@
 #!/usr/bin/python3
-"""Offline fixtures for the read-only Fre3nder OTA v1 verifier."""
+"""Offline fixtures for the Fre3nder OTA v1 lifecycle."""
 
 import hashlib
 import importlib.machinery
@@ -30,6 +30,46 @@ module = importlib.util.module_from_spec(spec)
 loader.exec_module(module)
 
 
+def make_usb_helper(
+    path,
+    *,
+    status="absent",
+    source="/dev/fixture-usb",
+    filesystem="exfat",
+    writable=True,
+):
+    lines = [
+        "api_version=1",
+        f"status={status}",
+        "mount=/run/fre3nder/usb",
+    ]
+
+    if status == "mounted":
+        lines.extend(
+            (
+                f"source={source}",
+                f"filesystem={filesystem}",
+                (
+                    "writable=true"
+                    if writable
+                    else "writable=false"
+                ),
+            )
+        )
+
+    payload = "\n".join(lines) + "\n"
+
+    path.write_text(
+        "#!/bin/sh\n"
+        "cat <<'USB_STATUS'\n"
+        + payload
+        + "USB_STATUS\n"
+    )
+    path.chmod(0o755)
+
+    return path
+
+
 def run(*args, **kwargs):
     return subprocess.run(args, check=True, **kwargs)
 
@@ -51,6 +91,8 @@ def run_cli(core, operation, package, *arguments):
         text=True,
         check=False,
     )
+
+
 
 
 def run_core_process(operation, package):
@@ -231,70 +273,6 @@ print(json.dumps(response))
     path.chmod(0o755)
 
 
-def test_backup_archive_primitive():
-    with tempfile.TemporaryDirectory() as temporary:
-        temporary = Path(temporary)
-
-        source = temporary / "source"
-        target = temporary / "target"
-        source.mkdir()
-        target.mkdir()
-
-        (source / "etc").mkdir()
-        (source / "etc" / "printer.conf").write_text("fixture\n")
-        (source / "data").mkdir()
-        (source / "data" / "value.txt").write_text("value\n")
-        (source / "link").symlink_to("etc/printer.conf")
-
-        excluded = source / "Fre3nderBackup"
-        excluded.mkdir()
-        (excluded / "old-backup.tar").write_text(
-            "must not be archived\n"
-        )
-
-        result = module.create_backup_archive(
-            source,
-            target,
-            "SYS",
-            "2026.4.fixture",
-            excluded_paths=(excluded,),
-        )
-
-        archive_path = Path(result["archive"])
-        assert archive_path.is_file()
-        assert result["size"] == archive_path.stat().st_size
-
-        with archive_path.open("rb") as stream:
-            digest, size = module.sha256_stream(stream)
-
-        assert digest == result["sha256"]
-        assert size == result["size"]
-
-        with tarfile.open(archive_path, mode="r:") as archive:
-            names = set(archive.getnames())
-
-            assert names == {
-                "sys",
-                "sys/etc",
-                "sys/etc/printer.conf",
-                "sys/data",
-                "sys/data/value.txt",
-                "sys/link",
-            }
-
-            link = archive.getmember("sys/link")
-            assert link.issym()
-            assert link.linkname == "etc/printer.conf"
-
-            content = archive.extractfile(
-                archive.getmember("sys/etc/printer.conf")
-            )
-            assert content is not None
-            assert content.read() == b"fixture\n"
-
-        assert not list(target.glob(".*.tmp"))
-
-
 def test_backup_execution():
     with tempfile.TemporaryDirectory() as temporary:
         temporary = Path(temporary)
@@ -343,26 +321,30 @@ def test_backup_execution():
         usb_backup_directory = (
             usb_root / "Fre3nderBackup"
         )
+        pending_transaction = (
+            temporary
+            / "ota-state"
+            / "pending.json"
+        )
 
         # USB available: HOME and SYS both go to USB.
         runtime = make_runtime(
             temporary / "runtime-backup-usb"
         )
 
-        usb_status = (
+        usb_helper = make_usb_helper(
             temporary
             / "runtime-backup-usb"
-            / "usb-status"
+            / "fre3nder-usb",
+            status="mounted",
+            source="/dev/fixture-usb",
+            filesystem="exfat",
         )
-        usb_status.write_text("mounted\n")
-        runtime["usb_status_path"] = usb_status
 
-        mounts = runtime["mounts_path"]
-        mounts.write_text(
-            mounts.read_text()
-            + "/dev/fixture-usb /run/fre3nder/usb "
-            "exfat rw,nosuid,nodev,noexec 0 0\n"
-        )
+        transaction_runtime = {
+            **runtime,
+            "usb_helper": usb_helper,
+        }
 
         response = module.backup_response(
             package,
@@ -371,13 +353,64 @@ def test_backup_execution():
             sys_source=sys_source,
             home_backup_directory=home_backup_directory,
             usb_backup_directory=usb_backup_directory,
+            pending_transaction_path=pending_transaction,
             public_key=public_key,
-            **runtime,
+            **transaction_runtime,
         )
 
         assert response["operation"] == "backup"
 
         result = response["backup_result"]
+
+        confirmation = response["confirmation"]
+        assert confirmation["required"] is True
+        assert (
+            confirmation["state"]
+            == "awaiting-confirmation"
+        )
+
+        transaction_id = confirmation["transaction_id"]
+        assert len(transaction_id) == 32
+        int(transaction_id, 16)
+
+        pending = json.loads(
+            pending_transaction.read_text()
+        )
+
+        assert (
+            pending["state"]
+            == "awaiting-confirmation"
+        )
+        assert (
+            pending["transaction_id"]
+            == transaction_id
+        )
+        assert (
+            pending["package"]["version"]
+            == "2026.4.fixture"
+        )
+        assert (
+            pending["backup_selection"]
+            == response["backup_selection"]
+        )
+        assert (
+            pending["backup_result"]
+            == response["backup_result"]
+        )
+
+        with package.open("rb") as stream:
+            package_digest, package_size = (
+                module.sha256_stream(stream)
+            )
+
+        assert (
+            pending["package"]["sha256"]
+            == package_digest
+        )
+        assert (
+            pending["package"]["size"]
+            == package_size
+        )
 
         assert result["complete"] is True
         assert result["home"]["selected"] is True
@@ -403,6 +436,95 @@ def test_backup_execution():
 
         assert home_archive.is_file()
         assert sys_archive.is_file()
+
+        # Wrong confirmation must fail without consuming the receipt.
+        try:
+            module.confirm_response(
+                package,
+                ["0" * 32],
+                pending_transaction_path=pending_transaction,
+                public_key=public_key,
+                **transaction_runtime,
+            )
+        except ValueError as exc:
+            assert "transaction ID does not match" in str(exc)
+        else:
+            raise AssertionError(
+                "wrong transaction ID unexpectedly confirmed OTA"
+            )
+
+        assert (
+            json.loads(
+                pending_transaction.read_text()
+            )["state"]
+            == "awaiting-confirmation"
+        )
+
+        # Selected backups are part of the confirmation contract.
+        original_home_archive = home_archive.read_bytes()
+        home_archive.write_bytes(
+            original_home_archive + b"tampered"
+        )
+
+        try:
+            module.confirm_response(
+                package,
+                [transaction_id],
+                pending_transaction_path=pending_transaction,
+                public_key=public_key,
+                **transaction_runtime,
+            )
+        except ValueError as exc:
+            assert (
+                "HOME backup archive changed after backup"
+                in str(exc)
+            )
+        else:
+            raise AssertionError(
+                "tampered backup unexpectedly confirmed OTA"
+            )
+
+        home_archive.write_bytes(original_home_archive)
+
+        confirmed = module.confirm_response(
+            package,
+            [transaction_id],
+            pending_transaction_path=pending_transaction,
+            public_key=public_key,
+            **transaction_runtime,
+        )
+
+        assert confirmed["operation"] == "confirm"
+        assert confirmed["confirmation"] == {
+            "state": "confirmed",
+            "transaction_id": transaction_id,
+        }
+
+        assert (
+            json.loads(
+                pending_transaction.read_text()
+            )["state"]
+            == "confirmed"
+        )
+
+        try:
+            module.backup_response(
+                package,
+                ["--no-home", "--no-sys"],
+                pending_transaction_path=pending_transaction,
+                public_key=public_key,
+                **transaction_runtime,
+            )
+        except ValueError as exc:
+            assert (
+                "another OTA transaction is already active"
+                in str(exc)
+            )
+        else:
+            raise AssertionError(
+                "active OTA transaction was unexpectedly replaced"
+            )
+
 
         with tarfile.open(
             home_archive,
@@ -437,8 +559,21 @@ def test_backup_execution():
         )
 
         # No USB: HOME is declined and SYS may go to HOME.
+        home_pending_transaction = (
+            temporary
+            / "ota-state-home"
+            / "pending.json"
+        )
+
         runtime = make_runtime(
             temporary / "runtime-backup-home"
+        )
+
+        usb_helper = make_usb_helper(
+            temporary
+            / "runtime-backup-home"
+            / "fre3nder-usb",
+            status="absent",
         )
 
         response = module.backup_response(
@@ -448,6 +583,8 @@ def test_backup_execution():
             sys_source=sys_source,
             home_backup_directory=home_backup_directory,
             usb_backup_directory=usb_backup_directory,
+            pending_transaction_path=home_pending_transaction,
+            usb_helper=usb_helper,
             public_key=public_key,
             **runtime,
         )
@@ -488,308 +625,1329 @@ def test_backup_execution():
         )
 
 
-        # A selected USB backup must be revalidated immediately before
-        # writing. If the runtime USB disappeared after preflight, no target
-        # directory or archive may be created.
-        runtime = make_runtime(
-            temporary / "runtime-backup-disappeared"
-        )
 
-        usb_status = (
-            temporary
-            / "runtime-backup-disappeared"
-            / "usb-status"
-        )
-        usb_status.write_text("mounted\n")
-        runtime["usb_status_path"] = usb_status
 
-        mounts = runtime["mounts_path"]
-        mounts.write_text(
-            mounts.read_text()
-            + "/dev/fixture-usb /run/fre3nder/usb "
-            "exfat rw,nosuid,nodev,noexec 0 0\n"
-        )
+def test_partition_identity():
+    with tempfile.TemporaryDirectory() as temporary:
+        temporary = Path(temporary)
 
-        vanished_target = (
-            temporary
-            / "vanished-usb"
-            / "Fre3nderBackup"
-        )
+        dev = temporary / "dev"
+        sysfs = temporary / "sys-class-block"
+        labels = temporary / "by-partlabel"
 
-        original_read_runtime_usb_state = (
-            module.read_runtime_usb_state
-        )
+        dev.mkdir()
+        sysfs.mkdir()
+        labels.mkdir()
 
-        module.read_runtime_usb_state = (
-            lambda *args, **kwargs: {
-                "available": False,
-                "status": "absent",
-                "mount": None,
-            }
-        )
+        devices = {}
 
-        try:
-            try:
-                module.backup_response(
-                    package,
-                    ["--home", "--no-sys"],
-                    home_source=home_source,
-                    sys_source=sys_source,
-                    home_backup_directory=home_backup_directory,
-                    usb_backup_directory=vanished_target,
-                    public_key=public_key,
-                    **runtime,
-                )
-            except ValueError as exc:
-                assert (
-                    "backup-capable runtime USB volume "
-                    "is no longer available"
-                    in str(exc)
-                )
-            else:
-                raise AssertionError(
-                    "backup unexpectedly continued after USB disappeared"
-                )
-        finally:
-            module.read_runtime_usb_state = (
-                original_read_runtime_usb_state
+        for number, sectors in (
+            (6, 16384),
+            (7, 1024000),
+            (8, 1024000),
+        ):
+            name = f"mmcblk0p{number}"
+
+            device = dev / name
+            device.write_bytes(b"fixture")
+            devices[number] = device
+
+            metadata = sysfs / name
+            metadata.mkdir()
+
+            (
+                metadata / "partition"
+            ).write_text(
+                f"{number}\n"
             )
 
-        assert not vanished_target.exists()
+            (
+                metadata / "size"
+            ).write_text(
+                f"{sectors}\n"
+            )
 
-
-
-def test_runtime_usb_backup_offer():
-    absent = module.runtime_usb_state("absent", "")
-    assert absent == {
-        "available": False,
-        "status": "absent",
-        "mount": None,
-    }
-
-    absent_offer = module.build_backup_offer(absent)
-    assert absent_offer == {
-        "selection_required": True,
-        "home": {
-            "role": "HOME",
-            "offered": False,
-            "required": False,
-            "targets": [],
-        },
-        "sys": {
-            "role": "SYS",
-            "offered": True,
-            "required": False,
-            "targets": ["home"],
-        },
-        "targets": {
-            "home": {
-                "available": True,
-                "path": "/home/Fre3nderBackup",
-            },
-            "usb": {
-                "available": False,
-                "path": None,
-            },
-        },
-    }
-
-    mounts = (
-        "/dev/sdz1 /run/fre3nder/usb "
-        "exfat rw,nosuid,nodev,noexec 0 0\n"
-    )
-    mounted = module.runtime_usb_state("mounted", mounts)
-
-    assert mounted == {
-        "available": True,
-        "status": "mounted",
-        "mount": "/run/fre3nder/usb",
-        "source": "/dev/sdz1",
-        "filesystem": "exfat",
-        "backup_available": True,
-    }
-
-    mounted_offer = module.build_backup_offer(mounted)
-    assert mounted_offer == {
-        "selection_required": True,
-        "home": {
-            "role": "HOME",
-            "offered": True,
-            "required": False,
-            "targets": ["usb"],
-        },
-        "sys": {
-            "role": "SYS",
-            "offered": True,
-            "required": False,
-            "targets": ["usb", "home"],
-        },
-        "targets": {
-            "home": {
-                "available": True,
-                "path": "/home/Fre3nderBackup",
-            },
-            "usb": {
-                "available": True,
-                "path": "/run/fre3nder/usb/Fre3nderBackup",
-            },
-        },
-    }
-
-    vfat_mounts = (
-        "/dev/sdz1 /run/fre3nder/usb "
-        "vfat rw,nosuid,nodev,noexec 0 0\n"
-    )
-    vfat = module.runtime_usb_state(
-        "mounted",
-        vfat_mounts,
-    )
-    assert vfat == {
-        "available": True,
-        "status": "mounted",
-        "mount": "/run/fre3nder/usb",
-        "source": "/dev/sdz1",
-        "filesystem": "vfat",
-        "backup_available": False,
-    }
-
-    vfat_offer = module.build_backup_offer(vfat)
-    assert vfat_offer["home"]["offered"] is False
-    assert vfat_offer["home"]["targets"] == []
-    assert vfat_offer["sys"]["targets"] == ["home"]
-    assert vfat_offer["targets"]["usb"]["available"] is False
-
-    readonly_mounts = (
-        "/dev/sdz1 /run/fre3nder/usb "
-        "vfat ro,nosuid,nodev,noexec 0 0\n"
-    )
-    readonly = module.runtime_usb_state(
-        "mounted",
-        readonly_mounts,
-    )
-    assert readonly == {
-        "available": False,
-        "status": "not-writable",
-        "mount": None,
-    }
-
-
-def test_backup_plan_arguments():
-    no_usb_offer = module.build_backup_offer(
-        module.runtime_usb_state("absent", "")
-    )
-
-    usb_mounts = (
-        "/dev/sdz1 /run/fre3nder/usb "
-        "exfat rw,nosuid,nodev,noexec 0 0\\n"
-    )
-    usb_offer = module.build_backup_offer(
-        module.runtime_usb_state("mounted", usb_mounts)
-    )
-
-    selection = module.parse_backup_plan_args(
-        ["--no-home", "--sys", "home"],
-        no_usb_offer,
-    )
-    assert selection == {
-        "home": {
-            "selected": False,
-            "target": None,
-        },
-        "sys": {
-            "selected": True,
-            "target": "home",
-        },
-    }
-
-    selection = module.parse_backup_plan_args(
-        ["--home", "--sys", "usb"],
-        usb_offer,
-    )
-    assert selection == {
-        "home": {
-            "selected": True,
-            "target": "usb",
-        },
-        "sys": {
-            "selected": True,
-            "target": "usb",
-        },
-    }
-
-    selection = module.parse_backup_plan_args(
-        ["--home", "--sys", "home"],
-        usb_offer,
-    )
-    assert selection["home"]["target"] == "usb"
-    assert selection["sys"]["target"] == "home"
-
-    selection = module.parse_backup_plan_args(
-        ["--no-home", "--no-sys"],
-        no_usb_offer,
-    )
-    assert selection == {
-        "home": {
-            "selected": False,
-            "target": None,
-        },
-        "sys": {
-            "selected": False,
-            "target": None,
-        },
-    }
-
-    invalid = (
         (
-            ["--home", "--no-sys"],
-            no_usb_offer,
-            "backup-capable runtime USB",
-        ),
-        (
-            ["--no-home", "--sys", "usb"],
-            no_usb_offer,
-            "not available",
-        ),
-        (
-            ["--no-home", "--sys", "other"],
-            usb_offer,
-            "must be usb or home",
-        ),
-        (
-            ["--no-home"],
-            usb_offer,
-            "SYS backup must be explicitly",
-        ),
-        (
-            ["--no-sys"],
-            usb_offer,
-            "HOME backup must be explicitly",
-        ),
-        (
-            ["--home", "--no-home", "--no-sys"],
-            usb_offer,
-            "HOME backup selection specified more than once",
-        ),
-        (
-            ["--no-home", "--sys", "home", "--no-sys"],
-            usb_offer,
-            "SYS backup selection specified more than once",
-        ),
-        (
-            ["--home-target", "/tmp/backup", "--no-sys"],
-            usb_offer,
-            "unsupported backup selection argument",
-        ),
-    )
+            labels / "kernel2"
+        ).symlink_to(
+            devices[6]
+        )
 
-    for arguments, offer, expected in invalid:
+        (
+            labels / "rootfs2"
+        ).symlink_to(
+            devices[8]
+        )
+
+        module.validate_partition_identity(
+            devices[6],
+            6,
+            16384,
+            "kernel2",
+            devices[7],
+            sysfs,
+            labels,
+            allow_regular_target=True,
+        )
+
+        module.validate_partition_identity(
+            devices[8],
+            8,
+            1024000,
+            "rootfs2",
+            devices[7],
+            sysfs,
+            labels,
+            allow_regular_target=True,
+        )
+
+        # Wrong physical partition size must fail closed.
+        (
+            sysfs
+            / "mmcblk0p6"
+            / "size"
+        ).write_text("1\n")
+
         try:
-            module.parse_backup_plan_args(arguments, offer)
+            module.validate_partition_identity(
+                devices[6],
+                6,
+                16384,
+                "kernel2",
+                devices[7],
+                sysfs,
+                labels,
+                allow_regular_target=True,
+            )
         except ValueError as exc:
-            assert expected in str(exc)
+            assert (
+                "inactive OTA target size mismatch"
+                in str(exc)
+            )
         else:
             raise AssertionError(
-                f"invalid backup selection accepted: {arguments}"
+                "wrong OTA partition size was accepted"
+            )
+
+        (
+            sysfs
+            / "mmcblk0p6"
+            / "size"
+        ).write_text("16384\n")
+
+        # Wrong partlabel mapping must also fail.
+        (
+            labels / "kernel2"
+        ).unlink()
+
+        (
+            labels / "kernel2"
+        ).symlink_to(
+            devices[8]
+        )
+
+        try:
+            module.validate_partition_identity(
+                devices[6],
+                6,
+                16384,
+                "kernel2",
+                devices[7],
+                sysfs,
+                labels,
+                allow_regular_target=True,
+            )
+        except ValueError as exc:
+            assert (
+                "kernel2 partlabel does not resolve"
+                in str(exc)
+            )
+        else:
+            raise AssertionError(
+                "wrong OTA partlabel mapping was accepted"
+            )
+
+
+def test_write_inactive_slot():
+    with tempfile.TemporaryDirectory() as temporary:
+        temporary = Path(temporary)
+
+        private_key, public_key = generate_keys(temporary)
+
+        package = temporary / "write.ota"
+        make_package(
+            package,
+            private_key,
+            public_key,
+        )
+
+        runtime = make_runtime(
+            temporary / "runtime-write"
+        )
+
+        usb_helper = make_usb_helper(
+            temporary
+            / "runtime-write"
+            / "fre3nder-usb",
+            status="absent",
+        )
+
+        transaction_runtime = {
+            **runtime,
+            "usb_helper": usb_helper,
+        }
+
+        pending = (
+            temporary
+            / "ota-state"
+            / "pending.json"
+        )
+
+        backup = module.backup_response(
+            package,
+            ["--no-home", "--no-sys"],
+            pending_transaction_path=pending,
+            public_key=public_key,
+            **transaction_runtime,
+        )
+
+        transaction_id = (
+            backup["confirmation"]["transaction_id"]
+        )
+
+        manifest = module.verify_package(
+            package,
+            public_key,
+        )
+
+        kernel_size = (
+            manifest["artifact_sizes"]["kernel.uImage"]
+        )
+        rootfs_size = (
+            manifest["artifact_sizes"]["rootfs.squashfs"]
+        )
+
+        kernel_target = temporary / "kernel.target"
+        rootfs_target = temporary / "rootfs.target"
+
+        kernel_target.write_bytes(
+            b"K" * (kernel_size + 4096)
+        )
+        rootfs_target.write_bytes(
+            b"R" * (rootfs_size + 4096)
+        )
+
+        kernel_before = kernel_target.read_bytes()
+        rootfs_before = rootfs_target.read_bytes()
+
+        # No write may happen before confirmation.
+        try:
+            module.write_response(
+                package,
+                [transaction_id],
+                pending_transaction_path=pending,
+                write_lock_path=temporary / "write.lock",
+                target_overrides={
+                    "kernel": kernel_target,
+                    "rootfs": rootfs_target,
+                },
+                allow_regular_targets=True,
+                public_key=public_key,
+                **transaction_runtime,
+            )
+        except ValueError as exc:
+            assert (
+                "transaction is not confirmed"
+                in str(exc)
+            )
+        else:
+            raise AssertionError(
+                "unconfirmed transaction unexpectedly wrote targets"
+            )
+
+        assert kernel_target.read_bytes() == kernel_before
+        assert rootfs_target.read_bytes() == rootfs_before
+
+        module.confirm_response(
+            package,
+            [transaction_id],
+            pending_transaction_path=pending,
+            public_key=public_key,
+            **transaction_runtime,
+        )
+
+        response = module.write_response(
+            package,
+            [transaction_id],
+            pending_transaction_path=pending,
+            write_lock_path=temporary / "write.lock",
+            target_overrides={
+                "kernel": kernel_target,
+                "rootfs": rootfs_target,
+            },
+            allow_regular_targets=True,
+            public_key=public_key,
+            **transaction_runtime,
+        )
+
+        assert response["operation"] == "write"
+        assert response["write_result"]["complete"] is True
+        assert response["transaction"] == {
+            "state": "written-awaiting-readback",
+            "transaction_id": transaction_id,
+        }
+
+        with tarfile.open(package, mode="r:") as archive:
+            kernel_expected = archive.extractfile(
+                archive.getmember("kernel.uImage")
+            ).read()
+            rootfs_expected = archive.extractfile(
+                archive.getmember("rootfs.squashfs")
+            ).read()
+
+        kernel_after = kernel_target.read_bytes()
+        rootfs_after = rootfs_target.read_bytes()
+
+        assert (
+            kernel_after[:kernel_size]
+            == kernel_expected
+        )
+        assert (
+            rootfs_after[:rootfs_size]
+            == rootfs_expected
+        )
+
+        # Writing a partition image must not truncate the target.
+        assert len(kernel_after) == len(kernel_before)
+        assert len(rootfs_after) == len(rootfs_before)
+
+        assert (
+            kernel_after[kernel_size:]
+            == kernel_before[kernel_size:]
+        )
+        assert (
+            rootfs_after[rootfs_size:]
+            == rootfs_before[rootfs_size:]
+        )
+
+        state = json.loads(pending.read_text())
+
+        assert (
+            state["state"]
+            == "written-awaiting-readback"
+        )
+        assert state["write_result"] == response["write_result"]
+
+        # Corruption between write and readback must be detected.
+        rootfs_good = rootfs_target.read_bytes()
+
+        corrupted = bytearray(rootfs_good)
+        corrupted[0] ^= 0x01
+        rootfs_target.write_bytes(corrupted)
+
+        try:
+            module.readback_response(
+                package,
+                [transaction_id],
+                pending_transaction_path=pending,
+                target_overrides={
+                    "kernel": kernel_target,
+                    "rootfs": rootfs_target,
+                },
+                allow_regular_targets=True,
+                public_key=public_key,
+                **transaction_runtime,
+            )
+        except ValueError as exc:
+            assert (
+                "RootFS readback checksum mismatch"
+                in str(exc)
+            )
+        else:
+            raise AssertionError(
+                "corrupt RootFS unexpectedly passed readback"
+            )
+
+        assert (
+            json.loads(
+                pending.read_text()
+            )["state"]
+            == "written-awaiting-readback"
+        )
+
+        rootfs_target.write_bytes(rootfs_good)
+
+        readback = module.readback_response(
+            package,
+            [transaction_id],
+            pending_transaction_path=pending,
+            target_overrides={
+                "kernel": kernel_target,
+                "rootfs": rootfs_target,
+            },
+            allow_regular_targets=True,
+            public_key=public_key,
+            **transaction_runtime,
+        )
+
+        assert readback["operation"] == "readback"
+        assert readback["readback_result"]["complete"] is True
+        assert readback["transaction"] == {
+            "state": "readback-verified",
+            "transaction_id": transaction_id,
+        }
+
+        state = json.loads(pending.read_text())
+
+        assert state["state"] == "readback-verified"
+        assert (
+            state["readback_result"]
+            == readback["readback_result"]
+        )
+
+        assert (
+            state["readback_result"]["kernel"]["sha256"]
+            == manifest["artifacts"]["kernel.uImage"]
+        )
+        assert (
+            state["readback_result"]["rootfs"]["sha256"]
+            == manifest["artifacts"]["rootfs.squashfs"]
+        )
+
+        # READBACK is also single-use for this transaction state.
+        try:
+            module.readback_response(
+                package,
+                [transaction_id],
+                pending_transaction_path=pending,
+                target_overrides={
+                    "kernel": kernel_target,
+                    "rootfs": rootfs_target,
+                },
+                allow_regular_targets=True,
+                public_key=public_key,
+                **transaction_runtime,
+            )
+        except ValueError as exc:
+            assert (
+                "transaction is not awaiting readback"
+                in str(exc)
+            )
+        else:
+            raise AssertionError(
+                "completed readback unexpectedly ran twice"
+            )
+
+        activation_record = (
+            temporary
+            / "system"
+            / ".fre3nder-ota-activation.json"
+        )
+        target_reset_marker = (
+            temporary
+            / "system"
+            / ".fre3nder-reset-target"
+        )
+        legacy_reset_marker = (
+            temporary
+            / "system"
+            / ".fre3nder-reset"
+        )
+
+        activation_record.parent.mkdir()
+
+        selector = temporary / "selector"
+        selector.write_bytes(
+            module.selector_payload("A")
+            + b"UNCHANGED"
+        )
+
+        # A target changed after READBACK must not be made bootable.
+        kernel_good = kernel_target.read_bytes()
+
+        corrupted = bytearray(kernel_good)
+        corrupted[0] ^= 0x01
+        kernel_target.write_bytes(corrupted)
+
+        try:
+            module.prepare_activation_response(
+                package,
+                [transaction_id],
+                pending_transaction_path=pending,
+                activation_record_path=activation_record,
+                target_reset_marker_path=target_reset_marker,
+                legacy_reset_marker_path=legacy_reset_marker,
+                selector_path=selector,
+                target_overrides={
+                    "kernel": kernel_target,
+                    "rootfs": rootfs_target,
+                },
+                allow_regular_targets=True,
+                allow_regular_selector_target=True,
+                public_key=public_key,
+                **transaction_runtime,
+            )
+        except ValueError as exc:
+            assert (
+                "kernel target changed after readback"
+                in str(exc)
+            )
+        else:
+            raise AssertionError(
+                "changed kernel target was made bootable"
+            )
+
+        assert not activation_record.exists()
+        assert not target_reset_marker.exists()
+
+        assert (
+            selector.read_bytes()[:512]
+            == module.selector_payload("A")
+        )
+
+        kernel_target.write_bytes(kernel_good)
+
+        prepared = module.prepare_activation_response(
+            package,
+            [transaction_id],
+            pending_transaction_path=pending,
+            activation_record_path=activation_record,
+            target_reset_marker_path=target_reset_marker,
+            legacy_reset_marker_path=legacy_reset_marker,
+            selector_path=selector,
+            target_overrides={
+                "kernel": kernel_target,
+                "rootfs": rootfs_target,
+            },
+            allow_regular_targets=True,
+            allow_regular_selector_target=True,
+            public_key=public_key,
+            **transaction_runtime,
+        )
+
+        assert (
+            prepared["operation"]
+            == "prepare-activation"
+        )
+
+        assert prepared["transaction"] == {
+            "state": "activation-prepared",
+            "transaction_id": transaction_id,
+        }
+
+        assert (
+            prepared["activation"]["selector"][
+                "previous_slot"
+            ]
+            == "A"
+        )
+
+        assert (
+            prepared["activation"]["selector"][
+                "target_slot"
+            ]
+            == "B"
+        )
+
+        assert (
+            selector.read_bytes()[:512]
+            == module.selector_payload("B")
+        )
+
+        assert (
+            selector.read_bytes()[512:]
+            == b"UNCHANGED"
+        )
+
+        assert target_reset_marker.read_text() == (
+            "RESET_ON_NEXT_BOOT_ROOT="
+            "/dev/mmcblk0p8\n"
+        )
+
+        persistent = json.loads(
+            activation_record.read_text()
+        )
+
+        assert (
+            persistent["state"]
+            == "activation-prepared"
+        )
+        assert (
+            persistent["transaction_id"]
+            == transaction_id
+        )
+        assert (
+            persistent["target"]["slot"]
+            == "B"
+        )
+        assert (
+            persistent["selector_result"][
+                "target_slot"
+            ]
+            == "B"
+        )
+
+        assert (
+            json.loads(
+                pending.read_text()
+            )["state"]
+            == "activation-prepared"
+        )
+
+        # Repeating PREPARE_ACTIVATION is idempotent.
+        prepared_again = (
+            module.prepare_activation_response(
+                package,
+                [transaction_id],
+                pending_transaction_path=pending,
+                activation_record_path=activation_record,
+                target_reset_marker_path=target_reset_marker,
+                legacy_reset_marker_path=legacy_reset_marker,
+                selector_path=selector,
+                target_overrides={
+                    "kernel": kernel_target,
+                    "rootfs": rootfs_target,
+                },
+                allow_regular_targets=True,
+                allow_regular_selector_target=True,
+                public_key=public_key,
+                **transaction_runtime,
+            )
+        )
+
+        assert (
+            prepared_again["transaction"]["state"]
+            == "activation-prepared"
+        )
+
+        assert (
+            selector.read_bytes()[:512]
+            == module.selector_payload("B")
+        )
+
+        # The same transaction cannot re-enter WRITE after completion.
+        try:
+            module.write_response(
+                package,
+                [transaction_id],
+                pending_transaction_path=pending,
+                write_lock_path=temporary / "write.lock",
+                target_overrides={
+                    "kernel": kernel_target,
+                    "rootfs": rootfs_target,
+                },
+                allow_regular_targets=True,
+                public_key=public_key,
+                **transaction_runtime,
+            )
+        except ValueError as exc:
+            assert (
+                "transaction is not confirmed"
+                in str(exc)
+            )
+        else:
+            raise AssertionError(
+                "completed write unexpectedly ran twice"
+            )
+
+
+def test_reboot_boundary():
+    with tempfile.TemporaryDirectory() as temporary:
+        temporary = Path(temporary)
+
+        system = temporary / "system"
+        system.mkdir()
+
+        pending = temporary / "pending.json"
+        activation_path = (
+            system
+            / ".fre3nder-ota-activation.json"
+        )
+        reset_marker = (
+            system
+            / ".fre3nder-reset-target"
+        )
+        selector = temporary / "selector"
+        mounts = temporary / "mounts"
+
+        transaction_id = (
+            "0123456789abcdef"
+            "0123456789abcdef"
+        )
+
+        state = {
+            "api_version": 1,
+            "state": "activation-prepared",
+            "transaction_id": transaction_id,
+            "package": {
+                "path": "/ota/packages/fixture.ota",
+                "version": "2026.4.fixture",
+                "sha256": "a" * 64,
+                "size": 1234,
+            },
+            "runtime": {
+                "installed_version": "2026.3",
+                "active_slot": "A",
+                "active_root": "/dev/mmcblk0p7",
+            },
+            "target": {
+                "slot": "B",
+                "kernel": "/dev/mmcblk0p6",
+                "rootfs": "/dev/mmcblk0p8",
+            },
+            "backup_selection": {
+                "complete": True,
+                "home": {
+                    "selected": False,
+                    "target": None,
+                },
+                "sys": {
+                    "selected": False,
+                    "target": None,
+                },
+            },
+            "backup_result": {
+                "complete": True,
+                "home": {
+                    "selected": False,
+                    "target": None,
+                },
+                "sys": {
+                    "selected": False,
+                    "target": None,
+                },
+            },
+            "write_result": {
+                "complete": True,
+                "kernel": {
+                    "target": "/dev/mmcblk0p6",
+                    "size": 100,
+                    "sha256": "b" * 64,
+                },
+                "rootfs": {
+                    "target": "/dev/mmcblk0p8",
+                    "size": 200,
+                    "sha256": "c" * 64,
+                },
+            },
+            "readback_result": {
+                "complete": True,
+                "kernel": {
+                    "target": "/dev/mmcblk0p6",
+                    "size": 100,
+                    "sha256": "b" * 64,
+                },
+                "rootfs": {
+                    "target": "/dev/mmcblk0p8",
+                    "size": 200,
+                    "sha256": "c" * 64,
+                },
+            },
+            "activation": {
+                "complete": True,
+            },
+        }
+
+        pending.write_text(
+            json.dumps(state, sort_keys=True)
+            + "\n"
+        )
+
+        activation = module.build_activation_record(
+            state
+        )
+        activation["state"] = "activation-prepared"
+        activation["selector_result"] = {
+            "previous_slot": "A",
+            "target_slot": "B",
+            "size": 512,
+            "sha256": module.SELECTOR_HASHES["B"],
+        }
+
+        activation_path.write_text(
+            json.dumps(
+                activation,
+                sort_keys=True,
+            )
+            + "\n"
+        )
+
+        reset_marker.write_text(
+            "RESET_ON_NEXT_BOOT_ROOT="
+            "/dev/mmcblk0p8\n"
+        )
+
+        selector.write_bytes(
+            module.selector_payload("B")
+        )
+
+        mounts.write_text(
+            "overlay / overlay rw 0 0\n"
+        )
+
+        reboot_log = temporary / "reboot.log"
+        fake_reboot = temporary / "reboot"
+
+        fake_reboot.write_text(
+            "#!/bin/sh\n"
+            f"printf 'called\\n' > '{reboot_log}'\n"
+            "exit 0\n"
+        )
+        fake_reboot.chmod(0o755)
+
+        response = module.reboot_response(
+            [transaction_id],
+            pending_transaction_path=pending,
+            activation_record_path=activation_path,
+            target_reset_marker_path=reset_marker,
+            selector_path=selector,
+            mounts_path=mounts,
+            reboot_command=fake_reboot,
+            allow_regular_selector_target=True,
+        )
+
+        assert response["operation"] == "reboot"
+        assert response["state"] == "reboot-requested"
+        assert reboot_log.read_text() == "called\n"
+
+        # Missing reset marker must prevent reboot.
+        reset_marker.unlink()
+        reboot_log.unlink()
+
+        try:
+            module.reboot_response(
+                [transaction_id],
+                pending_transaction_path=pending,
+                activation_record_path=activation_path,
+                target_reset_marker_path=reset_marker,
+                selector_path=selector,
+                mounts_path=mounts,
+                reboot_command=fake_reboot,
+                allow_regular_selector_target=True,
+            )
+        except ValueError as exc:
+            assert (
+                "targeted system reset marker"
+                in str(exc)
+            )
+        else:
+            raise AssertionError(
+                "reboot occurred without reset marker"
+            )
+
+        assert not reboot_log.exists()
+
+
+def test_postboot_validation():
+    with tempfile.TemporaryDirectory() as temporary:
+        temporary = Path(temporary)
+
+        system = temporary / "system"
+        system.mkdir()
+
+        activation_path = (
+            system
+            / ".fre3nder-ota-activation.json"
+        )
+        known_good_path = (
+            system
+            / ".fre3nder-ota-known-good.json"
+        )
+        reset_marker = (
+            system
+            / ".fre3nder-reset-target"
+        )
+
+        installed_version = temporary / "VERSION"
+        installed_version.write_text(
+            "2026.4.fixture\n"
+        )
+
+        root_status = temporary / "root-status"
+        root_status.write_text("active\n")
+
+        cmdline = temporary / "cmdline"
+        cmdline.write_text(
+            "console=ttyS2 root=/dev/mmcblk0p8 ro\n"
+        )
+
+        mounts = temporary / "mounts"
+        mounts.write_text(
+            "overlay / overlay rw 0 0\n"
+            "/dev/mmcblk0p8 /rom squashfs ro 0 0\n"
+            "/dev/fre3nder-home /home ext4 rw 0 0\n"
+            "/dev/fre3nder-sys "
+            "/run/fre3nder-root/system "
+            "ext4 rw 0 0\n"
+        )
+
+        selector = temporary / "selector"
+        selector.write_bytes(
+            module.selector_payload("B")
+        )
+
+        activation = {
+            "api_version": 1,
+            "state": "activation-prepared",
+            "transaction_id": (
+                "0123456789abcdef"
+                "0123456789abcdef"
+            ),
+            "package": {
+                "path": "/ota/packages/fixture.ota",
+                "version": "2026.4.fixture",
+                "sha256": "a" * 64,
+                "size": 1234,
+            },
+            "previous_runtime": {
+                "installed_version": "2026.3",
+                "active_slot": "A",
+                "active_root": "/dev/mmcblk0p7",
+            },
+            "target": {
+                "slot": "B",
+                "kernel": "/dev/mmcblk0p6",
+                "rootfs": "/dev/mmcblk0p8",
+            },
+            "write_result": {
+                "complete": True,
+                "kernel": {
+                    "target": "/dev/mmcblk0p6",
+                    "size": 100,
+                    "sha256": "b" * 64,
+                },
+                "rootfs": {
+                    "target": "/dev/mmcblk0p8",
+                    "size": 200,
+                    "sha256": "c" * 64,
+                },
+            },
+            "readback_result": {
+                "complete": True,
+                "kernel": {
+                    "target": "/dev/mmcblk0p6",
+                    "size": 100,
+                    "sha256": "b" * 64,
+                },
+                "rootfs": {
+                    "target": "/dev/mmcblk0p8",
+                    "size": 200,
+                    "sha256": "c" * 64,
+                },
+            },
+            "selector_result": {
+                "previous_slot": "A",
+                "target_slot": "B",
+                "size": 512,
+                "sha256": module.SELECTOR_HASHES["B"],
+            },
+        }
+
+        activation_path.write_text(
+            json.dumps(
+                activation,
+                sort_keys=True,
+            )
+            + "\n"
+        )
+
+        response = module.postboot_response(
+            activation_record_path=activation_path,
+            known_good_path=known_good_path,
+            installed_version_path=installed_version,
+            root_status_path=root_status,
+            cmdline_path=cmdline,
+            mounts_path=mounts,
+            selector_path=selector,
+            target_reset_marker_path=reset_marker,
+            allow_regular_selector_target=True,
+        )
+
+        assert response["state"] == "known-good"
+        assert response["slot"] == "B"
+        assert response["root"] == "/dev/mmcblk0p8"
+        assert response["version"] == "2026.4.fixture"
+
+        assert not activation_path.exists()
+
+        known_good = json.loads(
+            known_good_path.read_text()
+        )
+
+        assert known_good["state"] == "known-good"
+        assert known_good["slot"] == "B"
+        assert known_good["root"] == "/dev/mmcblk0p8"
+        assert (
+            known_good["selector"]["sha256"]
+            == module.SELECTOR_HASHES["B"]
+        )
+
+        recovering = dict(activation)
+        recovering["state"] = "preparing"
+        recovering.pop("selector_result", None)
+
+        activation_path.write_text(
+            json.dumps(
+                recovering,
+                sort_keys=True,
+            )
+            + "\n"
+        )
+
+        recovered = module.postboot_response(
+            activation_record_path=activation_path,
+            known_good_path=known_good_path,
+            installed_version_path=installed_version,
+            root_status_path=root_status,
+            cmdline_path=cmdline,
+            mounts_path=mounts,
+            selector_path=selector,
+            target_reset_marker_path=reset_marker,
+            allow_regular_selector_target=True,
+        )
+
+        assert recovered["state"] == "known-good"
+        assert recovered["slot"] == "B"
+        assert not activation_path.exists()
+
+        # Wrong boot must fail closed and retain activation.
+        activation_path.write_text(
+            json.dumps(
+                activation,
+                sort_keys=True,
+            )
+            + "\n"
+        )
+
+        cmdline.write_text(
+            "console=ttyS2 root=/dev/mmcblk0p7 ro\n"
+        )
+
+        try:
+            module.postboot_response(
+                activation_record_path=activation_path,
+                known_good_path=known_good_path,
+                installed_version_path=installed_version,
+                root_status_path=root_status,
+                cmdline_path=cmdline,
+                mounts_path=mounts,
+                selector_path=selector,
+                target_reset_marker_path=reset_marker,
+                allow_regular_selector_target=True,
+            )
+        except ValueError as exc:
+            assert (
+                "booted slot does not match"
+                in str(exc)
+            )
+        else:
+            raise AssertionError(
+                "wrong boot slot unexpectedly became known-good"
+            )
+
+        assert activation_path.exists()
+
+def test_selector_primitives():
+    assert len(module.selector_payload("A")) == 512
+    assert len(module.selector_payload("B")) == 512
+
+    assert (
+        module.classify_selector(
+            module.selector_payload("A")
+        )
+        == "A"
+    )
+
+    assert (
+        module.classify_selector(
+            module.selector_payload("B")
+        )
+        == "B"
+    )
+
+    assert (
+        module.classify_selector(
+            b"x" * 512
+        )
+        is None
+    )
+
+    with tempfile.TemporaryDirectory() as temporary:
+        temporary = Path(temporary)
+
+        selector = temporary / "selector"
+
+        # Simulate p1 while preserving bytes beyond the
+        # selector record.
+        selector.write_bytes(
+            module.selector_payload("A")
+            + b"UNCHANGED"
+        )
+
+        before_size = selector.stat().st_size
+
+        current = module.read_selector_target(
+            selector,
+            allow_regular_target=True,
+        )
+
+        assert current == {
+            "slot": "A",
+            "sha256": module.SELECTOR_HASHES["A"],
+        }
+
+        result = module.write_selector_target(
+            selector,
+            "A",
+            "B",
+            allow_regular_target=True,
+        )
+
+        assert result == {
+            "previous_slot": "A",
+            "target_slot": "B",
+            "size": 512,
+            "sha256": module.SELECTOR_HASHES["B"],
+        }
+
+        assert selector.stat().st_size == before_size
+
+        content = selector.read_bytes()
+
+        assert (
+            content[:512]
+            == module.selector_payload("B")
+        )
+        assert content[512:] == b"UNCHANGED"
+
+        # Selector and active runtime must agree before
+        # another transition is allowed.
+        try:
+            module.write_selector_target(
+                selector,
+                "A",
+                "B",
+                allow_regular_target=True,
+            )
+        except ValueError as exc:
+            assert (
+                "selector does not match the active runtime slot"
+                in str(exc)
+            )
+        else:
+            raise AssertionError(
+                "selector/runtime mismatch was accepted"
+            )
+
+        # Reverse transition proves both known payloads.
+        result = module.write_selector_target(
+            selector,
+            "B",
+            "A",
+            allow_regular_target=True,
+        )
+
+        assert result["target_slot"] == "A"
+        assert (
+            selector.read_bytes()[:512]
+            == module.selector_payload("A")
+        )
+
+
+def test_activation_handoff_primitives():
+    with tempfile.TemporaryDirectory() as temporary:
+        temporary = Path(temporary)
+
+        system = temporary / "system"
+        system.mkdir()
+
+        activation_path = (
+            system
+            / ".fre3nder-ota-activation.json"
+        )
+        marker_path = (
+            system
+            / ".fre3nder-reset-target"
+        )
+        legacy_marker = (
+            system
+            / ".fre3nder-reset"
+        )
+
+        state = {
+            "api_version": 1,
+            "state": "readback-verified",
+            "transaction_id": (
+                "0123456789abcdef"
+                "0123456789abcdef"
+            ),
+            "package": {
+                "path": "/ota/packages/fixture.ota",
+                "version": "2026.4.fixture",
+                "sha256": "a" * 64,
+                "size": 1234,
+            },
+            "runtime": {
+                "installed_version": "2026.3",
+                "active_slot": "A",
+                "active_root": "/dev/mmcblk0p7",
+            },
+            "target": {
+                "slot": "B",
+                "kernel": "/dev/mmcblk0p6",
+                "rootfs": "/dev/mmcblk0p8",
+            },
+            "write_result": {
+                "complete": True,
+                "kernel": {
+                    "target": "/dev/mmcblk0p6",
+                    "size": 100,
+                    "sha256": "b" * 64,
+                },
+                "rootfs": {
+                    "target": "/dev/mmcblk0p8",
+                    "size": 200,
+                    "sha256": "c" * 64,
+                },
+            },
+            "readback_result": {
+                "complete": True,
+                "kernel": {
+                    "target": "/dev/mmcblk0p6",
+                    "size": 100,
+                    "sha256": "b" * 64,
+                },
+                "rootfs": {
+                    "target": "/dev/mmcblk0p8",
+                    "size": 200,
+                    "sha256": "c" * 64,
+                },
+            },
+        }
+
+        record = module.build_activation_record(
+            state
+        )
+
+        assert record["state"] == "preparing"
+        assert (
+            record["transaction_id"]
+            == state["transaction_id"]
+        )
+        assert (
+            record["previous_runtime"]
+            == state["runtime"]
+        )
+        assert record["target"] == state["target"]
+
+        stored = module.write_activation_record(
+            record,
+            activation_path,
+        )
+
+        assert stored == record
+
+        try:
+            module.ensure_new_transaction_available(
+                temporary / "new-pending.json",
+                activation_path,
+            )
+        except ValueError as exc:
+            assert (
+                "pending OTA activation requires recovery"
+                in str(exc)
+            )
+        else:
+            raise AssertionError(
+                "new transaction ignored persistent activation"
+            )
+        assert (
+            module.load_activation_record(
+                activation_path
+            )
+            == record
+        )
+
+        # Repeating exactly the same handoff is idempotent.
+        assert (
+            module.write_activation_record(
+                record,
+                activation_path,
+            )
+            == record
+        )
+
+        conflicting = dict(record)
+        conflicting["transaction_id"] = "f" * 32
+
+        try:
+            module.write_activation_record(
+                conflicting,
+                activation_path,
+            )
+        except ValueError as exc:
+            assert (
+                "another OTA activation record"
+                in str(exc)
+            )
+        else:
+            raise AssertionError(
+                "conflicting activation record was accepted"
+            )
+
+        module.write_target_reset_marker(
+            "/dev/mmcblk0p8",
+            marker_path,
+            legacy_marker,
+        )
+
+        assert marker_path.read_text() == (
+            "RESET_ON_NEXT_BOOT_ROOT="
+            "/dev/mmcblk0p8\n"
+        )
+
+        # Same marker is also idempotent.
+        module.write_target_reset_marker(
+            "/dev/mmcblk0p8",
+            marker_path,
+            legacy_marker,
+        )
+
+        try:
+            module.write_target_reset_marker(
+                "/dev/mmcblk0p7",
+                marker_path,
+                legacy_marker,
+            )
+        except ValueError as exc:
+            assert (
+                "different targeted system reset marker"
+                in str(exc)
+            )
+        else:
+            raise AssertionError(
+                "different targeted reset marker was accepted"
+            )
+
+        marker_path.unlink()
+        legacy_marker.write_text(
+            "RESET_ON_NEXT_BOOT\n"
+        )
+
+        try:
+            module.write_target_reset_marker(
+                "/dev/mmcblk0p8",
+                marker_path,
+                legacy_marker,
+            )
+        except ValueError as exc:
+            assert (
+                "legacy system reset marker"
+                in str(exc)
+            )
+        else:
+            raise AssertionError(
+                "targeted reset ignored legacy marker"
             )
 
 
@@ -1019,10 +2177,13 @@ def expect_preflight_invalid(package, public_key, runtime, text):
 
 def main():
     assert "BR2_PACKAGE_LIBOPENSSL_BIN=y\n" in BUILDROOT_FRAGMENT.read_text()
-    test_backup_archive_primitive()
     test_backup_execution()
-    test_runtime_usb_backup_offer()
-    test_backup_plan_arguments()
+    test_partition_identity()
+    test_write_inactive_slot()
+    test_reboot_boundary()
+    test_postboot_validation()
+    test_selector_primitives()
+    test_activation_handoff_primitives()
     assert CORE.stat().st_mode & 0o111
     assert CLI.stat().st_mode & 0o111
 
@@ -1065,6 +2226,12 @@ def main():
 
         response = module.preflight_response(
             package,
+            usb_helper=make_usb_helper(
+                temporary
+                / "runtime-a"
+                / "fre3nder-usb",
+                status="absent",
+            ),
             public_key=public_key,
             **runtime,
         )

@@ -1,0 +1,27 @@
+#!/bin/sh
+
+core=/usr/libexec/fre3nder-ota-core
+record=/run/fre3nder-root/system/.fre3nder-ota-activation.json
+
+case "${1:-}" in
+start)
+    if [ ! -e "$record" ] && [ ! -L "$record" ]; then
+        exit 0
+    fi
+
+    if "$core" postboot; then
+        echo "fre3nder OTA post-boot validation: PASS"
+    else
+        echo "fre3nder OTA post-boot validation: FAIL" >&2
+        echo "activation record retained for recovery" >&2
+    fi
+    ;;
+stop)
+    ;;
+*)
+    echo "usage: $0 {start|stop}" >&2
+    exit 2
+    ;;
+esac
+
+exit 0

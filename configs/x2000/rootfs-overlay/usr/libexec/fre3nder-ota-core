@@ -1,11 +1,13 @@
 #!/usr/bin/python3
 """Fre3nder OTA core."""
 
+import fcntl
 import hashlib
 import json
 import os
 import pathlib
 import re
+import secrets
 import shutil
 import stat
 import subprocess
@@ -37,6 +39,7 @@ MAX_MANIFEST_SIZE = 64 * 1024
 MAX_CHECKSUMS_SIZE = 1024
 ED25519_SIGNATURE_SIZE = 64
 SHA256_RE = re.compile(r"[0-9a-f]{64}")
+MAX_PENDING_TRANSACTION_SIZE = 64 * 1024
 
 INSTALLED_VERSION = pathlib.Path("/usr/share/fre3nder/VERSION")
 ROOT_STATUS = pathlib.Path("/run/fre3nder-root/status")
@@ -45,10 +48,50 @@ MOUNTS = pathlib.Path("/proc/mounts")
 BLKID = pathlib.Path("/sbin/blkid")
 SYS_MOUNT = "/run/fre3nder-root/system"
 HOME_MOUNT = "/home"
-USB_MOUNT = "/run/fre3nder/usb"
-USB_STATUS = pathlib.Path("/run/fre3nder/usb-runtime/status")
-HOME_BACKUP_DIRECTORY = "/home/Fre3nderBackup"
-USB_BACKUP_DIRECTORY = "/run/fre3nder/usb/Fre3nderBackup"
+
+BACKUP_CORE = pathlib.Path(
+    os.environ.get(
+        "FRE3NDER_BACKUP_CORE",
+        pathlib.Path(__file__).resolve().with_name(
+            "fre3nder-backup-core"
+        ),
+    )
+)
+OTA_RUNTIME_DIRECTORY = pathlib.Path("/run/fre3nder/ota")
+PENDING_TRANSACTION = OTA_RUNTIME_DIRECTORY / "pending.json"
+WRITE_LOCK = OTA_RUNTIME_DIRECTORY / "write.lock"
+
+ACTIVATION_RECORD = (
+    pathlib.Path(SYS_MOUNT)
+    / ".fre3nder-ota-activation.json"
+)
+LEGACY_RESET_MARKER = (
+    pathlib.Path(SYS_MOUNT)
+    / ".fre3nder-reset"
+)
+TARGET_RESET_MARKER = (
+    pathlib.Path(SYS_MOUNT)
+    / ".fre3nder-reset-target"
+)
+MAX_ACTIVATION_RECORD_SIZE = 64 * 1024
+KNOWN_GOOD_RECORD = (
+    pathlib.Path(SYS_MOUNT)
+    / ".fre3nder-ota-known-good.json"
+)
+REBOOT_COMMAND = pathlib.Path("/sbin/reboot")
+
+SELECTOR_DEVICE = pathlib.Path("/dev/mmcblk0p1")
+SELECTOR_SIZE = 512
+SELECTOR_HASHES = {
+    "A": (
+        "ba68d7c969bfee94216c94768ec65545"
+        "cf36cb352303ab55231c78e78b51ce6b"
+    ),
+    "B": (
+        "29a335bc1f2935f9ee79955da3566d5f"
+        "70d1b0591421745395fd714c8351bdc4"
+    ),
+}
 
 SLOTS = {
     "A": {
@@ -60,6 +103,36 @@ SLOTS = {
         "rootfs": "/dev/mmcblk0p8",
     },
 }
+
+SLOT_DEVICE_METADATA = {
+    "A": {
+        "kernel": {
+            "partition": 5,
+            "sectors": 16384,
+            "partlabel": "kernel",
+        },
+        "rootfs": {
+            "partition": 7,
+            "sectors": 1024000,
+            "partlabel": "rootfs",
+        },
+    },
+    "B": {
+        "kernel": {
+            "partition": 6,
+            "sectors": 16384,
+            "partlabel": "kernel2",
+        },
+        "rootfs": {
+            "partition": 8,
+            "sectors": 1024000,
+            "partlabel": "rootfs2",
+        },
+    },
+}
+
+SYS_CLASS_BLOCK = pathlib.Path("/sys/class/block")
+PARTLABEL_DIRECTORY = pathlib.Path("/dev/disk/by-partlabel")
 
 
 def require_regular_file(path, description):
@@ -151,6 +224,19 @@ def sha256_stream(stream):
         digest.update(chunk)
         size += len(chunk)
     return digest.hexdigest(), size
+
+
+def sha256_file(path, description):
+    path = pathlib.Path(path)
+    require_regular_file(path, description)
+
+    try:
+        with path.open("rb") as stream:
+            return sha256_stream(stream)
+    except OSError as exc:
+        raise ValueError(
+            f"cannot read {description}: {path}"
+        ) from exc
 
 
 def validate_manifest(manifest, checksums, members, public_key):
@@ -362,125 +448,6 @@ def parse_mounts(text):
     return entries
 
 
-def runtime_usb_state(status, mounts):
-    if status != "mounted":
-        return {
-            "available": False,
-            "status": status,
-            "mount": None,
-        }
-
-    matches = []
-    for line in mounts.splitlines():
-        fields = line.split()
-        if len(fields) < 4:
-            continue
-
-        mounted_source = decode_mount_field(fields[0])
-        mounted_at = decode_mount_field(fields[1])
-        fs_type = fields[2]
-        options = fields[3].split(",")
-
-        if mounted_at == USB_MOUNT:
-            matches.append(
-                (mounted_source, fs_type, options)
-            )
-
-    if len(matches) != 1:
-        return {
-            "available": False,
-            "status": "mount-mismatch",
-            "mount": None,
-        }
-
-    source, fs_type, options = matches[0]
-
-    supported_filesystems = {
-        "vfat",
-        "exfat",
-        "ext4",
-        "ntfs3",
-    }
-
-    if fs_type not in supported_filesystems:
-        return {
-            "available": False,
-            "status": "unsupported-filesystem",
-            "mount": None,
-        }
-
-    if "rw" not in options:
-        return {
-            "available": False,
-            "status": "not-writable",
-            "mount": None,
-        }
-
-    return {
-        "available": True,
-        "status": "mounted",
-        "mount": USB_MOUNT,
-        "source": source,
-        "filesystem": fs_type,
-        "backup_available": fs_type != "vfat",
-    }
-
-
-def read_runtime_usb_state(
-    usb_status_path=USB_STATUS,
-    mounts_path=MOUNTS,
-):
-    try:
-        status = pathlib.Path(usb_status_path).read_text().strip()
-    except OSError:
-        status = "absent"
-
-    try:
-        mounts = pathlib.Path(mounts_path).read_text()
-    except OSError as exc:
-        raise ValueError("cannot read mount table") from exc
-
-    return runtime_usb_state(status, mounts)
-
-
-def build_backup_offer(usb):
-    usb_available = usb.get("backup_available", False)
-
-    return {
-        "selection_required": True,
-        "home": {
-            "role": "HOME",
-            "offered": usb_available,
-            "required": False,
-            "targets": ["usb"] if usb_available else [],
-        },
-        "sys": {
-            "role": "SYS",
-            "offered": True,
-            "required": False,
-            "targets": (
-                ["usb", "home"]
-                if usb_available
-                else ["home"]
-            ),
-        },
-        "targets": {
-            "home": {
-                "available": True,
-                "path": HOME_BACKUP_DIRECTORY,
-            },
-            "usb": {
-                "available": usb_available,
-                "path": (
-                    USB_BACKUP_DIRECTORY
-                    if usb_available
-                    else None
-                ),
-            },
-        },
-    }
-
-
 def require_role_mount(entries, mountpoint, source, role):
     matches = [
         (mounted_source, fs_type)
@@ -559,7 +526,6 @@ def preflight_package(
     cmdline_path=CMDLINE,
     mounts_path=MOUNTS,
     blkid_command=BLKID,
-    usb_status_path=USB_STATUS,
 ):
     manifest = verify_package(package, public_key)
 
@@ -583,13 +549,6 @@ def preflight_package(
         raise ValueError("cannot read mount table") from exc
 
     try:
-        usb_status = pathlib.Path(usb_status_path).read_text().strip()
-    except OSError:
-        usb_status = "absent"
-
-    usb = runtime_usb_state(usb_status, mounts)
-
-    try:
         result = subprocess.run(
             [str(blkid_command)],
             stdin=subprocess.DEVNULL,
@@ -603,7 +562,7 @@ def preflight_package(
     if result.returncode != 0:
         raise ValueError("cannot resolve Fre3nder persistence backends")
 
-    plan = build_preflight(
+    return build_preflight(
         manifest,
         installed_version,
         root_status,
@@ -611,8 +570,6 @@ def preflight_package(
         result.stdout,
         mounts,
     )
-    plan["usb"] = usb
-    return plan
 
 
 
@@ -636,8 +593,27 @@ def verify_response(package, public_key=TRUSTED_PUBLIC_KEY):
     }
 
 
-def preflight_response(package, **kwargs):
-    plan = preflight_package(package, **kwargs)
+def preflight_response(
+    package,
+    backup_core=BACKUP_CORE,
+    **kwargs,
+):
+    preflight_kwargs = dict(kwargs)
+
+    usb_helper = preflight_kwargs.pop(
+        "usb_helper",
+        None,
+    )
+
+    plan = preflight_package(
+        package,
+        **preflight_kwargs,
+    )
+
+    backup = backup_offer(
+        usb_helper,
+        backup_core,
+    )
 
     return {
         "api_version": API_VERSION,
@@ -672,147 +648,2083 @@ def preflight_response(package, **kwargs):
                 "action": "preserve",
             },
         },
-        "runtime_usb": plan["usb"],
-        "backup_offer": build_backup_offer(plan["usb"]),
+        "runtime_usb": backup["runtime_usb"],
+        "backup_offer": backup["backup_offer"],
     }
 
 
-def require_directory(path, description):
-    path = pathlib.Path(path)
-
-    try:
-        metadata = path.lstat()
-    except FileNotFoundError as exc:
-        raise ValueError(f"{description} is missing: {path}") from exc
-
-    if path.is_symlink() or not stat.S_ISDIR(metadata.st_mode):
-        raise ValueError(
-            f"{description} must be a directory, not a symlink: {path}"
-        )
-
-    return metadata
+BACKUP_ENVIRONMENT_KEYS = (
+    "FRE3NDER_BACKUP_VERSION",
+    "FRE3NDER_BACKUP_HOME_SOURCE",
+    "FRE3NDER_BACKUP_SYS_SOURCE",
+    "FRE3NDER_BACKUP_USB_HELPER",
+    "FRE3NDER_BACKUP_HOME_DIRECTORY",
+    "FRE3NDER_BACKUP_USB_DIRECTORY",
+    "FRE3NDER_BACKUP_EXPECTED_USB_SOURCE",
+    "FRE3NDER_BACKUP_EXPECTED_USB_FILESYSTEM",
+)
 
 
-def add_backup_tree(
-    archive,
-    source,
-    arcname,
-    root_device,
-    excluded_paths=(),
+def backup_environment(
+    version=None,
+    home_source=None,
+    sys_source=None,
+    usb_helper=None,
+    home_backup_directory=None,
+    usb_backup_directory=None,
+    expected_usb=None,
 ):
-    if source in excluded_paths:
-        return
+    values = {
+        "FRE3NDER_BACKUP_VERSION": version,
+        "FRE3NDER_BACKUP_HOME_SOURCE": home_source,
+        "FRE3NDER_BACKUP_SYS_SOURCE": sys_source,
+        "FRE3NDER_BACKUP_USB_HELPER": usb_helper,
+        "FRE3NDER_BACKUP_HOME_DIRECTORY": home_backup_directory,
+        "FRE3NDER_BACKUP_USB_DIRECTORY": usb_backup_directory,
+    }
 
-    metadata = source.lstat()
+    if isinstance(expected_usb, dict):
+        source = expected_usb.get("source")
+        filesystem = expected_usb.get("filesystem")
 
-    if metadata.st_dev != root_device:
-        return
+        if (
+            isinstance(source, str)
+            and source
+            and isinstance(filesystem, str)
+            and filesystem
+        ):
+            values[
+                "FRE3NDER_BACKUP_EXPECTED_USB_SOURCE"
+            ] = source
+            values[
+                "FRE3NDER_BACKUP_EXPECTED_USB_FILESYSTEM"
+            ] = filesystem
 
-    info = archive.gettarinfo(str(source), arcname=arcname)
+    return {
+        key: str(value)
+        for key, value in values.items()
+        if value is not None
+    }
 
-    if info is None:
-        return
 
-    if info.isfile():
-        with source.open("rb") as stream:
-            archive.addfile(info, stream)
-        return
+def run_backup_core(
+    operation,
+    arguments,
+    backup_core=BACKUP_CORE,
+    environment=None,
+):
+    backup_core = pathlib.Path(backup_core)
 
-    archive.addfile(info)
+    child_environment = os.environ.copy()
 
-    if not info.isdir():
-        return
+    # Caller environment must never redirect privileged backup
+    # paths implicitly. Only explicit adapter values below apply.
+    for key in BACKUP_ENVIRONMENT_KEYS:
+        child_environment.pop(key, None)
+
+    if environment:
+        child_environment.update(environment)
 
     try:
-        children = sorted(source.iterdir(), key=lambda child: child.name)
+        result = subprocess.run(
+            [
+                str(backup_core),
+                operation,
+                *map(str, arguments),
+            ],
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            text=True,
+            check=False,
+            env=child_environment,
+        )
     except OSError as exc:
-        raise ValueError(f"cannot read backup source: {source}") from exc
+        raise ValueError(
+            f"cannot execute backup core: {backup_core}"
+        ) from exc
 
-    for child in children:
-        try:
-            child_metadata = child.lstat()
-        except OSError as exc:
-            raise ValueError(f"cannot inspect backup source: {child}") from exc
+    try:
+        response = json.loads(result.stdout)
+    except json.JSONDecodeError as exc:
+        raise ValueError(
+            "backup core returned invalid JSON"
+        ) from exc
 
-        if child_metadata.st_dev != root_device:
-            continue
+    if not isinstance(response, dict):
+        raise ValueError(
+            "backup core returned an invalid response"
+        )
 
-        add_backup_tree(
-            archive,
-            child,
-            f"{arcname}/{child.name}",
-            root_device,
-            excluded_paths,
+    if (
+        response.get("api_version") != API_VERSION
+        or response.get("operation") != operation
+    ):
+        raise ValueError(
+            "backup core returned an incompatible response"
+        )
+
+    if (
+        result.returncode != 0
+        or response.get("ok") is not True
+    ):
+        error = response.get(
+            "error",
+            "backup operation failed",
+        )
+
+        if not isinstance(error, str):
+            error = "backup operation failed"
+
+        raise ValueError(error)
+
+    return response
+
+
+def backup_offer(
+    usb_helper=None,
+    backup_core=BACKUP_CORE,
+):
+    response = run_backup_core(
+        "offer",
+        (),
+        backup_core,
+        backup_environment(
+            usb_helper=usb_helper,
+        ),
+    )
+
+    if (
+        not isinstance(
+            response.get("runtime_usb"),
+            dict,
+        )
+        or not isinstance(
+            response.get("backup_offer"),
+            dict,
+        )
+    ):
+        raise ValueError(
+            "backup core returned invalid offer state"
+        )
+
+    return response
+
+
+def backup_plan(
+    arguments,
+    usb_helper=None,
+    backup_core=BACKUP_CORE,
+):
+    response = run_backup_core(
+        "plan",
+        arguments,
+        backup_core,
+        backup_environment(
+            usb_helper=usb_helper,
+        ),
+    )
+
+    selection = response.get(
+        "backup_selection"
+    )
+
+    if (
+        not isinstance(selection, dict)
+        or selection.get("complete") is not True
+    ):
+        raise ValueError(
+            "backup core returned invalid selection"
+        )
+
+    return response
+
+
+def backup_execute(
+    version,
+    arguments,
+    expected_usb=None,
+    home_source=None,
+    sys_source=None,
+    home_backup_directory=None,
+    usb_backup_directory=None,
+    usb_helper=None,
+    backup_core=BACKUP_CORE,
+):
+    response = run_backup_core(
+        "execute",
+        arguments,
+        backup_core,
+        backup_environment(
+            version=version,
+            home_source=home_source,
+            sys_source=sys_source,
+            usb_helper=usb_helper,
+            home_backup_directory=home_backup_directory,
+            usb_backup_directory=usb_backup_directory,
+            expected_usb=expected_usb,
+        ),
+    )
+
+    selection = response.get(
+        "backup_selection"
+    )
+    result = response.get(
+        "backup_result"
+    )
+
+    if (
+        not isinstance(selection, dict)
+        or selection.get("complete") is not True
+        or not isinstance(result, dict)
+        or result.get("complete") is not True
+    ):
+        raise ValueError(
+            "backup core returned incomplete execution"
+        )
+
+    return response
+
+
+def backup_verify(
+    archive,
+    expected_size,
+    expected_digest,
+    backup_core=BACKUP_CORE,
+):
+    response = run_backup_core(
+        "verify",
+        (
+            str(archive),
+            str(expected_size),
+            expected_digest,
+        ),
+        backup_core,
+    )
+
+    backup = response.get("backup")
+
+    if (
+        not isinstance(backup, dict)
+        or backup.get("status") != "valid"
+        or backup.get("archive") != str(archive)
+        or backup.get("size") != expected_size
+        or backup.get("sha256") != expected_digest
+    ):
+        raise ValueError(
+            "backup core returned invalid verification result"
+        )
+
+    return backup
+
+
+def ensure_new_transaction_available(
+    pending_path=PENDING_TRANSACTION,
+    activation_record_path=ACTIVATION_RECORD,
+):
+    pending_path = pathlib.Path(pending_path)
+    activation_record_path = pathlib.Path(
+        activation_record_path
+    )
+
+    if (
+        activation_record_path.exists()
+        or activation_record_path.is_symlink()
+    ):
+        raise ValueError(
+            "pending OTA activation requires recovery "
+            "before a new update"
+        )
+
+    if pending_path.exists() or pending_path.is_symlink():
+        state = load_pending_transaction(
+            pending_path
+        )
+
+        raise ValueError(
+            "another OTA transaction is already active: "
+            f"{state['state']}"
         )
 
 
-def create_backup_archive(
-    source,
-    target_directory,
-    role,
-    version,
-    excluded_paths=(),
+
+def write_pending_transaction(
+    package,
+    response,
+    path=PENDING_TRANSACTION,
 ):
-    source = pathlib.Path(source)
-    target_directory = pathlib.Path(target_directory)
-    excluded_paths = tuple(
-        pathlib.Path(item)
-        for item in excluded_paths
+    path = pathlib.Path(path)
+    package = pathlib.Path(package)
+
+    package_sha256, package_size = sha256_file(
+        package,
+        "OTA package",
     )
 
-    source_metadata = require_directory(
-        source,
-        f"{role} backup source",
-    )
-    require_directory(
-        target_directory,
-        f"{role} backup target",
-    )
+    transaction_id = secrets.token_hex(16)
 
-    safe_version = re.sub(r"[^A-Za-z0-9._-]+", "_", version)
-    if not safe_version:
-        raise ValueError("installed version is invalid for backup filename")
+    state = {
+        "api_version": API_VERSION,
+        "state": "awaiting-confirmation",
+        "transaction_id": transaction_id,
+        "package": {
+            "path": str(package.absolute()),
+            "version": response["package"]["version"],
+            "sha256": package_sha256,
+            "size": package_size,
+        },
+        "runtime": {
+            "installed_version": response["runtime"]["installed_version"],
+            "active_slot": response["runtime"]["active_slot"],
+            "active_root": response["runtime"]["active_root"],
+        },
+        "target": response["target"],
+        "backup_selection": response["backup_selection"],
+        "backup_result": response["backup_result"],
+    }
 
-    stamp = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
-    filename = f"fre3nder-{role.lower()}-{safe_version}-{stamp}.tar"
-    archive_path = target_directory / filename
+    parent = path.parent
 
-    if archive_path.exists() or archive_path.is_symlink():
-        raise ValueError(f"backup archive already exists: {archive_path}")
+    try:
+        parent.mkdir(
+            mode=0o700,
+            parents=True,
+            exist_ok=True,
+        )
+    except OSError as exc:
+        raise ValueError(
+            f"cannot create OTA runtime state directory: {parent}"
+        ) from exc
+
+    if parent.is_symlink() or not parent.is_dir():
+        raise ValueError(
+            f"OTA runtime state path is not a directory: {parent}"
+        )
 
     temporary = tempfile.NamedTemporaryFile(
-        mode="w+b",
-        prefix=f".{filename}.",
+        mode="w",
+        encoding="utf-8",
+        prefix=".pending.",
         suffix=".tmp",
-        dir=target_directory,
+        dir=parent,
         delete=False,
     )
     temporary_path = pathlib.Path(temporary.name)
 
     try:
         with temporary:
-            with tarfile.open(
-                fileobj=temporary,
-                mode="w",
-                format=tarfile.PAX_FORMAT,
-            ) as archive:
-                add_backup_tree(
-                    archive,
-                    source,
-                    role.lower(),
-                    source_metadata.st_dev,
-                    excluded_paths,
-                )
-
+            os.fchmod(temporary.fileno(), 0o600)
+            json.dump(
+                state,
+                temporary,
+                sort_keys=True,
+            )
+            temporary.write("\n")
             temporary.flush()
             os.fsync(temporary.fileno())
 
-        if archive_path.exists() or archive_path.is_symlink():
+        os.replace(temporary_path, path)
+
+    except Exception:
+        try:
+            temporary_path.unlink()
+        except OSError:
+            pass
+        raise
+
+    return {
+        "required": True,
+        "state": "awaiting-confirmation",
+        "transaction_id": transaction_id,
+    }
+
+
+def load_pending_transaction(
+    path=PENDING_TRANSACTION,
+):
+    path = pathlib.Path(path)
+
+    require_regular_file(
+        path,
+        "pending OTA transaction",
+    )
+
+    metadata = path.lstat()
+    if metadata.st_size > MAX_PENDING_TRANSACTION_SIZE:
+        raise ValueError(
+            "pending OTA transaction is too large"
+        )
+
+    try:
+        state = json.loads(path.read_text())
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ValueError(
+            "pending OTA transaction is invalid"
+        ) from exc
+
+    if not isinstance(state, dict):
+        raise ValueError(
+            "pending OTA transaction is invalid"
+        )
+
+    if state.get("api_version") != API_VERSION:
+        raise ValueError(
+            "pending OTA transaction API version is unsupported"
+        )
+
+    transaction_id = state.get("transaction_id")
+    if (
+        not isinstance(transaction_id, str)
+        or re.fullmatch(r"[0-9a-f]{32}", transaction_id)
+        is None
+    ):
+        raise ValueError(
+            "pending OTA transaction ID is invalid"
+        )
+
+    if state.get("state") not in (
+        "awaiting-confirmation",
+        "confirmed",
+        "written-awaiting-readback",
+        "readback-verified",
+        "activation-prepared",
+    ):
+        raise ValueError(
+            "pending OTA transaction state is invalid"
+        )
+
+    return state
+
+
+def verify_pending_backup_result(state):
+    selection = state.get("backup_selection")
+    result = state.get("backup_result")
+
+    if (
+        not isinstance(selection, dict)
+        or selection.get("complete") is not True
+        or not isinstance(result, dict)
+        or result.get("complete") is not True
+    ):
+        raise ValueError(
+            "pending OTA backup state is incomplete"
+        )
+
+    for role in ("home", "sys"):
+        selected = selection.get(role)
+        created = result.get(role)
+
+        if (
+            not isinstance(selected, dict)
+            or not isinstance(created, dict)
+        ):
             raise ValueError(
-                f"backup archive already exists: {archive_path}"
+                f"pending OTA {role.upper()} backup state is invalid"
             )
 
-        temporary_path.rename(archive_path)
+        is_selected = selected.get("selected")
+        target = selected.get("target")
+
+        if type(is_selected) is not bool:
+            raise ValueError(
+                f"pending OTA {role.upper()} backup selection is invalid"
+            )
+
+        if is_selected:
+            if target not in ("usb", "home"):
+                raise ValueError(
+                    f"pending OTA {role.upper()} backup target is invalid"
+                )
+        elif target is not None:
+            raise ValueError(
+                f"pending OTA {role.upper()} declined backup has a target"
+            )
+
+        if (
+            created.get("selected") != is_selected
+            or created.get("target") != target
+        ):
+            raise ValueError(
+                f"pending OTA {role.upper()} backup result is inconsistent"
+            )
+
+        if not is_selected:
+            continue
+
+        archive = created.get("archive")
+        expected_size = created.get("size")
+        expected_digest = created.get("sha256")
+
+        if (
+            not isinstance(archive, str)
+            or not archive
+            or type(expected_size) is not int
+            or expected_size < 0
+            or not isinstance(expected_digest, str)
+            or SHA256_RE.fullmatch(expected_digest) is None
+        ):
+            raise ValueError(
+                f"pending OTA {role.upper()} backup metadata is invalid"
+            )
+
+        try:
+            backup_verify(
+                pathlib.Path(archive),
+                expected_size,
+                expected_digest,
+            )
+        except ValueError as exc:
+            raise ValueError(
+                f"{role.upper()} backup archive changed after backup"
+            ) from exc
+
+
+def store_transaction_state(
+    state,
+    new_state,
+    path=PENDING_TRANSACTION,
+    extra=None,
+):
+    path = pathlib.Path(path)
+    parent = path.parent
+
+    try:
+        metadata = parent.lstat()
+    except OSError as exc:
+        raise ValueError(
+            f"OTA runtime state directory is unavailable: {parent}"
+        ) from exc
+
+    if parent.is_symlink() or not stat.S_ISDIR(metadata.st_mode):
+        raise ValueError(
+            f"OTA runtime state path is not a directory: {parent}"
+        )
+
+    updated = dict(state)
+    updated["state"] = new_state
+
+    if extra is not None:
+        updated.update(extra)
+
+    temporary = tempfile.NamedTemporaryFile(
+        mode="w",
+        encoding="utf-8",
+        prefix=".pending.",
+        suffix=".tmp",
+        dir=parent,
+        delete=False,
+    )
+    temporary_path = pathlib.Path(temporary.name)
+
+    try:
+        with temporary:
+            os.fchmod(temporary.fileno(), 0o600)
+            json.dump(
+                updated,
+                temporary,
+                sort_keys=True,
+            )
+            temporary.write("\n")
+            temporary.flush()
+            os.fsync(temporary.fileno())
+
+        os.replace(temporary_path, path)
+
+    except Exception:
+        try:
+            temporary_path.unlink()
+        except OSError:
+            pass
+        raise
+
+    return updated
+
+
+def store_confirmed_transaction(
+    state,
+    path=PENDING_TRANSACTION,
+):
+    return store_transaction_state(
+        state,
+        "confirmed",
+        path,
+    )
+
+
+def validate_transaction_binding(
+    package,
+    state,
+    **kwargs,
+):
+    response = preflight_response(
+        package,
+        **kwargs,
+    )
+
+    package_state = state.get("package")
+    runtime_state = state.get("runtime")
+    target_state = state.get("target")
+
+    if (
+        not isinstance(package_state, dict)
+        or not isinstance(runtime_state, dict)
+        or not isinstance(target_state, dict)
+    ):
+        raise ValueError(
+            "pending OTA transaction is incomplete"
+        )
+
+    package_digest, package_size = sha256_file(
+        pathlib.Path(package),
+        "OTA package",
+    )
+
+    if (
+        package_state.get("version")
+        != response["package"]["version"]
+        or package_state.get("sha256")
+        != package_digest
+        or package_state.get("size")
+        != package_size
+    ):
+        raise ValueError(
+            "OTA package changed after backup"
+        )
+
+    if runtime_state != response["runtime"]:
+        raise ValueError(
+            "OTA runtime changed after backup"
+        )
+
+    if target_state != response["target"]:
+        raise ValueError(
+            "OTA target changed after backup"
+        )
+
+    verify_pending_backup_result(state)
+
+    return response
+
+
+def confirm_response(
+    package,
+    arguments,
+    pending_transaction_path=PENDING_TRANSACTION,
+    **kwargs,
+):
+    if len(arguments) != 1:
+        raise ValueError(
+            "confirm requires exactly one transaction ID"
+        )
+
+    transaction_id = arguments[0]
+
+    state = load_pending_transaction(
+        pending_transaction_path
+    )
+
+    if state["state"] != "awaiting-confirmation":
+        raise ValueError(
+            "pending OTA transaction is not awaiting confirmation"
+        )
+
+    if transaction_id != state["transaction_id"]:
+        raise ValueError(
+            "OTA transaction ID does not match"
+        )
+
+    response = validate_transaction_binding(
+        package,
+        state,
+        **kwargs,
+    )
+
+    confirmed = store_confirmed_transaction(
+        state,
+        pending_transaction_path,
+    )
+
+    return {
+        "api_version": API_VERSION,
+        "ok": True,
+        "operation": "confirm",
+        "package": response["package"],
+        "runtime": response["runtime"],
+        "target": response["target"],
+        "confirmation": {
+            "state": confirmed["state"],
+            "transaction_id": confirmed["transaction_id"],
+        },
+    }
+
+
+def require_targets_unmounted(
+    mounts_path,
+    targets,
+):
+    try:
+        mounts = pathlib.Path(mounts_path).read_text()
+    except OSError as exc:
+        raise ValueError(
+            "cannot read mount table before OTA write"
+        ) from exc
+
+    target_paths = {
+        os.path.realpath(str(target))
+        for target in targets
+    }
+
+    for source, mounted_at, _fs_type in parse_mounts(mounts):
+        if os.path.realpath(source) in target_paths:
+            raise ValueError(
+                f"inactive OTA target is mounted: "
+                f"{source} at {mounted_at}"
+            )
+
+
+def require_write_target(
+    path,
+    description,
+    allow_regular_targets=False,
+):
+    path = pathlib.Path(path)
+
+    try:
+        metadata = path.lstat()
+    except OSError as exc:
+        raise ValueError(
+            f"{description} is unavailable: {path}"
+        ) from exc
+
+    if path.is_symlink():
+        raise ValueError(
+            f"{description} must not be a symlink: {path}"
+        )
+
+    if stat.S_ISBLK(metadata.st_mode):
+        return
+
+    if (
+        allow_regular_targets
+        and stat.S_ISREG(metadata.st_mode)
+    ):
+        return
+
+    raise ValueError(
+        f"{description} is not a block device: {path}"
+    )
+
+
+def require_identity_device(
+    path,
+    description,
+    allow_regular_target=False,
+):
+    path = pathlib.Path(path)
+
+    try:
+        metadata = path.lstat()
+    except OSError as exc:
+        raise ValueError(
+            f"{description} is unavailable: {path}"
+        ) from exc
+
+    if path.is_symlink():
+        raise ValueError(
+            f"{description} must not be a symlink: {path}"
+        )
+
+    if stat.S_ISBLK(metadata.st_mode):
+        return
+
+    if (
+        allow_regular_target
+        and stat.S_ISREG(metadata.st_mode)
+    ):
+        return
+
+    raise ValueError(
+        f"{description} is not a block device: {path}"
+    )
+
+
+def read_block_metadata(
+    sys_class_block,
+    device_name,
+    field,
+    description,
+):
+    path = (
+        pathlib.Path(sys_class_block)
+        / device_name
+        / field
+    )
+
+    try:
+        return path.read_text().strip()
+    except OSError as exc:
+        raise ValueError(
+            f"{description} metadata is unavailable: {field}"
+        ) from exc
+
+
+def validate_partition_identity(
+    device,
+    expected_partition,
+    expected_sectors,
+    expected_partlabel,
+    active_root,
+    sys_class_block=SYS_CLASS_BLOCK,
+    partlabel_directory=PARTLABEL_DIRECTORY,
+    allow_regular_target=False,
+):
+    device = pathlib.Path(device)
+    active_root = pathlib.Path(active_root)
+    sys_class_block = pathlib.Path(
+        sys_class_block
+    )
+    partlabel_directory = pathlib.Path(
+        partlabel_directory
+    )
+
+    require_identity_device(
+        device,
+        "inactive OTA target",
+        allow_regular_target,
+    )
+
+    require_identity_device(
+        active_root,
+        "active OTA root",
+        allow_regular_target,
+    )
+
+    if os.path.realpath(device) != str(device):
+        raise ValueError(
+            f"inactive OTA target identity mismatch: {device}"
+        )
+
+    if os.path.realpath(active_root) != str(active_root):
+        raise ValueError(
+            f"active OTA root identity mismatch: {active_root}"
+        )
+
+    expected_name = (
+        f"mmcblk0p{expected_partition}"
+    )
+
+    if device.name != expected_name:
+        raise ValueError(
+            "inactive OTA target partition name mismatch"
+        )
+
+    partition_number = read_block_metadata(
+        sys_class_block,
+        device.name,
+        "partition",
+        "inactive OTA target",
+    )
+
+    if partition_number != str(expected_partition):
+        raise ValueError(
+            "inactive OTA target partition number mismatch"
+        )
+
+    sector_count = read_block_metadata(
+        sys_class_block,
+        device.name,
+        "size",
+        "inactive OTA target",
+    )
+
+    if sector_count != str(expected_sectors):
+        raise ValueError(
+            "inactive OTA target size mismatch"
+        )
+
+    active_name = active_root.name
+
+    if active_name not in (
+        "mmcblk0p7",
+        "mmcblk0p8",
+    ):
+        raise ValueError(
+            "active OTA root is not p7 or p8"
+        )
+
+    expected_active_partition = (
+        "7"
+        if active_name == "mmcblk0p7"
+        else "8"
+    )
+
+    active_partition = read_block_metadata(
+        sys_class_block,
+        active_name,
+        "partition",
+        "active OTA root",
+    )
+
+    if active_partition != expected_active_partition:
+        raise ValueError(
+            "active OTA root partition number mismatch"
+        )
+
+    try:
+        target_sys = (
+            sys_class_block
+            / device.name
+        ).resolve(strict=True)
+
+        active_sys = (
+            sys_class_block
+            / active_name
+        ).resolve(strict=True)
+
+    except OSError as exc:
+        raise ValueError(
+            "cannot resolve OTA block-device topology"
+        ) from exc
+
+    if target_sys.parent != active_sys.parent:
+        raise ValueError(
+            "inactive OTA target and active root are "
+            "not on the same block device"
+        )
+
+    if (
+        partlabel_directory.exists()
+        or partlabel_directory.is_symlink()
+    ):
+        if not partlabel_directory.is_dir():
+            raise ValueError(
+                "partition-label infrastructure is invalid"
+            )
+
+        label = (
+            partlabel_directory
+            / expected_partlabel
+        )
+
+        if not (
+            label.exists()
+            or label.is_symlink()
+        ):
+            raise ValueError(
+                f"{expected_partlabel} partlabel is absent"
+            )
+
+        if (
+            os.path.realpath(label)
+            != os.path.realpath(device)
+        ):
+            raise ValueError(
+                f"{expected_partlabel} partlabel "
+                "does not resolve to OTA target"
+            )
+
+
+def validate_inactive_slot_identity(
+    response,
+    sys_class_block=SYS_CLASS_BLOCK,
+    partlabel_directory=PARTLABEL_DIRECTORY,
+):
+    runtime = response.get("runtime")
+    target = response.get("target")
+
+    if (
+        not isinstance(runtime, dict)
+        or not isinstance(target, dict)
+    ):
+        raise ValueError(
+            "OTA slot identity state is invalid"
+        )
+
+    active_slot = runtime.get("active_slot")
+    target_slot = target.get("slot")
+
+    if (
+        active_slot not in ("A", "B")
+        or target_slot not in ("A", "B")
+        or active_slot == target_slot
+    ):
+        raise ValueError(
+            "OTA active/target slot identity is invalid"
+        )
+
+    expected_target_slot = (
+        "B"
+        if active_slot == "A"
+        else "A"
+    )
+
+    if target_slot != expected_target_slot:
+        raise ValueError(
+            "OTA target is not the inactive slot"
+        )
+
+    expected_active_root = (
+        SLOTS[active_slot]["rootfs"]
+    )
+
+    if runtime.get("active_root") != expected_active_root:
+        raise ValueError(
+            "OTA active root does not match active slot"
+        )
+
+    for role in ("kernel", "rootfs"):
+        expected_device = (
+            SLOTS[target_slot][role]
+        )
+
+        if target.get(role) != expected_device:
+            raise ValueError(
+                f"OTA {role} target does not match "
+                "inactive slot"
+            )
+
+        metadata = (
+            SLOT_DEVICE_METADATA[
+                target_slot
+            ][role]
+        )
+
+        validate_partition_identity(
+            pathlib.Path(expected_device),
+            metadata["partition"],
+            metadata["sectors"],
+            metadata["partlabel"],
+            pathlib.Path(expected_active_root),
+            sys_class_block,
+            partlabel_directory,
+        )
+
+
+def target_capacity(
+    path,
+    description,
+    allow_regular_targets=False,
+):
+    require_write_target(
+        path,
+        description,
+        allow_regular_targets,
+    )
+
+    try:
+        with pathlib.Path(path).open(
+            "rb",
+            buffering=0,
+        ) as stream:
+            size = stream.seek(0, os.SEEK_END)
+    except OSError as exc:
+        raise ValueError(
+            f"cannot determine {description} size: {path}"
+        ) from exc
+
+    return size
+
+
+def write_payload_member(
+    package,
+    member_name,
+    target,
+    expected_size,
+    expected_digest,
+    allow_regular_targets=False,
+):
+    target = pathlib.Path(target)
+
+    require_write_target(
+        target,
+        f"OTA write target for {member_name}",
+        allow_regular_targets,
+    )
+
+    try:
+        archive = tarfile.open(
+            package,
+            mode="r:",
+        )
+    except (OSError, tarfile.TarError) as exc:
+        raise ValueError(
+            "cannot reopen OTA package for writing"
+        ) from exc
+
+    with archive:
+        try:
+            member = archive.getmember(member_name)
+        except KeyError as exc:
+            raise ValueError(
+                f"OTA payload is missing: {member_name}"
+            ) from exc
+
+        if (
+            not member.isfile()
+            or member.size != expected_size
+        ):
+            raise ValueError(
+                f"OTA payload changed before write: {member_name}"
+            )
+
+        source = archive.extractfile(member)
+        if source is None:
+            raise ValueError(
+                f"cannot read OTA payload: {member_name}"
+            )
+
+        digest = hashlib.sha256()
+        written = 0
+
+        try:
+            with target.open(
+                "r+b",
+                buffering=0,
+            ) as destination:
+                destination.seek(0)
+
+                while True:
+                    chunk = source.read(1024 * 1024)
+                    if not chunk:
+                        break
+
+                    view = memoryview(chunk)
+
+                    while view:
+                        count = destination.write(view)
+                        if count is None or count <= 0:
+                            raise ValueError(
+                                f"short write to OTA target: {target}"
+                            )
+                        view = view[count:]
+
+                    digest.update(chunk)
+                    written += len(chunk)
+
+                destination.flush()
+                os.fsync(destination.fileno())
+
+        except OSError as exc:
+            raise ValueError(
+                f"cannot write OTA target: {target}"
+            ) from exc
+
+    actual_digest = digest.hexdigest()
+
+    if written != expected_size:
+        raise ValueError(
+            f"OTA payload size changed during write: {member_name}"
+        )
+
+    if actual_digest != expected_digest:
+        raise ValueError(
+            f"OTA payload checksum changed during write: {member_name}"
+        )
+
+    return {
+        "size": written,
+        "sha256": actual_digest,
+    }
+
+
+def write_response(
+    package,
+    arguments,
+    pending_transaction_path=PENDING_TRANSACTION,
+    write_lock_path=WRITE_LOCK,
+    target_overrides=None,
+    allow_regular_targets=False,
+    **kwargs,
+):
+    if len(arguments) != 1:
+        raise ValueError(
+            "write requires exactly one transaction ID"
+        )
+
+    transaction_id = arguments[0]
+
+    state = load_pending_transaction(
+        pending_transaction_path
+    )
+
+    if state["state"] != "confirmed":
+        raise ValueError(
+            "pending OTA transaction is not confirmed"
+        )
+
+    if transaction_id != state["transaction_id"]:
+        raise ValueError(
+            "OTA transaction ID does not match"
+        )
+
+    response = validate_transaction_binding(
+        package,
+        state,
+        **kwargs,
+    )
+
+    manifest = verify_package(
+        package,
+        kwargs.get(
+            "public_key",
+            TRUSTED_PUBLIC_KEY,
+        ),
+    )
+
+    logical_kernel = pathlib.Path(
+        response["target"]["kernel"]
+    )
+    logical_rootfs = pathlib.Path(
+        response["target"]["rootfs"]
+    )
+
+    require_targets_unmounted(
+        kwargs.get("mounts_path", MOUNTS),
+        (
+            logical_kernel,
+            logical_rootfs,
+        ),
+    )
+
+    overrides = target_overrides or {}
+
+    kernel_target = pathlib.Path(
+        overrides.get(
+            "kernel",
+            logical_kernel,
+        )
+    )
+    rootfs_target = pathlib.Path(
+        overrides.get(
+            "rootfs",
+            logical_rootfs,
+        )
+    )
+
+    if (
+        os.path.realpath(kernel_target)
+        == os.path.realpath(rootfs_target)
+    ):
+        raise ValueError(
+            "kernel and RootFS OTA targets resolve to the same path"
+        )
+
+    kernel_size = manifest["artifact_sizes"]["kernel.uImage"]
+    rootfs_size = manifest["artifact_sizes"]["rootfs.squashfs"]
+
+    if target_capacity(
+        kernel_target,
+        "inactive kernel target",
+        allow_regular_targets,
+    ) < kernel_size:
+        raise ValueError(
+            "inactive kernel target is too small"
+        )
+
+    if target_capacity(
+        rootfs_target,
+        "inactive RootFS target",
+        allow_regular_targets,
+    ) < rootfs_size:
+        raise ValueError(
+            "inactive RootFS target is too small"
+        )
+
+    lock_path = pathlib.Path(write_lock_path)
+
+    try:
+        lock_path.parent.mkdir(
+            mode=0o700,
+            parents=True,
+            exist_ok=True,
+        )
+        lock_stream = lock_path.open("a+")
+    except OSError as exc:
+        raise ValueError(
+            "cannot open OTA write lock"
+        ) from exc
+
+    with lock_stream:
+        try:
+            fcntl.flock(
+                lock_stream.fileno(),
+                fcntl.LOCK_EX | fcntl.LOCK_NB,
+            )
+        except BlockingIOError as exc:
+            raise ValueError(
+                "another OTA write operation is active"
+            ) from exc
+
+        # RootFS first, kernel second. Activation is still untouched.
+        rootfs_result = write_payload_member(
+            package,
+            "rootfs.squashfs",
+            rootfs_target,
+            rootfs_size,
+            manifest["artifacts"]["rootfs.squashfs"],
+            allow_regular_targets,
+        )
+
+        kernel_result = write_payload_member(
+            package,
+            "kernel.uImage",
+            kernel_target,
+            kernel_size,
+            manifest["artifacts"]["kernel.uImage"],
+            allow_regular_targets,
+        )
+
+    write_result = {
+        "complete": True,
+        "kernel": {
+            "target": str(logical_kernel),
+            **kernel_result,
+        },
+        "rootfs": {
+            "target": str(logical_rootfs),
+            **rootfs_result,
+        },
+    }
+
+    updated = store_transaction_state(
+        state,
+        "written-awaiting-readback",
+        pending_transaction_path,
+        extra={
+            "write_result": write_result,
+        },
+    )
+
+    return {
+        "api_version": API_VERSION,
+        "ok": True,
+        "operation": "write",
+        "package": response["package"],
+        "runtime": response["runtime"],
+        "target": response["target"],
+        "write_result": write_result,
+        "transaction": {
+            "state": updated["state"],
+            "transaction_id": updated["transaction_id"],
+        },
+    }
+
+
+def sha256_target_prefix(
+    path,
+    size,
+    description,
+    allow_regular_targets=False,
+):
+    path = pathlib.Path(path)
+
+    require_write_target(
+        path,
+        description,
+        allow_regular_targets,
+    )
+
+    digest = hashlib.sha256()
+    remaining = size
+
+    try:
+        with path.open("rb", buffering=0) as stream:
+            while remaining:
+                chunk = stream.read(
+                    min(1024 * 1024, remaining)
+                )
+
+                if not chunk:
+                    raise ValueError(
+                        f"unexpected end of {description}: {path}"
+                    )
+
+                digest.update(chunk)
+                remaining -= len(chunk)
+
+    except OSError as exc:
+        raise ValueError(
+            f"cannot read {description}: {path}"
+        ) from exc
+
+    return {
+        "size": size,
+        "sha256": digest.hexdigest(),
+    }
+
+
+def readback_response(
+    package,
+    arguments,
+    pending_transaction_path=PENDING_TRANSACTION,
+    target_overrides=None,
+    allow_regular_targets=False,
+    **kwargs,
+):
+    if len(arguments) != 1:
+        raise ValueError(
+            "readback requires exactly one transaction ID"
+        )
+
+    transaction_id = arguments[0]
+
+    state = load_pending_transaction(
+        pending_transaction_path
+    )
+
+    if state["state"] != "written-awaiting-readback":
+        raise ValueError(
+            "pending OTA transaction is not awaiting readback"
+        )
+
+    if transaction_id != state["transaction_id"]:
+        raise ValueError(
+            "OTA transaction ID does not match"
+        )
+
+    response = validate_transaction_binding(
+        package,
+        state,
+        **kwargs,
+    )
+
+    manifest = verify_package(
+        package,
+        kwargs.get(
+            "public_key",
+            TRUSTED_PUBLIC_KEY,
+        ),
+    )
+
+    write_result = state.get("write_result")
+
+    if (
+        not isinstance(write_result, dict)
+        or write_result.get("complete") is not True
+    ):
+        raise ValueError(
+            "pending OTA write result is incomplete"
+        )
+
+    logical_kernel = pathlib.Path(
+        response["target"]["kernel"]
+    )
+    logical_rootfs = pathlib.Path(
+        response["target"]["rootfs"]
+    )
+
+    kernel_written = write_result.get("kernel")
+    rootfs_written = write_result.get("rootfs")
+
+    if (
+        not isinstance(kernel_written, dict)
+        or not isinstance(rootfs_written, dict)
+    ):
+        raise ValueError(
+            "pending OTA write result is invalid"
+        )
+
+    expected_kernel_size = (
+        manifest["artifact_sizes"]["kernel.uImage"]
+    )
+    expected_rootfs_size = (
+        manifest["artifact_sizes"]["rootfs.squashfs"]
+    )
+
+    expected_kernel_digest = (
+        manifest["artifacts"]["kernel.uImage"]
+    )
+    expected_rootfs_digest = (
+        manifest["artifacts"]["rootfs.squashfs"]
+    )
+
+    if kernel_written != {
+        "target": str(logical_kernel),
+        "size": expected_kernel_size,
+        "sha256": expected_kernel_digest,
+    }:
+        raise ValueError(
+            "recorded kernel write result does not match package"
+        )
+
+    if rootfs_written != {
+        "target": str(logical_rootfs),
+        "size": expected_rootfs_size,
+        "sha256": expected_rootfs_digest,
+    }:
+        raise ValueError(
+            "recorded RootFS write result does not match package"
+        )
+
+    require_targets_unmounted(
+        kwargs.get("mounts_path", MOUNTS),
+        (
+            logical_kernel,
+            logical_rootfs,
+        ),
+    )
+
+    overrides = target_overrides or {}
+
+    kernel_target = pathlib.Path(
+        overrides.get(
+            "kernel",
+            logical_kernel,
+        )
+    )
+    rootfs_target = pathlib.Path(
+        overrides.get(
+            "rootfs",
+            logical_rootfs,
+        )
+    )
+
+    if (
+        os.path.realpath(kernel_target)
+        == os.path.realpath(rootfs_target)
+    ):
+        raise ValueError(
+            "kernel and RootFS OTA targets resolve to the same path"
+        )
+
+    rootfs_result = sha256_target_prefix(
+        rootfs_target,
+        expected_rootfs_size,
+        "inactive RootFS readback target",
+        allow_regular_targets,
+    )
+
+    if (
+        rootfs_result["sha256"]
+        != expected_rootfs_digest
+    ):
+        raise ValueError(
+            "inactive RootFS readback checksum mismatch"
+        )
+
+    kernel_result = sha256_target_prefix(
+        kernel_target,
+        expected_kernel_size,
+        "inactive kernel readback target",
+        allow_regular_targets,
+    )
+
+    if (
+        kernel_result["sha256"]
+        != expected_kernel_digest
+    ):
+        raise ValueError(
+            "inactive kernel readback checksum mismatch"
+        )
+
+    readback_result = {
+        "complete": True,
+        "kernel": {
+            "target": str(logical_kernel),
+            **kernel_result,
+        },
+        "rootfs": {
+            "target": str(logical_rootfs),
+            **rootfs_result,
+        },
+    }
+
+    updated = store_transaction_state(
+        state,
+        "readback-verified",
+        pending_transaction_path,
+        extra={
+            "readback_result": readback_result,
+        },
+    )
+
+    return {
+        "api_version": API_VERSION,
+        "ok": True,
+        "operation": "readback",
+        "package": response["package"],
+        "runtime": response["runtime"],
+        "target": response["target"],
+        "readback_result": readback_result,
+        "transaction": {
+            "state": updated["state"],
+            "transaction_id": updated["transaction_id"],
+        },
+    }
+
+
+def selector_payload(slot):
+    if slot == "A":
+        prefix = b"ota:kernel\n\n"
+    elif slot == "B":
+        prefix = b"ota:kernel2\n\n"
+    else:
+        raise ValueError(
+            f"invalid selector slot: {slot}"
+        )
+
+    payload = (
+        prefix
+        + b"\x00" * (SELECTOR_SIZE - len(prefix))
+    )
+
+    digest = hashlib.sha256(payload).hexdigest()
+
+    if digest != SELECTOR_HASHES[slot]:
+        raise ValueError(
+            f"internal selector payload mismatch for slot {slot}"
+        )
+
+    return payload
+
+
+def classify_selector(payload):
+    if len(payload) != SELECTOR_SIZE:
+        return None
+
+    digest = hashlib.sha256(payload).hexdigest()
+
+    for slot, expected in SELECTOR_HASHES.items():
+        if digest == expected:
+            return slot
+
+    return None
+
+
+def read_selector_target(
+    path,
+    allow_regular_target=False,
+):
+    path = pathlib.Path(path)
+
+    try:
+        metadata = path.lstat()
+    except OSError as exc:
+        raise ValueError(
+            f"selector target is unavailable: {path}"
+        ) from exc
+
+    if path.is_symlink():
+        raise ValueError(
+            f"selector target must not be a symlink: {path}"
+        )
+
+    if stat.S_ISBLK(metadata.st_mode):
+        pass
+    elif (
+        allow_regular_target
+        and stat.S_ISREG(metadata.st_mode)
+    ):
+        pass
+    else:
+        raise ValueError(
+            f"selector target is not a block device: {path}"
+        )
+
+    try:
+        with path.open("rb", buffering=0) as stream:
+            payload = stream.read(SELECTOR_SIZE)
+    except OSError as exc:
+        raise ValueError(
+            f"cannot read selector target: {path}"
+        ) from exc
+
+    if len(payload) != SELECTOR_SIZE:
+        raise ValueError(
+            "cannot read exact 512-byte selector record"
+        )
+
+    slot = classify_selector(payload)
+
+    if slot is None:
+        raise ValueError(
+            "current selector classification is unknown"
+        )
+
+    return {
+        "slot": slot,
+        "sha256": hashlib.sha256(
+            payload
+        ).hexdigest(),
+    }
+
+
+def write_selector_target(
+    path,
+    active_slot,
+    target_slot,
+    allow_regular_target=False,
+):
+    path = pathlib.Path(path)
+
+    if active_slot not in ("A", "B"):
+        raise ValueError(
+            f"invalid active selector slot: {active_slot}"
+        )
+
+    if target_slot not in ("A", "B"):
+        raise ValueError(
+            f"invalid target selector slot: {target_slot}"
+        )
+
+    if active_slot == target_slot:
+        raise ValueError(
+            "selector target slot equals active slot"
+        )
+
+    current = read_selector_target(
+        path,
+        allow_regular_target,
+    )
+
+    if current["slot"] != active_slot:
+        raise ValueError(
+            "selector does not match the active runtime slot"
+        )
+
+    payload = selector_payload(target_slot)
+
+    try:
+        with path.open("r+b", buffering=0) as stream:
+            stream.seek(0)
+
+            view = memoryview(payload)
+
+            while view:
+                written = stream.write(view)
+
+                if written is None or written <= 0:
+                    raise ValueError(
+                        "short selector write"
+                    )
+
+                view = view[written:]
+
+            stream.flush()
+            os.fsync(stream.fileno())
+
+    except OSError as exc:
+        raise ValueError(
+            f"cannot write selector target: {path}"
+        ) from exc
+
+    readback = read_selector_target(
+        path,
+        allow_regular_target,
+    )
+
+    if (
+        readback["slot"] != target_slot
+        or readback["sha256"]
+        != SELECTOR_HASHES[target_slot]
+    ):
+        raise ValueError(
+            "selector readback verification failed"
+        )
+
+    return {
+        "previous_slot": active_slot,
+        "target_slot": target_slot,
+        "size": SELECTOR_SIZE,
+        "sha256": readback["sha256"],
+    }
+
+
+def build_activation_record(state):
+    package = state.get("package")
+    runtime = state.get("runtime")
+    target = state.get("target")
+    write_result = state.get("write_result")
+    readback_result = state.get("readback_result")
+    transaction_id = state.get("transaction_id")
+
+    if (
+        not isinstance(package, dict)
+        or not isinstance(runtime, dict)
+        or not isinstance(target, dict)
+        or not isinstance(write_result, dict)
+        or not isinstance(readback_result, dict)
+        or write_result.get("complete") is not True
+        or readback_result.get("complete") is not True
+        or not isinstance(transaction_id, str)
+        or re.fullmatch(
+            r"[0-9a-f]{32}",
+            transaction_id,
+        )
+        is None
+    ):
+        raise ValueError(
+            "OTA transaction cannot prepare activation"
+        )
+
+    return {
+        "api_version": API_VERSION,
+        "state": "preparing",
+        "transaction_id": transaction_id,
+        "package": package,
+        "previous_runtime": runtime,
+        "target": target,
+        "write_result": write_result,
+        "readback_result": readback_result,
+    }
+
+
+def load_activation_record(
+    path=ACTIVATION_RECORD,
+):
+    path = pathlib.Path(path)
+
+    require_regular_file(
+        path,
+        "OTA activation record",
+    )
+
+    try:
+        metadata = path.lstat()
+    except OSError as exc:
+        raise ValueError(
+            f"cannot inspect OTA activation record: {path}"
+        ) from exc
+
+    if metadata.st_size > MAX_ACTIVATION_RECORD_SIZE:
+        raise ValueError(
+            "OTA activation record is too large"
+        )
+
+    try:
+        record = json.loads(path.read_text())
+    except (
+        OSError,
+        UnicodeDecodeError,
+        json.JSONDecodeError,
+    ) as exc:
+        raise ValueError(
+            "OTA activation record is invalid"
+        ) from exc
+
+    if not isinstance(record, dict):
+        raise ValueError(
+            "OTA activation record is invalid"
+        )
+
+    if record.get("api_version") != API_VERSION:
+        raise ValueError(
+            "OTA activation record API version is unsupported"
+        )
+
+    if record.get("state") not in (
+        "preparing",
+        "activation-prepared",
+    ):
+        raise ValueError(
+            "OTA activation record state is invalid"
+        )
+
+    transaction_id = record.get("transaction_id")
+
+    if (
+        not isinstance(transaction_id, str)
+        or re.fullmatch(
+            r"[0-9a-f]{32}",
+            transaction_id,
+        )
+        is None
+    ):
+        raise ValueError(
+            "OTA activation record transaction ID is invalid"
+        )
+
+    return record
+
+
+def write_activation_record(
+    record,
+    path=ACTIVATION_RECORD,
+):
+    path = pathlib.Path(path)
+    parent = path.parent
+
+    try:
+        metadata = parent.lstat()
+    except OSError as exc:
+        raise ValueError(
+            f"OTA activation state directory is unavailable: {parent}"
+        ) from exc
+
+    if parent.is_symlink() or not stat.S_ISDIR(metadata.st_mode):
+        raise ValueError(
+            f"OTA activation state path is not a directory: {parent}"
+        )
+
+    if path.exists() or path.is_symlink():
+        existing = load_activation_record(path)
+
+        if existing == record:
+            return existing
+
+        raise ValueError(
+            "another OTA activation record is already pending"
+        )
+
+    temporary = tempfile.NamedTemporaryFile(
+        mode="w",
+        encoding="utf-8",
+        prefix=".fre3nder-ota-activation.",
+        suffix=".tmp",
+        dir=parent,
+        delete=False,
+    )
+    temporary_path = pathlib.Path(temporary.name)
+
+    try:
+        with temporary:
+            os.fchmod(temporary.fileno(), 0o600)
+
+            json.dump(
+                record,
+                temporary,
+                sort_keys=True,
+            )
+            temporary.write("\n")
+            temporary.flush()
+            os.fsync(temporary.fileno())
+
+        if path.exists() or path.is_symlink():
+            raise ValueError(
+                "OTA activation record appeared concurrently"
+            )
+
+        os.replace(
+            temporary_path,
+            path,
+        )
+
+        directory_fd = os.open(
+            parent,
+            os.O_RDONLY,
+        )
+
+        try:
+            os.fsync(directory_fd)
+        finally:
+            os.close(directory_fd)
+
+    except Exception:
+        try:
+            temporary_path.unlink()
+        except OSError:
+            pass
+        raise
+
+    stored = load_activation_record(path)
+
+    if stored != record:
+        raise ValueError(
+            "OTA activation record verification failed"
+        )
+
+    return stored
+
+
+def write_target_reset_marker(
+    target_root,
+    marker_path=TARGET_RESET_MARKER,
+    legacy_marker_path=LEGACY_RESET_MARKER,
+):
+    if target_root not in (
+        SLOTS["A"]["rootfs"],
+        SLOTS["B"]["rootfs"],
+    ):
+        raise ValueError(
+            f"invalid targeted reset root: {target_root}"
+        )
+
+    marker_path = pathlib.Path(marker_path)
+    legacy_marker_path = pathlib.Path(
+        legacy_marker_path
+    )
+
+    if (
+        legacy_marker_path.exists()
+        or legacy_marker_path.is_symlink()
+    ):
+        raise ValueError(
+            "legacy system reset marker is already pending"
+        )
+
+    expected = (
+        f"RESET_ON_NEXT_BOOT_ROOT={target_root}\n"
+    )
+
+    if marker_path.exists() or marker_path.is_symlink():
+        require_regular_file(
+            marker_path,
+            "targeted system reset marker",
+        )
+
+        try:
+            existing = marker_path.read_text()
+        except OSError as exc:
+            raise ValueError(
+                "cannot read targeted system reset marker"
+            ) from exc
+
+        if existing == expected:
+            return
+
+        raise ValueError(
+            "different targeted system reset marker is already pending"
+        )
+
+    parent = marker_path.parent
+
+    try:
+        metadata = parent.lstat()
+    except OSError as exc:
+        raise ValueError(
+            f"system persistence directory is unavailable: {parent}"
+        ) from exc
+
+    if parent.is_symlink() or not stat.S_ISDIR(metadata.st_mode):
+        raise ValueError(
+            f"system persistence path is not a directory: {parent}"
+        )
+
+    temporary = tempfile.NamedTemporaryFile(
+        mode="w",
+        encoding="utf-8",
+        prefix=".fre3nder-reset-target.",
+        suffix=".tmp",
+        dir=parent,
+        delete=False,
+    )
+    temporary_path = pathlib.Path(temporary.name)
+
+    try:
+        with temporary:
+            os.fchmod(temporary.fileno(), 0o600)
+            temporary.write(expected)
+            temporary.flush()
+            os.fsync(temporary.fileno())
+
+        if marker_path.exists() or marker_path.is_symlink():
+            raise ValueError(
+                "targeted system reset marker appeared concurrently"
+            )
+
+        os.replace(
+            temporary_path,
+            marker_path,
+        )
+
+        directory_fd = os.open(
+            parent,
+            os.O_RDONLY,
+        )
+
+        try:
+            os.fsync(directory_fd)
+        finally:
+            os.close(directory_fd)
 
     except Exception:
         try:
@@ -822,267 +2734,1309 @@ def create_backup_archive(
         raise
 
     try:
-        with archive_path.open("rb") as stream:
-            digest, size = sha256_stream(stream)
+        actual = marker_path.read_text()
     except OSError as exc:
         raise ValueError(
-            f"cannot verify created backup archive: {archive_path}"
+            "cannot verify targeted system reset marker"
         ) from exc
 
-    return {
-        "archive": str(archive_path),
-        "size": size,
-        "sha256": digest,
-    }
+    if actual != expected:
+        raise ValueError(
+            "targeted system reset marker verification failed"
+        )
 
 
-def ensure_backup_directory(path):
+def activation_record_matches(
+    existing,
+    expected,
+):
+    keys = (
+        "api_version",
+        "transaction_id",
+        "package",
+        "previous_runtime",
+        "target",
+        "write_result",
+        "readback_result",
+    )
+
+    return all(
+        existing.get(key) == expected.get(key)
+        for key in keys
+    )
+
+
+def advance_activation_record(
+    expected,
+    selector_result,
+    path=ACTIVATION_RECORD,
+):
     path = pathlib.Path(path)
 
-    if path.exists() or path.is_symlink():
-        require_directory(path, "backup directory")
-        return path
+    existing = load_activation_record(path)
 
-    try:
-        path.mkdir(mode=0o700)
-    except OSError as exc:
+    if not activation_record_matches(
+        existing,
+        expected,
+    ):
         raise ValueError(
-            f"cannot create backup directory: {path}"
-        ) from exc
+            "OTA activation record differs from transaction"
+        )
 
-    return path
-
-
-def parse_backup_plan_args(arguments, backup_offer):
-    home = None
-    sys_backup = None
-    index = 0
-
-    while index < len(arguments):
-        argument = arguments[index]
-
-        if argument == "--home":
-            if home is not None:
-                raise ValueError("HOME backup selection specified more than once")
-            home = {
-                "selected": True,
-                "target": "usb",
-            }
-            index += 1
-            continue
-
-        if argument == "--no-home":
-            if home is not None:
-                raise ValueError("HOME backup selection specified more than once")
-            home = {
-                "selected": False,
-                "target": None,
-            }
-            index += 1
-            continue
-
-        if argument == "--sys":
-            if sys_backup is not None:
-                raise ValueError("SYS backup selection specified more than once")
-            if index + 1 >= len(arguments):
-                raise ValueError("--sys requires target usb or home")
-
-            target = arguments[index + 1]
-            if target not in ("usb", "home"):
-                raise ValueError("SYS backup target must be usb or home")
-
-            sys_backup = {
-                "selected": True,
-                "target": target,
-            }
-            index += 2
-            continue
-
-        if argument == "--no-sys":
-            if sys_backup is not None:
-                raise ValueError("SYS backup selection specified more than once")
-            sys_backup = {
-                "selected": False,
-                "target": None,
-            }
-            index += 1
-            continue
-
-        raise ValueError(f"unsupported backup selection argument: {argument}")
-
-    if home is None:
-        raise ValueError("HOME backup must be explicitly selected or declined")
-
-    if sys_backup is None:
-        raise ValueError("SYS backup must be explicitly selected or declined")
-
-    if home["selected"]:
-        home_offer = backup_offer["home"]
+    if existing["state"] == "activation-prepared":
         if (
-            home_offer["offered"] is not True
-            or "usb" not in home_offer["targets"]
+            existing.get("selector_result")
+            != selector_result
         ):
             raise ValueError(
-                "HOME backup requires a backup-capable runtime USB volume"
+                "OTA activation selector result differs"
             )
 
-    if sys_backup["selected"]:
-        if sys_backup["target"] not in backup_offer["sys"]["targets"]:
-            raise ValueError(
-                f"SYS backup target {sys_backup['target']} is not available"
+        return existing
+
+    if existing["state"] != "preparing":
+        raise ValueError(
+            "OTA activation record cannot advance"
+        )
+
+    updated = dict(existing)
+    updated["state"] = "activation-prepared"
+    updated["selector_result"] = selector_result
+
+    parent = path.parent
+
+    temporary = tempfile.NamedTemporaryFile(
+        mode="w",
+        encoding="utf-8",
+        prefix=".fre3nder-ota-activation.",
+        suffix=".tmp",
+        dir=parent,
+        delete=False,
+    )
+    temporary_path = pathlib.Path(temporary.name)
+
+    try:
+        with temporary:
+            os.fchmod(temporary.fileno(), 0o600)
+
+            json.dump(
+                updated,
+                temporary,
+                sort_keys=True,
             )
+            temporary.write("\n")
+            temporary.flush()
+            os.fsync(temporary.fileno())
+
+        os.replace(
+            temporary_path,
+            path,
+        )
+
+        directory_fd = os.open(
+            parent,
+            os.O_RDONLY,
+        )
+
+        try:
+            os.fsync(directory_fd)
+        finally:
+            os.close(directory_fd)
+
+    except Exception:
+        try:
+            temporary_path.unlink()
+        except OSError:
+            pass
+        raise
+
+    stored = load_activation_record(path)
+
+    if stored != updated:
+        raise ValueError(
+            "OTA activation record advance verification failed"
+        )
+
+    return stored
+
+
+def validate_selector_identity(
+    selector_path,
+    active_root,
+    mounts_path=MOUNTS,
+    allow_regular_target=False,
+):
+    selector_path = pathlib.Path(selector_path)
+
+    require_write_target(
+        selector_path,
+        "boot selector target",
+        allow_regular_target,
+    )
+
+    require_targets_unmounted(
+        mounts_path,
+        (selector_path,),
+    )
+
+    if allow_regular_target:
+        return
+
+    if (
+        os.path.realpath(selector_path)
+        != str(SELECTOR_DEVICE)
+    ):
+        raise ValueError(
+            "boot selector device identity mismatch"
+        )
+
+    selector_name = selector_path.name
+
+    partition_file = (
+        pathlib.Path("/sys/class/block")
+        / selector_name
+        / "partition"
+    )
+    start_file = (
+        pathlib.Path("/sys/class/block")
+        / selector_name
+        / "start"
+    )
+    size_file = (
+        pathlib.Path("/sys/class/block")
+        / selector_name
+        / "size"
+    )
+
+    try:
+        partition_number = partition_file.read_text().strip()
+        start_sector = start_file.read_text().strip()
+        sector_count = size_file.read_text().strip()
+    except OSError as exc:
+        raise ValueError(
+            "boot selector partition metadata is unavailable"
+        ) from exc
+
+    if partition_number != "1":
+        raise ValueError(
+            "boot selector is not partition 1"
+        )
+
+    if start_sector != "2048":
+        raise ValueError(
+            "boot selector start sector is unexpected"
+        )
+
+    if sector_count != "2048":
+        raise ValueError(
+            "boot selector partition size is unexpected"
+        )
+
+    partlabel_dir = pathlib.Path(
+        "/dev/disk/by-partlabel"
+    )
+
+    if (
+        partlabel_dir.exists()
+        or partlabel_dir.is_symlink()
+    ):
+        if (
+            partlabel_dir.is_symlink()
+            or not partlabel_dir.is_dir()
+        ):
+            raise ValueError(
+                "partition-label path is invalid"
+            )
+
+        ota_label = partlabel_dir / "ota"
+
+        if not (
+            ota_label.exists()
+            or ota_label.is_symlink()
+        ):
+            raise ValueError(
+                "ota partition label is absent"
+            )
+
+        if (
+            os.path.realpath(ota_label)
+            != str(SELECTOR_DEVICE)
+        ):
+            raise ValueError(
+                "ota partition label does not resolve to selector"
+            )
+
+    active_root = pathlib.Path(active_root)
+
+    if (
+        os.path.realpath(active_root)
+        != str(active_root)
+    ):
+        raise ValueError(
+            "active root device identity mismatch"
+        )
+
+    root_name = active_root.name
+
+    if root_name not in (
+        "mmcblk0p7",
+        "mmcblk0p8",
+    ):
+        raise ValueError(
+            "active root is not a Fre3nder A/B root"
+        )
+
+    root_partition_file = (
+        pathlib.Path("/sys/class/block")
+        / root_name
+        / "partition"
+    )
+
+    try:
+        root_partition = (
+            root_partition_file
+            .read_text()
+            .strip()
+        )
+    except OSError as exc:
+        raise ValueError(
+            "active root partition metadata is unavailable"
+        ) from exc
+
+    expected_root_partition = (
+        "7"
+        if root_name == "mmcblk0p7"
+        else "8"
+    )
+
+    if root_partition != expected_root_partition:
+        raise ValueError(
+            "active root partition identity mismatch"
+        )
+
+    try:
+        selector_sys = (
+            pathlib.Path("/sys/class/block")
+            / selector_name
+        ).resolve(strict=True)
+
+        root_sys = (
+            pathlib.Path("/sys/class/block")
+            / root_name
+        ).resolve(strict=True)
+
+    except OSError as exc:
+        raise ValueError(
+            "cannot resolve block-device topology"
+        ) from exc
+
+    if selector_sys.parent != root_sys.parent:
+        raise ValueError(
+            "boot selector and active root are not "
+            "on the same block device"
+        )
+
+
+def verify_activation_targets(
+    package,
+    state,
+    response,
+    target_overrides=None,
+    allow_regular_targets=False,
+    public_key=TRUSTED_PUBLIC_KEY,
+):
+    manifest = verify_package(
+        package,
+        public_key,
+    )
+
+    readback_result = state.get(
+        "readback_result"
+    )
+
+    if (
+        not isinstance(readback_result, dict)
+        or readback_result.get("complete") is not True
+    ):
+        raise ValueError(
+            "pending OTA readback result is incomplete"
+        )
+
+    logical_kernel = pathlib.Path(
+        response["target"]["kernel"]
+    )
+    logical_rootfs = pathlib.Path(
+        response["target"]["rootfs"]
+    )
+
+    expected_kernel = {
+        "target": str(logical_kernel),
+        "size": (
+            manifest["artifact_sizes"]["kernel.uImage"]
+        ),
+        "sha256": (
+            manifest["artifacts"]["kernel.uImage"]
+        ),
+    }
+
+    expected_rootfs = {
+        "target": str(logical_rootfs),
+        "size": (
+            manifest["artifact_sizes"]["rootfs.squashfs"]
+        ),
+        "sha256": (
+            manifest["artifacts"]["rootfs.squashfs"]
+        ),
+    }
+
+    if readback_result.get("kernel") != expected_kernel:
+        raise ValueError(
+            "recorded kernel readback does not match package"
+        )
+
+    if readback_result.get("rootfs") != expected_rootfs:
+        raise ValueError(
+            "recorded RootFS readback does not match package"
+        )
+
+    require_targets_unmounted(
+        response.get(
+            "_mounts_path",
+            MOUNTS,
+        ),
+        (
+            logical_kernel,
+            logical_rootfs,
+        ),
+    )
+
+    overrides = target_overrides or {}
+
+    kernel_target = pathlib.Path(
+        overrides.get(
+            "kernel",
+            logical_kernel,
+        )
+    )
+    rootfs_target = pathlib.Path(
+        overrides.get(
+            "rootfs",
+            logical_rootfs,
+        )
+    )
+
+    kernel_actual = sha256_target_prefix(
+        kernel_target,
+        expected_kernel["size"],
+        "inactive kernel activation target",
+        allow_regular_targets,
+    )
+
+    rootfs_actual = sha256_target_prefix(
+        rootfs_target,
+        expected_rootfs["size"],
+        "inactive RootFS activation target",
+        allow_regular_targets,
+    )
+
+    if (
+        kernel_actual["sha256"]
+        != expected_kernel["sha256"]
+    ):
+        raise ValueError(
+            "inactive kernel target changed after readback"
+        )
+
+    if (
+        rootfs_actual["sha256"]
+        != expected_rootfs["sha256"]
+    ):
+        raise ValueError(
+            "inactive RootFS target changed after readback"
+        )
+
+
+def prepare_activation_response(
+    package,
+    arguments,
+    pending_transaction_path=PENDING_TRANSACTION,
+    activation_record_path=ACTIVATION_RECORD,
+    target_reset_marker_path=TARGET_RESET_MARKER,
+    legacy_reset_marker_path=LEGACY_RESET_MARKER,
+    selector_path=SELECTOR_DEVICE,
+    target_overrides=None,
+    allow_regular_targets=False,
+    allow_regular_selector_target=False,
+    **kwargs,
+):
+    if len(arguments) != 1:
+        raise ValueError(
+            "prepare-activation requires exactly "
+            "one transaction ID"
+        )
+
+    transaction_id = arguments[0]
+
+    state = load_pending_transaction(
+        pending_transaction_path
+    )
+
+    if state["state"] not in (
+        "readback-verified",
+        "activation-prepared",
+    ):
+        raise ValueError(
+            "pending OTA transaction is not "
+            "ready for activation"
+        )
+
+    if transaction_id != state["transaction_id"]:
+        raise ValueError(
+            "OTA transaction ID does not match"
+        )
+
+    response = validate_transaction_binding(
+        package,
+        state,
+        **kwargs,
+    )
+
+    # Recheck the actual inactive-slot bytes immediately
+    # before making the slot bootable.
+    response["_mounts_path"] = kwargs.get(
+        "mounts_path",
+        MOUNTS,
+    )
+
+    verify_activation_targets(
+        package,
+        state,
+        response,
+        target_overrides=target_overrides,
+        allow_regular_targets=allow_regular_targets,
+        public_key=kwargs.get(
+            "public_key",
+            TRUSTED_PUBLIC_KEY,
+        ),
+    )
+
+    del response["_mounts_path"]
+
+    expected_record = build_activation_record(
+        state
+    )
+
+    activation_record_path = pathlib.Path(
+        activation_record_path
+    )
+
+    if (
+        activation_record_path.exists()
+        or activation_record_path.is_symlink()
+    ):
+        activation_record = load_activation_record(
+            activation_record_path
+        )
+
+        if not activation_record_matches(
+            activation_record,
+            expected_record,
+        ):
+            raise ValueError(
+                "another OTA activation record "
+                "is already pending"
+            )
+
+    else:
+        activation_record = write_activation_record(
+            expected_record,
+            activation_record_path,
+        )
+
+    write_target_reset_marker(
+        response["target"]["rootfs"],
+        target_reset_marker_path,
+        legacy_reset_marker_path,
+    )
+
+    validate_selector_identity(
+        selector_path,
+        response["runtime"]["active_root"],
+        kwargs.get("mounts_path", MOUNTS),
+        allow_regular_selector_target,
+    )
+
+    current_selector = read_selector_target(
+        selector_path,
+        allow_regular_selector_target,
+    )
+
+    active_slot = response["runtime"]["active_slot"]
+    target_slot = response["target"]["slot"]
+
+    if current_selector["slot"] == active_slot:
+        selector_result = write_selector_target(
+            selector_path,
+            active_slot,
+            target_slot,
+            allow_regular_selector_target,
+        )
+
+    elif current_selector["slot"] == target_slot:
+        # Recovery/idempotence case: selector write succeeded
+        # previously but later state persistence was interrupted.
+        selector_result = {
+            "previous_slot": active_slot,
+            "target_slot": target_slot,
+            "size": SELECTOR_SIZE,
+            "sha256": SELECTOR_HASHES[target_slot],
+        }
+
+    else:
+        raise ValueError(
+            "boot selector matches neither active "
+            "nor intended target slot"
+        )
+
+    activation_record = advance_activation_record(
+        expected_record,
+        selector_result,
+        activation_record_path,
+    )
+
+    activation_result = {
+        "complete": True,
+        "record": str(activation_record_path),
+        "reset_marker": str(
+            target_reset_marker_path
+        ),
+        "selector": selector_result,
+    }
+
+    updated = store_transaction_state(
+        state,
+        "activation-prepared",
+        pending_transaction_path,
+        extra={
+            "activation": activation_result,
+        },
+    )
 
     return {
-        "home": home,
-        "sys": sys_backup,
+        "api_version": API_VERSION,
+        "ok": True,
+        "operation": "prepare-activation",
+        "package": response["package"],
+        "runtime": response["runtime"],
+        "target": response["target"],
+        "activation": activation_result,
+        "transaction": {
+            "state": updated["state"],
+            "transaction_id": updated["transaction_id"],
+        },
     }
+
+
+def require_mount_contract(
+    mounts,
+    mountpoint,
+    filesystem,
+    mode,
+):
+    matches = []
+
+    for line in mounts.splitlines():
+        fields = line.split()
+
+        if len(fields) < 4:
+            continue
+
+        mounted_at = decode_mount_field(fields[1])
+
+        if mounted_at != mountpoint:
+            continue
+
+        matches.append(
+            (
+                fields[2],
+                fields[3].split(","),
+            )
+        )
+
+    if len(matches) != 1:
+        raise ValueError(
+            f"runtime mount is not unique: {mountpoint}"
+        )
+
+    actual_filesystem, options = matches[0]
+
+    if actual_filesystem != filesystem:
+        raise ValueError(
+            f"runtime mount has wrong filesystem: {mountpoint}"
+        )
+
+    if mode not in options:
+        raise ValueError(
+            f"runtime mount has wrong mode: {mountpoint}"
+        )
+
+
+def build_known_good_record(
+    activation,
+    installed_version,
+    selector,
+):
+    package = activation["package"]
+    target = activation["target"]
+
+    return {
+        "api_version": API_VERSION,
+        "state": "known-good",
+        "transaction_id": activation["transaction_id"],
+        "version": installed_version,
+        "slot": target["slot"],
+        "root": target["rootfs"],
+        "package": {
+            "version": package["version"],
+            "sha256": package["sha256"],
+            "size": package["size"],
+        },
+        "selector": selector,
+        "readback_result": activation["readback_result"],
+    }
+
+
+def write_known_good_record(
+    record,
+    path=KNOWN_GOOD_RECORD,
+):
+    path = pathlib.Path(path)
+    parent = path.parent
+
+    try:
+        metadata = parent.lstat()
+    except OSError as exc:
+        raise ValueError(
+            f"known-good state directory is unavailable: {parent}"
+        ) from exc
+
+    if parent.is_symlink() or not stat.S_ISDIR(metadata.st_mode):
+        raise ValueError(
+            f"known-good state path is not a directory: {parent}"
+        )
+
+    if path.exists() or path.is_symlink():
+        require_regular_file(
+            path,
+            "known-good OTA record",
+        )
+
+    temporary = tempfile.NamedTemporaryFile(
+        mode="w",
+        encoding="utf-8",
+        prefix=".fre3nder-ota-known-good.",
+        suffix=".tmp",
+        dir=parent,
+        delete=False,
+    )
+    temporary_path = pathlib.Path(temporary.name)
+
+    try:
+        with temporary:
+            os.fchmod(temporary.fileno(), 0o600)
+            json.dump(
+                record,
+                temporary,
+                sort_keys=True,
+            )
+            temporary.write("\n")
+            temporary.flush()
+            os.fsync(temporary.fileno())
+
+        os.replace(
+            temporary_path,
+            path,
+        )
+
+        directory_fd = os.open(
+            parent,
+            os.O_RDONLY,
+        )
+
+        try:
+            os.fsync(directory_fd)
+        finally:
+            os.close(directory_fd)
+
+    except Exception:
+        try:
+            temporary_path.unlink()
+        except OSError:
+            pass
+        raise
+
+    try:
+        stored = json.loads(path.read_text())
+    except (
+        OSError,
+        UnicodeDecodeError,
+        json.JSONDecodeError,
+    ) as exc:
+        raise ValueError(
+            "cannot verify known-good OTA record"
+        ) from exc
+
+    if stored != record:
+        raise ValueError(
+            "known-good OTA record verification failed"
+        )
+
+    return stored
+
+
+def complete_activation_record(
+    activation_record_path,
+):
+    path = pathlib.Path(activation_record_path)
+    parent = path.parent
+
+    try:
+        path.unlink()
+    except OSError as exc:
+        raise ValueError(
+            "cannot remove completed OTA activation record"
+        ) from exc
+
+    directory_fd = os.open(
+        parent,
+        os.O_RDONLY,
+    )
+
+    try:
+        os.fsync(directory_fd)
+    finally:
+        os.close(directory_fd)
+
+
+def postboot_response(
+    activation_record_path=ACTIVATION_RECORD,
+    known_good_path=KNOWN_GOOD_RECORD,
+    installed_version_path=INSTALLED_VERSION,
+    root_status_path=ROOT_STATUS,
+    cmdline_path=CMDLINE,
+    mounts_path=MOUNTS,
+    selector_path=SELECTOR_DEVICE,
+    target_reset_marker_path=TARGET_RESET_MARKER,
+    allow_regular_selector_target=False,
+):
+    activation = load_activation_record(
+        activation_record_path
+    )
+
+    if activation["state"] not in (
+        "preparing",
+        "activation-prepared",
+    ):
+        raise ValueError(
+            "OTA activation is not valid for post-boot validation"
+        )
+
+    root_status = read_single_line(
+        root_status_path,
+        "Fre3nder root status",
+    )
+
+    if root_status != "active":
+        raise ValueError(
+            f"Fre3nder writable runtime is not active: {root_status}"
+        )
+
+    try:
+        cmdline = pathlib.Path(
+            cmdline_path
+        ).read_text().strip()
+    except OSError as exc:
+        raise ValueError(
+            "cannot read kernel command line"
+        ) from exc
+
+    active_slot, _inactive_slot, active_root = (
+        discover_active_slot(cmdline)
+    )
+
+    target = activation.get("target")
+
+    if not isinstance(target, dict):
+        raise ValueError(
+            "OTA activation target is invalid"
+        )
+
+    if (
+        active_slot != target.get("slot")
+        or active_root != target.get("rootfs")
+    ):
+        raise ValueError(
+            "booted slot does not match OTA activation target"
+        )
+
+    installed_version = read_single_line(
+        installed_version_path,
+        "installed Fre3nder version",
+    )
+
+    package = activation.get("package")
+
+    if (
+        not isinstance(package, dict)
+        or installed_version != package.get("version")
+    ):
+        raise ValueError(
+            "booted Fre3nder version does not match OTA target"
+        )
+
+    try:
+        mounts = pathlib.Path(
+            mounts_path
+        ).read_text()
+    except OSError as exc:
+        raise ValueError(
+            "cannot read mount table"
+        ) from exc
+
+    require_mount_contract(
+        mounts,
+        "/",
+        "overlay",
+        "rw",
+    )
+
+    require_mount_contract(
+        mounts,
+        "/rom",
+        "squashfs",
+        "ro",
+    )
+
+    require_mount_contract(
+        mounts,
+        HOME_MOUNT,
+        "ext4",
+        "rw",
+    )
+
+    require_mount_contract(
+        mounts,
+        SYS_MOUNT,
+        "ext4",
+        "rw",
+    )
+
+    marker = pathlib.Path(
+        target_reset_marker_path
+    )
+
+    if marker.exists() or marker.is_symlink():
+        raise ValueError(
+            "targeted system reset marker was not consumed"
+        )
+
+    validate_selector_identity(
+        selector_path,
+        active_root,
+        mounts_path,
+        allow_regular_selector_target,
+    )
+
+    selector = read_selector_target(
+        selector_path,
+        allow_regular_selector_target,
+    )
+
+    if selector["slot"] != active_slot:
+        raise ValueError(
+            "boot selector does not match booted OTA slot"
+        )
+
+    previous_runtime = activation.get(
+        "previous_runtime"
+    )
+
+    if (
+        not isinstance(previous_runtime, dict)
+        or previous_runtime.get("active_slot")
+        not in ("A", "B")
+        or previous_runtime.get("active_root")
+        != SLOTS[
+            previous_runtime.get("active_slot")
+        ]["rootfs"]
+        or previous_runtime.get("active_slot")
+        == active_slot
+    ):
+        raise ValueError(
+            "previous OTA runtime state is invalid"
+        )
+
+    selector_result = activation.get(
+        "selector_result"
+    )
+
+    if activation["state"] == "preparing":
+        # Power-loss recovery: the persistent record may still
+        # say "preparing" although the selector write completed.
+        # Reaching the intended target root with its exact known
+        # selector proves that activation crossed that boundary.
+        selector_result = {
+            "previous_slot": (
+                previous_runtime["active_slot"]
+            ),
+            "target_slot": active_slot,
+            "size": SELECTOR_SIZE,
+            "sha256": selector["sha256"],
+        }
+
+    if (
+        not isinstance(selector_result, dict)
+        or selector_result.get("previous_slot")
+        != previous_runtime["active_slot"]
+        or selector_result.get("target_slot")
+        != active_slot
+        or selector_result.get("size")
+        != SELECTOR_SIZE
+        or selector_result.get("sha256")
+        != selector["sha256"]
+    ):
+        raise ValueError(
+            "boot selector differs from prepared OTA activation"
+        )
+
+    known_good = build_known_good_record(
+        activation,
+        installed_version,
+        selector,
+    )
+
+    write_known_good_record(
+        known_good,
+        known_good_path,
+    )
+
+    complete_activation_record(
+        activation_record_path
+    )
+
+    return {
+        "api_version": API_VERSION,
+        "ok": True,
+        "operation": "postboot",
+        "state": "known-good",
+        "version": installed_version,
+        "slot": active_slot,
+        "root": active_root,
+        "transaction_id": activation["transaction_id"],
+        "known_good_record": str(
+            known_good_path
+        ),
+    }
+
+
+def verify_prepared_activation(
+    state,
+    activation_record_path=ACTIVATION_RECORD,
+    target_reset_marker_path=TARGET_RESET_MARKER,
+    selector_path=SELECTOR_DEVICE,
+    mounts_path=MOUNTS,
+    allow_regular_selector_target=False,
+):
+    if state.get("state") != "activation-prepared":
+        raise ValueError(
+            "OTA transaction is not prepared for reboot"
+        )
+
+    activation = load_activation_record(
+        activation_record_path
+    )
+
+    if activation.get("state") != "activation-prepared":
+        raise ValueError(
+            "persistent OTA activation is not prepared"
+        )
+
+    expected = build_activation_record(state)
+
+    if not activation_record_matches(
+        activation,
+        expected,
+    ):
+        raise ValueError(
+            "persistent OTA activation differs from transaction"
+        )
+
+    selector_result = activation.get(
+        "selector_result"
+    )
+
+    if not isinstance(selector_result, dict):
+        raise ValueError(
+            "persistent OTA selector result is missing"
+        )
+
+    target = state.get("target")
+    runtime = state.get("runtime")
+
+    if (
+        not isinstance(target, dict)
+        or not isinstance(runtime, dict)
+    ):
+        raise ValueError(
+            "OTA transaction runtime state is invalid"
+        )
+
+    target_slot = target.get("slot")
+    active_root = runtime.get("active_root")
+
+    if (
+        target_slot not in ("A", "B")
+        or active_root
+        not in (
+            SLOTS["A"]["rootfs"],
+            SLOTS["B"]["rootfs"],
+        )
+    ):
+        raise ValueError(
+            "OTA transaction slot state is invalid"
+        )
+
+    if (
+        selector_result.get("target_slot")
+        != target_slot
+        or selector_result.get("sha256")
+        != SELECTOR_HASHES[target_slot]
+    ):
+        raise ValueError(
+            "prepared selector result does not match target slot"
+        )
+
+    marker = pathlib.Path(
+        target_reset_marker_path
+    )
+
+    require_regular_file(
+        marker,
+        "targeted system reset marker",
+    )
+
+    try:
+        marker_value = marker.read_text()
+    except OSError as exc:
+        raise ValueError(
+            "cannot read targeted system reset marker"
+        ) from exc
+
+    expected_marker = (
+        "RESET_ON_NEXT_BOOT_ROOT="
+        f"{target['rootfs']}\n"
+    )
+
+    if marker_value != expected_marker:
+        raise ValueError(
+            "targeted system reset marker does not match OTA target"
+        )
+
+    validate_selector_identity(
+        selector_path,
+        active_root,
+        mounts_path,
+        allow_regular_selector_target,
+    )
+
+    selector = read_selector_target(
+        selector_path,
+        allow_regular_selector_target,
+    )
+
+    if (
+        selector["slot"] != target_slot
+        or selector["sha256"]
+        != SELECTOR_HASHES[target_slot]
+    ):
+        raise ValueError(
+            "boot selector no longer matches prepared OTA target"
+        )
+
+    return activation
+
+
+def reboot_response(
+    arguments,
+    pending_transaction_path=PENDING_TRANSACTION,
+    activation_record_path=ACTIVATION_RECORD,
+    target_reset_marker_path=TARGET_RESET_MARKER,
+    selector_path=SELECTOR_DEVICE,
+    mounts_path=MOUNTS,
+    reboot_command=REBOOT_COMMAND,
+    allow_regular_selector_target=False,
+):
+    if len(arguments) != 1:
+        raise ValueError(
+            "reboot requires exactly one transaction ID"
+        )
+
+    transaction_id = arguments[0]
+
+    state = load_pending_transaction(
+        pending_transaction_path
+    )
+
+    if transaction_id != state.get("transaction_id"):
+        raise ValueError(
+            "OTA transaction ID does not match"
+        )
+
+    activation = verify_prepared_activation(
+        state,
+        activation_record_path,
+        target_reset_marker_path,
+        selector_path,
+        mounts_path,
+        allow_regular_selector_target,
+    )
+
+    try:
+        os.sync()
+    except OSError as exc:
+        raise ValueError(
+            "cannot synchronize filesystems before reboot"
+        ) from exc
+
+    reboot_command = pathlib.Path(
+        reboot_command
+    )
+
+    try:
+        result = subprocess.run(
+            [str(reboot_command)],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+            text=True,
+            check=False,
+        )
+    except OSError as exc:
+        raise ValueError(
+            f"cannot execute reboot command: {reboot_command}"
+        ) from exc
+
+    if result.returncode != 0:
+        raise ValueError(
+            "reboot command failed"
+        )
+
+    return {
+        "api_version": API_VERSION,
+        "ok": True,
+        "operation": "reboot",
+        "state": "reboot-requested",
+        "transaction_id": transaction_id,
+        "target": activation["target"],
+    }
+
 
 def backup_response(
     package,
     arguments,
-    home_source=pathlib.Path(HOME_MOUNT),
-    sys_source=pathlib.Path(SYS_MOUNT) / "upper",
-    home_backup_directory=pathlib.Path(HOME_BACKUP_DIRECTORY),
-    usb_backup_directory=pathlib.Path(USB_BACKUP_DIRECTORY),
+    home_source=None,
+    sys_source=None,
+    home_backup_directory=None,
+    usb_backup_directory=None,
+    pending_transaction_path=PENDING_TRANSACTION,
+    activation_record_path=ACTIVATION_RECORD,
+    backup_core=BACKUP_CORE,
     **kwargs,
 ):
-    response = preflight_response(package, **kwargs)
-    offer = response["backup_offer"]
+    pending_transaction_path = pathlib.Path(
+        pending_transaction_path
+    )
 
-    selection = parse_backup_plan_args(
+    ensure_new_transaction_available(
+        pending_transaction_path,
+        activation_record_path,
+    )
+
+    response = preflight_response(
+        package,
+        backup_core=backup_core,
+        **kwargs,
+    )
+
+    execution = backup_execute(
+        response["runtime"]["installed_version"],
         arguments,
-        offer,
+        expected_usb=response["runtime_usb"],
+        home_source=home_source,
+        sys_source=sys_source,
+        home_backup_directory=home_backup_directory,
+        usb_backup_directory=usb_backup_directory,
+        usb_helper=kwargs.get(
+            "usb_helper"
+        ),
+        backup_core=backup_core,
     )
-
-    installed_version = response["runtime"]["installed_version"]
-
-    usb_selected = (
-        selection["home"]["selected"]
-        or (
-            selection["sys"]["selected"]
-            and selection["sys"]["target"] == "usb"
-        )
-    )
-
-    if usb_selected:
-        current_usb = read_runtime_usb_state(
-            kwargs.get("usb_status_path", USB_STATUS),
-            kwargs.get("mounts_path", MOUNTS),
-        )
-        initial_usb = response["runtime_usb"]
-
-        if current_usb.get("backup_available") is not True:
-            raise ValueError(
-                "backup-capable runtime USB volume is no longer available"
-            )
-
-        if (
-            current_usb.get("source") != initial_usb.get("source")
-            or current_usb.get("filesystem")
-            != initial_usb.get("filesystem")
-        ):
-            raise ValueError(
-                "runtime USB volume changed after preflight"
-            )
-
-    home_source = pathlib.Path(home_source)
-    sys_source = pathlib.Path(sys_source)
-    home_backup_directory = pathlib.Path(home_backup_directory)
-    usb_backup_directory = pathlib.Path(usb_backup_directory)
-
-    result = {
-        "complete": False,
-        "home": {
-            "selected": selection["home"]["selected"],
-            "target": selection["home"]["target"],
-        },
-        "sys": {
-            "selected": selection["sys"]["selected"],
-            "target": selection["sys"]["target"],
-        },
-    }
-
-    # HOME deliberately runs first. SYS may subsequently write its archive
-    # below HOME, which must not become part of this HOME backup.
-    if selection["home"]["selected"]:
-        if offer["targets"]["usb"]["available"] is not True:
-            raise ValueError(
-                "HOME backup requires a backup-capable runtime USB volume"
-            )
-
-        target = ensure_backup_directory(
-            usb_backup_directory
-        )
-
-        result["home"].update(
-            create_backup_archive(
-                home_source,
-                target,
-                "HOME",
-                installed_version,
-                excluded_paths=(
-                    home_source / "Fre3nderBackup",
-                ),
-            )
-        )
-
-    if selection["sys"]["selected"]:
-        target_name = selection["sys"]["target"]
-
-        if target_name == "usb":
-            if offer["targets"]["usb"]["available"] is not True:
-                raise ValueError(
-                    "SYS USB backup target is not available"
-                )
-            target = ensure_backup_directory(
-                usb_backup_directory
-            )
-
-        elif target_name == "home":
-            target = ensure_backup_directory(
-                home_backup_directory
-            )
-
-        else:
-            raise ValueError(
-                f"unsupported SYS backup target: {target_name}"
-            )
-
-        result["sys"].update(
-            create_backup_archive(
-                sys_source,
-                target,
-                "SYS",
-                installed_version,
-            )
-        )
-
-    result["complete"] = True
 
     response["operation"] = "backup"
-    response["backup_selection"] = {
-        "complete": True,
-        "home": selection["home"],
-        "sys": selection["sys"],
-    }
-    response["backup_result"] = result
+    response["runtime_usb"] = execution[
+        "runtime_usb"
+    ]
+    response["backup_offer"] = execution[
+        "backup_offer"
+    ]
+    response["backup_selection"] = execution[
+        "backup_selection"
+    ]
+    response["backup_result"] = execution[
+        "backup_result"
+    ]
+
+    response["confirmation"] = (
+        write_pending_transaction(
+            package,
+            response,
+            pending_transaction_path,
+        )
+    )
 
     return response
 
 
-def backup_plan_response(package, arguments, **kwargs):
-    response = preflight_response(package, **kwargs)
-    selection = parse_backup_plan_args(
+def backup_plan_response(
+    package,
+    arguments,
+    backup_core=BACKUP_CORE,
+    **kwargs,
+):
+    response = preflight_response(
+        package,
+        backup_core=backup_core,
+        **kwargs,
+    )
+
+    planned = backup_plan(
         arguments,
-        response["backup_offer"],
+        usb_helper=kwargs.get(
+            "usb_helper"
+        ),
+        backup_core=backup_core,
     )
 
     response["operation"] = "backup-plan"
-    response["backup_selection"] = {
-        "complete": True,
-        "home": selection["home"],
-        "sys": selection["sys"],
-    }
+    response["runtime_usb"] = planned[
+        "runtime_usb"
+    ]
+    response["backup_offer"] = planned[
+        "backup_offer"
+    ]
+    response["backup_selection"] = planned[
+        "backup_selection"
+    ]
 
     return response
 
@@ -1097,18 +4051,76 @@ def error_response(operation, message):
 
 
 def main():
+    if (
+        len(sys.argv) == 3
+        and sys.argv[1] == "reboot"
+    ):
+        try:
+            response = reboot_response(
+                [sys.argv[2]]
+            )
+        except (OSError, ValueError) as exc:
+            print(
+                json.dumps(
+                    error_response(
+                        "reboot",
+                        exc,
+                    ),
+                    sort_keys=True,
+                )
+            )
+            return 1
+
+        print(
+            json.dumps(
+                response,
+                sort_keys=True,
+            )
+        )
+        return 0
+
+    if (
+        len(sys.argv) == 2
+        and sys.argv[1] == "postboot"
+    ):
+        try:
+            response = postboot_response()
+        except (OSError, ValueError) as exc:
+            print(
+                json.dumps(
+                    error_response(
+                        "postboot",
+                        exc,
+                    ),
+                    sort_keys=True,
+                )
+            )
+            return 1
+
+        print(
+            json.dumps(
+                response,
+                sort_keys=True,
+            )
+        )
+        return 0
+
     if len(sys.argv) < 3 or sys.argv[1] not in (
         "verify",
         "preflight",
         "backup-plan",
         "backup",
+        "confirm",
+        "write",
+        "readback",
+        "prepare-activation",
     ):
         print(
             json.dumps(
                 error_response(
                     None,
                     "usage: fre3nder-ota-core "
-                    "{verify|preflight|backup-plan|backup} "
+                    "{verify|preflight|backup-plan|backup|confirm|write|readback|prepare-activation} "
                     "<package.ota> [options]",
                 ),
                 sort_keys=True,
@@ -1139,8 +4151,19 @@ def main():
             response = preflight_response(package)
         elif operation == "backup-plan":
             response = backup_plan_response(package, arguments)
-        else:
+        elif operation == "backup":
             response = backup_response(package, arguments)
+        elif operation == "confirm":
+            response = confirm_response(package, arguments)
+        elif operation == "write":
+            response = write_response(package, arguments)
+        elif operation == "readback":
+            response = readback_response(package, arguments)
+        else:
+            response = prepare_activation_response(
+                package,
+                arguments,
+            )
     except (OSError, ValueError) as exc:
         print(json.dumps(error_response(operation, exc), sort_keys=True))
         return 1
