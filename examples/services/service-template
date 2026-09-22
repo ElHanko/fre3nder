@@ -11,7 +11,7 @@ set -eu
 case "$1" in
 install)
 	# Validate prerequisites; stage and validate software before activation.
-	# Persist app-specific desired state under /home only after success.
+	# Persist /home/fre3nder/.fre3nder/services/<name>/installed only after success.
 	echo 'implement this app install action' >&2
 	exit 1
 	;;
@@ -26,7 +26,7 @@ status)
 	exit 1
 	;;
 restore)
-	# Consult persistent desired state; reconcile only when requested there.
+	# Consult /home/fre3nder/.fre3nder/services/<name>/installed.
 	# Payload/update ownership and version semantics belong to each app.
 	echo 'implement this app restore action' >&2
 	exit 1

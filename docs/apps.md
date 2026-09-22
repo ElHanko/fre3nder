@@ -1,6 +1,7 @@
 # Installable applications
 
-Status: **HARDWARE QUALIFIED ON THE REFERENCE SYSTEM**.
+Status: **BASE APP LIFECYCLE HARDWARE QUALIFIED ON THE REFERENCE SYSTEM;
+AUTOMATIC APP RECOVERY NOT YET HARDWARE QUALIFIED**.
 
 Fre3nder supplies a common CLI frontend, `/usr/bin/fre3nder`, backed by
 `/usr/libexec/fre3nder-app-core` for application lifecycle logic. Optional
@@ -32,11 +33,12 @@ fre3nder app status fluidd
 fre3nder app restore fluidd
 ```
 
-The `app` CLI namespace accepts exactly an action and an app name. Names match
-`[a-z][a-z0-9_-]{0,63}`. Invalid calls fail with a diagnostic and nonzero exit
-code. The common CLI dispatches the request to `fre3nder-app-core`. A handler
-receives exactly one action; the app core replaces itself with that process and
-preserves its exit code. No other lifecycle or version model is imposed on apps.
+The public `app` CLI namespace accepts exactly an action and an app name. Names
+match `[a-z][a-z0-9_-]{0,63}`. Invalid calls fail with a diagnostic and nonzero
+exit code. The common CLI dispatches the request to `fre3nder-app-core`. A
+handler receives exactly one action; the app core invokes it and preserves its
+exit code. The internal `restore-installed` core action is reserved for boot-time
+desired-state recovery and is not a public CLI action.
 
 For every action, the handler is selected using the source/cache rules below
 and installed as `/opt/fre3nder/apps/<name>/service`. A handler must be regular
@@ -64,6 +66,7 @@ runtime handler.
 | Handler provenance | `/opt/fre3nder/apps/fluidd/APP_REF` | Commit of the cached executable; absent for local overrides |
 | Web payload | `/opt/fre3nder/web/fluidd` | Reconstructible system OverlayFS |
 | Desired state | `/home/fre3nder/.fre3nder/services/fluidd/installed` | Upgrade-persistent userdata |
+| Recovery completion | `/ota/apps/fluidd/restored` | Current SYS OverlayFS; cleared with the platform system overlay |
 | Owned Moonraker fragment | `/home/fre3nder/printer_data/config/fre3nder/fluidd.conf` | Upgrade-persistent userdata |
 | Platform camera fragment | `/home/fre3nder/printer_data/config/fre3nder/camera.conf` | Upgrade-persistent userdata, not Fluidd-owned |
 | Selected frontend | `/home/fre3nder/.fre3nder/frontend/active` | Upgrade-persistent frontend name |
@@ -73,8 +76,24 @@ The desired-state marker is an empty regular file. Its existence means Fluidd
 should be installed. It records no version, URL, digest, or update history.
 Payload and handler survive normal reboots, but may disappear after a
 system-overlay reset. `/home` retains the intent and configuration needed for
-explicit reconstruction. Run lifecycle commands sequentially, without a
-simultaneous Moonraker payload update.
+reconstruction.
+
+`/ota/apps/<name>/restored` is the per-app completion marker for the current
+system overlay. A successful `install` or desired `restore` writes it only after
+the app handler succeeds; `uninstall` removes it. Because it lives in the SYS
+OverlayFS, a platform update/reset removes the marker together with the
+reconstructible app payload and cached handler while leaving `/home` intent
+untouched.
+
+At boot, `S58fre3nder-app-restore` invokes the internal
+`fre3nder-app-core restore-installed` operation. Apps with a regular persistent
+`installed` marker and no current `restored` marker are restored once. Apps
+whose `restored` marker is already present are skipped, so ordinary reboots do
+not repeatedly reinstall applications. A failed restore does not create the
+marker and is therefore eligible for retry on a later boot.
+
+Run lifecycle commands sequentially, without a simultaneous Moonraker payload
+update.
 
 ## App-definition source revision
 
@@ -154,10 +173,9 @@ scripts/install-development-app --apply <printer-host> <app>
 ```
 
 After a successful install, it restarts Moonraker and then the web server. It
-does not restart Klipper. Both forms are development workflows. After a system-overlay reset, a
-separately installed application is reconstructed through the explicit
-`fre3nder app restore <app>` lifecycle. Automatic desired-state reconciliation is
-deferred beyond `2026.2`.
+does not restart Klipper. Both forms are development workflows. After a system-overlay reset, the boot-time app recovery reconciles persistent
+desired state automatically. The explicit `fre3nder app restore <app>` lifecycle
+remains available for administrator-triggered reconstruction.
 
 In summary, a clean build whose `APP_REF` names a published commit uses:
 
@@ -222,6 +240,12 @@ It restores intent, not a previous or desired Fluidd version. If bootstrap
 fails, the retained marker allows a later retry.
 Restore does not select a frontend: the existing `/home` selection survives
 an overlay reset, and a missing selection remains an explicit user choice.
+
+Boot-time recovery uses the same restore lifecycle. The generic app core scans
+only persistent regular `installed` markers and invokes `restore` for an app
+only when `/ota/apps/<name>/restored` is absent. The completion marker is written
+after successful restore, so a normal reboot becomes a no-op while a fresh SYS
+overlay reconstructs the selected apps.
 
 ### Uninstall and status
 

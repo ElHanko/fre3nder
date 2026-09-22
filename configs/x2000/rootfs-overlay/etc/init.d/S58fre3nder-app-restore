@@ -1,0 +1,47 @@
+#!/bin/sh
+
+core=${FRE3NDER_APP_CORE:-/usr/libexec/fre3nder-app-core}
+lease=${FRE3NDER_NETWORK_LEASE_FILE:-/run/fre3nder/network/lease}
+network_wait=${FRE3NDER_APP_RECOVERY_NETWORK_WAIT:-15}
+
+case "$network_wait" in
+*[!0-9]*|'') network_wait=15 ;;
+esac
+
+case "${1:-}" in
+start)
+    had_lease=false
+    [ ! -s "$lease" ] || had_lease=true
+
+    if "$core" restore-installed; then
+        echo "fre3nder app recovery: PASS"
+        exit 0
+    fi
+
+    # WLAN starts DHCP asynchronously. Retry once only when the first attempt
+    # began without a lease; the lease may appear while that attempt is running.
+    if [ "$had_lease" = false ]; then
+        seconds=0
+        while [ "$seconds" -lt "$network_wait" ] && [ ! -s "$lease" ]; do
+            sleep 1
+            seconds=$((seconds + 1))
+        done
+
+        if [ -s "$lease" ] && "$core" restore-installed; then
+            echo "fre3nder app recovery: PASS"
+            exit 0
+        fi
+    fi
+
+    echo "fre3nder app recovery: FAIL" >&2
+    ;;
+stop)
+    ;;
+*)
+    echo "usage: $0 {start|stop}" >&2
+    exit 2
+    ;;
+esac
+
+# App recovery failure must not stop the rest of the platform boot.
+exit 0

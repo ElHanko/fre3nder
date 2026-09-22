@@ -3,5 +3,6 @@ set -eu
 
 root=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
 sh -n "$root/apps/fluidd/service"
+sh -n "$root/configs/x2000/rootfs-overlay/etc/init.d/S58fre3nder-app-restore"
 sh -n "$root/examples/services/service-template"
 python3 "$root/tests/test_fre3nder_apps.py"

@@ -38,6 +38,8 @@ class AppFixtures(unittest.TestCase):
         self.web = self.root / "opt/web"
         self.payload = self.web / "fluidd"
         self.marker = self.home / ".fre3nder/services/fluidd/installed"
+        self.recovery = self.root / "ota/apps"
+        self.restored = self.recovery / "fluidd/restored"
         self.active = self.home / ".fre3nder/frontend/active"
         self.config = self.home / "printer_data/config/fre3nder/fluidd.conf"
         self.moonraker = self.home / "printer_data/config/moonraker.conf"
@@ -53,6 +55,7 @@ class AppFixtures(unittest.TestCase):
             "FRE3NDER_WEB_DIR": str(self.web),
             "FRE3NDER_APP_SOURCE_DIR": str(self.source),
             "FRE3NDER_APP_REF_FILE": str(self.ref),
+            "FRE3NDER_APP_RECOVERY_DIR": str(self.recovery),
             "FRE3NDER_FLUIDD_FIXTURE_DIR": str(self.fixtures),
             "FRE3NDER_PYTHON": sys.executable,
             "FRE3NDER_APP_CORE": str(DISPATCHER),
@@ -66,6 +69,19 @@ class AppFixtures(unittest.TestCase):
         )
         result = subprocess.run(
             command + list(args),
+            env=self.env,
+            capture_output=True,
+            text=True,
+        )
+        if ok:
+            self.assertEqual(result.returncode, 0, result.stderr)
+        else:
+            self.assertNotEqual(result.returncode, 0, result.stdout)
+        return result
+
+    def run_core(self, *args, ok=True):
+        result = subprocess.run(
+            [sys.executable, str(DISPATCHER), *args],
             env=self.env,
             capture_output=True,
             text=True,
@@ -254,9 +270,10 @@ class DispatcherTests(AppFixtures):
                         cached_ref.write_text(provenance + "\n")
                     response = io.BytesIO(new)
                     response.geturl = lambda: url
-                    with patch.dict(os.environ, self.env, clear=True), patch.object(sys, "argv", ["fre3nder", action, "sample"]), patch("urllib.request.urlopen", return_value=response) as fetch, patch("os.execv") as execute:
-                        module.main()
-                    execute.assert_called_once_with(str(target), [str(target), action])
+                    with patch.dict(os.environ, self.env, clear=True), patch.object(sys, "argv", ["fre3nder", action, "sample"]), patch("urllib.request.urlopen", return_value=response) as fetch, patch.object(module.subprocess, "run") as execute:
+                        execute.return_value.returncode = 0
+                        self.assertEqual(module.main(), 0)
+                    execute.assert_called_once_with([str(target), action], check=False)
                     if provenance == "a" * 40:
                         fetch.assert_not_called()
                         self.assertEqual(target.read_bytes(), old)
@@ -334,6 +351,74 @@ class DispatcherTests(AppFixtures):
             self.assertEqual(outside.read_text(), "keep")
             target.unlink()
 
+    def test_restore_installed_skips_completed_apps(self):
+        self.desired()
+        self.write(self.restored)
+        self.run_core("restore-installed")
+        self.assertFalse(self.apps.exists())
+        self.assertTrue(self.restored.is_file())
+
+
+class BootRecoveryTests(AppFixtures):
+    def test_boot_retries_once_when_network_lease_arrives(self):
+        init = ROOT / "configs/x2000/rootfs-overlay/etc/init.d/S58fre3nder-app-restore"
+        calls = self.root / "recovery-calls"
+        lease = self.root / "network/lease"
+        core = self.root / "fake-app-core"
+        self.write(
+            core,
+            "#!/bin/sh\n"
+            f'calls="{calls}"\n'
+            f'lease="{lease}"\n'
+            'count=0\n'
+            '[ ! -r "$calls" ] || count=$(cat "$calls")\n'
+            'count=$((count + 1))\n'
+            'printf "%s\\n" "$count" > "$calls"\n'
+            'if [ "$count" -eq 1 ]; then\n'
+            '  mkdir -p "$(dirname "$lease")"\n'
+            '  printf "wlan0\\n" > "$lease"\n'
+            '  exit 1\n'
+            'fi\n'
+            'exit 0\n',
+            executable=True,
+        )
+        env = dict(
+            self.env,
+            FRE3NDER_APP_CORE=str(core),
+            FRE3NDER_NETWORK_LEASE_FILE=str(lease),
+            FRE3NDER_APP_RECOVERY_NETWORK_WAIT="1",
+        )
+        result = subprocess.run(
+            ["sh", str(init), "start"],
+            env=env,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(calls.read_text(), "2\n")
+        self.assertIn("fre3nder app recovery: PASS", result.stdout)
+
+    def test_boot_failure_does_not_block_platform(self):
+        init = ROOT / "configs/x2000/rootfs-overlay/etc/init.d/S58fre3nder-app-restore"
+        lease = self.root / "network/lease"
+        self.write(lease, "eth0\n")
+        core = self.root / "fake-app-core"
+        self.write(core, "#!/bin/sh\nexit 23\n", executable=True)
+        env = dict(
+            self.env,
+            FRE3NDER_APP_CORE=str(core),
+            FRE3NDER_NETWORK_LEASE_FILE=str(lease),
+            FRE3NDER_APP_RECOVERY_NETWORK_WAIT="0",
+        )
+        result = subprocess.run(
+            ["sh", str(init), "start"],
+            env=env,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("fre3nder app recovery: FAIL", result.stderr)
+
 
 class FluiddTests(AppFixtures):
     def test_empty_and_desired_status(self):
@@ -374,6 +459,7 @@ class FluiddTests(AppFixtures):
             "moonraker_config": "present", "moonraker_include": "present",
         })
         self.assertEqual(self.marker.read_bytes(), b"")
+        self.assertTrue(self.restored.is_file())
         self.assertEqual(self.moonraker.read_bytes(), original)
         self.assertIn(f"path: {self.payload}\n", self.config.read_text())
         self.assertIn("repo: fluidd-core/fluidd\n", self.config.read_text())
@@ -409,11 +495,16 @@ class FluiddTests(AppFixtures):
         self.run_cli("restore", "fluidd")
         self.assertTrue(self.config.exists())
         self.assertEqual(self.state()["payload"], "present")
+        self.assertTrue(self.restored.is_file())
+
         shutil.rmtree(self.apps)
         shutil.rmtree(self.web)
-        self.run_cli("restore", "fluidd")
+        shutil.rmtree(self.recovery)
+
+        self.run_core("restore-installed")
         self.assertEqual(self.state()["app_handler"], "present")
         self.assertEqual(self.state()["payload"], "present")
+        self.assertTrue(self.restored.is_file())
 
     def test_invalid_payload_and_failed_bootstrap(self):
         self.include()
@@ -487,6 +578,7 @@ class FluiddTests(AppFixtures):
             self.run_cli("uninstall", "fluidd")
             self.assertFalse(self.payload.exists())
             self.assertFalse(self.marker.exists())
+            self.assertFalse(self.restored.exists())
             self.assertFalse(self.config.exists())
             self.assertEqual(self.moonraker.read_bytes(), original)
             self.assertEqual((self.config.parent / "other.conf").read_text(), "other config")
@@ -583,10 +675,14 @@ class FluiddTests(AppFixtures):
     def test_restore_failure_retains_desired_and_config(self):
         self.include()
         self.desired()
-        self.run_cli("restore", handler=True, ok=False)
+        source = self.source / "apps/fluidd/service"
+        source.parent.mkdir(parents=True)
+        shutil.copy2(SERVICE, source)
+        self.run_cli("restore", "fluidd", ok=False)
         self.assertTrue(self.config.is_file())
         self.assertTrue(self.marker.is_file())
         self.assertFalse(self.payload.exists())
+        self.assertFalse(self.restored.exists())
 
     def test_activation_failure_restores_previous_target(self):
         self.include()

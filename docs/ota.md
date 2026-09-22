@@ -608,7 +608,10 @@ Fre3nder reserves `/ota` for the device-side OTA workflow:
 /ota/
 ├── keys/
 │   └── public.pem
-└── packages/
+├── packages/
+└── apps/
+    └── <name>/
+        └── restored
 ```
 
 `/ota/keys/public.pem` is delivered by the immutable RootFS and is the Ed25519
@@ -618,6 +621,13 @@ SHA-256 digest of this public key as `ota_public_key_sha256`.
 `/ota/packages/` is the writable staging location for uploaded or otherwise
 locally staged `.ota` packages. Package files are runtime state in the `SYS`
 overlay; they are not persistent `HOME` data.
+
+`/ota/apps/<name>/restored` is also SYS-overlay state. It records only that an
+app whose persistent desired state lives in `HOME` has already been reconstructed
+for the current system overlay. A platform update/reset removes this marker
+together with reconstructible app files. The next boot can therefore restore
+the app once from its persistent desired state without carrying the old app
+payload across platform releases.
 
 This intentionally couples package cleanup to the existing update lifecycle.
 If verification or preflight aborts before activation, the staged package

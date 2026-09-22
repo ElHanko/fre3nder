@@ -5,9 +5,13 @@ import os
 from pathlib import Path
 import re
 import stat
+import subprocess
 import sys
 import tempfile
 import urllib.request
+
+
+APP_NAME_RE = re.compile(r"[a-z][a-z0-9_-]{0,63}")
 
 
 def safe_path(path):
@@ -18,6 +22,84 @@ def safe_path(path):
             raise ValueError(f"symlink is not allowed: {part}")
         if part != path and part.exists() and not part.is_dir():
             raise ValueError(f"not a directory: {part}")
+
+
+def desired_root():
+    home = Path(os.environ.get("FRE3NDER_HOME_DIR", "/home/fre3nder"))
+    return home / ".fre3nder/services"
+
+
+def recovery_root():
+    return Path(os.environ.get("FRE3NDER_APP_RECOVERY_DIR", "/ota/apps"))
+
+
+def desired_marker(app):
+    return desired_root() / app / "installed"
+
+
+def recovery_marker(app):
+    return recovery_root() / app / "restored"
+
+
+def marker_present(path):
+    safe_path(path.parent)
+    if path.is_symlink():
+        raise ValueError(f"symlink is not allowed: {path}")
+    if not path.exists():
+        return False
+    if not path.is_file() or not stat.S_ISREG(path.stat().st_mode):
+        raise ValueError(f"not a regular file: {path}")
+    return True
+
+
+def write_marker(path):
+    safe_path(path.parent)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    safe_path(path.parent)
+    if marker_present(path):
+        return
+    try:
+        with path.open("xb"):
+            pass
+    except FileExistsError:
+        if not marker_present(path):
+            raise
+    path.chmod(0o644)
+
+
+def remove_marker(path):
+    safe_path(path.parent)
+    if path.is_symlink():
+        path.unlink()
+        return
+    if not path.exists():
+        return
+    if not path.is_file() or not stat.S_ISREG(path.stat().st_mode):
+        raise ValueError(f"not a regular file: {path}")
+    path.unlink()
+
+
+def installed_apps():
+    root = desired_root()
+    safe_path(root)
+    if not root.exists():
+        return []
+    if not root.is_dir():
+        raise ValueError(f"not a directory: {root}")
+
+    apps = []
+    for entry in sorted(root.iterdir(), key=lambda item: item.name):
+        if not APP_NAME_RE.fullmatch(entry.name):
+            continue
+        if entry.is_symlink() or not entry.is_dir():
+            continue
+        try:
+            installed = marker_present(entry / "installed")
+        except (OSError, ValueError):
+            continue
+        if installed:
+            apps.append(entry.name)
+    return apps
 
 
 def handler_present(path):
@@ -108,23 +190,88 @@ def ensure_handler(app, target):
         load_handler(app, target, ref)
 
 
-def main():
-    if len(sys.argv) != 3 or sys.argv[1] not in (
-            "install", "uninstall", "status", "restore"):
-        raise ValueError("usage: fre3nder {install|uninstall|status|restore} <app>")
-    action, app = sys.argv[1:]
-    if not re.fullmatch(r"[a-z][a-z0-9_-]{0,63}", app):
-        raise ValueError("invalid app name: use 1–64 lowercase letters, digits, _ or -, starting with a letter")
+def run_action(action, app):
     target = Path(os.environ.get("FRE3NDER_APPS_DIR", "/opt/fre3nder/apps")) / app / "service"
     ensure_handler(app, target)
     if not handler_present(target):
         raise ValueError(f"app handler missing: {target}")
-    os.execv(str(target), [str(target), action])
+
+    # A modifying lifecycle action invalidates the current-overlay completion
+    # marker until the handler has completed successfully.
+    if action in ("install", "uninstall", "restore"):
+        remove_marker(recovery_marker(app))
+
+    result = subprocess.run([str(target), action], check=False)
+    if result.returncode != 0:
+        return result.returncode
+
+    marker = recovery_marker(app)
+    if action == "uninstall":
+        remove_marker(marker)
+    elif action in ("install", "restore"):
+        if marker_present(desired_marker(app)):
+            write_marker(marker)
+        else:
+            remove_marker(marker)
+
+    return 0
+
+
+def restore_installed():
+    failed = False
+
+    for app in installed_apps():
+        marker = recovery_marker(app)
+        try:
+            if marker_present(marker):
+                continue
+
+            returncode = run_action("restore", app)
+            if returncode != 0:
+                print(
+                    f"fre3nder: app recovery failed for {app}: exit {returncode}",
+                    file=sys.stderr,
+                )
+                failed = True
+                continue
+
+            if not marker_present(marker):
+                raise ValueError(
+                    f"restore completed without recovery marker: {marker}"
+                )
+
+            print(f"fre3nder app recovery: restored {app}")
+        except (OSError, ValueError) as exc:
+            print(f"fre3nder: app recovery failed for {app}: {exc}", file=sys.stderr)
+            failed = True
+
+    return 1 if failed else 0
+
+
+def main():
+    if len(sys.argv) == 2 and sys.argv[1] == "restore-installed":
+        return restore_installed()
+
+    if len(sys.argv) != 3 or sys.argv[1] not in (
+            "install", "uninstall", "status", "restore"):
+        raise ValueError(
+            "usage: fre3nder {install|uninstall|status|restore} <app> "
+            "or fre3nder-app-core restore-installed"
+        )
+
+    action, app = sys.argv[1:]
+    if not APP_NAME_RE.fullmatch(app):
+        raise ValueError(
+            "invalid app name: use 1–64 lowercase letters, digits, _ or -, "
+            "starting with a letter"
+        )
+
+    return run_action(action, app)
 
 
 if __name__ == "__main__":
     try:
-        main()
+        sys.exit(main())
     except (OSError, ValueError) as exc:
         print(f"fre3nder: {exc}", file=sys.stderr)
         sys.exit(1)
