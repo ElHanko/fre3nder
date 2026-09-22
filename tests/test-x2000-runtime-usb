@@ -1,0 +1,357 @@
+#!/bin/sh
+set -eu
+
+root=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+helper="$root/configs/x2000/rootfs-overlay/usr/libexec/fre3nder-usb"
+service="$root/configs/x2000/rootfs-overlay/etc/init.d/S90fre3nder-usb"
+post_build="$root/configs/x2000/rootfs-post-build.sh"
+tmp=$(mktemp -d)
+
+cleanup() {
+	rm -rf -- "$tmp"
+}
+trap cleanup EXIT HUP INT TERM
+
+state="$tmp/run/fre3nder/usb-runtime"
+mount_dir="$tmp/run/fre3nder/usb"
+dev_root="$tmp/dev"
+metadata="$tmp/metadata"
+bin="$tmp/bin"
+mounts="$tmp/proc-mounts"
+log="$tmp/log"
+
+mkdir -p "$state" "$mount_dir" "$dev_root" "$metadata" "$bin"
+: > "$mounts"
+: > "$log"
+
+cat > "$bin/blkid" <<'SH'
+#!/bin/sh
+name=${1##*/}
+file=$X2000_TEST_METADATA/$name
+[ -f "$file" ] || exit 2
+cat "$file"
+SH
+
+cat > "$bin/mount" <<'SH'
+#!/bin/sh
+set -eu
+
+fstype=
+device=
+mountpoint=
+
+while [ "$#" -gt 0 ]; do
+	case "$1" in
+	-t)
+		fstype=$2
+		shift 2
+		;;
+	-o)
+		shift 2
+		;;
+	*)
+		if [ -z "$device" ]; then
+			device=$1
+		else
+			mountpoint=$1
+		fi
+		shift
+		;;
+	esac
+done
+
+[ -n "$fstype" ]
+[ -n "$device" ]
+[ -n "$mountpoint" ]
+
+grep -v " $mountpoint " "$X2000_TEST_MOUNTS" \
+	> "$X2000_TEST_MOUNTS.tmp" || true
+mv "$X2000_TEST_MOUNTS.tmp" "$X2000_TEST_MOUNTS"
+
+printf '%s %s %s rw 0 0\n' \
+	"$device" "$mountpoint" "$fstype" \
+	>> "$X2000_TEST_MOUNTS"
+
+printf 'mount -t %s %s %s\n' \
+	"$fstype" "$device" "$mountpoint" \
+	>> "$X2000_TEST_LOG"
+SH
+
+cat > "$bin/umount" <<'SH'
+#!/bin/sh
+set -eu
+
+mountpoint=$1
+
+grep -v " $mountpoint " "$X2000_TEST_MOUNTS" \
+	> "$X2000_TEST_MOUNTS.tmp" || true
+mv "$X2000_TEST_MOUNTS.tmp" "$X2000_TEST_MOUNTS"
+
+printf 'umount %s\n' "$mountpoint" \
+	>> "$X2000_TEST_LOG"
+SH
+
+cat > "$bin/sync" <<'SH'
+#!/bin/sh
+printf 'sync\n' >> "$X2000_TEST_LOG"
+SH
+
+chmod 0755 "$bin"/*
+
+reset_case() {
+	rm -rf -- "$state" "$mount_dir" "$dev_root" "$metadata"
+	mkdir -p "$state" "$mount_dir" "$dev_root" "$metadata"
+	: > "$mounts"
+	: > "$log"
+}
+
+volume() {
+	name=$1
+	type=${2:-vfat}
+	label=${3:-USB}
+
+	: > "$dev_root/$name"
+	printf '%s: LABEL="%s" TYPE="%s"\n' \
+		"$dev_root/$name" "$label" "$type" \
+		> "$metadata/$name"
+}
+
+run_helper() {
+	devices=$1
+	command=$2
+	action=${3:-}
+	mdev=${4:-}
+
+	ACTION="$action" \
+	MDEV="$mdev" \
+	X2000_TEST_METADATA="$metadata" \
+	X2000_TEST_MOUNTS="$mounts" \
+	X2000_TEST_LOG="$log" \
+	FRE3NDER_USB_STATE="$state" \
+	FRE3NDER_USB_MOUNT="$mount_dir" \
+	FRE3NDER_DEV_ROOT="$dev_root" \
+	FRE3NDER_USB_DEVICES="$devices" \
+	FRE3NDER_BLKID="$bin/blkid" \
+	FRE3NDER_MOUNT="$bin/mount" \
+	FRE3NDER_UMOUNT="$bin/umount" \
+	FRE3NDER_SYNC="$bin/sync" \
+	FRE3NDER_MOUNTS="$mounts" \
+	"$helper" "$command"
+}
+
+run_service() {
+	devices=$1
+	command=$2
+
+	X2000_TEST_METADATA="$metadata" \
+	X2000_TEST_MOUNTS="$mounts" \
+	X2000_TEST_LOG="$log" \
+	FRE3NDER_USB_STATE="$state" \
+	FRE3NDER_USB_MOUNT="$mount_dir" \
+	FRE3NDER_DEV_ROOT="$dev_root" \
+	FRE3NDER_USB_DEVICES="$devices" \
+	FRE3NDER_BLKID="$bin/blkid" \
+	FRE3NDER_MOUNT="$bin/mount" \
+	FRE3NDER_UMOUNT="$bin/umount" \
+	FRE3NDER_SYNC="$bin/sync" \
+	FRE3NDER_MOUNTS="$mounts" \
+	FRE3NDER_USB_HELPER="$helper" \
+	"$service" "$command"
+}
+
+status_is() {
+	[ "$(cat "$state/status")" = "$1" ]
+}
+
+device_is() {
+	[ "$(cat "$state/device")" = "$1" ]
+}
+
+# The Buildroot post-build hook installs the runtime USB mdev rules as
+# fall-through matches before the generic MODALIAS rule.
+grep -Fq \
+    "disk_rule='-sd[a-z] 0:0 0660 */usr/libexec/fre3nder-usb hotplug'" \
+    "$post_build"
+
+grep -Fq \
+    "partition_rule='-sd[a-z][0-9][0-9]* 0:0 0660 */usr/libexec/fre3nder-usb hotplug'" \
+    "$post_build"
+
+grep -Fq \
+    '!inserted && /^\$MODALIAS=/' \
+    "$post_build"
+
+# Runtime events wait for an in-progress state transition rather than being
+# discarded. This matters because disk and partition hotplug events may overlap.
+reset_case
+volume sda1
+: > "$state/enabled"
+mkdir "$state/lock"
+
+(
+	sleep 1
+	rmdir "$state/lock"
+) &
+lock_release_pid=$!
+
+run_helper "$dev_root/sda1" hotplug add sda1
+wait "$lock_release_pid"
+
+status_is mounted
+device_is "$dev_root/sda1"
+grep -Fq "$dev_root/sda1 $mount_dir vfat rw" "$mounts"
+
+# A: hotplug events before S90 are ignored completely. Provisioning still owns
+# the USB lifecycle during early boot.
+reset_case
+volume sda1
+run_helper "$dev_root/sda1" hotplug add sda1
+[ ! -e "$state/status" ]
+[ ! -s "$mounts" ]
+[ ! -s "$log" ]
+
+# B: a stick already present at S90 is mounted read-write for runtime use.
+reset_case
+volume sda1
+run_service "$dev_root/sda1" start
+[ -f "$state/enabled" ]
+status_is mounted
+device_is "$dev_root/sda1"
+grep -Fq "$dev_root/sda1 $mount_dir vfat rw" "$mounts"
+grep -Fq "mount -t vfat $dev_root/sda1 $mount_dir" "$log"
+
+# C: stop disables runtime handling and cleanly unmounts the active stick.
+run_service "$dev_root/sda1" stop
+[ ! -e "$state/enabled" ]
+status_is absent
+[ ! -e "$state/device" ]
+[ ! -s "$mounts" ]
+grep -Fq "umount $mount_dir" "$log"
+
+# D: with no stick at S90, runtime starts in the explicit absent state.
+reset_case
+run_service "" start
+status_is absent
+[ -f "$state/enabled" ]
+[ ! -e "$state/device" ]
+
+# E: a later mdev add event mounts a newly inserted stick.
+volume sda1
+run_helper "$dev_root/sda1" hotplug add sda1
+status_is mounted
+device_is "$dev_root/sda1"
+grep -Fq "$dev_root/sda1 $mount_dir vfat rw" "$mounts"
+
+# F: removal of the active stick clears the runtime mount and state.
+rm -f -- "$dev_root/sda1"
+run_helper "$dev_root/sda1" hotplug remove sda1
+status_is absent
+[ ! -e "$state/device" ]
+[ ! -s "$mounts" ]
+
+# G: Fre3nder SYS/HOME volumes are never runtime-USB candidates even if their
+# filesystem type would otherwise be supported.
+reset_case
+volume sda1 vfat FRE3NDERSYS
+volume sdb1 vfat FRE3NDERHOME
+run_service "$dev_root/sda1 $dev_root/sdb1" start
+status_is absent
+[ ! -s "$mounts" ]
+
+# G2: no partition from the physical Fre3nder persistence device may become
+# runtime USB, even when that partition itself has an ordinary filesystem and
+# no reserved label.
+reset_case
+volume sda1 exfat USB
+volume sda2 ext4 FRE3NDERSYS
+volume sda3 ext4 FRE3NDERHOME
+
+# Only sda1 is presented as a candidate. The helper must still discover the
+# reserved sibling partitions and reject the whole physical device.
+run_service "$dev_root/sda1" start
+status_is absent
+[ ! -e "$state/device" ]
+[ ! -s "$mounts" ]
+
+# G3: reserved partitions on one physical device do not block an independent
+# runtime USB device.
+reset_case
+volume sda2 ext4 FRE3NDERSYS
+volume sda3 ext4 FRE3NDERHOME
+volume sdb1 exfat USB
+
+run_service "$dev_root/sdb1" start
+status_is mounted
+device_is "$dev_root/sdb1"
+grep -Fq \
+	"$dev_root/sdb1 $mount_dir exfat rw" \
+	"$mounts"
+
+# H: common runtime USB filesystems are mounted using their native driver.
+for case_data in \
+	"vfat:vfat" \
+	"exfat:exfat" \
+	"ext4:ext4" \
+	"ntfs:ntfs3"
+do
+	reset_case
+
+	input_type=${case_data%%:*}
+	mount_type=${case_data##*:}
+
+	volume sda1 "$input_type" USB
+	run_service "$dev_root/sda1" start
+
+	status_is mounted
+	device_is "$dev_root/sda1"
+
+	grep -Fq \
+		"$dev_root/sda1 $mount_dir $mount_type rw" \
+		"$mounts"
+
+	grep -Fq \
+		"mount -t $mount_type $dev_root/sda1 $mount_dir" \
+		"$log"
+done
+
+# H2: filesystems outside the supported runtime set are ignored.
+reset_case
+volume sda1 xfs USB
+run_service "$dev_root/sda1" start
+status_is absent
+[ ! -s "$mounts" ]
+
+# I: multiple suitable runtime sticks fail closed rather than selecting one.
+reset_case
+volume sda1
+volume sdb1
+run_service "$dev_root/sda1 $dev_root/sdb1" start
+status_is multiple
+[ ! -e "$state/device" ]
+[ ! -s "$mounts" ]
+
+# J: inserting a second stick never displaces an already mounted runtime stick.
+reset_case
+volume sda1
+run_service "$dev_root/sda1" start
+volume sdb1
+run_helper "$dev_root/sda1 $dev_root/sdb1" hotplug add sdb1
+status_is mounted
+device_is "$dev_root/sda1"
+[ "$(grep -c " $mount_dir " "$mounts")" -eq 1 ]
+grep -Fq "$dev_root/sda1 $mount_dir vfat rw" "$mounts"
+
+# K: a volume already mounted elsewhere is not claimed by Fre3nder runtime USB.
+reset_case
+volume sda1
+printf '%s %s vfat rw 0 0\n' \
+	"$dev_root/sda1" "$tmp/other-mount" > "$mounts"
+run_service "$dev_root/sda1" start
+status_is absent
+grep -Fq "$dev_root/sda1 $tmp/other-mount vfat rw" "$mounts"
+if grep -Fq "$dev_root/sda1 $mount_dir vfat rw" "$mounts"; then
+	echo "runtime USB incorrectly claimed an already mounted volume" >&2
+	exit 1
+fi
+
+echo "fre3nder runtime USB fixtures: PASS"

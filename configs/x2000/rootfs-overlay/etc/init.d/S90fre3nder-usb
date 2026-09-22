@@ -1,0 +1,35 @@
+#!/bin/sh
+
+state=${FRE3NDER_USB_STATE:-/run/fre3nder/usb-runtime}
+mount_dir=${FRE3NDER_USB_MOUNT:-/run/fre3nder/usb}
+helper=${FRE3NDER_USB_HELPER:-/usr/libexec/fre3nder-usb}
+
+start() {
+	mkdir -p "$state" "$mount_dir"
+	: > "$state/enabled"
+	"$helper" rescan
+}
+
+stop() {
+	rm -f -- "$state/enabled"
+	"$helper" stop
+}
+
+case "${1:-}" in
+start)
+	start
+	;;
+stop)
+	stop
+	;;
+restart)
+	stop
+	start
+	;;
+*)
+	echo "usage: $0 {start|stop|restart}" >&2
+	exit 2
+	;;
+esac
+
+exit 0

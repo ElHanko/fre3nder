@@ -28,6 +28,39 @@ install -d -m 0755 "$target/ota/packages"
 install -d -m 0700 "$target/root/.ssh"
 ln -snf ../run/fre3nder/resolv.conf "$target/etc/resolv.conf"
 rm -f "$target/etc/wpa_supplicant.conf"
+
+mdev_conf="$target/etc/mdev.conf"
+touch "$mdev_conf"
+
+disk_rule='-sd[a-z] 0:0 0660 */usr/libexec/fre3nder-usb hotplug'
+partition_rule='-sd[a-z][0-9][0-9]* 0:0 0660 */usr/libexec/fre3nder-usb hotplug'
+mdev_tmp="$mdev_conf.fre3nder"
+
+awk -v disk="$disk_rule" -v partition="$partition_rule" '
+    $0 == disk || $0 == partition {
+        next
+    }
+
+    !inserted && /^\$MODALIAS=/ {
+        print disk
+        print partition
+        inserted = 1
+    }
+
+    {
+        print
+    }
+
+    END {
+        if (!inserted) {
+            print disk
+            print partition
+        }
+    }
+' "$mdev_conf" > "$mdev_tmp"
+
+mv "$mdev_tmp" "$mdev_conf"
+
 # Buildroot installs this competing autostart; S62 is the sole web start path.
 rm -f "$target/etc/init.d/S50lighttpd"
 
@@ -35,6 +68,7 @@ chmod 0755 \
 	"$target/usr/bin/fre3nder" \
 	"$target/usr/libexec/fre3nder-app-core" \
 	"$target/usr/libexec/fre3nder-ota-core" \
+	"$target/usr/libexec/fre3nder-usb" \
 	"$target/etc/init.d/fre3nder-root" \
 	"$target/etc/init.d/S20fre3nder-provision" \
 	"$target/etc/init.d/S40fre3nder-network" \

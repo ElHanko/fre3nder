@@ -30,6 +30,9 @@ CONFIG_USB_NET_CDC_NCM=y
 # CONFIG_USB_NET_ZAURUS is not set
 CONFIG_FAT_FS=y
 CONFIG_VFAT_FS=y
+CONFIG_EXFAT_FS=y
+CONFIG_EXT4_FS=y
+CONFIG_NTFS3_FS=y
 
 # The onboard ADXL345 is exposed through the generic GPIO SPI/spidev path.
 CONFIG_SPI=y

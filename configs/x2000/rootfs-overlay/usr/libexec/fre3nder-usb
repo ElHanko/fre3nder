@@ -1,0 +1,283 @@
+#!/bin/sh
+
+state=${FRE3NDER_USB_STATE:-/run/fre3nder/usb-runtime}
+mount_dir=${FRE3NDER_USB_MOUNT:-/run/fre3nder/usb}
+enabled=$state/enabled
+status=$state/status
+device_state=$state/device
+lock_dir=$state/lock
+
+dev_root=${FRE3NDER_DEV_ROOT:-/dev}
+usb_devices=${FRE3NDER_USB_DEVICES:-}
+blkid_cmd=${FRE3NDER_BLKID:-/sbin/blkid}
+mount_cmd=${FRE3NDER_MOUNT:-mount}
+umount_cmd=${FRE3NDER_UMOUNT:-umount}
+sync_cmd=${FRE3NDER_SYNC:-sync}
+mounts_file=${FRE3NDER_MOUNTS:-/proc/mounts}
+
+log() {
+	echo "fre3nder-usb: $*"
+}
+
+set_state() {
+	printf '%s\n' "$1" > "$status"
+
+	if [ -n "${2:-}" ]; then
+		printf '%s\n' "$2" > "$device_state"
+	else
+		rm -f -- "$device_state"
+	fi
+}
+
+device_exists() {
+	if [ -n "$usb_devices" ]; then
+		[ -e "$1" ]
+	else
+		[ -b "$1" ]
+	fi
+}
+
+mounted_source() {
+	awk -v mountpoint="$mount_dir" '
+		$2 == mountpoint {
+			print $1
+			exit
+		}
+	' "$mounts_file"
+}
+
+mounted_elsewhere() {
+	awk -v device="$1" -v mountpoint="$mount_dir" '
+		$1 == device && $2 != mountpoint {
+			found = 1
+		}
+		END {
+			exit !found
+		}
+	' "$mounts_file"
+}
+
+device_parent() {
+	device=$1
+	name=${device##*/}
+
+	case "$name" in
+	sd[a-z])
+		printf '%s\n' "$device"
+		;;
+	sd[a-z][0-9]*)
+		printf '%s/%s\n' "$dev_root" "${name%%[0-9]*}"
+		;;
+	*)
+		return 1
+		;;
+	esac
+}
+
+persistence_parent_conflict() {
+	device=$1
+
+	parent=$(device_parent "$device") || return 0
+
+	for sibling in "$parent" "$parent"[0-9]*; do
+		device_exists "$sibling" || continue
+
+		sibling_output=$(
+			"$blkid_cmd" "$sibling" 2>/dev/null
+		) || continue
+
+		case " $sibling_output " in
+		*' LABEL="FRE3NDERSYS" '*|*' LABEL="FRE3NDERHOME" '*)
+			return 0
+			;;
+		esac
+	done
+
+	return 1
+}
+
+candidate() {
+	device=$1
+
+	device_exists "$device" || return 1
+
+	if persistence_parent_conflict "$device"; then
+		return 1
+	fi
+
+	output=$("$blkid_cmd" "$device" 2>/dev/null) || return 1
+
+	case " $output " in
+	*' LABEL="FRE3NDERSYS" '*|*' LABEL="FRE3NDERHOME" '*)
+		return 1
+		;;
+	esac
+
+	case " $output " in
+	*' TYPE="vfat" '*)
+		candidate_type=vfat
+		;;
+	*' TYPE="exfat" '*)
+		candidate_type=exfat
+		;;
+	*' TYPE="ext4" '*)
+		candidate_type=ext4
+		;;
+	*' TYPE="ntfs" '*|*' TYPE="ntfs3" '*)
+		candidate_type=ntfs3
+		;;
+	*)
+		return 1
+		;;
+	esac
+
+	mounted_elsewhere "$device" && return 1
+
+	return 0
+}
+
+scan_candidates() {
+	candidate_count=0
+	selected=
+
+	if [ -n "$usb_devices" ]; then
+		# Test-only override.
+		# shellcheck disable=SC2086
+		set -- $usb_devices
+	else
+		set -- \
+			"$dev_root"/sd[a-z] \
+			"$dev_root"/sd[a-z][0-9]*
+	fi
+
+	for device; do
+		candidate "$device" || continue
+		candidate_count=$((candidate_count + 1))
+		selected=$device
+		selected_type=$candidate_type
+	done
+}
+
+unmount_runtime() {
+	source=$(mounted_source)
+
+	if [ -z "$source" ]; then
+		return 0
+	fi
+
+	"$sync_cmd" >/dev/null 2>&1 || true
+
+	if ! "$umount_cmd" "$mount_dir"; then
+		set_state unmount-failed "$source"
+		log "failed to unmount $source"
+		return 1
+	fi
+
+	return 0
+}
+
+rescan() {
+	[ -f "$enabled" ] || return 0
+
+	mkdir -p "$state" "$mount_dir"
+
+	source=$(mounted_source)
+
+	if [ -n "$source" ]; then
+		remove_current=false
+
+		if ! device_exists "$source"; then
+			remove_current=true
+		elif [ "${ACTION:-}" = remove ] &&
+			[ -n "${MDEV:-}" ] &&
+			[ "$source" = "$dev_root/$MDEV" ]; then
+			remove_current=true
+		fi
+
+		if [ "$remove_current" = true ]; then
+			unmount_runtime || return 1
+		else
+			set_state mounted "$source"
+			return 0
+		fi
+	fi
+
+	scan_candidates
+
+	if [ "$candidate_count" -eq 0 ]; then
+		set_state absent
+		return 0
+	fi
+
+	if [ "$candidate_count" -ne 1 ]; then
+		set_state multiple
+		log "multiple runtime USB volumes found; refusing selection"
+		return 0
+	fi
+
+	if ! "$mount_cmd" \
+		-t "$selected_type" \
+		-o rw,nosuid,nodev,noexec \
+		"$selected" "$mount_dir"
+	then
+		set_state mount-failed "$selected"
+		log "failed to mount $selected"
+		return 0
+	fi
+
+	source=$(mounted_source)
+
+	if [ "$source" != "$selected" ]; then
+		"$umount_cmd" "$mount_dir" >/dev/null 2>&1 || true
+		set_state mount-failed "$selected"
+		log "runtime USB mount verification failed"
+		return 0
+	fi
+
+	set_state mounted "$selected"
+	log "mounted $selected at $mount_dir"
+}
+
+stop_runtime() {
+	unmount_runtime || return 1
+	set_state absent
+}
+
+command=${1:-}
+
+if [ "$command" = hotplug ] && [ ! -f "$enabled" ]; then
+	# Boot-local provisioning owns USB before S90 enables runtime handling.
+	exit 0
+fi
+
+mkdir -p "$state"
+
+lock_wait=0
+
+while ! mkdir "$lock_dir" 2>/dev/null; do
+	lock_wait=$((lock_wait + 1))
+
+	if [ "$lock_wait" -ge 10 ]; then
+		log "runtime USB state transition remained busy"
+		exit 1
+	fi
+
+	sleep 1
+done
+
+trap 'rmdir "$lock_dir" 2>/dev/null || true' 0 1 2 15
+
+case "$command" in
+rescan|hotplug)
+	rescan
+	;;
+stop)
+	stop_runtime
+	;;
+*)
+	echo "usage: $0 {rescan|hotplug|stop}" >&2
+	exit 2
+	;;
+esac
+
+exit 0
