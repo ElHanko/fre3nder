@@ -354,4 +354,62 @@ if grep -Fq "$dev_root/sda1 $mount_dir vfat rw" "$mounts"; then
 	exit 1
 fi
 
+# L: status API reports the mounted runtime USB and its writable state.
+reset_case
+volume sda1 exfat USB
+run_service "$dev_root/sda1" start
+
+output=$(run_helper "$dev_root/sda1" status)
+
+printf '%s\n' "$output" | grep -Fxq 'api_version=1'
+printf '%s\n' "$output" | grep -Fxq 'status=mounted'
+printf '%s\n' "$output" | grep -Fxq "mount=$mount_dir"
+printf '%s\n' "$output" | grep -Fxq "source=$dev_root/sda1"
+printf '%s\n' "$output" | grep -Fxq 'filesystem=exfat'
+printf '%s\n' "$output" | grep -Fxq 'writable=true'
+
+# M: status API reports a mounted read-only runtime USB as not writable.
+sed \
+	"s|$dev_root/sda1 $mount_dir exfat rw |$dev_root/sda1 $mount_dir exfat ro |" \
+	"$mounts" > "$mounts.tmp"
+mv "$mounts.tmp" "$mounts"
+
+output=$(run_helper "$dev_root/sda1" status)
+
+printf '%s\n' "$output" | grep -Fxq 'api_version=1'
+printf '%s\n' "$output" | grep -Fxq 'status=mounted'
+printf '%s\n' "$output" | grep -Fxq "mount=$mount_dir"
+printf '%s\n' "$output" | grep -Fxq "source=$dev_root/sda1"
+printf '%s\n' "$output" | grep -Fxq 'filesystem=exfat'
+printf '%s\n' "$output" | grep -Fxq 'writable=false'
+
+# N: status API fails closed when the recorded device does not match
+# the device currently mounted at the runtime USB mountpoint.
+reset_case
+volume sda1 exfat USB
+volume sdb1 exfat USB
+
+printf 'mounted\n' > "$state/status"
+printf '%s\n' "$dev_root/sda1" > "$state/device"
+printf '%s %s exfat rw 0 0\n' \
+	"$dev_root/sdb1" "$mount_dir" > "$mounts"
+
+output=$(run_helper "$dev_root/sda1 $dev_root/sdb1" status)
+
+printf '%s\n' "$output" | grep -Fxq 'api_version=1'
+printf '%s\n' "$output" | grep -Fxq 'status=mount-mismatch'
+printf '%s\n' "$output" | grep -Fxq "mount=$mount_dir"
+printf '%s\n' "$output" | grep -Fxq "device=$dev_root/sda1"
+
+# O: status API reports an absent runtime USB without inventing device facts.
+reset_case
+run_service "" start
+status_is absent
+
+output=$(run_helper "" status)
+
+printf '%s\n' "$output" | grep -Fxq 'api_version=1'
+printf '%s\n' "$output" | grep -Fxq 'status=absent'
+printf '%s\n' "$output" | grep -Fxq "mount=$mount_dir"
+
 echo "fre3nder runtime USB fixtures: PASS"

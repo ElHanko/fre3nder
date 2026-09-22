@@ -46,6 +46,84 @@ mounted_source() {
 	' "$mounts_file"
 }
 
+runtime_status() {
+	current_status=absent
+	recorded_source=
+
+	if [ -r "$status" ]; then
+		IFS= read -r current_status < "$status" || current_status=absent
+	fi
+
+	if [ -r "$device_state" ]; then
+		IFS= read -r recorded_source < "$device_state" || recorded_source=
+	fi
+
+	result_status=$current_status
+	actual_source=
+	actual_filesystem=
+	writable=
+
+	if [ "$current_status" = mounted ]; then
+		record=$(
+			awk -v mountpoint="$mount_dir" '
+				$2 == mountpoint {
+					count++
+					source = $1
+					filesystem = $3
+					options = $4
+				}
+				END {
+					if (count != 1)
+						exit 1
+					printf "%s\t%s\t%s\n", source, filesystem, options
+				}
+			' "$mounts_file"
+		) || result_status=mount-mismatch
+
+		if [ "$result_status" = mounted ]; then
+			old_ifs=$IFS
+			IFS='	'
+			set -- $record
+			IFS=$old_ifs
+
+			actual_source=${1:-}
+			actual_filesystem=${2:-}
+			actual_options=${3:-}
+
+			if [ -z "$actual_source" ] ||
+				[ -z "$actual_filesystem" ] ||
+				[ -z "$actual_options" ] ||
+				[ -z "$recorded_source" ] ||
+				[ "$actual_source" != "$recorded_source" ]
+			then
+				result_status=mount-mismatch
+			else
+				case ",$actual_options," in
+				*,rw,*)
+					writable=true
+					;;
+				*)
+					writable=false
+					;;
+				esac
+			fi
+		fi
+	fi
+
+	printf 'api_version=1\n'
+	printf 'status=%s\n' "$result_status"
+	printf 'mount=%s\n' "$mount_dir"
+
+	if [ "$result_status" = mounted ]; then
+		printf 'source=%s\n' "$actual_source"
+		printf 'filesystem=%s\n' "$actual_filesystem"
+		printf 'writable=%s\n' "$writable"
+	elif [ -n "$recorded_source" ]; then
+		printf 'device=%s\n' "$recorded_source"
+	fi
+}
+
+
 mounted_elsewhere() {
 	awk -v device="$1" -v mountpoint="$mount_dir" '
 		$1 == device && $2 != mountpoint {
@@ -271,11 +349,14 @@ case "$command" in
 rescan|hotplug)
 	rescan
 	;;
+status)
+	runtime_status
+	;;
 stop)
 	stop_runtime
 	;;
 *)
-	echo "usage: $0 {rescan|hotplug|stop}" >&2
+	echo "usage: $0 {rescan|hotplug|status|stop}" >&2
 	exit 2
 	;;
 esac
