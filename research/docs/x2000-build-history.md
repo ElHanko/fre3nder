@@ -1,5 +1,32 @@
 # Phase 3.4/3.5 fre3nder-x2000 build basis
 
+> Historical bring-up record. For the current build commands and artifact
+> contracts, use [the build guide](../../docs/build.md) and
+> [`configs/x2000/sources.json`](../../configs/x2000/sources.json).
+
+## 2026-09-20 slot-neutral kernel qualification
+
+The investigated reference Ender-3 V3 KE booted the development Kernel with
+SHA-256 `9e1902279d8aaac39bf1ef303e1ff9afdf1a58057c61605d639bd497d6062678`.
+The image contained no DT `/chosen/bootargs` or p7/p8 root reference. It was
+written to inactive p6 from Stock A and passed complete artifact-length
+readback. After selecting B, it booted as `6.6.157-fre3nder` with
+`root=/dev/mmcblk0p8` in `/proc/cmdline`; `x2000-ab` reported active p8 and
+selector `DEVELOP_B`. The existing boot chain therefore supplied the B root
+selection. The same image has not been hardware-qualified from p5/A; that
+symmetric case is deferred until an A-side Fre3nder transition is needed.
+
+## Historical persistence cleanup boundary
+
+During the 2026-09-11 Host-MCU/ADXL qualification, the persistent
+`printer.cfg` already existed, so the new RootFS-default sections were copied
+into it for the controlled test. This was expected seed-once behavior, not an
+ADXL or deployment failure. The previously observed `S13mcu_update` whiteout,
+disabled copy, and one-shot marker were historical bring-up residue, not the
+intended persistence design. Their targeted cleanup was evidence about that
+specific old state; direct editing of a mounted OverlayFS upper directory is
+not a general recovery procedure.
+
 `fre3nder-x2000-v0` is the first independent build basis after the historical
 and reproducible `2026.1.a` prototype. It does not change or replace
 `x2000-prototype`, its one-shot rollback semantics, or its evidence chain.

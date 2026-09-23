@@ -2,7 +2,12 @@
 
 ## Scope
 
-This document defines the planned Fre3nder platform OTA architecture.
+This document defines the Fre3nder platform OTA architecture. Package
+verification, preflight, backup integration, staged writes, readback,
+activation preparation, reboot, and post-boot handling have an implemented
+core/frontend interface. The complete release-to-release OTA flow remains
+subject to its stated qualification boundary; implemented code and fixture
+results do not by themselves establish a hardware-qualified update.
 
 The goal is a simple A/B platform update mechanism with a usable previous
 Fre3nder release as fallback, persistent user data, a clean system state after
@@ -580,8 +585,12 @@ and packaged artifact hashes. Kernel and RootFS may originate from different
 project commits or development build-input fingerprints when an unchanged
 Kernel is intentionally reused. `component_provenance` records those two build
 origins separately. `composition_provenance` records the project state that
-created the final signed package. The components must still agree on Fre3nder
-version and artifact mode.
+created the final signed package. The components must agree on the Fre3nder
+version. Matching artifact mode remains the intended composition contract,
+but the current `--compose-only` implementation checks only the version;
+the fixture expects mode mismatch rejection. Until code and fixture agree,
+check the two component modes explicitly before composition. See the
+[build guide](build.md#partial-builds-and-reuse).
 
 `SHA256SUMS` contains SHA-256 digests for `manifest.json`, `kernel.uImage`, and
 `rootfs.squashfs`. The manifest therefore does not contain a self-referential

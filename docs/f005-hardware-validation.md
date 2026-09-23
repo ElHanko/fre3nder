@@ -167,12 +167,12 @@ polarity were hardware-qualified. Fre3nder verified the binding, GPIO polarity,
 bus-alias, and spidev behavior statically against its exactly pinned Linux
 6.6.18 SDK source.
 
-On 2026-09-11, the manual development build
-`scripts/build-x2000 --develop --kernel-build` completed successfully. Its
-manifest records version `2026.2.a`, development artifact mode, a dirty project
-worktree, Linux `6.6.18-rt23`, Buildroot `2025.02.17`, and pinned upstream
-Klipper commit `0499b30374315f2a9f49fc12808527fc7d0f5cfa`. This is development
-evidence, not a clean release qualification.
+On 2026-09-11, the historical manual development build invoked
+`scripts/build-x2000 --develop --kernel-build` and completed successfully.
+The manifest of that build records version `2026.2.a`, development artifact
+mode, a dirty project worktree, Linux `6.6.18-rt23`, Buildroot `2025.02.17`,
+and pinned upstream Klipper commit `0499b30374315f2a9f49fc12808527fc7d0f5cfa`.
+This is development evidence, not a clean release qualification.
 
 The build gates confirmed the effective SPI kernel configuration and decoded
 the generated DTB to check the `spi2` alias, `spi-gpio`, the spidev-compatible

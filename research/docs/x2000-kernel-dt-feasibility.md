@@ -159,3 +159,39 @@ development boundaries are recorded in
   inspected 2026-08-21, for the stated hardware-qualification scope and limits.
 - [Linux kernel releases](https://www.kernel.org/category/releases.html),
   inspected 2026-08-21, for the maintained-LTS comparison.
+
+## Preserved Phase-3.1 selection criteria and decision
+
+These criteria and the then-current Phase-3.2 decision were moved from the hardware-interface contract. They describe the historical choice before the productive Linux-stable migration.
+
+Phase 3.1 made no open partition, A/B, installer, rollback, or bootloader
+decision. A valid later outcome at that time was to keep stock structures
+reserved and choose a separate image/update strategy after stock-return
+effects were understood. The later Fre3nder A/B design superseded that
+deferral; see [OTA architecture](../../docs/ota.md).
+
+### LTS and Buildroot selection criteria
+
+Phase 3.2 must compare pinned, maintained candidates rather than selecting a
+kernel or Buildroot release for novelty. A candidate must be evaluated in this
+order:
+
+1. X2000 CPU/SMP, DRAM, eMMC, UART, SPI, I2C, display/touch, SDIO WLAN, camera,
+   USB as required, and reset/watchdog needs;
+2. maintainable LTS/security and bug-fix support;
+3. upstream support before vendor patches, with each unavoidable patch scoped;
+4. reproducible, pinned source and toolchain inputs;
+5. practical boot time and memory footprint for 256 MiB RAM; and
+6. a read-only image, separate persistent data, controlled image activation,
+   and rollback design that does not consume stock structures by assumption.
+
+Buildroot must likewise be a stable, pinned release used to construct an
+appliance, not a rolling general-purpose distribution.
+
+### Phase-3.2 feasibility result
+
+The authorized sanitized binding capture and the public source reconciliation
+are complete. This feasibility record
+selects the pinned Ingenic Linux 6.6.18 X2000 SDK mirror as the source basis.
+It also limits NebulaOS to attributable KE prior art; Phase 3.3 must create a
+project-authored KE DTS and only the smallest reviewed patch set.

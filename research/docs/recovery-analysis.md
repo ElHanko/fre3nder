@@ -215,7 +215,7 @@ strongly support an A-side default unless `ota:kernel2` selects B, but direct
 control flow for a completely erased selector has not been proven. This is an
 accepted residual risk for manual recovery review.
 
-See [`recovery-current-state.md`](../../docs/recovery-current-state.md) for the current
+See [`recovery-current-state.md`](recovery-current-state.md) for the recorded
 reference-board state.
 
 No official V1.1.0.15 `.ingenic` image has been located. The locally archived

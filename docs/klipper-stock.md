@@ -202,10 +202,11 @@ patch, configuration, and offline Docker build recipe are documented in
 
 ## First mainline host/config result
 
-The investigated F005 reference has two project-authored configurations: a
-minimal offline/no-action bring-up and a first-mainline target. They are
-published in [`../configs/klipper-f005/`](../configs/klipper-f005/) and
-described in [`f005-mainline-config.md`](f005-mainline-config.md). Current
+The investigated F005 reference has a current first-mainline configuration
+under [`../configs/klipper-f005/`](../configs/klipper-f005/) and historical
+minimal offline/no-action candidates under
+[`../research/configs/klipper-f005/`](../research/configs/klipper-f005/).
+They are described in [`f005-mainline-config.md`](f005-mainline-config.md). Current
 upstream Klippy accepted both with the exact GD32 dictionary; the mainline
 target was then validated through the staged hardware sequence and one complete
 PLA Benchy. The exact historical Phase-2 `z_offset: 1.900`, current 2.180

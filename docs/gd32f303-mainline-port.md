@@ -18,6 +18,11 @@ src/stm32/stm32f1.c
 src/generic/armcm_link.lds.S
 ```
 
+The current product build also applies the separate serial-bootloader-request
+patch after this port. The first-port image and its tests below are historical
+candidates; the current build interface and candidate/qualified distinction
+are in [the build guide](build.md#f005-mcu-candidate).
+
 A complete `src/gd32/` backend is unnecessary for this F005 contract. The
 required GPIO, ADC, serial, watchdog, generic timer, software-PWM and ARM
 startup paths already exist in the STM32F1-compatible and generic upstream
@@ -45,9 +50,10 @@ A later authorized no-write test on 2026-08-27 established a separate runtime
 entry route: Klipper `FIRMWARE_RESTART` with `restart_method: command` resets
 the running Mainline MCU into the Creality bootloader window. This does not
 validate or enable the separate serial `bootloader_request` magic path, which
-remains disabled in this Mainline candidate.
+remained disabled in that initial Mainline candidate. The later productive
+patch is a separate source change and qualification boundary.
 
-The currently validated candidate is 22392 bytes before and after packaging;
+The initial validated port candidate was 22392 bytes before and after packaging;
 its packed-image SHA-256 is
 `5b9678731b10a0f8c6159b3cf2432b1a499d6310b9466419d129dc42242e23ac`.
 The binary itself is not stored in this repository.
@@ -189,9 +195,13 @@ READY TO DESIGN CONTROLLED FIRST MCU FLASH
 Build instructions and the exact source patch are published separately in
 [`build/klipper-f005/README.md`](../build/klipper-f005/README.md) and
 [`patches/klipper/0001-gd32f303-f005-mainline.patch`](../patches/klipper/0001-gd32f303-f005-mainline.patch).
-The corresponding offline host/config candidates are published in
-[`../configs/klipper-f005/`](../configs/klipper-f005/) and are documented in
-[`f005-mainline-config.md`](f005-mainline-config.md). They exercise this MCU
+The current host configuration is published in
+[`../configs/klipper-f005/`](../configs/klipper-f005/); historical no-action
+candidates remain under
+[`../research/configs/klipper-f005/`](../research/configs/klipper-f005/).
+They are documented in [`f005-mainline-config.md`](f005-mainline-config.md)
+and the [historical milestone](../research/docs/f005-mainline-config-milestone.md).
+The early offline tests exercised this MCU
 dictionary in Klippy's debugoutput mode only and do not validate printer
 peripherals or make further flashing safe.
 

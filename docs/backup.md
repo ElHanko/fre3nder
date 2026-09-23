@@ -1,4 +1,62 @@
-# Backup architecture
+# Backing up Fre3nder
+
+## Create and check a backup
+
+Run the public CLI on an active Fre3nder runtime with mounted persistence.
+For HOME, connect writable runtime USB storage formatted as exFAT, ext4, or
+NTFS3; VFAT is usable for other USB purposes but cannot hold a HOME backup.
+SYS may instead be stored in preserved `/home`. Ensure the selected target has
+enough free space for an uncompressed archive.
+
+For interactive selection:
+
+```sh
+fre3nder backup create
+```
+
+For a script, select both roles explicitly. For example:
+
+```sh
+fre3nder backup create --home usb --sys home
+```
+
+Other valid values are `--home usb|none` and `--sys usb|home|none`; both
+`none` is rejected. The CLI offers only currently available targets and
+creates HOME before SYS. On success it reports each archive path, size, and
+SHA-256 and ends with `BACKUP: COMPLETE`. That success includes a reread and
+verification of every published archive. Retain the reported metadata with
+the archive, and copy a valuable backup to independent storage. For a later
+integrity check, recompute `sha256sum <archive>` and compare it with the
+SHA-256 recorded at creation time. A failed command or missing completion
+line is not a verified backup.
+
+HOME archives live below `/run/fre3nder/usb/Fre3nderBackup/`; SYS archives
+live there or below `/home/Fre3nderBackup/`, according to the selected
+target. HOME is persistent across an ordinary platform update, but a separate
+HOME backup is useful for storage failure or recovery. SYS contains the active
+system OverlayFS `upper/` tree. It is intended for inspection and manual
+recovery of customizations; the project does not define an automatic
+full-OverlayFS restore command. To inspect a saved archive, list its members
+with `tar -tf backup.tar`, substituting the reported archive path, before
+extracting selected files to a separate working directory. Do not unpack a
+SYS archive directly over a running root.
+
+The current CLI exposes creation only. Its internal `verify` operation is a
+platform API, not a public `fre3nder backup verify` command. OTA may reverify
+selected archives as part of its transaction. The logical HOME/SYS roles and
+their current backing are defined in [storage layout](storage-layout.md);
+the OTA use of backups is in [OTA architecture](ota.md).
+
+This CLI backs up only the active HOME and SYS roles. Its archives are not a
+complete Point-of-Return set: the operation does not by itself capture or
+validate raw Stock partitions, factory/identity data, eMMC boot configuration,
+or original recovery firmware.
+
+The separate requirements and limits for return to Stock are in
+[recovery](recovery.md) and the [Point-of-Return evidence](../research/docs/recovery-validation-plan.md).
+
+The following sections define the backup implementation contract for platform
+consumers and developers.
 
 ## Scope
 

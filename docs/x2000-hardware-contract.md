@@ -94,6 +94,20 @@ not reproduce the stock updater's boot-window or firmware-update behavior.
 BootROM USB recovery is a separate preserved boundary, not a dependency on a
 Linux USB host implementation.
 
+## WLAN early-firmware contract
+
+The productive Kernel embeds the selected CYW43430 `.bin`, matching
+`.clm_blob`, and unchanged Radxa AZW372 `.txt` through
+`CONFIG_EXTRA_FIRMWARE`; the same files remain in the RootFS for later
+requests. `CONFIG_BRCMFMAC=y` registers `brcmfmac` at device initcall time.
+The KE WLAN patch exposes the SDIO card during a late initcall, which reaches
+`brcmf_sdio_probe()` and `request_firmware_nowait()` before
+`prepare_namespace()` mounts the real SquashFS RootFS. Firmware available
+only from that RootFS cannot reliably satisfy the first probe. Exact file
+hashes, licensing, and the reference-system WLAN qualification are in
+[`configs/x2000/sources.json`](../configs/x2000/sources.json) and
+[Buildroot maintenance](buildroot-maintenance.md).
+
 ## ADXL345 and Host-MCU contract
 
 The stock reference configuration declares `[mcu rpi]` on
@@ -276,6 +290,17 @@ states that Ingenic later ported Linux 6.6 LTS to XBurst2 processors.
 
 ## Boot contract
 
+The current Fre3nder board DT embeds no `/chosen/bootargs` or slot-specific
+root device. The existing X2000 boot chain supplies the selected slot's
+kernel command line. The B-side boot of the slot-neutral
+`6.6.157-fre3nder` image was qualified on the investigated reference system;
+the identical image has not yet been qualified from p5/A. The exact p6
+readback, `/proc/cmdline`, and selector evidence are preserved in
+[X2000 build history](../research/docs/x2000-build-history.md#2026-09-20-slot-neutral-kernel-qualification).
+
+The table below reconstructs the earlier Stock boot boundary and its evidence
+levels; it does not replace the current Fre3nder artifact contract.
+
 The following reconstruction is only as strong as the available capture. It
 does not claim the exact X2000 BootROM sequence or U-Boot environment.
 
@@ -309,11 +334,14 @@ Windows/Cloner process is vendor-documented, Linux-independent, and its required
 material is preserved and offline validated, but recovery execution remains
 documented and not personally rehearsed on the reference board.
 
-The future design must preserve these constraints:
+The current A/B design uses the existing p1 selector and p5/p7, p6/p8 system
+pairs only through defined, authorized deployment or OTA operations. This
+does not make the other stock structures free space. The remaining
+constraints are:
 
-- Reserve the stock pre-p1 loader area and p1--p10 until a separately
-  authorized design can prove otherwise. Do not treat unused bytes or an
-  inactive A/B side as free open-system storage.
+- Preserve the stock pre-p1 loader area. Do not treat unused bytes or an
+  inactive A/B side as free open-system storage outside the defined update
+  operation.
 - Preserve p2 `sn_mac` as protected factory/identity data. It is not an
   open-system configuration store and must never be cloned or overwritten.
 - Do not alter eFuses, RPMB, eMMC boot configuration, boot0/boot1, or factory
@@ -324,42 +352,23 @@ The future design must preserve these constraints:
   p9, and part of p10, while p2 lies outside its configured ranges. Actual
   preservation remains unverified until an actual Cloner execution and post-boot
   identity check are authorized and completed.
-- Stock first boot can recreate p9 and p10. Open configuration and persistent
-  user data therefore need a later, separately designed location and migration
-  policy.
+- Stock first boot can recreate p9 and p10. Fre3nder currently keeps SYS and
+  HOME on separate external backends; internal persistence needs a separate
+  location and migration decision.
 - Keep BootROM recovery reachable and do not depend on a permanent undocumented
   special state.
 
-Consequently, Phase 3.1 makes no open partition, A/B, installer, rollback, or
-bootloader decision. A valid later outcome remains: stock structures are kept
-reserved and the open appliance uses a separate image/update strategy only
-after stock-return effects are understood.
+The original Phase-3.1 decision deferred partition ownership, A/B, installer,
+rollback, and bootloader design. It is preserved in the
+[feasibility record](../research/docs/x2000-kernel-dt-feasibility.md#preserved-phase-31-selection-criteria-and-decision).
 
-## LTS and Buildroot selection criteria
+## Historical kernel selection
 
-Phase 3.2 must compare pinned, maintained candidates rather than selecting a
-kernel or Buildroot release for novelty. A candidate must be evaluated in this
-order:
-
-1. X2000 CPU/SMP, DRAM, eMMC, UART, SPI, I2C, display/touch, SDIO WLAN, camera,
-   USB as required, and reset/watchdog needs;
-2. maintainable LTS/security and bug-fix support;
-3. upstream support before vendor patches, with each unavoidable patch scoped;
-4. reproducible, pinned source and toolchain inputs;
-5. practical boot time and memory footprint for 256 MiB RAM; and
-6. a read-only image, separate persistent data, controlled image activation,
-   and rollback design that does not consume stock structures by assumption.
-
-Buildroot must likewise be a stable, pinned release used to construct an
-appliance, not a rolling general-purpose distribution.
-
-## Phase-3.2 feasibility result
-
-The authorized sanitized binding capture and the public source reconciliation
-are complete. [x2000-kernel-dt-feasibility.md](../research/docs/x2000-kernel-dt-feasibility.md)
-selects the pinned Ingenic Linux 6.6.18 X2000 SDK mirror as the source basis.
-It also limits NebulaOS to attributable KE prior art; Phase 3.3 must create a
-project-authored KE DTS and only the smallest reviewed patch set.
+The Phase-3.1 LTS/Buildroot criteria and Phase-3.2 Ingenic-source feasibility
+choice are preserved in the
+[feasibility record](../research/docs/x2000-kernel-dt-feasibility.md#preserved-phase-31-selection-criteria-and-decision).
+The current productive Linux-stable pin is defined in
+[`configs/x2000/sources.json`](../configs/x2000/sources.json).
 
 [^klipper-host-mcu]: [Upstream Klipper Linux-process MCU documentation](https://github.com/Klipper3d/klipper/blob/master/docs/RPi_microcontroller.md) and source paths `src/linux/spidev.c` / `src/linux/i2c.c`, inspected at the Phase-2 upstream comparison basis `0499b30374315f2a9f49fc12808527fc7d0f5cfa`.
 [^openke-adxl]: [OpenKE/NebulaOS hardware-qualified ADXL `spi-gpio` implementation at commit `95f770a858a1076f7ffdb6b4541181034862f57e`](https://github.com/coreflake1/NebulaOS-firmware/blob/95f770a858a1076f7ffdb6b4541181034862f57e/scripts/build/accelerometer-eeprom-bus-enable-variant.sh), plus its [later known-good configuration reconciliation at commit `40a9ff6161bad1363279cd3f516b2d48bb25dea1`](https://github.com/coreflake1/NebulaOS-firmware/blob/40a9ff6161bad1363279cd3f516b2d48bb25dea1/docs/adxl-known-good-reconciliation.md). These are external hardware evidence, not imported runtime code or Fre3nder qualification.

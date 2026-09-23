@@ -7,7 +7,9 @@ than preserving release-specific acceptance checklists.
 ## 2026.3 - 2026-09-20
 
 Fre3nder 2026.3 completes the transition away from the vendor kernel. The
-productive X2000 kernel now starts from official Linux stable `v6.6.157` and
+release scope ID is `independent-kernel-stack`; its final tag points to commit
+`883010c7bca32aef165dd6b7fe1c3892ce025b4b`.
+The released X2000 kernel starts from official Linux stable `v6.6.157` and
 applies an ordered, provenance-separated five-patch Fre3nder X2000 hardware
 support series. Applied in order, that series reproduces the exact
 `40d8b5cee4341505c12373e9bb1386e80241f0d6` source tree already exercised as
@@ -47,6 +49,7 @@ at commit `885706f121c76190d6d74177ffac3895cd58c78d` qualified the core system;
 later current-main testing completed the persistence failure cases, Fluidd
 control and uninstall, and the redistributable WLAN source path. Those later
 results are not retroactive properties of the historical candidate artifacts.
+The release scope ID is `usable-system`.
 The final `2026.2` release was built, validated, and tagged from commit
 `fcabe6089dba72ded7c256b8550ea65bc7a34ec6`.
 
@@ -101,6 +104,18 @@ The final `2026.2` release was built, validated, and tagged from commit
 ## 2026.1 - 2026-08-29
 
 First printable networked open-host release.
+The reference-system first-print scope was recorded as
+**`2026.1 FUNCTIONALLY ACHIEVED: 2026-08-29.`** before the final tag.
+The release scope ID is `first-printable-networked-open-host`; the final tag
+points to commit `27194a4f583243d87eb0c01dd3df5596e548e536`. Its scope
+required an open-host boot, functioning CPU/SMP and filesystem, at least one
+qualified administrative network path with stable IP configuration, reliable
+SSH administration and persistent SSH host identity, network and SSH usable
+after normal reboot, and a real Mainline-F005 print without Stock Klippy.
+Moonraker, Mainsail, local display/touch, camera, ADXL/Input Shaper,
+Bluetooth, consumer installation, automatic updates, and a
+hardware-qualified Stock return were
+outside that release scope.
 
 ### Added
 

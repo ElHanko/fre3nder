@@ -94,6 +94,11 @@ wrongly sourced artifacts and records the consumed component identities in the
 RootFS manifest. Component archives are deterministic tar files with normalized
 ownership and timestamps.
 
+Because libhv embeds `__DATE__` and `__TIME__`, the component builder derives
+`SOURCE_DATE_EPOCH` from the pinned GuppyScreen commit before compilation.
+Together with normalized archive metadata, this is the basis for its repeated
+byte-reproducible component builds.
+
 The GuppyScreen component contains only:
 
 ```text
@@ -144,12 +149,8 @@ top-to-bottom movement maps mainly to increasing raw X. GuppyScreen uses
 `display_rotate: 1`, and the corrected affine-calibration/rotation path is now
 physically qualified with correct left/right and up/down pointer mapping.
 
-The observed endpoint samples were:
-
-```text
-physical left -> right: (2011,3517) -> (1924,828),  dx=-87,   dy=-2689
-physical top  -> bottom: (292,2283) -> (3757,2002), dx=+3465, dy=-281
-```
+The raw endpoint samples and NS2009 wiring are recorded in the
+[display/touch hardware reference](x2000-display-touch.md#ns2009-touchscreen).
 
 The first hardware test exposed an error in the historical GuppyScreen
 calibration handling for rotated displays. Analysis against the pinned LVGL

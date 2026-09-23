@@ -1,5 +1,29 @@
 # Buildroot maintenance policy
 
+The productive RootFS uses the official upstream Buildroot checkout pinned in
+[`configs/x2000/sources.json`](../configs/x2000/sources.json). It does not use
+the Ingenic Buildroot fork, `halley5_linux_minimal_defconfig`, or an external
+userspace toolchain. Buildroot package downloads are kept outside its Git
+checkout so checkout cleanup does not discard the offline cache.
+
+The internal toolchain targets little-endian MIPS32r2/O32 hard-float with
+FPXX and NaN2008, using Linux 6.6 headers. Upstream Buildroot's XBurst
+`-ffp-contract=off` workaround remains active for userspace. The kernel uses
+the same Buildroot toolchain family through `gcc.br_real`, but Kbuild supplies
+its separate MIPS32r5/O32/soft-float/legacy-NaN flags; userspace wrapper flags
+must not be applied to the kernel. The F005 `c_helper.so` uses the userspace
+toolchain. The F005 firmware uses a separate ARM bare-metal toolchain.
+
+Development builds can reuse the fingerprint-matched Buildroot output. A
+markerless legacy output is adopted only after its Buildroot version,
+effective toolchain configuration, compiler contract, sysroot, and completion
+stamps match; ambiguous output is removed. Release builds never adopt old
+output. On the reference build environment, adoption reported `ADOPTED` once
+and the next RootFS-only build reported `HIT`; the repeated build also
+validated replacement of stale Moonraker Git metadata by the idempotent
+post-build hook. These are historical build-environment results, not a
+reproducibility promise for an arbitrary development cache.
+
 The productive X2000 RootFS follows only the Buildroot `2025.02.x` LTS line.
 Routine updates move between patch releases in that line, for example from
 `2025.02.17` to `2025.02.18`. Quarterly stable releases such as `2026.05` or
@@ -31,6 +55,10 @@ therefore recheck the package version, archive and selected-file hashes,
 board-specific NVRAM is an independently pinned, hash-checked BSD-3-Clause
 input vendored unchanged from Radxa/rkwifibt; it is not coupled to the
 linux-firmware package version.
+The regular package provides the `cypress/cyfmac43430-sdio.bin` and matching
+CLM blob, with `brcm/brcmfmac43430-sdio.*` aliases created from `WHENCE`.
+The earlier WLAN BYOF path `local/production/inputs/wifi` is not a current
+build input.
 
 Static inspection identifies the selected linux-firmware binary as
 `7.45.98.118` / FWID `01-32059766` (SHA-256
@@ -66,8 +94,9 @@ firmware: the MAC address was preserved, WPA association and DHCP passed, and
 10/10 gateway ICMP packets returned without loss. Restoring the previous NVRAM
 and reassociating also passed.
 
-The subsequent development build
-`scripts/build-x2000 --kernel-build --develop`, with build-input SHA-256
+The subsequent development build used the historical
+`scripts/build-x2000 --kernel-build --develop` invocation (the current full
+build command is `scripts/build-x2000 --develop`), with build-input SHA-256
 `84f625bd0984a9eb8511eec27af7d35e55f5c9202f3f572c8da74df55ed81d33`,
 qualified the complete production WLAN path on the same date. The resulting
 Kernel SHA-256 was
@@ -115,7 +144,7 @@ For every patch release update:
    NaN2008, internal glibc toolchain, Linux 6.6 headers, and C++.
 7. Confirm the effective GCC and binutils versions and that no external
    toolchain is selected.
-8. Run exactly one `scripts/build-x2000 --kernel-build` from clean output so
+8. Run exactly one `scripts/build-x2000` from clean output so
    the candidate Kernel and RootFS use the same current Buildroot basis. Do not
    add `--f005-build`; retain the qualified F005 release baseline.
 9. Confirm the package-version, Python, ELF, and ABI checks from that build.

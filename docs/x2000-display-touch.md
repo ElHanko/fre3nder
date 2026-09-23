@@ -213,9 +213,17 @@ X: 330 .. 3680
 Y: 540 .. 3560
 ~~~
 
+The later GuppyScreen rotation check recorded these endpoint samples on the
+same reference system:
+
+~~~text
+physical left -> right: (2011,3517) -> (1924,828),  dx=-87,   dy=-2689
+physical top  -> bottom: (292,2283) -> (3757,2002), dx=+3465, dy=-281
+~~~
+
 These values are qualification observations, not a universal calibration
 contract. Exact scaling, axis transformation, inversion, and rotation belong
-to the local presentation/input layer.
+to the local presentation/input layer; see [GuppyScreen](guppyscreen.md).
 
 ## UART3 / I2C4 pin ownership
 
@@ -395,10 +403,8 @@ X2000 PWM3 / PC03. The physically accepted click parameters are 260 Hz for
 4 ms with a 120 ms debounce. GuppyScreen emits `EV_SND` / `SND_TONE`; it does
 not require a `/dev/mem` PWM helper.
 
-Stage D is therefore hardware-qualified for the core local UI on the
-investigated reference system.
-
-The following remain outside this qualification:
-
-- broader normal local printer-control flows and UI recovery behavior
-- broader qualification across other hardware revisions
+Stage D qualified the physical display, touch, backlight, and beep path on the
+investigated reference system. Later normal printer control and a complete
+print through GuppyScreen were qualified separately; see
+[GuppyScreen integration](guppyscreen.md#persistent-core-integration-and-current-pin-ui-result).
+Neither result establishes support across other hardware revisions.

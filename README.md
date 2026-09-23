@@ -16,10 +16,12 @@ F005 MCU, a persistent usable-system stack, Moonraker, managed web applications,
 GuppyScreen, and a documented path back to Stock.
 
 The `2026.3` **Independent Kernel Stack** release completes the transition away
-from the vendor kernel. The productive host kernel is official Linux stable
-`v6.6.157` plus an ordered five-patch Fre3nder X2000 hardware-support series
-with explicit provenance and no RT23 dependency. The applied series reproduces
-the exact kernel source tree exercised on the investigated reference system.
+from the vendor kernel. Its host kernel is official Linux stable `v6.6.157`
+plus an ordered five-patch Fre3nder X2000 hardware-support series with explicit
+provenance and no RT23 dependency. The released series reproduces the source
+tree exercised on the investigated reference system. The checkout may already
+contain a later development version; its current source identity is defined by
+[`VERSION`](VERSION) and [`configs/x2000/sources.json`](configs/x2000/sources.json).
 
 The `2026.3` kernel qualification covers the exercised host boot, network, and
 SSH path. Previously qualified display/touch, camera, ADXL/Input Shaper,
@@ -42,11 +44,12 @@ revision, or recovery behavior as universal.
 
 ## Start here
 
-- [What Fre3nder builds and how to build it](docs/build.md)
-- [Current configuration and hardware contract](docs/configuration.md)
+- [Build Fre3nder](docs/build.md)
+- [Configure Fre3nder](docs/configuration.md)
+- [Back up HOME and SYS](docs/backup.md)
 - [Integrated display and touch hardware](docs/x2000-display-touch.md)
 - [GuppyScreen local Core-UI](docs/guppyscreen.md)
-- [Installation and deployment boundary](docs/installation.md)
+- [Install or update Fre3nder](docs/installation.md)
 - [Recovery and return to Stock](docs/recovery.md)
 - [Development and tests](docs/development.md)
 - [Current roadmap](docs/roadmap.md)

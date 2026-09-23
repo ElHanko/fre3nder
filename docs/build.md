@@ -1,334 +1,187 @@
 # Building Fre3nder
 
-All builds are offline-oriented and operate on local source trees and ignored
-build output. They do not access or modify a printer.
+Builds create local artifacts; they do not access or change a printer. Run the
+commands below from the repository root. The productive entry points are
+[`scripts/build-x2000`](../scripts/build-x2000) for the host and
+[`scripts/build-f005`](../scripts/build-f005) for an optional, separate MCU
+candidate. Building an artifact does not qualify or authorize its deployment.
 
-## X2000 host
+## Prerequisites
 
-Use [`scripts/build-x2000`](../scripts/build-x2000) with the pinned sources and
-configuration under [`configs/x2000`](../configs/x2000). The container recipe
-is [`build/x2000`](../build/x2000), and the source manifest is
-[`configs/x2000/sources.json`](../configs/x2000/sources.json).
+- A checkout of this repository with its pinned inputs under
+  [`configs/x2000`](../configs/x2000) and
+  [`configs/x2000/sources.json`](../configs/x2000/sources.json).
+- Docker, Git, Python 3, and OpenSSL on the build host. The component scripts
+  build [`build/x2000`](../build/x2000) as their container environment, fetch
+  pinned sources, then compile without network access.
+- Sufficient local space for the ignored `local/production/` source, toolchain,
+  and artifact trees. Keep that directory out of Git.
+- For a complete X2000 build or composition, an Ed25519 OTA signing pair.
+  Create it once with `scripts/generate-ota-keypair`; the default location is
+  `local/production/keys/ota/`. Keep `private.pem` local and private. The
+  command refuses to replace an existing pair. Kernel-only does not need the
+  keys; RootFS assembly needs the public key as its trust anchor, and final
+  composition needs the matching pair.
 
-The resulting host image uses `6.6.157-fre3nder`: official Linux stable
-`v6.6.157` plus the reproducible ordered Fre3nder X2000 hardware-support patch
-series. It uses a read-only SquashFS RootFS. The Fre3nder board DT intentionally
-embeds no `/chosen/bootargs` and no slot-specific root device; the existing X2000
-boot chain supplies the slot-dependent kernel command line. Upstream Klipper is
-used at the pinned revision together with the project's passive-UART patch. The
-public board-specific Radxa AZW372 WLAN NVRAM is vendored unchanged; no Creality
-WLAN file remains a build input. Credentials remain outside the repository and
-are never embedded automatically.
+A normal release build requires a clean project worktree. Use `--develop`
+explicitly for a build from the current worktree. This changes artifact mode
+and provenance, not build scope. It does not authorize `--write` in a deploy
+command. Source versions, toolchains, licenses, and exact patch identities are
+recorded in the [source manifest](../configs/x2000/sources.json) and
+[licensing record](licensing-and-provenance.md).
 
-The slot-neutral kernel path was hardware-qualified on the investigated
-reference Ender-3 V3 KE on 2026-09-20. Development Kernel SHA-256
-`9e1902279d8aaac39bf1ef303e1ff9afdf1a58057c61605d639bd497d6062678`
-was built with no DT `bootargs` and no p7/p8 root reference, written to inactive
-p6 from Stock A, and passed complete artifact-length readback. After selecting
-B, the same image booted successfully as `6.6.157-fre3nder`; `/proc/cmdline`
-contained `root=/dev/mmcblk0p8` and `x2000-ab` reported active p8 with
-`DEVELOP_B`. This demonstrates that the B root selection is supplied by the
-existing boot chain rather than embedded in the Fre3nder kernel DT. The same
-Fre3nder kernel image has not yet been hardware-qualified from p5/A; that
-symmetric case is intentionally deferred until an A-side Fre3nder transition is
-needed.
-
-The productive source and configuration layers are separated as follows:
-
-```text
-Official Linux stable v6.6.157
-└── ordered Fre3nder X2000 hardware-support patch series
-    ├── X2000 platform support
-    ├── Ender-3 V3 KE display
-    ├── NS2009 touch
-    ├── Ender-3 V3 KE WLAN integration
-    └── Fre3nder board / forward-port integration
-        └── Kernel 6.6.157-fre3nder
-
-Upstream Buildroot 2025.02.18
-└── internal GCC 13.4.0 / binutils 2.43.1 / glibc toolchain
-    ├── Kernel compiler
-    ├── RootFS / userspace compiler
-    ├── linux-firmware 20250211 for CYW43430 firmware and CLM data
-    └── F005 X2000 host-helper compiler
-
-Debian ARM bare-metal toolchain
-└── F005 / GD32F303 MCU firmware
-
-Fre3nder
-├── kernel-fre3nder.defconfig
-├── kernel.fragment
-├── buildroot.defconfig
-├── buildroot.fragment
-├── BusyBox fragment
-└── RootFS overlays
-```
-
-The RootFS build uses the official upstream Buildroot checkout pinned in
-[`configs/x2000/sources.json`](../configs/x2000/sources.json). It no longer
-depends on the Ingenic Buildroot fork, its
-`halley5_linux_minimal_defconfig`, or an external userspace toolchain. The
-internal toolchain targets little-endian MIPS32r2/O32 hard-float with FPXX and
-NaN2008, using Linux 6.6 headers. The XBurst II target retains upstream
-Buildroot's `-ffp-contract=off` XBurst workaround for userspace. The kernel uses the same Buildroot toolchain
-family through the underlying `gcc.br_real`, but Kbuild supplies its separate
-MIPS32r5/O32/soft-float/legacy-NaN target contract. The userspace wrapper flags
-are not applied to the kernel. Historical Ingenic kernel/SDK material remains
-pinned only as migration provenance for the retained X2000 support; it is not a
-productive kernel source checkout or build dependency. Buildroot package
-downloads are retained
-outside its Git checkout so source-tree cleanup does
-not discard the offline-build cache. See
-[`buildroot-maintenance.md`](buildroot-maintenance.md) for the LTS update
-policy.
-
-The ignored productive tree is organized as follows:
-
-```text
-local/production/
-├── work/x2000/
-├── keys/ota/
-│   ├── private.pem
-│   └── public.pem
-└── artifacts/x2000/
-    ├── moonraker/
-    ├── guppyscreen/
-    ├── full/
-    ├── kernel-only/
-    └── rootfs-only/
-```
-
-`scripts/build-x2000` builds a complete X2000 platform by default: Kernel,
-Moonraker, the Buildroot toolchain, GuppyScreen, and the RootFS are built before
-the resulting Kernel and RootFS artifacts are composed into `full/` together
-with the signed OTA package.
-
-`--develop` changes only the artifact mode and provenance rules. It does not
-change the build scope, so `scripts/build-x2000 --develop` is the development
-equivalent of the default full release build.
-
-Use `--kernel-only` to build only the Kernel artifact or `--rootfs-only` to
-build the Moonraker, Buildroot, GuppyScreen, and RootFS stack without rebuilding
-the Kernel. `--f005-build` reproduces the F005 candidate before RootFS assembly
-and is valid for full and RootFS-only builds.
-
-`--compose-only` performs no component build. It validates and composes the
-existing `kernel-only/` and `rootfs-only/` artifacts into `full/` and creates
-the signed OTA package. It is a standalone scope and cannot be combined with
-`--develop`, `--kernel-only`, `--rootfs-only`, or `--f005-build`.
-
-Kernel and RootFS must agree on the Fre3nder version and artifact mode.
-`--compose-only` may intentionally reuse a Kernel from a different project
-commit or development build-input fingerprint. The resulting manifest records
-the Kernel and RootFS origins separately as `component_provenance`.
-The project state that performs the final signed composition is recorded
-separately as `composition_provenance`.
-
-A `--compose-only` run reports that validation has started and always ends with
-an explicit `PASS` or `FAIL`. Successful composition also reports the artifact
-mode, OTA package path, Kernel SHA-256, and RootFS SHA-256.
-
-A complete Kernel + RootFS composition also creates the signed platform-update
-artifact:
-
-```text
-fre3nder-<version>-ender3-v3-ke.ota
-```
-
-The package is a deterministic POSIX ustar archive containing
-`manifest.json`, `SHA256SUMS`, `SHA256SUMS.sig`, `kernel.uImage`, and
-`rootfs.squashfs`. The individual artifacts in `full/` remain available
-unchanged for development, inspection, and qualification.
-
-Before the first complete X2000 build on a development/release environment,
-create its local Ed25519 OTA signing keypair once:
+## Complete X2000 build
 
 ```sh
-scripts/generate-ota-keypair
+scripts/generate-ota-keypair  # once per build environment
+scripts/build-x2000
 ```
 
-The default key location is `local/production/keys/ota/`, which is already
-covered by the repository's ignored `local/` tree. The private key must remain
-local and must never be committed or copied into a target RootFS. Key generation
-refuses to overwrite an existing pair. Full X2000 composition fails before the
-expensive build starts if the required signing pair is absent.
+The default command builds Kernel, Moonraker, the Buildroot toolchain,
+GuppyScreen, and RootFS, then composes a signed OTA package. For a development
+artifact from the current worktree, use:
 
-RootFS assembly consumes only the public half of that pair. It installs the
-trust anchor as `/ota/keys/public.pem`, creates an empty `/ota/packages/`
-staging directory, and records the public-key SHA-256 as
-`ota_public_key_sha256` in the RootFS build manifest. Complete OTA composition
-checks that this recorded trust anchor is the same public key paired with the
-private key used to sign the package.
+```sh
+scripts/build-x2000 --develop
+```
 
-The OTA manifest reuses the existing build provenance rather than defining a
-second source of truth for release identity.
+The orchestrator runs the Kernel builder, then Moonraker, Buildroot
+`--toolchain`, GuppyScreen, and Buildroot `--assemble`. It uses the pinned
+Buildroot internal MIPS toolchain for the host components. The resulting
+RootFS is read-only SquashFS.
 
-The individual builders are
-`scripts/build-x2000-moonraker`, `scripts/build-x2000-guppyscreen`,
-`scripts/build-x2000-buildroot`, and `scripts/build-x2000-kernel`. The
-Buildroot builder's `--toolchain` phase precedes GuppyScreen compilation and its
-`--assemble` phase consumes the two validated component archives. The removed
-`build-x2000-rootfs` name has no compatibility alias, so there is only one
-RootFS assembly path. The regular Buildroot `linux-firmware` package supplies
-`cypress/cyfmac43430-sdio.bin` and its CLM blob and creates their
-`brcm/brcmfmac43430-sdio.*` aliases from `WHENCE`. The package's
-`LICENCE.cypress` is copied into `/usr/share/licenses/linux-firmware/`. The
-generic `brcm/brcmfmac43430-sdio.txt` is the unmodified public Radxa AZW372
-file vendored in the base RootFS overlay; its upstream BSD-3-Clause notice is
-installed under `/usr/share/licenses/radxa-rkwifibt/`. Size, hashes, exact
-source path, and commit are recorded in
-[`configs/x2000/sources.json`](../configs/x2000/sources.json). No WLAN BYOF
-input or `local/production/inputs/wifi` path is used.
+The component scripts are
+[`scripts/build-x2000-kernel`](../scripts/build-x2000-kernel),
+[`scripts/build-x2000-moonraker`](../scripts/build-x2000-moonraker),
+[`scripts/build-x2000-buildroot`](../scripts/build-x2000-buildroot), and
+[`scripts/build-x2000-guppyscreen`](../scripts/build-x2000-guppyscreen).
+Use the top-level orchestrator for normal build scopes.
 
-The linux-firmware binary differs from the firmware used for the previous
-integrated WLAN qualification. Its internal identity is `7.45.98.118` / FWID
-`01-32059766`; it is not the NebulaOS-qualified Infineon `7.45.98.125` / FWID
-`01-f420b81d` firmware. On 2026-09-14 the complete production WLAN path was
-hardware-qualified on the investigated reference Ender-3 V3 KE. The
-development build `scripts/build-x2000 --kernel-build --develop` integrated
-the official linux-firmware `.bin` and `.clm_blob` and the exact vendored Radxa
-NVRAM into Kernel SHA-256
-`93207a7b627442759bbc74716876c94592edfacb94cacd0ea52f1a9c09ab9d13` and
-RootFS SHA-256
-`f86ad04f6a63653ef79f0f8280a91d951838102cba8d509e019e78332404055b`.
-Both artifacts passed deployment readback, Fre3nder B booted from
-`/dev/mmcblk0p8`, the runtime NVRAM matched its pinned SHA-256, and WPA,
-DHCP, and 10/10 gateway ICMP packets passed. The Ethernet default path remained
-unchanged. This qualification covers WLAN only; Bluetooth was not qualified.
+The host artifact directories are:
 
-Kernel embedding remains required. `CONFIG_BRCMFMAC=y` registers `brcmfmac`
-as a device initcall, and the KE WLAN patch exposes the SDIO card during a late
-initcall. That card insertion immediately reaches `brcmf_sdio_probe()` and
-`request_firmware_nowait()`. The pinned kernel runs all initcalls before
-`prepare_namespace()` mounts the real SquashFS RootFS, so RootFS-only firmware
-cannot reliably satisfy the first SDIO probe. The Kernel therefore embeds the
-Buildroot-selected `.bin` and matching `.clm_blob` plus the vendored Radxa
-`.txt` through `CONFIG_EXTRA_FIRMWARE`; the same three runtime files remain in
-the RootFS for later requests.
+| Directory under `local/production/artifacts/x2000/` | Result |
+| --- | --- |
+| `kernel-only/` | `kernel.uImage`, DTB, effective kernel configuration, manifest and checksums |
+| `moonraker/`, `guppyscreen/` | Validated component overlay archives |
+| `rootfs-only/` | `rootfs.squashfs`, effective Buildroot configuration, manifest and checksums |
+| `full/` | Combined individual artifacts, manifest, checksums and `fre3nder-<version>-ender3-v3-ke.ota` |
 
-Normal builds are marked as `release` artifacts and retain the strict clean-tree
-deployment checks. Add `--develop` explicitly to create a `development`
-artifact from the current worktree. Development manifests contain a
-deterministic SHA256 fingerprint of the relevant X2000 inputs, including
-untracked files in those paths, and deployment requires both an explicit
-`--develop` and an exact match with the current input fingerprint. This option
-does not imply deployment `--write` or relax any hardware gate.
+`full/` keeps the individual Kernel and RootFS files available for inspection.
+The OTA package contains `manifest.json`, `SHA256SUMS`, `SHA256SUMS.sig`,
+`kernel.uImage`, and `rootfs.squashfs`. Its signature and installed RootFS
+trust-anchor relationship are specified in [OTA architecture](ota.md).
 
-Development builds may reuse the existing Buildroot output and internal
-toolchain when its dedicated toolchain fingerprint still matches. The current
-Buildroot configuration is reapplied before the incremental build. Release
-builds remove the Buildroot output before their toolchain phase and reuse
-exactly that fingerprint-validated prepared toolchain for subsequent component
-compilation and RootFS assembly in the same orchestration. Development reuse is
-an iteration aid, not a reproducibility guarantee.
+## Partial builds and reuse
 
-On the first development run after introduction of the fingerprint, a legacy
-markerless output may be adopted only when its Buildroot version, effective
-toolchain configuration, compiler contract, sysroot, and completion stamps all
-match the current pinned toolchain. An unsafe or ambiguous legacy output is
-removed. Release builds never adopt existing output.
+| Command | Builds | Does not build | Output |
+| --- | --- | --- | --- |
+| `scripts/build-x2000 --kernel-only` | Buildroot toolchain and linux-firmware prerequisites, then Kernel | RootFS artifact or OTA package | `kernel-only/` |
+| `scripts/build-x2000 --rootfs-only` | Moonraker, Buildroot toolchain/RootFS, GuppyScreen | Kernel or OTA package | Component directories and `rootfs-only/` |
+| `scripts/build-x2000 --compose-only` | No component | Kernel and RootFS | Validated `full/` and signed OTA package |
 
-The development reuse path is qualified on the reference build environment: a
-legacy output reported `ADOPTED` once and the following RootFS-only build
-reported the fingerprint-matched `HIT` path. The repeated build also qualified
-replacement of stale Moonraker Git metadata by the current overlay in the
-idempotent post-build hook. Release remains the clean build boundary.
+Add `--develop` to a Kernel-only or RootFS-only development build. Add
+`--f005-build` to a full or RootFS-only build only when a new F005 candidate
+must be built before RootFS assembly; it invokes the separate F005 builder,
+which requires a clean project worktree. `--f005-build` is invalid with
+`--kernel-only` and `--compose-only`.
 
-### Buildroot host tools
+The F005 builder requires an already prepared X2000 Buildroot `host/` toolchain.
+In a full build, the preceding Kernel step prepares it. With
+`--rootfs-only --f005-build`, it must exist before the command starts: F005 runs
+before that command's Buildroot `--toolchain` phase.
 
-Buildroot installs host-side tools produced or required by the X2000 build
-under:
+`--compose-only` is a standalone scope and cannot be combined with `--develop`,
+`--kernel-only`, `--rootfs-only`, or `--f005-build`. It requires existing
+`kernel-only/` and `rootfs-only/` artifacts plus the signing keypair. It
+checks required files, component hashes, matching project `VERSION`, and the
+RootFS public key against the signing pair. It does not currently compare the
+two component `artifact_mode` fields, although the compose-only fixture
+expects that mismatch to be rejected. Require equal modes when selecting
+artifacts until this code/fixture discrepancy is resolved. It permits Kernel
+and RootFS from different commits or build-input fingerprints; their origins
+are recorded separately in `component_provenance`. The final project state is
+recorded in `composition_provenance`. Check those fields before composing
+artifacts from different origins.
+The composition command reports validation start and an explicit `PASS` or
+`FAIL`; on success it prints the mode, package path, and Kernel/RootFS hashes.
 
-    local/production/work/x2000/buildroot-output-fre3nder/host/bin/
+Development Buildroot output and its internal toolchain may be reused when the
+toolchain fingerprint matches; the configuration is reapplied for the
+incremental build. Release builds remove old Buildroot output before the
+toolchain phase, then reuse that prepared toolchain in the same orchestration.
+Development reuse is an iteration aid, not a release reproducibility claim.
+The detailed maintenance and WLAN source contract is in
+[Buildroot maintenance](buildroot-maintenance.md).
 
-These tools are available even when the corresponding utility is not installed
-system-wide on the development host. Development, inspection, and qualification
-commands should prefer the Buildroot-provided tool when applicable instead of
-assuming that a host package is installed.
+## Inspect the artifacts
 
-For example, the SquashFS inspection tool produced by Buildroot is:
+From the repository root, check the recorded hashes and parse the manifest in
+the output directory of the build scope you ran. For a full build:
 
-    local/production/work/x2000/buildroot-output-fre3nder/host/bin/unsquashfs
+```sh
+(cd local/production/artifacts/x2000/full &&
+  sha256sum -c SHA256SUMS &&
+  python3 -m json.tool build-manifest.json >/dev/null)
+```
 
-A RootFS artifact can therefore be inspected with:
+For a partial build, substitute `kernel-only/` or `rootfs-only/` for `full/` in
+that command. In each directory, inspect its own `build-manifest.json`:
 
-    local/production/work/x2000/buildroot-output-fre3nder/host/bin/unsquashfs \
-        -ll local/production/artifacts/x2000/rootfs-only/rootfs.squashfs
+| Build scope | Fields to inspect in that manifest |
+| --- | --- |
+| `--kernel-only` | `version`, `artifact_mode`, `project_commit`, `project_worktree_status`, and `artifacts` hashes for `kernel.uImage`, DTB, and effective Kernel configuration |
+| `--rootfs-only` | The same identity fields, `artifacts` hashes for `rootfs.squashfs` and `buildroot.config`, plus `ota_public_key_sha256` and `rootfs_components` |
+| Full build or `--compose-only` | The same identity fields and `artifacts` hashes for Kernel and RootFS, `ota_public_key_sha256`, `rootfs_components`, plus `component_provenance` for each input and `composition_provenance` for the final assembly |
 
-### Moonraker RootFS baseline
+For `development` artifacts, also check `build_input_sha256`; release artifacts
+have no such field and require `project_worktree_status: clean`. The
+`artifact_mode` field distinguishes build/provenance mode, not a diagnostic,
+provisioned, or normal RootFS content variant. There is no separate RootFS
+variant field in the current manifest. Check the effective configuration and
+RootFS contents for the intended boot and access path; hashes establish the
+identity of what was built, not its behavior on a printer or permission to
+deploy.
 
-`build-x2000-moonraker` fetches the pinned Moonraker source and hash-pinned
-pure-Python wheels before its network-disabled component phase. It produces a
-deterministic, manifested RootFS-overlay archive which `build-x2000-buildroot`
-validates before consumption. The RootFS contains
-the upstream Git checkout at `/opt/fre3nder/moonraker` and a PEP 405 environment
-at `/opt/fre3nder/moonraker-env`. Native Python dependencies come from
-Buildroot; pure-Python wheel contents are staged in the environment. No target
-source build or boot-time dependency installation is required.
+Buildroot provides `unsquashfs` under
+`local/production/work/x2000/buildroot-output-fre3nder/host/bin/`. For example,
+from the repository root:
 
-The checkout retains its upstream origin and exact pinned HEAD so Moonraker can
-recognize its own source for later stable-channel updates. Fre3nder Klipper is
-still installed without Git metadata and remains outside Moonraker's update
-ownership.
+```sh
+local/production/work/x2000/buildroot-output-fre3nder/host/bin/unsquashfs \
+  -ll local/production/artifacts/x2000/rootfs-only/rootfs.squashfs
+```
 
-### GuppyScreen RootFS baseline
+## F005 MCU candidate
 
-`build-x2000-guppyscreen` fetches the exact published source and submodule pins
-before its network-disabled component phase, applies the source-carried
-dependency patches, and cross-compiles with the prepared Buildroot toolchain.
-Fre3nder's runtime-path overrides are carried directly by the pinned
-GuppyScreen fork. Its deterministic component archive supplies the native
-binary, immutable themes, and license texts. Because libhv embeds
-`__DATE__`/`__TIME__`, the component builder derives `SOURCE_DATE_EPOCH` from
-the pinned GuppyScreen commit before compilation. Together with the normalized
-archive metadata this makes repeated component builds byte-reproducible. The
-service/default configuration remain generic RootFS overlay inputs. See
-[`guppyscreen.md`](guppyscreen.md) for the full runtime and build-gate contract.
+A read-only recipe check is available without fetching or building:
 
-## F005 MCU
+```sh
+scripts/build-f005 --check
+```
 
-Use [`scripts/build-f005`](../scripts/build-f005) as the standard product
-entry point for an F005 MCU build.
+A separately authorized F005 candidate build uses `scripts/build-f005` from a
+clean project worktree. It requires the prepared X2000 Buildroot `host/`
+toolchain for `c_helper.so`, but uses a separate ARM bare-metal toolchain for
+the MCU. Its output is under `local/production/artifacts/f005/candidate/`:
+raw firmware, ELF, dictionary, resolved configuration, packaged updater image,
+X2000 `c_helper.so`, report, manifest, and checksums. It neither flashes nor
+promotes that candidate to the hardware-qualified release image. The detailed
+recipe is in [`build/klipper-f005/README.md`](../build/klipper-f005/README.md).
 
-`scripts/build-f005 --check` validates the pinned source, productive patches,
-configuration, packager, and build-container contract without fetching,
-building, or writing artifacts.
+## Common failures and next steps
 
-A normal `scripts/build-f005` run requires a clean Fre3nder project worktree.
-It prepares the pinned upstream Klipper revision, applies the productive F005
-MCU and serial-bootloader-request patches, builds the firmware with network
-access disabled during compilation, packages the updater-compatible image, and
-writes an unqualified candidate set under:
+- Missing signing keys: generate the local pair before a complete build or
+  `--compose-only`; check that its public half is the one recorded by RootFS.
+- Dirty release worktree: either restore a clean release checkout or choose
+  `--develop` for a development artifact.
+- Stale or incompatible partial artifacts: rebuild the affected component;
+  `--compose-only` validates them and stops without rebuilding anything.
+- Missing F005 `host/` toolchain: run the Kernel build scope first when using
+  `--rootfs-only --f005-build` or the separate F005 candidate builder.
 
-    local/production/artifacts/f005/candidate/
-
-The candidate includes the raw firmware, ELF, Klipper dictionary, resolved
-configuration, packaged F005 image, X2000 `c_helper.so`, packaging report,
-build manifest, and checksums.
-
-Candidate output is deliberately separate from the currently
-hardware-qualified F005 artifact used by the default `deploy-f005` path.
-Successful compilation does not promote a candidate to a qualified release.
-The qualified image is embedded in the immutable RootFS baseline at
-`/var/lib/fre3nder/firmware/f005/klipper-f005-mainline.bin`; a persistent system
-overlay may replace it, but the MCU write remains operator-controlled.
-
-The underlying container recipe remains
-[`build/klipper-f005`](../build/klipper-f005), and
-[`scripts/package_f005_firmware.py`](../scripts/package_f005_firmware.py)
-provides the F005 board-information packaging step. The F005 build mounts the
-existing X2000 Buildroot `host/` output read-only and uses its normal wrapper
-for `c_helper.so`; it neither downloads nor builds another MIPS toolchain. The
-MCU firmware continues to use the separate `arm-none-eabi` bare-metal
-toolchain. Fre3nder therefore has one productive MIPS-Linux toolchain, not one
-compiler across all architectures.
-
-The entire `build-f005` path is build-only. It performs no printer, UART,
-selector, partition, reboot, flash, or other hardware operation.
-
-The validated source, version, and license basis are recorded in
-[`docs/licensing-and-provenance.md`](licensing-and-provenance.md).
-
-For the complete historical first-print reproduction, including the older
-staged candidates, see
-[`research/docs/f005-first-print-reproduction.md`](../research/docs/f005-first-print-reproduction.md).
+For installing a checked host artifact, continue with
+[installation](installation.md). For the host design and hardware contracts,
+see [X2000 architecture](x2000-open-host-architecture.md) and
+[X2000 hardware](x2000-hardware-contract.md). Historical X2000 build and
+qualification records remain in
+[`research/docs/x2000-build-history.md`](../research/docs/x2000-build-history.md).

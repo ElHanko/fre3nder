@@ -1,6 +1,6 @@
-# Moonraker runtime bring-up — current state
+# Moonraker runtime and service contract
 
-Status date: 2026-09-14
+The reference-system qualification snapshot is dated 2026-09-14.
 
 ## Current architecture
 
@@ -170,22 +170,6 @@ components or warnings. A subsequent Fre3nder-to-Fre3nder reboot retained the
 persistent Moonraker configuration/state and returned to the same ready
 runtime.
 
-## Preserved hardware evidence
+## Qualification record
 
-The architecture change does not invalidate the existing reference-hardware
-results for the same pinned Moonraker version and dependency set:
-
-- real Moonraker startup with persistent configuration under `/home` and a UDS
-  under `/run`;
-- connection to `/run/fre3nder-klipper/klippy.sock` with
-  `klippy_connected=True` and `klippy_state=ready`;
-- `/printer/info` reporting ready;
-- working local HTTP API and network discovery; and
-- S60 readiness plus natural boot without the observed startup race.
-
-These results qualify the runtime and service behavior. The same pinned source
-and dependency baseline was built into the `2026.2.a` candidate tested on the
-reference system. Final-candidate normal-reboot state retention and OverlayFS
-baseline recovery are now hardware-qualified. Self-update, dependency
-transition handling, and automatic post-update restart remain deferred beyond
-`2026.2`.
+The pinned Moonraker runtime, recovery, and reference-system service observations are preserved in [managed-app and web qualification](../research/docs/apps-web-qualification.md#moonraker-runtime-qualification). The current runtime contract is described above.

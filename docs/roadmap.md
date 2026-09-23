@@ -8,13 +8,6 @@ Completed release work and historical milestones are documented in the project
 [`CHANGELOG.md`](../CHANGELOG.md). This roadmap intentionally focuses on future
 work.
 
-## Reached milestones
-
-- `2026.1` — open printer stack and first qualified real print, released on
-  2026-08-29.
-- `2026.2` — usable-system, released on 2026-09-14.
-- `2026.3` — independent-kernel-stack, released on 2026-09-20.
-
 ## Next
 
 ### User-facing installation and releases
@@ -66,6 +59,8 @@ logical `SYS` system overlay for the newly installed release. OTA must operate o
 these logical storage roles rather than depending on their physical backing.
 Physical assignment of `SYS` and `HOME` remains an installation/storage-policy
 responsibility.
+The update must retain a usable fallback, fit the installation and recovery
+workflows, and never imply silent F005 firmware flashing.
 
 The initial implementation is intended for the currently supported external
 Fre3nder persistence backend. Internal persistence and migration are separate
@@ -89,14 +84,6 @@ restarts. Restore desired applications automatically after a system-overlay
 reset when that can be done safely. Application updates must remain separate
 from platform ownership and must never implicitly replace the kernel, RootFS,
 F005 firmware, or A/B state.
-
-### Platform updates (OTA) and rollback
-
-Design a safe release-to-release update path for the Fre3nder platform. It must
-respect the immutable RootFS, A/B and recovery boundaries, persistent `/home`,
-and the separation between platform and application updates. Updates must retain
-a usable fallback, fit normal user-facing installation and recovery workflows,
-and must never imply silent F005 firmware flashing.
 
 ### Kernel upstreaming
 
@@ -145,8 +132,6 @@ path.
   emerges; current WLAN qualification does not cover Bluetooth.
 - Qualify broader Ender-3 V3 KE hardware, board, and Stock-firmware revisions
   before treating reference-system results as universal.
-- Consider larger GuppyScreen layout or UX redesigns and additional local
-  functions only after a product scope is selected.
 - Evaluate HTTPS/TLS for the web UI when the deployment and threat model
   justify the additional lifecycle and certificate ownership.
 - Evaluate which remaining Klipper, kernel, and UI changes can be contributed

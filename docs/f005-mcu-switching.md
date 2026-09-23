@@ -4,6 +4,11 @@ This document records the validated F005/GD32F303 firmware-return mechanism and
 the target contract for later Stock/Fre3nder dual-mode operation.
 
 It is a design and evidence document. It does not itself authorize an MCU flash.
+The dated 2026-08-30 transition and later qualification sections describe the
+reference system at those times. Current host A/B slots may both contain
+Fre3nder; `STOCK_A` and `DEVELOP_B` remain selector-pattern names and do not
+identify their payloads. Use [installation](installation.md) and
+[recovery](recovery.md) for present host-side procedures.
 
 ## Current evidence
 

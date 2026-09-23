@@ -1,155 +1,174 @@
 # Installing and updating Fre3nder
 
-The current X2000 deployment tool is
-[`scripts/deploy-x2000`](../scripts/deploy-x2000). It stages the host kernel
-and RootFS into the inactive X2000 A/B slot. Slot A uses p5/p7 and Slot B uses
-p6/p8.
+This is the current expert, host-side A/B deployment procedure. A guided
+Stock-to-Fre3nder consumer installer is still [planned](roadmap.md). The
+commands below describe the existing tools; a successful offline build or
+preflight does not authorize a printer write. Persistent staging, selector
+changes, and reboots require a separately authorized concrete operation under
+[`AGENTS.md`](../AGENTS.md).
 
-Without a component option, both kernel and RootFS are selected. The same
-selection can be requested explicitly with `--all`; `--kernel` and `--rootfs`
-allow either component to be deployed independently.
+For a normal Kernel-and-RootFS `--write`, the active host must already run
+Fre3nder with `/run/fre3nder-root/status` reporting `active`: after staging,
+`deploy-x2000` arms the SYS reset on that runtime before selecting the new
+slot. Its read-only preflight does not prove this later requirement. In
+particular, this command is not a complete first-installation sequence from
+Stock; a write run can stage the inactive pair before refusing the SYS reset.
 
-Without `--write`, the tool performs a fail-closed read-only preflight. The
-`--write` mode is an explicit persistent-operation boundary and requires the
-operator's authorization and risk acceptance described by `AGENTS.md`.
+The current Fre3nder runtime expects separately prepared external ext4
+filesystems labelled `FRE3NDERSYS` and `FRE3NDERHOME`. Their roles and runtime
+checks are in [storage layout](storage-layout.md). The repository does not yet
+provide a general, qualified public procedure to create and verify those
+backends for a first installation. This expert deployment procedure assumes
+they have already been established; staging a host image does not prepare
+them. A guided first-installation flow remains [roadmap work](roadmap.md#user-facing-installation-and-releases).
 
-Development artifacts require an additional explicit `--develop`. Their stored
-X2000 input fingerprint must be valid and match the current calculated
-fingerprint; release artifacts retain the clean-worktree deployment gate.
-`--develop` does not authorize `--write` or relax any hardware gate.
+## Before staging
 
-For each selected component, the tool verifies the local artifact against
-`SHA256SUMS` and the build manifest, checks that relevant build inputs have not
-changed since the artifact source commit, identifies the active and inactive
-A/B slots, and requires the boot selector to still point to the active slot.
-It validates the inactive target partitions and, in `--write` mode, writes only
-the selected inactive-slot artifacts followed by a complete artifact-length
-SHA-256 readback. The active kernel and RootFS partitions are hashed before and
-after staging and must remain unchanged.
+1. Establish the target's Point-of-Return and recovery material as described
+   in [recovery](recovery.md). Check the actual active payload and selector;
+   the names `STOCK_A` and `DEVELOP_B` label selector byte patterns, not the
+   content of their slots.
+2. Build and inspect the intended Kernel and RootFS pair as in
+   [building Fre3nder](build.md). In
+   `local/production/artifacts/x2000/full/build-manifest.json`, check
+   `version`, `artifact_mode`, the Kernel and RootFS entries in `artifacts`,
+   `component_provenance`, and `composition_provenance`. The combined manifest
+   inherits its top-level `project_commit`, `project_worktree_status`, and, for
+   development artifacts, `build_input_sha256` from the RootFS component.
+   Use `component_provenance` to identify the Kernel and RootFS inputs and
+   `composition_provenance` to identify the project state that performed the
+   final assembly. `artifact_mode` is `release` or `development`: it describes
+   build/provenance checks, not RootFS contents or access features.
+   For `--compose-only` output, compare the Kernel and RootFS `artifact_mode`
+   entries inside `component_provenance` explicitly; composition does not
+   currently enforce their equality.
+   The current manifest has no separate RootFS variant field. Use the recorded
+   `rootfs.squashfs` hash, effective `buildroot.config`, and inspected RootFS
+   contents to establish which system is being staged. Check the intended boot
+   path and that the required network, SSH, diagnostic, and recovery access
+   remain available. A change in RootFS contents is a functional change even
+   if the slot and `artifact_mode` are unchanged.
+3. Ensure non-interactive SSH access to the active `<printer-host>`. Before an
+   authorized deployment reboot, check whether the persistent F005
+   auto-transition opt-in is enabled. On an active Fre3nder runtime, this
+   read-only check uses the same file, type, size, and content conditions as S60:
 
-For a normal Fre3nder `--write`, deployment continues after successful write
-and readback verification: the shared system overlay is marked for a
-target-slot-specific reset, the verified inactive slot is selected, the printer
-is rebooted, and the new active root, selector, and persistent-root runtime are
-validated. The selector remains on the newly active Fre3nder slot.
+   ```sh
+   ssh -o BatchMode=yes <printer-host> '
+     if [ "$(cat /run/fre3nder-root/status 2>/dev/null)" != active ]; then
+       echo F005_AUTO_TRANSITION=unknown
+     else
+       marker=/home/fre3nder/f005-auto-transition.enabled
+       if [ -f "$marker" ] && [ ! -L "$marker" ] &&
+          [ "$(wc -c < "$marker")" -eq 7 ] &&
+          [ "$(cat "$marker")" = enabled ]; then
+         echo F005_AUTO_TRANSITION=enabled
+       else
+         echo F005_AUTO_TRANSITION=disabled
+       fi
+     fi'
+   ```
 
-Normal Fre3nder deployment always treats kernel and RootFS as one release pair.
-Using `--kernel` or `--rootfs` individually requires `--develop`; component-only
-deployment is therefore an explicit development operation rather than part of
-the normal update contract.
+   If that persistent opt-in is enabled and the exact supported Stock MCU is
+   detected after reboot, S60 can invoke the Stock-to-Fre3nder MCU transition.
+   If Fre3nder HOME is not accessible from the running host, its opt-in state
+   is unknown; do not infer that the file is absent or that a host deployment
+   will leave the MCU untouched. Include a possible MCU transition in the
+   concrete authorization. The exact gate and MCU limits are in
+   [F005 switching](f005-mcu-switching.md#fre3nder-owned-mcu-lifecycle).
+4. Run the read-only preflight from the repository root:
 
-`--stock --write` is deliberately different: it restores the Stock-A p5/p7 pair
-only and stops after staging and readback. Stock activation remains separate
-because the F005 MCU state must be coordinated with the Stock host.
+   ```sh
+   scripts/deploy-x2000 <printer-host>
+   ```
 
-Stock-A host restoration is an explicit variant of the same staging interface.
-`--stock` stages a complete raw Stock kernel/RootFS pair to p5/p7 and is accepted
-only while Slot B is active and the selector still points to B. The default
-source is `local/backup/stock/image/`; an alternative source directory may be
-given directly after `--stock`. A Stock source directory must contain exact
-full-partition `p5.img` and `p7.img` files plus `SHA256SUMS`.
+   For a development artifact, add `--develop` to the preflight. A normal
+   deployment selects both Kernel and RootFS; `--all` is equivalent to the
+   default. The tool verifies local `SHA256SUMS`, the build manifest, source
+   identity, artifact size, the active A/B side, and inactive partition layout.
+   It refuses a selector that does not point to the active slot.
+   Read the printed plan and require the inactive target and selected pair to
+   match the intended operation. The preflight makes no partition write,
+   selector change, SYS reset, or reboot.
 
-Stock staging always treats p5/p7 as one pair; it cannot be combined with the
-individual component options or `--develop`. It does not restore p9/p10, change
-the X2000 selector, reboot the host, or restore the F005 MCU. Those remain
-separate recovery/activation responsibilities. Vendor and device backup files
-under `local/` remain local-only and are not repository artifacts.
+## Stage and activate a Fre3nder pair
 
-The X2000 deploy tool intentionally does not install or update the F005 MCU.
-MCU firmware lifecycle management is a separate responsibility and is not part
-of `deploy-x2000`.
+Only within the explicitly authorized deployment sequence, run the same plan
+with `--write`:
 
-Moonraker is part of the RootFS artifact rather than a separately installed
-application artifact. Later Moonraker updates are intended to copy up under
-`/opt/fre3nder/moonraker` and `/opt/fre3nder/moonraker-env` in the writable
-system OverlayFS. A normal reboot retains those changes; an authorized
-system-overlay reset exposes the platform release's RootFS baseline again while
-preserving `/home/fre3nder/printer_data`.
+```sh
+scripts/deploy-x2000 <printer-host> --write
+```
 
-The current F005 build tool is
-[`scripts/build-f005`](../scripts/build-f005). It is build-only and has no
-printer or hardware access. `--check` validates the recipe without fetching,
-building, or writing artifacts. A normal build produces an unqualified
-candidate under `local/production/artifacts/f005/candidate/` and deliberately
-does not replace the currently qualified F005 deployment artifact.
+For an authorized development artifact, use `--develop --write`. `--develop`
+requires the stored X2000 build-input fingerprint to match the current
+worktree and does not imply `--write`. Release artifacts retain the clean-tree
+source gate.
 
-The current transitional F005 deployment tool is
-[`scripts/deploy-f005`](../scripts/deploy-f005). It is separate from X2000
-host deployment and operates only on an already running Fre3nder B system with
-the selector restored to the qualified `STOCK_A` fallback state.
+The tool writes the selected pair only into the inactive p5/p7 or p6/p8 side,
+performs complete artifact-length SHA-256 readback, and checks that the active
+Kernel and RootFS did not change. For a normal Fre3nder deployment it then
+marks SYS for the target-slot reset, selects the verified slot, reboots, and
+validates the new active root, selector, and persistent-root runtime. A normal
+successful result ends in `DEPLOY_X2000=PASS` and leaves the selector on the
+newly active Fre3nder slot. Confirm that administrative access still works
+through the intended network and SSH path.
 
-Without `--write`, `deploy-f005` performs a fail-closed read-only preflight. It
-validates the local release manifest and F005 firmware artifact, verifies that
-the installed Fre3nder F005 product helpers match the current project sources,
-requires an active persistent root, and accepts only an MCU state already classified
-by the normal startup gate as exact Fre3nder or exact supported Stock.
+A normal release deployment always stages Kernel and RootFS together.
+`--kernel` or `--rootfs` alone is accepted only with `--develop`, for a
+controlled component-development operation. Do not infer that the untouched
+component was rebuilt or requalified by that operation. The exact partition
+mapping and persistence roles are in [storage layout](storage-layout.md); the
+update ownership and activation model are in [OTA architecture](ota.md).
 
-With `--write`, the current transitional path stages the exact validated F005
-firmware under `/var/lib/fre3nder/firmware/f005/` when required. This is
-reconstructible, release-specific system state in the writable root overlay; it
-is intentionally not userdata retained across a system-persistence reset. An
-already current Fre3nder MCU is not reflashed. An exact supported Stock MCU is
-first checked through the qualified no-write transition preflight and is then
-passed once to the existing open Stock-to-Fre3nder transition helper.
+If preflight refuses, resolve the reported mismatch before any write. If
+staging or post-boot validation fails, keep the failure output and use the
+[recovery decision path](recovery.md); do not assume a failed command left the
+selector or partially written target in a usable state.
 
-`deploy-f005` does not modify the X2000 selector or the host A/B partitions.
-The Fre3nder RootFS carries the qualified F005 release as its immutable
-baseline, so a system-overlay reset makes that image visible again. Any replacement in the
-writable system overlay and every MCU transition remain explicit
-operator-controlled `deploy-f005` actions; normal boot does not flash the MCU.
+## F005 MCU firmware is separate
 
-The `deploy-f005` wrapper is currently **OFFLINE CONFIRMED** by fixture tests.
-The underlying bounded Stock-to-Fre3nder F005 transition remains separately
-**QUALIFIED ON DEVICE** on the investigated reference system.
+`deploy-x2000` does not itself install or update the F005; the persistent
+auto-transition opt-in described above can affect the subsequent boot. The
+current transitional
+[`scripts/deploy-f005`](../scripts/deploy-f005) accepts an already running
+Fre3nder B system with active persistent root and the historically named
+`STOCK_A` fallback selector state. Its default invocation is read-only:
 
-The current build/deployment contract is summarized in
-[`docs/x2000-open-host-architecture.md`](x2000-open-host-architecture.md).
+```sh
+scripts/deploy-f005 <printer-host>
+```
 
-The established bounded p1 selector helper is
-[`scripts/x2000-ab`](../scripts/x2000-ab). The external BootROM selector
-fallback is [`scripts/x2000-usb-selector-to-a`](../scripts/x2000-usb-selector-to-a).
-Neither tool is a general recovery guarantee.
+It checks the exact qualified release image, installed helpers, and MCU
+identity. An authorized `--write` stages that image at
+`/var/lib/fre3nder/firmware/f005/klipper-f005-mainline.bin` if needed and performs one existing open
+Stock-to-Fre3nder transition only for an exact supported Stock MCU. An already
+current Fre3nder MCU is not reflashed. The wrapper is fixture-confirmed; the
+bounded underlying transition was separately qualified on the investigated
+reference system. Read [F005 switching](f005-mcu-switching.md) before an MCU
+operation. A newly built `build-f005` candidate is not automatically the
+qualified deployment image.
 
-## Reference-system deployment qualification
+## Stock-A staging and return
 
-On 2026-08-30 the existing deployment path was exercised successfully with
-the untagged current-main build `2026.1-1-gc4c6fa1` from project commit
-`c4c6fa18e659a82ada32c708720202a5ad6592ac`.
+When Slot B is active and selected, the host tool can preflight a complete raw
+Stock-A pair from `local/backup/stock/image/` or an explicitly supplied source
+directory containing full-partition `p5.img`, `p7.img`, and `SHA256SUMS`:
 
-The deployed `rootfs.squashfs` was 31760384 bytes with SHA-256
-`5ac3a01985789476f0db73fbb2091f3b7fbfcce98578392c6c7c1f14abfbddf2`.
-The helper booted Stock A, wrote Slot-B p8, performed a full artifact-length
-readback with an exact SHA-256 match, selected B, booted the newly written
-read-only SquashFS, and finally restored the selector to `STOCK_A`.
+```sh
+scripts/deploy-x2000 <printer-host> --stock
+```
 
-Post-boot checks confirmed active p8, read-only SquashFS, both expected
-persistence bindings, the expected F005 product files and manifest, absence of
-`mcu_util` from the immutable RootFS, and active Klipper. This qualification
-applies to the investigated reference system and does not turn the untagged
-current-main build into a new public release.
+An authorized `--stock --write` stages and verifies p5/p7 only. It does **not**
+activate Stock, reboot, restore p9/p10, or switch the F005 MCU. Those are
+separate steps in the [recovery decision path](recovery.md). Stock staging
+cannot be combined with component selection or `--develop`.
 
-## Full kernel and RootFS qualification
+## Qualification scope
 
-On 2026-08-30 a subsequent full build that was current-main at the time,
-from project commit `833cbd43132e5a818a422f25d9478cd6b3f76123`
-(`2026.1-4-g833cbd4`) was installed on the same reference system.
-
-The Slot-B kernel artifact was 4878400 bytes with SHA-256
-`5d350222ae07efb710aaeb4f43f8753180d0e04ea6f74ab687089fd07fdc7e6f`.
-The Slot-B RootFS artifact was 31760384 bytes with SHA-256
-`6cecb56bafd931874d296d81089d20596632cb342a0bd605e723bddfe83b7b62`.
-
-Installation was performed from Stock A with p6 and p8 unmounted. The kernel
-was written to p6 and the RootFS to p8, and both were verified by complete
-artifact-length SHA-256 readback. Stock p5 and p7 remained byte-for-byte
-unchanged.
-
-The newly written p6/p8 pair subsequently booted successfully with Linux
-`6.6.18-rt23`, read-only SquashFS root on p8, active persistence, active
-Klipper, and hostname `fre3nder`. The selector was finally restored to
-`STOCK_A` while Fre3nder remained active on p8.
-
-This qualifies the complete kernel-plus-RootFS installation of that
-2026-08-30 build on the investigated reference system. It was an untagged
-current-main qualification build at the time and is not a new public `2026.1`
-release.
+The historical 2026-08-30 RootFS-only and full p6/p8 installation results,
+including exact build IDs, byte counts, hashes, readback checks, and subsequent
+runtime observations, are preserved in
+[F005 reference hardware validation](f005-hardware-validation.md#2026-08-30-current-main-rootfs-installation-qualification).
+Those results apply to the investigated reference system and historical
+artifacts. They do not qualify a new artifact or a complete Stock return.
