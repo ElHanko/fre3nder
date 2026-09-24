@@ -27,7 +27,7 @@ Fre3nderScreen is now maintained outside the Fre3nder platform repository and
 Fre3nder consumes an exact pinned source revision. Define an independent
 Fre3nderScreen release/version boundary so the platform can eventually consume
 a clearly pinned Fre3nderScreen release rather than a raw source commit. The
-source repository name remains `guppyscreen` to preserve project history and
+source repository is named `fre3nderscreen` while retaining the original project history and
 upstream provenance.
 
 ### Local UI product experience

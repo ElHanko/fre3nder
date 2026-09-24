@@ -5,10 +5,11 @@ qualification of the integrated Ender-3 V3 KE display, backlight, and
 touchscreen on the investigated reference system.
 
 The hardware path was qualified on real hardware on 2026-09-12 using the
-then-productive kernel baseline. The `2026.3` migration carries that
-implementation in the ordered Fre3nder X2000 hardware-support series on Linux
-stable `v6.6.157`, but the kernel-migration qualification did not separately
-re-exercise the display/touch path on that new baseline.
+then-productive kernel baseline. On 2026-09-24 the productive runtime path was
+re-exercised on Linux stable `v6.6.157` while qualifying Fre3nderScreen
+`589275a7c3a7fd904184bb5f15b058b7c0376911`. The live system confirmed
+`ingenicfb` framebuffer operation, NS2009 input and calibrated touch, physical
+backlight standby, and touch wake on that kernel baseline.
 
 The 2026-09-12 qualification covers the Linux kernel, Device Tree, framebuffer,
 backlight, I2C touchscreen, pendown detection, and Linux input-device path.

@@ -113,7 +113,7 @@ import sys
 
 sources = json.loads(pathlib.Path(sys.argv[1]).read_text())
 screen = sources["userspace"]["fre3nderscreen"]
-assert screen["repository"] == "https://github.com/ElHanko/guppyscreen.git"
+assert screen["repository"] == "https://github.com/ElHanko/fre3nderscreen.git"
 assert screen["release"] == "0.0.26-beta+fre3nder.589275a"
 assert screen["commit"] == "589275a7c3a7fd904184bb5f15b058b7c0376911"
 assert screen["license"] == "GPL-3.0-only"

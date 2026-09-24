@@ -141,7 +141,7 @@
       "role": "qualified RootFS application baseline"
     },
     "fre3nderscreen": {
-      "repository": "https://github.com/ElHanko/guppyscreen.git",
+      "repository": "https://github.com/ElHanko/fre3nderscreen.git",
       "release": "0.0.26-beta+fre3nder.589275a",
       "commit": "589275a7c3a7fd904184bb5f15b058b7c0376911",
       "license": "GPL-3.0-only",

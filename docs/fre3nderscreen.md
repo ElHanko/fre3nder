@@ -1,7 +1,6 @@
 # Fre3nderScreen local Core-UI
 
-Status: **CURRENT DEVELOPMENT INTEGRATION CANDIDATE; NEW PIN NOT YET
-HARDWARE-QUALIFIED**.
+Status: **HARDWARE-QUALIFIED ON THE INVESTIGATED REFERENCE SYSTEM (2026-09-24)**.
 
 Fre3nderScreen is Fre3nder's dedicated native local Core-UI for the Ender-3 V3
 KE. It is built from source into the immutable RootFS baseline and is neither a
@@ -19,7 +18,7 @@ first-boot download, or standalone screen installer is part of this design.
 ## Source identity and provenance
 
 The productive source is the Fre3nder-maintained fork
-[`ElHanko/guppyscreen`](https://github.com/ElHanko/guppyscreen), pinned to:
+[`ElHanko/fre3nderscreen`](https://github.com/ElHanko/fre3nderscreen), pinned to:
 
 ```text
 source label: 0.0.26-beta+fre3nder.589275a
@@ -27,7 +26,7 @@ commit:       589275a7c3a7fd904184bb5f15b058b7c0376911
 license:      GPL-3.0-only
 ```
 
-The repository name remains `guppyscreen` for source-history continuity.
+The repository retains the original GuppyScreen Git history and upstream provenance.
 The application at this pin identifies as **Fre3nderScreen** and is specialized
 for one Fre3nder / Ender-3 V3 KE target, one local Moonraker endpoint, and the
 272x480 portrait UI.
@@ -142,12 +141,28 @@ mapping, `LV_DISP_ROT_90`, automatic backlight start, 60-second standby/wake,
 touch-beep feedback, the compact portrait UI, and one complete print initiated
 through the local UI.
 
-That qualification evidence remains valid for the recorded old pin; it is not
-silently transferred to `589275a7c3a7fd904184bb5f15b058b7c0376911`. The new Fre3nderScreen pin keeps the same
-qualified hardware direction and dependency identities but changes application
-scope, binary/config/runtime names, and configuration architecture. It therefore
-requires a new component build and subsequent hardware qualification before it
-can be described as hardware-qualified.
+The current Fre3nderScreen pin
 
-Historical release evidence remains in `CHANGELOG.md` and the repository
-history. Building the new pin alone does not qualify or authorize deployment.
+```text
+0.0.26-beta+fre3nder.589275a
+589275a7c3a7fd904184bb5f15b058b7c0376911
+```
+
+was built into the Fre3nder `2026.4.a` development artifact from project commit
+`ae0a11f1fe339246aff4d20c936ceb2e40914f2d`, deployed as a matched Kernel and
+RootFS pair, and hardware-qualified on the investigated reference system on
+2026-09-24.
+
+The qualification confirmed Fre3nderScreen service autostart, framebuffer
+output and portrait presentation, NS2009 touch discovery and calibrated pointer
+mapping, persisted calibration across restart, touch-beep feedback, local
+Moonraker connectivity, normal UI operation, 60-second backlight standby, and
+touch wake.
+
+The complete print-start path was already hardware-qualified on the previous
+pin. `src/file_panel.cpp`, `src/print_panel.cpp`, and
+`src/print_status_panel.cpp` are unchanged between `baa4f66` and `589275a`, so
+that existing print-path evidence remains applicable to the current pin.
+
+Historical qualification evidence remains in `CHANGELOG.md` and the repository
+history.

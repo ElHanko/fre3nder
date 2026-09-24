@@ -188,10 +188,10 @@ license provenance remains explicit in the source and wheel manifests.
 ## Fre3nderScreen RootFS baseline
 
 Fre3nderScreen is consumed from the Fre3nder-maintained fork
-`https://github.com/ElHanko/guppyscreen.git` at commit
+`https://github.com/ElHanko/fre3nderscreen.git` at commit
 `589275a7c3a7fd904184bb5f15b058b7c0376911`, under `GPL-3.0-only`. The Fre3nder source label is
-`0.0.26-beta+fre3nder.589275a`. The repository name is retained for source-history
-continuity; the application at this pin identifies as Fre3nderScreen.
+`0.0.26-beta+fre3nder.589275a`. The repository retains the original GuppyScreen Git history and upstream provenance;
+the application at this pin identifies as Fre3nderScreen.
 
 The fork descends from the published `ballaswag/guppyscreen` `0.0.26-beta`
 baseline at commit `cf5c6d7539a2dca090ca71c177f57a2d96df443a`. Exact source and
