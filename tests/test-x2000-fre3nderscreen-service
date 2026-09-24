@@ -2,25 +2,25 @@
 set -eu
 
 root=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
-service=$root/configs/x2000/rootfs-overlay/etc/init.d/S64fre3nder-guppyscreen
-default_config=$root/configs/x2000/rootfs-overlay/usr/share/fre3nder/defaults/guppyconfig.json
-component=$root/build/x2000/guppyscreen-component.sh
+service=$root/configs/x2000/rootfs-overlay/etc/init.d/S64fre3nderscreen
+default_config=$root/configs/x2000/rootfs-overlay/usr/share/fre3nder/defaults/fre3nderscreen.json
+component=$root/build/x2000/fre3nderscreen-component.sh
 sources=$root/configs/x2000/sources.json
 tmp=$(mktemp -d)
 
 cleanup() {
-	if [ -r "$runtime/guppyscreen.pid" ]; then
-		kill "$(cat "$runtime/guppyscreen.pid")" 2>/dev/null || true
+	if [ -r "$runtime/fre3nderscreen.pid" ]; then
+		kill "$(cat "$runtime/fre3nderscreen.pid")" 2>/dev/null || true
 	fi
 	rm -rf -- "$tmp"
 }
 trap cleanup EXIT HUP INT TERM
 
-runtime=$tmp/run/guppyscreen
+runtime=$tmp/run/fre3nderscreen
 root_state=$tmp/run/root
 home_root=$tmp/home
-binary=$tmp/opt/guppyscreen
-theme_dir=$tmp/usr/share/guppyscreen/themes
+binary=$tmp/opt/fre3nderscreen
+theme_dir=$tmp/usr/share/fre3nderscreen/themes
 input_sys=$tmp/sys/class/input
 input_dev=$tmp/dev/input
 backlight_power=$tmp/sys/class/backlight/backlight/bl_power
@@ -36,26 +36,26 @@ printf '%s\n' '{}' > "$theme_dir/blue.json"
 
 cat > "$binary" <<'EOF'
 #!/bin/sh
-printf '%s\n' "$GUPPYSCREEN_CONFIG" "$GUPPYSCREEN_THEME_DIR" \
-	"$GUPPYSCREEN_INPUT" "$GUPPYSCREEN_BACKLIGHT_POWER" \
-	"$GUPPYSCREEN_BEEPER_INPUT" "$GUPPYSCREEN_DISPLAY_SLEEP_SEC" \
+printf '%s\n' "$FRE3NDERSCREEN_CONFIG" "$FRE3NDERSCREEN_THEME_DIR" \
+	"$FRE3NDERSCREEN_INPUT" "$FRE3NDERSCREEN_BACKLIGHT_POWER" \
+	"$FRE3NDERSCREEN_BEEPER_INPUT" "$FRE3NDERSCREEN_DISPLAY_SLEEP_SEC" \
 	> "$FIXTURE_CALLED"
 sleep 60
 EOF
 chmod 0755 "$binary"
 
 run_service() {
-	FRE3NDER_GUPPYSCREEN_RUNTIME=$runtime \
+	FRE3NDER_SCREEN_RUNTIME=$runtime \
 	FRE3NDER_ROOT_STATE=$root_state \
 	FRE3NDER_HOME_ROOT=$home_root \
-	FRE3NDER_GUPPYSCREEN_DEFAULT_CONFIG=$default_config \
-	FRE3NDER_GUPPYSCREEN_BINARY=$binary \
-	FRE3NDER_GUPPYSCREEN_THEME_DIR=$theme_dir \
-	FRE3NDER_GUPPYSCREEN_FRAMEBUFFER=/dev/null \
-	FRE3NDER_GUPPYSCREEN_BACKLIGHT_POWER=$backlight_power \
-	FRE3NDER_GUPPYSCREEN_INPUT_SYS=$input_sys \
-	FRE3NDER_GUPPYSCREEN_INPUT_DEV=$input_dev \
-	FRE3NDER_GUPPYSCREEN_BEEPER_DEVICE=/dev/null \
+	FRE3NDER_SCREEN_DEFAULT_CONFIG=$default_config \
+	FRE3NDER_SCREEN_BINARY=$binary \
+	FRE3NDER_SCREEN_THEME_DIR=$theme_dir \
+	FRE3NDER_SCREEN_FRAMEBUFFER=/dev/null \
+	FRE3NDER_SCREEN_BACKLIGHT_POWER=$backlight_power \
+	FRE3NDER_SCREEN_INPUT_SYS=$input_sys \
+	FRE3NDER_SCREEN_INPUT_DEV=$input_dev \
+	FRE3NDER_SCREEN_BEEPER_DEVICE=/dev/null \
 	FIXTURE_CALLED=$called \
 		"$service" "$1"
 }
@@ -70,7 +70,7 @@ run_service start
 [ "$(cat "$runtime/status")" = active ]
 [ "$(cat "$backlight_power")" = 0 ]
 [ -f "$called" ]
-config=$home_root/fre3nder/.fre3nder/guppyscreen/guppyconfig.json
+config=$home_root/fre3nder/.fre3nder/fre3nderscreen/fre3nderscreen.json
 [ -f "$config" ] && [ ! -L "$config" ]
 cmp -s "$default_config" "$config"
 [ "$(stat -c '%a' "$config")" = 600 ]
@@ -90,7 +90,7 @@ run_service start
 
 run_service stop
 [ "$(cat "$runtime/status")" = stopped ]
-[ ! -e "$runtime/guppyscreen.pid" ]
+[ ! -e "$runtime/fre3nderscreen.pid" ]
 [ ! -e "$runtime/input" ]
 
 # Missing backlight control is non-fatal once the local UI itself is running.
@@ -112,32 +112,36 @@ import pathlib
 import sys
 
 sources = json.loads(pathlib.Path(sys.argv[1]).read_text())
-guppy = sources["userspace"]["guppyscreen"]
-assert guppy["repository"] == "https://github.com/ElHanko/guppyscreen.git"
-assert guppy["release"] == "0.0.26-beta+fre3nder.baa4f66"
-assert guppy["commit"] == "baa4f6689ac7334d240107529f6d3c42a1297319"
-assert guppy["license"] == "GPL-3.0-only"
-assert guppy["submodules"]["lvgl"]["version"] == "8.3.11"
+screen = sources["userspace"]["fre3nderscreen"]
+assert screen["repository"] == "https://github.com/ElHanko/guppyscreen.git"
+assert screen["release"] == "0.0.26-beta+fre3nder.589275a"
+assert screen["commit"] == "589275a7c3a7fd904184bb5f15b058b7c0376911"
+assert screen["license"] == "GPL-3.0-only"
+assert screen["submodules"]["lvgl"]["version"] == "8.3.11"
 config = json.loads(pathlib.Path(sys.argv[2]).read_text())
-assert config["display_rotate"] == 1
+assert "default_printer" not in config
+assert "printers" not in config
+assert "display_rotate" not in config
 assert config["display_sleep_sec"] == 60
-assert config["printers"]["fre3nder"]["display_sleep_sec"] == 60
 assert config["touch_calibrated"] is True
-assert config["printers"]["fre3nder"]["moonraker_host"] == "127.0.0.1"
-assert config["printers"]["fre3nder"]["moonraker_port"] == 17126
+assert config["fre3nderscreen_init_script"] == "/etc/init.d/S64fre3nderscreen"
+assert config["log_level"] == "info"
+assert config["moonraker_host"] == "127.0.0.1"
+assert config["moonraker_port"] == 17126
 PY
 
-grep -Fq 'GUPPY_SMALL_SCREEN=1' "$component"
-grep -Fq 'GUPPY_ROTATE=1' "$component"
-grep -Fq 'EVDEV_CALIBRATE=1' "$component"
+! grep -Fq 'GUPPY_SMALL_SCREEN' "$component"
+! grep -Fq 'GUPPY_ROTATE' "$component"
+! grep -Fq 'EVDEV_CALIBRATE=1' "$component"
+grep -Fq 'FRE3NDERSCREEN_VERSION="$release"' "$component"
 ! grep -Fq '/dev/input/event0' "$service"
 grep -Fq '/sys/class/backlight/backlight/bl_power' "$service"
-grep -Fq 'GUPPYSCREEN_BACKLIGHT_POWER' "$service"
-grep -Fq 'GUPPYSCREEN_BEEPER_INPUT' "$service"
-grep -Fq 'GUPPYSCREEN_DISPLAY_SLEEP_SEC' "$service"
-grep -Fq 'FRE3NDER_GUPPYSCREEN_DISPLAY_SLEEP_SEC:-60' "$service"
+grep -Fq 'FRE3NDERSCREEN_BACKLIGHT_POWER' "$service"
+grep -Fq 'FRE3NDERSCREEN_BEEPER_INPUT' "$service"
+grep -Fq 'FRE3NDERSCREEN_DISPLAY_SLEEP_SEC' "$service"
+grep -Fq 'FRE3NDER_SCREEN_DISPLAY_SLEEP_SEC:-60' "$service"
 grep -Fq "printf '%s\\n' 0" "$service"
 ! grep -Eq 'wget|curl|https?://' "$service"
 ! grep -Eq 'moonraker.*(wait|active)|S61fre3nder-moonraker' "$service"
 
-echo 'fre3nder-x2000 GuppyScreen service fixtures: PASS'
+echo 'fre3nder-x2000 Fre3nderScreen service fixtures: PASS'

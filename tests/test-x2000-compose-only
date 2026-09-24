@@ -38,7 +38,7 @@ for name in \
 	build-x2000-kernel \
 	build-x2000-buildroot \
 	build-x2000-moonraker \
-	build-x2000-guppyscreen \
+	build-x2000-fre3nderscreen \
 	build-f005
 do
 	cat > "$fixture/scripts/$name" <<'STUB_EOF'

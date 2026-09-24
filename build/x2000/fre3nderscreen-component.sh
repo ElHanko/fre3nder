@@ -3,8 +3,8 @@ set -eu
 
 project=/project
 work=/work
-source_dir=$work/guppyscreen-source
-artifact_dir=$project/local/production/artifacts/x2000/guppyscreen
+source_dir=$work/fre3nderscreen-source
+artifact_dir=$project/local/production/artifacts/x2000/fre3nderscreen
 buildroot_output=$work/buildroot-output-fre3nder
 artifact_mode=${FRE3NDER_ARTIFACT_MODE:-release}
 
@@ -26,11 +26,21 @@ print(value)
 PY
 }
 
-repository=$(source_field userspace.guppyscreen.repository)
-release=$(source_field userspace.guppyscreen.release)
-commit=$(source_field userspace.guppyscreen.commit)
+repository=$(source_field userspace.fre3nderscreen.repository)
+release=$(source_field userspace.fre3nderscreen.release)
+commit=$(source_field userspace.fre3nderscreen.commit)
 
 fetch() {
+	# Fetch and build run in separate containers. The build container has
+	# --network none, so the source checkout must not remain a promisor clone
+	# with lazily fetched blobs.
+	if [ -d "$source_dir/.git" ] &&
+		git -C "$source_dir" config --bool --get remote.origin.promisor 2>/dev/null |
+			grep -Fxq true; then
+		echo 'Fre3nderScreen source cache: replacing partial clone'
+		rm -rf -- "$source_dir"
+	fi
+
 	if [ -d "$source_dir/.git" ]; then
 		git -C "$source_dir" reset --hard
 		git -C "$source_dir" clean -fdx
@@ -38,11 +48,21 @@ fetch() {
 			'git reset --hard && git clean -fdx'
 		git -C "$source_dir" remote set-url origin "$repository"
 	else
-		git clone --filter=blob:none --no-checkout "$repository" "$source_dir"
+		mkdir -p "$source_dir"
+		git -C "$source_dir" init -q
+		git -C "$source_dir" remote add origin "$repository"
 	fi
+
 	[ "$(git -C "$source_dir" remote get-url origin)" = "$repository" ]
-	git -C "$source_dir" fetch origin "$commit"
+	git -C "$source_dir" fetch --depth=1 origin "$commit"
 	git -C "$source_dir" checkout --detach "$commit"
+
+	if git -C "$source_dir" config --bool --get remote.origin.promisor 2>/dev/null |
+		grep -Fxq true; then
+		echo 'Fre3nderScreen fetch left a promisor clone behind' >&2
+		return 1
+	fi
+
 	git -C "$source_dir" submodule sync --recursive
 	git -C "$source_dir" submodule update --init --recursive
 }
@@ -65,17 +85,17 @@ import sys
 
 source = pathlib.Path(sys.argv[1])
 data = json.loads(pathlib.Path("/project/configs/x2000/sources.json").read_text())
-expected = data["userspace"]["guppyscreen"]["submodules"]
+expected = data["userspace"]["fre3nderscreen"]["submodules"]
 actual = {}
 for line in subprocess.check_output(
         ["git", "-C", str(source), "submodule", "status"], text=True).splitlines():
     commit, name, *_ = line.lstrip("-+ ").split()
     actual[name] = commit
 if set(actual) != set(expected):
-    raise SystemExit("GuppyScreen submodule set mismatch")
+    raise SystemExit("Fre3nderScreen submodule set mismatch")
 for name, record in expected.items():
     if actual[name] != record["commit"]:
-        raise SystemExit(f"GuppyScreen submodule mismatch: {name}")
+        raise SystemExit(f"Fre3nderScreen submodule mismatch: {name}")
 PY
 
 	grep -Fq 'GNU GENERAL PUBLIC LICENSE' "$source_dir/LICENSE"
@@ -112,19 +132,16 @@ build_component() {
 	prepare_source
 
 	# libhv embeds __DATE__/__TIME__. Derive SOURCE_DATE_EPOCH from the
-	# pinned GuppyScreen commit so repeated builds remain byte-reproducible.
+	# pinned Fre3nderScreen commit so repeated builds remain byte-reproducible.
 	source_date_epoch=$(git -C "$source_dir" show -s --format=%ct "$commit")
 	printf '%s\n' "$source_date_epoch" | grep -Eq '^[0-9]+$'
 
 	SOURCE_DATE_EPOCH="$source_date_epoch" \
 	CROSS_COMPILE="$prefix" \
-	GUPPY_SMALL_SCREEN=1 \
-	GUPPY_ROTATE=1 \
-	EVDEV_CALIBRATE=1 \
-	GUPPYSCREEN_VERSION="$release" \
+	FRE3NDERSCREEN_VERSION="$release" \
 		make -C "$source_dir" -j"${JOBS:-4}" build
 
-	binary=$source_dir/build/bin/guppyscreen
+	binary=$source_dir/build/bin/fre3nderscreen
 	[ -f "$binary" ] && [ ! -L "$binary" ] && [ -x "$binary" ]
 	"${prefix}strip" "$binary"
 	file "$binary" | grep -q 'ELF 32-bit LSB.*MIPS, MIPS32 rel2'
@@ -132,33 +149,33 @@ build_component() {
 	readelf -h "$binary" | grep -Eq 'Flags:.*nan2008, o32, mips32r2'
 	readelf -A "$binary" | grep -Fq 'FP ABI: Hard float (32-bit CPU, Any FPU)'
 	if readelf -l "$binary" | grep -Eq '^[[:space:]]*INTERP[[:space:]]'; then
-		echo 'GuppyScreen binary unexpectedly contains a PT_INTERP segment' >&2
+		echo 'Fre3nderScreen binary unexpectedly contains a PT_INTERP segment' >&2
 		exit 1
 	fi
 
-	stage=$work/guppyscreen-component-overlay
+	stage=$work/fre3nderscreen-component-overlay
 	rm -rf -- "$stage"
 	install -d -m 0755 \
-		"$stage/opt/fre3nder/guppyscreen" \
-		"$stage/usr/share/guppyscreen/themes" \
-		"$stage/usr/share/licenses/guppyscreen"
-	install -m 0755 "$binary" "$stage/opt/fre3nder/guppyscreen/guppyscreen"
+		"$stage/opt/fre3nder/fre3nderscreen" \
+		"$stage/usr/share/fre3nderscreen/themes" \
+		"$stage/usr/share/licenses/fre3nderscreen"
+	install -m 0755 "$binary" "$stage/opt/fre3nder/fre3nderscreen/fre3nderscreen"
 	for theme in blue green pink purple red yellow; do
 		install -m 0644 "$source_dir/themes/$theme.json" \
-			"$stage/usr/share/guppyscreen/themes/$theme.json"
+			"$stage/usr/share/fre3nderscreen/themes/$theme.json"
 	done
 	install -m 0644 "$source_dir/LICENSE" \
-		"$stage/usr/share/licenses/guppyscreen/COPYING"
+		"$stage/usr/share/licenses/fre3nderscreen/COPYING"
 	install -m 0644 "$source_dir/lvgl/LICENCE.txt" \
-		"$stage/usr/share/licenses/guppyscreen/LVGL-LICENSE"
+		"$stage/usr/share/licenses/fre3nderscreen/LVGL-LICENSE"
 	install -m 0644 "$source_dir/lv_drivers/LICENSE" \
-		"$stage/usr/share/licenses/guppyscreen/LV-DRIVERS-LICENSE"
+		"$stage/usr/share/licenses/fre3nderscreen/LV-DRIVERS-LICENSE"
 	install -m 0644 "$source_dir/libhv/LICENSE" \
-		"$stage/usr/share/licenses/guppyscreen/LIBHV-LICENSE"
+		"$stage/usr/share/licenses/fre3nderscreen/LIBHV-LICENSE"
 	install -m 0644 "$source_dir/spdlog/LICENSE" \
-		"$stage/usr/share/licenses/guppyscreen/SPDLOG-LICENSE"
+		"$stage/usr/share/licenses/fre3nderscreen/SPDLOG-LICENSE"
 	install -m 0644 "$source_dir/wpa_supplicant/COPYING" \
-		"$stage/usr/share/licenses/guppyscreen/WPA-SUPPLICANT-LICENSE"
+		"$stage/usr/share/licenses/fre3nderscreen/WPA-SUPPLICANT-LICENSE"
 
 	project_commit=$(git -C "$project" rev-parse HEAD)
 	project_worktree_status=clean
@@ -185,7 +202,7 @@ import sys
 artifact, output = map(pathlib.Path, sys.argv[1:])
 manifest = {
     "schema": 1,
-    "component": "guppyscreen",
+    "component": "fre3nderscreen",
     "source": {
         "repository": os.environ["repository"],
         "release": os.environ["release"],

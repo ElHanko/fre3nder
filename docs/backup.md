@@ -634,7 +634,7 @@ See [ota.md](ota.md) for the OTA-specific workflow.
 Other frontends should consume the same backup-core API rather than
 reimplementing backup policy.
 
-For example, a future GuppyScreen integration could use:
+For example, a future Fre3nderScreen integration could use:
 
 ```text
 offer

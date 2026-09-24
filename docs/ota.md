@@ -273,7 +273,7 @@ The OTA namespace of the common CLI frontend is deliberately limited to
 invoking the OTA core, validating the returned protocol response, and
 presenting that state to a human operator.
 
-Future GuppyScreen and Moonraker/web integrations must consume the same logical
+Future Fre3nderScreen and Moonraker/web integrations must consume the same logical
 core operations and state rather than parsing CLI text or reimplementing OTA
 behavior.
 

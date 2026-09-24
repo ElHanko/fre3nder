@@ -18,6 +18,25 @@ mv "$moonraker_transport_git" "$moonraker_git"
 [ -d "$moonraker_git" ]
 [ ! -e "$moonraker_transport_git" ]
 
+# Development Buildroot output may be reused. Remove obsolete GuppyScreen
+# paths so the Fre3nderScreen rename is deterministic with a stale target tree.
+rm -rf -- \
+	"$target/etc/init.d/S64fre3nder-guppyscreen" \
+	"$target/opt/fre3nder/guppyscreen" \
+	"$target/usr/share/fre3nder/defaults/guppyconfig.json" \
+	"$target/usr/share/guppyscreen" \
+	"$target/usr/share/licenses/guppyscreen"
+
+for obsolete in \
+	"$target/etc/init.d/S64fre3nder-guppyscreen" \
+	"$target/opt/fre3nder/guppyscreen" \
+	"$target/usr/share/fre3nder/defaults/guppyconfig.json" \
+	"$target/usr/share/guppyscreen" \
+	"$target/usr/share/licenses/guppyscreen"
+do
+	[ ! -e "$obsolete" ]
+done
+
 rm -rf -- "$target/persist"
 rm -f -- \
 	"$target/etc/init.d/S09fre3nder-storage" \
@@ -78,7 +97,7 @@ chmod 0755 \
 	"$target/etc/init.d/S61fre3nder-moonraker" \
 	"$target/etc/init.d/S62fre3nder-web" \
 	"$target/etc/init.d/S63fre3nder-camera" \
-	"$target/etc/init.d/S64fre3nder-guppyscreen" \
+	"$target/etc/init.d/S64fre3nderscreen" \
 	"$target/usr/libexec/fre3nder/f005-mcu-state" \
 	"$target/usr/libexec/fre3nder/f005-stock-to-fre3nder" \
 	"$target/usr/libexec/fre3nder-udhcpc"

@@ -6,8 +6,8 @@ orchestrator="$root/scripts/build-x2000"
 kernel_builder="$root/scripts/build-x2000-kernel"
 buildroot_builder="$root/scripts/build-x2000-buildroot"
 moonraker_builder="$root/scripts/build-x2000-moonraker"
-guppyscreen_builder="$root/scripts/build-x2000-guppyscreen"
-guppyscreen_component="$root/build/x2000/guppyscreen-component.sh"
+fre3nderscreen_builder="$root/scripts/build-x2000-fre3nderscreen"
+fre3nderscreen_component="$root/build/x2000/fre3nderscreen-component.sh"
 key_generator="$root/scripts/generate-ota-keypair"
 tmp=$(mktemp -d)
 
@@ -57,20 +57,40 @@ grep -Fq 'fetch-moonraker' "$docker_log"
 grep -Fq 'build-moonraker-component' "$docker_log"
 grep -Fq 'FRE3NDER_ARTIFACT_MODE=development' "$docker_log"
 
+screen_fixture="$tmp/fre3nderscreen-wrapper-project"
+mkdir -p "$screen_fixture/scripts" "$screen_fixture/local/production"
+cp "$fre3nderscreen_builder" \
+	"$screen_fixture/scripts/build-x2000-fre3nderscreen"
+chmod 0755 "$screen_fixture/scripts/build-x2000-fre3nderscreen"
+printf 'fixture\n' > "$screen_fixture/VERSION"
+printf '/local/\n' > "$screen_fixture/.gitignore"
+git -C "$screen_fixture" init -q
+
 : > "$docker_log"
-X2000_BUILD_DOCKER="$fake_docker" X2000_TEST_DOCKER_LOG="$docker_log" \
-	"$guppyscreen_builder" --develop
-grep -Fq 'fetch-guppyscreen' "$docker_log"
-grep -Fq 'build-guppyscreen-component' "$docker_log"
+if X2000_BUILD_DOCKER="$fake_docker" X2000_TEST_DOCKER_LOG="$docker_log" \
+	"$screen_fixture/scripts/build-x2000-fre3nderscreen" --develop \
+	>/dev/null 2>&1; then
+	echo 'Fre3nderScreen wrapper accepted a missing component artifact' >&2
+	exit 1
+fi
+grep -Fq 'fetch-fre3nderscreen' "$docker_log"
+grep -Fq 'build-fre3nderscreen-component' "$docker_log"
 grep -Fq 'FRE3NDER_ARTIFACT_MODE=development' "$docker_log"
 
-# GuppyScreen's libhv dependency embeds __DATE__/__TIME__. The component
+# Fetch and build use separate containers; the build is network-isolated.
+# Fre3nderScreen therefore must not leave its top-level source as a promisor
+# clone whose blobs can be fetched lazily during the build.
+! grep -Fq 'clone --filter=blob:none' "$fre3nderscreen_component"
+grep -Fq 'fetch --depth=1 origin "$commit"' "$fre3nderscreen_component"
+grep -Fq 'remote.origin.promisor' "$fre3nderscreen_component"
+
+# Fre3nderScreen's libhv dependency embeds __DATE__/__TIME__. The component
 # builder must bind those macros to the pinned source commit rather than wall
 # clock time so repeated builds remain byte-reproducible.
 grep -Fq 'source_date_epoch=$(git -C "$source_dir" show -s --format=%ct "$commit")' \
-	"$guppyscreen_component"
+	"$fre3nderscreen_component"
 grep -Fq 'SOURCE_DATE_EPOCH="$source_date_epoch" \' \
-	"$guppyscreen_component"
+	"$fre3nderscreen_component"
 
 : > "$docker_log"
 X2000_BUILD_DOCKER="$fake_docker" X2000_TEST_DOCKER_LOG="$docker_log" \
@@ -158,6 +178,7 @@ fi
 
 fixture="$tmp/project"
 mkdir -p "$fixture/scripts" \
+	"$fixture/configs/x2000/rootfs-overlay" \
 	"$fixture/local/production/artifacts/x2000" \
 	"$fixture/local/production/keys/ota"
 cp "$orchestrator" "$fixture/scripts/build-x2000"
@@ -202,9 +223,9 @@ cat > "$fixture/scripts/build-x2000-moonraker" <<'EOF'
 #!/bin/sh
 printf 'moonraker %s\n' "$*" >> "$X2000_WRAPPER_LOG"
 EOF
-cat > "$fixture/scripts/build-x2000-guppyscreen" <<'EOF'
+cat > "$fixture/scripts/build-x2000-fre3nderscreen" <<'EOF'
 #!/bin/sh
-printf 'guppyscreen %s\n' "$*" >> "$X2000_WRAPPER_LOG"
+printf 'fre3nderscreen %s\n' "$*" >> "$X2000_WRAPPER_LOG"
 EOF
 cat > "$fixture/scripts/build-f005" <<'EOF'
 #!/bin/sh
@@ -215,7 +236,7 @@ chmod 0755 "$fixture/scripts/build-x2000" \
 	"$fixture/scripts/build-x2000-kernel" \
 	"$fixture/scripts/build-x2000-buildroot" \
 	"$fixture/scripts/build-x2000-moonraker" \
-	"$fixture/scripts/build-x2000-guppyscreen" \
+	"$fixture/scripts/build-x2000-fre3nderscreen" \
 	"$fixture/scripts/build-f005"
 
 printf '2026.4.a\n' > "$fixture/VERSION"
@@ -284,7 +305,7 @@ printf '%s\n' \
 	'kernel ' \
 	'moonraker ' \
 	'buildroot --toolchain default' \
-	'guppyscreen ' \
+	'fre3nderscreen ' \
 	'buildroot --assemble default' | cmp -s - "$tmp/wrapper.log"
 
 full="$fixture/local/production/artifacts/x2000/full"
@@ -298,7 +319,7 @@ printf '%s\n' \
 	'kernel --develop' \
 	'moonraker --develop' \
 	'buildroot --toolchain --develop default' \
-	'guppyscreen --develop' \
+	'fre3nderscreen --develop' \
 	'buildroot --assemble --develop default' | cmp -s - "$tmp/wrapper.log"
 [ -f "$fixture/local/production/artifacts/x2000/full/rootfs.squashfs" ]
 
@@ -317,7 +338,7 @@ run_orchestrator --rootfs-only
 printf '%s\n' \
 	'moonraker ' \
 	'buildroot --toolchain default' \
-	'guppyscreen ' \
+	'fre3nderscreen ' \
 	'buildroot --assemble default' | cmp -s - "$tmp/wrapper.log"
 [ ! -e "$fixture/local/production/artifacts/x2000/kernel-only" ]
 [ -d "$fixture/local/production/artifacts/x2000/rootfs-only" ]
@@ -327,7 +348,7 @@ run_orchestrator --rootfs-only --develop
 printf '%s\n' \
 	'moonraker --develop' \
 	'buildroot --toolchain --develop default' \
-	'guppyscreen --develop' \
+	'fre3nderscreen --develop' \
 	'buildroot --assemble --develop default' | cmp -s - "$tmp/wrapper.log"
 
 # F005 is an additional RootFS input and does not define build scope.
@@ -337,7 +358,7 @@ printf '%s\n' \
 	'f005' \
 	'moonraker ' \
 	'buildroot --toolchain default' \
-	'guppyscreen ' \
+	'fre3nderscreen ' \
 	"buildroot --assemble $fixture/local/production/artifacts/f005/candidate/klipper-f005-mainline.bin" | \
 	cmp -s - "$tmp/wrapper.log"
 
@@ -346,7 +367,7 @@ printf '%s\n' \
 	'f005' \
 	'moonraker ' \
 	'buildroot --toolchain default' \
-	'guppyscreen ' \
+	'fre3nderscreen ' \
 	"buildroot --assemble $fixture/local/production/artifacts/f005/candidate/klipper-f005-mainline.bin" | \
 	cmp -s - "$tmp/wrapper.log"
 

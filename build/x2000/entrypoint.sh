@@ -67,9 +67,9 @@ moonraker_commit=985c1d0bbeb90bc057d34a232c9dc3b05e0c6c8d
 kernel_firmware_dir="$work/fre3nder-kernel-firmware"
 klipper_overlay="$work/fre3nder-klipper-overlay"
 moonraker_overlay="$work/fre3nder-moonraker-overlay"
-guppyscreen_overlay="$work/fre3nder-guppyscreen-overlay"
+fre3nderscreen_overlay="$work/fre3nderscreen-overlay"
 moonraker_component="$artifact_root/moonraker"
-guppyscreen_component="$artifact_root/guppyscreen"
+fre3nderscreen_component="$artifact_root/fre3nderscreen"
 development_marker="$klipper_overlay/usr/share/fre3nder/DEVELOPMENT"
 firmware_names='brcm/brcmfmac43430-sdio.bin brcm/brcmfmac43430-sdio.clm_blob brcm/brcmfmac43430-sdio.txt'
 artifact_mode=${FRE3NDER_ARTIFACT_MODE:-release}
@@ -806,7 +806,7 @@ record_rootfs_components() {
 	manifest=$1/build-manifest.json
 	python3 - "$manifest" \
 		"$moonraker_component/component-manifest.json" \
-		"$guppyscreen_component/component-manifest.json" <<'PY'
+		"$fre3nderscreen_component/component-manifest.json" <<'PY'
 import json
 import pathlib
 import sys
@@ -1455,7 +1455,7 @@ check_rootfs() {
 	for init_script in S10mdev S20fre3nder-provision \
 		S40fre3nder-network S50dropbear S59fre3nder-klipper-mcu \
 		S60fre3nder-klipper \
-		S61fre3nder-moonraker S64fre3nder-guppyscreen; do
+		S61fre3nder-moonraker S64fre3nderscreen; do
 		[ -x "$target/etc/init.d/$init_script" ]
 	done
 	[ ! -e "$target/etc/init.d/S51fre3nder-ssh-recovery-test" ]
@@ -1467,7 +1467,7 @@ check_rootfs() {
 		S59fre3nder-klipper-mcu \
 		S60fre3nder-klipper \
 		S61fre3nder-moonraker \
-		S64fre3nder-guppyscreen | sort -C
+		S64fre3nderscreen | sort -C
 	[ -n "$busybox_config" ]
 	[ -n "$dropbear_options" ]
 	[ "$(readlink "$target/sbin/init")" = ../bin/busybox ]
@@ -1566,7 +1566,7 @@ check_rootfs() {
 	[ -f "$target/usr/share/fre3nder/defaults/printer.cfg" ]
 	[ -f "$target/usr/share/fre3nder/defaults/moonraker.conf" ]
 	[ -f "$target/usr/share/fre3nder/defaults/camera.conf" ]
-	[ -f "$target/usr/share/fre3nder/defaults/guppyconfig.json" ]
+	[ -f "$target/usr/share/fre3nder/defaults/fre3nderscreen.json" ]
 	cmp -s "$project/configs/klipper-f005/printer-f005-mainline.cfg" \
 		"$target/usr/share/fre3nder/defaults/printer.cfg"
 	cmp -s \
@@ -1576,8 +1576,8 @@ check_rootfs() {
 		"$project/configs/x2000/rootfs-overlay/usr/share/fre3nder/defaults/camera.conf" \
 		"$target/usr/share/fre3nder/defaults/camera.conf"
 	cmp -s \
-		"$project/configs/x2000/rootfs-overlay/usr/share/fre3nder/defaults/guppyconfig.json" \
-		"$target/usr/share/fre3nder/defaults/guppyconfig.json"
+		"$project/configs/x2000/rootfs-overlay/usr/share/fre3nder/defaults/fre3nderscreen.json" \
+		"$target/usr/share/fre3nder/defaults/fre3nderscreen.json"
 	grep -Fxq 'x2000_passive_uart: True' \
 		"$target/usr/share/fre3nder/defaults/printer.cfg"
 	file "$target/usr/bin/klipper_mcu" |
@@ -1653,26 +1653,26 @@ check_rootfs() {
 	[ "$(readlink "$moonraker_env/bin/python")" = /usr/bin/python3 ]
 	[ "$(readlink "$moonraker_env/bin/pip")" = /usr/bin/pip3 ]
 	[ -d "$moonraker_env/lib/python3.12/site-packages" ]
-	guppyscreen="$target/opt/fre3nder/guppyscreen/guppyscreen"
-	[ -x "$guppyscreen" ] && [ ! -L "$guppyscreen" ]
-	file "$guppyscreen" | grep -q 'ELF 32-bit LSB.*MIPS, MIPS32 rel2'
-	file "$guppyscreen" | grep -Fq 'statically linked'
-	readelf -h "$guppyscreen" | grep -Eq 'Flags:.*nan2008, o32, mips32r2'
-	readelf -A "$guppyscreen" |
+	fre3nderscreen="$target/opt/fre3nder/fre3nderscreen/fre3nderscreen"
+	[ -x "$fre3nderscreen" ] && [ ! -L "$fre3nderscreen" ]
+	file "$fre3nderscreen" | grep -q 'ELF 32-bit LSB.*MIPS, MIPS32 rel2'
+	file "$fre3nderscreen" | grep -Fq 'statically linked'
+	readelf -h "$fre3nderscreen" | grep -Eq 'Flags:.*nan2008, o32, mips32r2'
+	readelf -A "$fre3nderscreen" |
 		grep -Fq 'FP ABI: Hard float (32-bit CPU, Any FPU)'
-	if readelf -l "$guppyscreen" | grep -Eq '^[[:space:]]*INTERP[[:space:]]'; then
-		echo 'RootFS GuppyScreen binary unexpectedly contains a PT_INTERP segment' >&2
+	if readelf -l "$fre3nderscreen" | grep -Eq '^[[:space:]]*INTERP[[:space:]]'; then
+		echo 'RootFS Fre3nderScreen binary unexpectedly contains a PT_INTERP segment' >&2
 		exit 1
 	fi
-	[ -f "$target/usr/share/guppyscreen/themes/blue.json" ]
-	[ -f "$target/usr/share/licenses/guppyscreen/COPYING" ]
-	guppy_service="$target/etc/init.d/S64fre3nder-guppyscreen"
-	grep -Fq 'input_name=${FRE3NDER_GUPPYSCREEN_INPUT_NAME:-ns2009_ts}' \
-		"$guppy_service"
-	grep -Fq 'GUPPYSCREEN_CONFIG="$config"' "$guppy_service"
-	grep -Fq 'GUPPYSCREEN_THEME_DIR="$theme_dir"' "$guppy_service"
-	grep -Fq 'GUPPYSCREEN_INPUT="$input_link"' "$guppy_service"
-	! grep -Fq '/dev/input/event0' "$guppy_service"
+	[ -f "$target/usr/share/fre3nderscreen/themes/blue.json" ]
+	[ -f "$target/usr/share/licenses/fre3nderscreen/COPYING" ]
+	fre3nderscreen_service="$target/etc/init.d/S64fre3nderscreen"
+	grep -Fq 'input_name=${FRE3NDER_SCREEN_INPUT_NAME:-ns2009_ts}' \
+		"$fre3nderscreen_service"
+	grep -Fq 'FRE3NDERSCREEN_CONFIG="$config"' "$fre3nderscreen_service"
+	grep -Fq 'FRE3NDERSCREEN_THEME_DIR="$theme_dir"' "$fre3nderscreen_service"
+	grep -Fq 'FRE3NDERSCREEN_INPUT="$input_link"' "$fre3nderscreen_service"
+	! grep -Fq '/dev/input/event0' "$fre3nderscreen_service"
 	[ ! -e "$target/usr/share/klipper/.git" ]
 	grep -Fxq '[update_manager]' \
 		"$target/usr/share/fre3nder/defaults/moonraker.conf"
@@ -1833,9 +1833,9 @@ build() {
 	prepare_buildroot
 	prepare_klipper_overlay
 	prepare_rootfs_component moonraker "$moonraker_component" "$moonraker_overlay"
-	prepare_rootfs_component guppyscreen "$guppyscreen_component" "$guppyscreen_overlay"
+	prepare_rootfs_component fre3nderscreen "$fre3nderscreen_component" "$fre3nderscreen_overlay"
 	brout="$work/buildroot-output-fre3nder"
-	extra_overlay="$klipper_overlay $moonraker_overlay $guppyscreen_overlay"
+	extra_overlay="$klipper_overlay $moonraker_overlay $fre3nderscreen_overlay"
 	configure_buildroot "$brout" "$extra_overlay"
 	make -C "$buildroot" O="$brout" -j"$jobs" toolchain
 	write_buildroot_toolchain_fingerprint "$brout"
@@ -1947,10 +1947,10 @@ build_rootfs_only() {
 	prepare_buildroot
 	prepare_klipper_overlay
 	prepare_rootfs_component moonraker "$moonraker_component" "$moonraker_overlay"
-	prepare_rootfs_component guppyscreen "$guppyscreen_component" "$guppyscreen_overlay"
+	prepare_rootfs_component fre3nderscreen "$fre3nderscreen_component" "$fre3nderscreen_overlay"
 	brout="$work/buildroot-output-fre3nder"
 	configure_buildroot "$brout" \
-		"$klipper_overlay $moonraker_overlay $guppyscreen_overlay"
+		"$klipper_overlay $moonraker_overlay $fre3nderscreen_overlay"
 	make -C "$buildroot" O="$brout" -j"${JOBS:-4}" toolchain
 	write_buildroot_toolchain_fingerprint "$brout"
 	build_klipper_chelper "$brout"
@@ -1988,12 +1988,12 @@ case "${1:-build}" in
 	fetch-rootfs) fetch_rootfs_inputs ;;
 	fetch-buildroot) fetch_buildroot_inputs ;;
 	fetch-moonraker) fetch_moonraker_inputs ;;
-	fetch-guppyscreen) "$project/build/x2000/guppyscreen-component.sh" fetch ;;
+	fetch-fre3nderscreen) "$project/build/x2000/fre3nderscreen-component.sh" fetch ;;
 	build) prepare_artifact_provenance; build ;;
 	build-kernel-only) prepare_artifact_provenance; build_kernel_only ;;
 	build-rootfs-only) prepare_artifact_provenance; build_rootfs_only ;;
 	build-moonraker-component) build_moonraker_component ;;
-	build-guppyscreen-component) "$project/build/x2000/guppyscreen-component.sh" build ;;
+	build-fre3nderscreen-component) "$project/build/x2000/fre3nderscreen-component.sh" build ;;
 	prepare-buildroot-toolchain) prepare_buildroot_toolchain ;;
-	*) echo 'usage: fre3nder-x2000 {fetch-kernel|fetch-rootfs|fetch-buildroot|fetch-moonraker|fetch-guppyscreen|build|build-kernel-only|build-rootfs-only|build-moonraker-component|build-guppyscreen-component|prepare-buildroot-toolchain}' >&2; exit 2 ;;
+	*) echo 'usage: fre3nder-x2000 {fetch-kernel|fetch-rootfs|fetch-buildroot|fetch-moonraker|fetch-fre3nderscreen|build|build-kernel-only|build-rootfs-only|build-moonraker-component|build-fre3nderscreen-component|prepare-buildroot-toolchain}' >&2; exit 2 ;;
 esac

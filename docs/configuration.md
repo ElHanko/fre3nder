@@ -14,7 +14,7 @@ and input shaping, require independent calibration on another printer.
 | Klipper printer configuration | `/home/fre3nder/printer_data/config/printer.cfg` | Userdata in HOME; seeded once from the RootFS default if missing |
 | Moonraker main configuration | `/home/fre3nder/printer_data/config/moonraker.conf` | Userdata in HOME; seeded once, existing file retained |
 | Fre3nder Moonraker fragments | `/home/fre3nder/printer_data/config/fre3nder/*.conf` | Platform/app fragments in HOME; main config needs `[include fre3nder/*.conf]` |
-| GuppyScreen settings and touch calibration | `/home/fre3nder/.fre3nder/guppyscreen/guppyconfig.json` | Userdata in HOME; seeded once, then retained |
+| Fre3nderScreen settings and touch calibration | `/home/fre3nder/.fre3nder/fre3nderscreen/fre3nderscreen.json` | Userdata in HOME; seeded once, then retained; obsolete GuppyScreen configuration is not imported |
 | Web frontend selection and app intent | `/home/fre3nder/.fre3nder/frontend/active` and `.fre3nder/services/` | Userdata in HOME; managed through `fre3nder app` |
 | SSH host identity | `/home/fre3nder/.fre3nder/ssh/` | Persistent host identity when persistent root is active |
 | WLAN and SSH boot provisioning | FAT32 USB root: `wpa_supplicant.conf`, `authorized_keys`, `enable_ssh` | Boot-local inputs copied to volatile `/run`; not baked into a build |
@@ -63,9 +63,9 @@ explains the one-time edit, Fluidd ownership, and service restart.
 [Moonraker runtime](moonraker-bringup-current-state.md) describes its baseline
 and the current updater limit.
 
-GuppyScreen uses its own persistent JSON settings, while framebuffer, NS2009
+Fre3nderScreen uses its own persistent JSON settings, while framebuffer, NS2009
 input discovery, and backlight are platform hardware paths. See
-[GuppyScreen integration](guppyscreen.md) for runtime behavior and
+[Fre3nderScreen integration](fre3nderscreen.md) for runtime behavior and
 [display/touch hardware](x2000-display-touch.md) for physical interfaces.
 
 The boot-local FAT32 provisioning path can provide WLAN configuration and

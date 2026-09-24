@@ -26,31 +26,31 @@ mkdir -p "$work_root"
 "$docker_cmd" run --rm --user "$runtime_user" \
 	-v "$root:/project" \
 	-v "$work_root:/work" \
-	"$image" fetch-guppyscreen
+	"$image" fetch-fre3nderscreen
 "$docker_cmd" run --rm --network none --user "$runtime_user" \
 	-e "FRE3NDER_ARTIFACT_MODE=$artifact_mode" \
 	-v "$root:/project" \
 	-v "$work_root:/work" \
-	"$image" build-guppyscreen-component
+	"$image" build-fre3nderscreen-component
 
-artifact_dir="$root/local/production/artifacts/x2000/guppyscreen"
+artifact_dir="$root/local/production/artifacts/x2000/fre3nderscreen"
 artifact="$artifact_dir/rootfs-overlay.tar"
 manifest="$artifact_dir/component-manifest.json"
 
 [ -f "$artifact" ] && [ ! -L "$artifact" ] || {
-	echo 'GuppyScreen component build finished without rootfs-overlay.tar' >&2
+	echo 'Fre3nderScreen component build finished without rootfs-overlay.tar' >&2
 	exit 1
 }
 
 [ -f "$manifest" ] && [ ! -L "$manifest" ] || {
-	echo 'GuppyScreen component build finished without component-manifest.json' >&2
+	echo 'Fre3nderScreen component build finished without component-manifest.json' >&2
 	exit 1
 }
 
 artifact_sha=$(sha256sum "$artifact" | awk '{print $1}')
 
 printf '\n'
-printf '%s\n' '=== GuppyScreen component build: PASS ==='
+printf '%s\n' '=== Fre3nderScreen component build: PASS ==='
 printf 'Mode:     %s\n' "$artifact_mode"
 printf 'Artifact: %s\n' "$artifact"
 printf 'SHA256:   %s\n' "$artifact_sha"

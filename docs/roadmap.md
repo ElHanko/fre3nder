@@ -21,21 +21,22 @@ and a clear return-to-Stock path. Minimize required SSH and project-specific
 knowledge without removing expert SSH administration or choosing an installer
 technology prematurely.
 
-### GuppyScreen project boundary
+### Fre3nderScreen project boundary
 
-Define how the Fre3nder-maintained GuppyScreen work becomes an independently
-maintained project with its own repository boundary, versioning, and releases.
-Fre3nder should eventually consume a clearly pinned GuppyScreen release instead
-of treating UI development as part of the platform, while the exact project and
-upstream relationship remains to be decided.
+Fre3nderScreen is now maintained outside the Fre3nder platform repository and
+Fre3nder consumes an exact pinned source revision. Define an independent
+Fre3nderScreen release/version boundary so the platform can eventually consume
+a clearly pinned Fre3nderScreen release rather than a raw source commit. The
+source repository name remains `guppyscreen` to preserve project history and
+upstream provenance.
 
 ### Local UI product experience
 
-Continue optimizing the GuppyScreen product experience for the small 480x272
-display. Improve remaining quality-of-life workflows and local administration
-so normal printer use depends less on the web UI or SSH. Larger layout or UX
-redesigns remain optional until a concrete scope is selected; this product work
-is separate from the GuppyScreen project and ownership boundary above.
+Continue optimizing the Fre3nderScreen product experience for the fixed 272x480
+logical portrait display. Improve remaining quality-of-life workflows and local
+administration so normal printer use depends less on the web UI or SSH. Larger
+UX changes remain optional until a concrete scope is selected; this product
+work is separate from the Fre3nderScreen release/version boundary above.
 
 ### Managed applications
 

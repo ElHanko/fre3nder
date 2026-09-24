@@ -185,27 +185,37 @@ The pure-Python wheel contents are staged into the RootFS Moonraker environment;
 the wheels themselves remain build inputs outside Git. Source, dependency, and
 license provenance remains explicit in the source and wheel manifests.
 
-## GuppyScreen RootFS baseline
+## Fre3nderScreen RootFS baseline
 
-GuppyScreen is consumed from the Fre3nder-maintained fork
+Fre3nderScreen is consumed from the Fre3nder-maintained fork
 `https://github.com/ElHanko/guppyscreen.git` at commit
-`baa4f6689ac7334d240107529f6d3c42a1297319`, under `GPL-3.0-only`. The
-Fre3nder source label is `0.0.26-beta+fre3nder.baa4f66`. The fork descends
-from the published `ballaswag/guppyscreen` `0.0.26-beta` baseline at commit
-`cf5c6d7539a2dca090ca71c177f57a2d96df443a`. The exact source and submodule
-identities are recorded in `configs/x2000/sources.json`. The component builder
-fetches that source and its pinned submodules before the network-disabled build
-phase and builds it with Fre3nder's Buildroot GCC 13.4.0 MIPS userspace
-toolchain.
+`589275a7c3a7fd904184bb5f15b058b7c0376911`, under `GPL-3.0-only`. The Fre3nder source label is
+`0.0.26-beta+fre3nder.589275a`. The repository name is retained for source-history
+continuity; the application at this pin identifies as Fre3nderScreen.
 
-The pinned submodules are LVGL 8.3.11 and lv_drivers under MIT, libhv under
+The fork descends from the published `ballaswag/guppyscreen` `0.0.26-beta`
+baseline at commit `cf5c6d7539a2dca090ca71c177f57a2d96df443a`. Exact source and
+submodule identities are recorded in
+`configs/x2000/sources.json`. The component builder fetches the pinned public
+source and submodules before the network-disabled build phase and builds them
+with Fre3nder's Buildroot GCC 13.4.0 MIPS userspace toolchain.
+
+The pinned submodules remain LVGL 8.3.11 and lv_drivers under MIT, libhv under
 BSD-3-Clause, and spdlog under MIT. The vendored wpa_supplicant control-client
-source is under BSD-3-Clause. Their license texts are copied alongside the
-GuppyScreen GPL text into the component RootFS payload. Fre3nder applies the three dependency patches shipped by the pinned
-GuppyScreen tree. The generic runtime-path overrides and touch-rotation
-correction are carried directly by the pinned Fre3nder fork, so no separate
-Fre3nder GuppyScreen patch is required. Fre3nder does not execute or
-redistribute GuppyScreen's installer or Creality-specific binary payloads.
+source remains BSD-3-Clause. Their license texts are copied alongside the GPL
+text into `/usr/share/licenses/fre3nderscreen/`.
+
+Fre3nderScreen retains the three dependency patches shipped by the source tree.
+The dedicated pin removes the old generic product matrix and carries its
+runtime-path overrides, corrected touch rotation, fixed 272x480 portrait
+layout, and flat single-printer configuration directly in source. Fre3nder
+does not execute or redistribute the removed GuppyScreen installers or
+Creality-specific binary payloads.
+
+The previous pin `baa4f6689ac7334d240107529f6d3c42a1297319` is the local-UI source
+covered by the recorded `2026.2.a` hardware qualification. The new
+Fre3nderScreen pin is a development integration candidate and is not described
+as hardware-qualified until a new build and hardware validation are recorded.
 
 ## Public Creality Klipper source
 

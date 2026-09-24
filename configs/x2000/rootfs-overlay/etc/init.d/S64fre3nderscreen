@@ -1,30 +1,30 @@
 #!/bin/sh
 
-runtime=${FRE3NDER_GUPPYSCREEN_RUNTIME:-/run/fre3nder-guppyscreen}
-pid_file=$runtime/guppyscreen.pid
+runtime=${FRE3NDER_SCREEN_RUNTIME:-/run/fre3nderscreen}
+pid_file=$runtime/fre3nderscreen.pid
 status=$runtime/status
-stdout_log=$runtime/guppyscreen.log
+stdout_log=$runtime/fre3nderscreen.log
 input_link=$runtime/input
 root_state=${FRE3NDER_ROOT_STATE:-/run/fre3nder-root}
 home_root=${FRE3NDER_HOME_ROOT:-/home}
 fre3nder_home=${FRE3NDER_HOME_DIR:-$home_root/fre3nder}
 printer_data=${FRE3NDER_PRINTER_DATA:-$fre3nder_home/printer_data}
-persistent_logs=${FRE3NDER_GUPPYSCREEN_LOG_DIR:-$printer_data/logs}
-config_dir=$fre3nder_home/.fre3nder/guppyscreen
-config=${FRE3NDER_GUPPYSCREEN_CONFIG:-$config_dir/guppyconfig.json}
-default_config=${FRE3NDER_GUPPYSCREEN_DEFAULT_CONFIG:-/usr/share/fre3nder/defaults/guppyconfig.json}
-binary=${FRE3NDER_GUPPYSCREEN_BINARY:-/opt/fre3nder/guppyscreen/guppyscreen}
-theme_dir=${FRE3NDER_GUPPYSCREEN_THEME_DIR:-/usr/share/guppyscreen/themes}
-framebuffer=${FRE3NDER_GUPPYSCREEN_FRAMEBUFFER:-/dev/fb0}
-backlight_power=${FRE3NDER_GUPPYSCREEN_BACKLIGHT_POWER:-/sys/class/backlight/backlight/bl_power}
-input_sys=${FRE3NDER_GUPPYSCREEN_INPUT_SYS:-/sys/class/input}
-input_dev=${FRE3NDER_GUPPYSCREEN_INPUT_DEV:-/dev/input}
-input_name=${FRE3NDER_GUPPYSCREEN_INPUT_NAME:-ns2009_ts}
-beeper_input_name=${FRE3NDER_GUPPYSCREEN_BEEPER_INPUT_NAME:-pwm-beeper}
-display_sleep_sec=${FRE3NDER_GUPPYSCREEN_DISPLAY_SLEEP_SEC:-60}
+persistent_logs=${FRE3NDER_SCREEN_LOG_DIR:-$printer_data/logs}
+config_dir=$fre3nder_home/.fre3nder/fre3nderscreen
+config=${FRE3NDER_SCREEN_CONFIG:-$config_dir/fre3nderscreen.json}
+default_config=${FRE3NDER_SCREEN_DEFAULT_CONFIG:-/usr/share/fre3nder/defaults/fre3nderscreen.json}
+binary=${FRE3NDER_SCREEN_BINARY:-/opt/fre3nder/fre3nderscreen/fre3nderscreen}
+theme_dir=${FRE3NDER_SCREEN_THEME_DIR:-/usr/share/fre3nderscreen/themes}
+framebuffer=${FRE3NDER_SCREEN_FRAMEBUFFER:-/dev/fb0}
+backlight_power=${FRE3NDER_SCREEN_BACKLIGHT_POWER:-/sys/class/backlight/backlight/bl_power}
+input_sys=${FRE3NDER_SCREEN_INPUT_SYS:-/sys/class/input}
+input_dev=${FRE3NDER_SCREEN_INPUT_DEV:-/dev/input}
+input_name=${FRE3NDER_SCREEN_INPUT_NAME:-ns2009_ts}
+beeper_input_name=${FRE3NDER_SCREEN_BEEPER_INPUT_NAME:-pwm-beeper}
+display_sleep_sec=${FRE3NDER_SCREEN_DISPLAY_SLEEP_SEC:-60}
 
 log() {
-	echo "fre3nder guppyscreen: $*"
+	echo "fre3nder fre3nderscreen: $*"
 }
 
 set_status() {
@@ -60,16 +60,16 @@ prepare_config() {
 		return
 	fi
 
-	[ "${FRE3NDER_GUPPYSCREEN_CONFIG+x}" != x ] || return 1
+	[ "${FRE3NDER_SCREEN_CONFIG+x}" != x ] || return 1
 	[ -f "$default_config" ] && [ ! -L "$default_config" ] || return 1
 	install -m 0600 "$default_config" "$config"
 }
 
 find_touch_device() {
-	if [ "${FRE3NDER_GUPPYSCREEN_INPUT_DEVICE+x}" = x ]; then
-		[ -e "$FRE3NDER_GUPPYSCREEN_INPUT_DEVICE" ] &&
-			[ ! -L "$FRE3NDER_GUPPYSCREEN_INPUT_DEVICE" ] || return 1
-		printf '%s\n' "$FRE3NDER_GUPPYSCREEN_INPUT_DEVICE"
+	if [ "${FRE3NDER_SCREEN_INPUT_DEVICE+x}" = x ]; then
+		[ -e "$FRE3NDER_SCREEN_INPUT_DEVICE" ] &&
+			[ ! -L "$FRE3NDER_SCREEN_INPUT_DEVICE" ] || return 1
+		printf '%s\n' "$FRE3NDER_SCREEN_INPUT_DEVICE"
 		return
 	fi
 
@@ -90,9 +90,9 @@ find_touch_device() {
 
 
 find_beeper_device() {
-	if [ "${FRE3NDER_GUPPYSCREEN_BEEPER_DEVICE+x}" = x ]; then
-		[ -c "$FRE3NDER_GUPPYSCREEN_BEEPER_DEVICE" ] || return 1
-		printf '%s\n' "$FRE3NDER_GUPPYSCREEN_BEEPER_DEVICE"
+	if [ "${FRE3NDER_SCREEN_BEEPER_DEVICE+x}" = x ]; then
+		[ -c "$FRE3NDER_SCREEN_BEEPER_DEVICE" ] || return 1
+		printf '%s\n' "$FRE3NDER_SCREEN_BEEPER_DEVICE"
 		return
 	fi
 
@@ -120,7 +120,7 @@ pid_has_arg() {
 		grep -F -x -q "$expected_arg"
 }
 
-pid_is_guppyscreen() {
+pid_is_fre3nderscreen() {
 	proc_pid=$1
 	case "$proc_pid" in
 	*[!0-9]*|'') return 1 ;;
@@ -128,12 +128,12 @@ pid_is_guppyscreen() {
 	kill -0 "$proc_pid" 2>/dev/null && pid_has_arg "$proc_pid" "$binary"
 }
 
-terminate_guppyscreen() {
+terminate_fre3nderscreen() {
 	proc_pid=$1
-	pid_is_guppyscreen "$proc_pid" || return 0
+	pid_is_fre3nderscreen "$proc_pid" || return 0
 	kill "$proc_pid" 2>/dev/null || true
 	seconds=0
-	while pid_is_guppyscreen "$proc_pid"; do
+	while pid_is_fre3nderscreen "$proc_pid"; do
 		if [ "$seconds" -ge 10 ]; then
 			kill -KILL "$proc_pid" 2>/dev/null || true
 			break
@@ -171,7 +171,7 @@ start() {
 	fi
 	if [ -r "$pid_file" ]; then
 		pid=$(cat "$pid_file")
-		if validate_baseline && pid_is_guppyscreen "$pid"; then
+		if validate_baseline && pid_is_fre3nderscreen "$pid"; then
 			if ! enable_backlight; then
 				log 'backlight control is unavailable; local UI remains running'
 			fi
@@ -182,7 +182,7 @@ start() {
 	fi
 	if ! validate_baseline; then
 		set_status baseline-invalid
-		log 'GuppyScreen RootFS baseline is missing or invalid'
+		log 'Fre3nderScreen RootFS baseline is missing or invalid'
 		return 0
 	fi
 	if [ ! -c "$framebuffer" ]; then
@@ -205,7 +205,7 @@ start() {
 
 	if ! prepare_config; then
 		set_status config-invalid
-		log 'persistent GuppyScreen configuration is unavailable or invalid'
+		log 'persistent Fre3nderScreen configuration is unavailable or invalid'
 		return 0
 	fi
 	rm -f "$input_link"
@@ -214,38 +214,38 @@ start() {
 		return 0
 	}
 	set_status starting
-	GUPPYSCREEN_CONFIG="$config" \
-	GUPPYSCREEN_THEME_DIR="$theme_dir" \
-	GUPPYSCREEN_INPUT="$input_link" \
-	GUPPYSCREEN_BACKLIGHT_POWER="$backlight_power" \
-	GUPPYSCREEN_BEEPER_INPUT="$beeper_device" \
-	GUPPYSCREEN_DISPLAY_SLEEP_SEC="$display_sleep_sec" \
+	FRE3NDERSCREEN_CONFIG="$config" \
+	FRE3NDERSCREEN_THEME_DIR="$theme_dir" \
+	FRE3NDERSCREEN_INPUT="$input_link" \
+	FRE3NDERSCREEN_BACKLIGHT_POWER="$backlight_power" \
+	FRE3NDERSCREEN_BEEPER_INPUT="$beeper_device" \
+	FRE3NDERSCREEN_DISPLAY_SLEEP_SEC="$display_sleep_sec" \
 		"$binary" >"$stdout_log" 2>&1 &
 	pid=$!
 	printf '%s\n' "$pid" > "$pid_file" || {
-		terminate_guppyscreen "$pid"
+		terminate_fre3nderscreen "$pid"
 		set_status pid-write-failed
 		return 0
 	}
 	sleep 1
-	if pid_is_guppyscreen "$pid"; then
+	if pid_is_fre3nderscreen "$pid"; then
 		if ! enable_backlight; then
 			log 'backlight control is unavailable; local UI remains running'
 		fi
 		set_status active
-		log 'GuppyScreen started from the RootFS baseline'
+		log 'Fre3nderScreen started from the RootFS baseline'
 	else
 		wait "$pid" 2>/dev/null || true
 		rm -f "$pid_file" "$input_link"
 		set_status startup-failed
-		log 'GuppyScreen exited during startup'
+		log 'Fre3nderScreen exited during startup'
 	fi
 }
 
 stop() {
 	if [ -r "$pid_file" ]; then
 		pid=$(cat "$pid_file")
-		terminate_guppyscreen "$pid"
+		terminate_fre3nderscreen "$pid"
 	fi
 	rm -f "$pid_file" "$input_link"
 	set_status stopped

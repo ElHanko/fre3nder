@@ -140,12 +140,12 @@
       "license": "GPL-3.0-only",
       "role": "qualified RootFS application baseline"
     },
-    "guppyscreen": {
+    "fre3nderscreen": {
       "repository": "https://github.com/ElHanko/guppyscreen.git",
-      "release": "0.0.26-beta+fre3nder.baa4f66",
-      "commit": "baa4f6689ac7334d240107529f6d3c42a1297319",
+      "release": "0.0.26-beta+fre3nder.589275a",
+      "commit": "589275a7c3a7fd904184bb5f15b058b7c0376911",
       "license": "GPL-3.0-only",
-      "role": "native framebuffer and evdev local UI baseline",
+      "role": "Fre3nderScreen native framebuffer and evdev local UI",
       "submodules": {
         "libhv": {
           "commit": "a1d81857131fe7ea499a23e333513bfb279df6b0",

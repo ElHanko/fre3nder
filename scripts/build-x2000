@@ -5,7 +5,7 @@ root=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
 kernel_builder="$root/scripts/build-x2000-kernel"
 buildroot_builder="$root/scripts/build-x2000-buildroot"
 moonraker_builder="$root/scripts/build-x2000-moonraker"
-guppyscreen_builder="$root/scripts/build-x2000-guppyscreen"
+fre3nderscreen_builder="$root/scripts/build-x2000-fre3nderscreen"
 f005_builder="$root/scripts/build-f005"
 artifact_root="$root/local/production/artifacts/x2000"
 ota_key_dir="$root/local/production/keys/ota"
@@ -188,7 +188,7 @@ if [ "$build_scope" = full ] || [ "$build_scope" = rootfs ]; then
 
 	"$moonraker_builder" $component_args
 	"$buildroot_builder" --toolchain $component_args
-	"$guppyscreen_builder" $component_args
+	"$fre3nderscreen_builder" $component_args
 	if [ -n "$f005_firmware" ]; then
 		FRE3NDER_F005_FIRMWARE="$f005_firmware" \
 		FRE3NDER_OTA_PUBLIC_KEY="$ota_public_key" \
@@ -276,6 +276,7 @@ if rootfs_manifest.get("ota_public_key_sha256") != expected_ota_public_key_sha25
 
 for field in (
     "version",
+    "artifact_mode",
 ):
     if kernel_manifest.get(field, "") != rootfs_manifest.get(field, ""):
         raise SystemExit(f"component manifests disagree on {field}")

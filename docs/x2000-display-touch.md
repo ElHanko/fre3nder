@@ -223,7 +223,7 @@ physical top  -> bottom: (292,2283) -> (3757,2002), dx=+3465, dy=-281
 
 These values are qualification observations, not a universal calibration
 contract. Exact scaling, axis transformation, inversion, and rotation belong
-to the local presentation/input layer; see [GuppyScreen](guppyscreen.md).
+to the local presentation/input layer; see [Fre3nderScreen](fre3nderscreen.md).
 
 ## UART3 / I2C4 pin ownership
 
@@ -406,5 +406,5 @@ not require a `/dev/mem` PWM helper.
 Stage D qualified the physical display, touch, backlight, and beep path on the
 investigated reference system. Later normal printer control and a complete
 print through GuppyScreen were qualified separately; see
-[GuppyScreen integration](guppyscreen.md#persistent-core-integration-and-current-pin-ui-result).
+[Fre3nderScreen qualification boundary](fre3nderscreen.md#qualification-boundary).
 Neither result establishes support across other hardware revisions.

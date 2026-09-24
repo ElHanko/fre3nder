@@ -38,7 +38,7 @@ scripts/build-x2000
 ```
 
 The default command builds Kernel, Moonraker, the Buildroot toolchain,
-GuppyScreen, and RootFS, then composes a signed OTA package. For a development
+Fre3nderScreen, and RootFS, then composes a signed OTA package. For a development
 artifact from the current worktree, use:
 
 ```sh
@@ -46,7 +46,7 @@ scripts/build-x2000 --develop
 ```
 
 The orchestrator runs the Kernel builder, then Moonraker, Buildroot
-`--toolchain`, GuppyScreen, and Buildroot `--assemble`. It uses the pinned
+`--toolchain`, Fre3nderScreen, and Buildroot `--assemble`. It uses the pinned
 Buildroot internal MIPS toolchain for the host components. The resulting
 RootFS is read-only SquashFS.
 
@@ -54,7 +54,7 @@ The component scripts are
 [`scripts/build-x2000-kernel`](../scripts/build-x2000-kernel),
 [`scripts/build-x2000-moonraker`](../scripts/build-x2000-moonraker),
 [`scripts/build-x2000-buildroot`](../scripts/build-x2000-buildroot), and
-[`scripts/build-x2000-guppyscreen`](../scripts/build-x2000-guppyscreen).
+[`scripts/build-x2000-fre3nderscreen`](../scripts/build-x2000-fre3nderscreen).
 Use the top-level orchestrator for normal build scopes.
 
 The host artifact directories are:
@@ -62,7 +62,7 @@ The host artifact directories are:
 | Directory under `local/production/artifacts/x2000/` | Result |
 | --- | --- |
 | `kernel-only/` | `kernel.uImage`, DTB, effective kernel configuration, manifest and checksums |
-| `moonraker/`, `guppyscreen/` | Validated component overlay archives |
+| `moonraker/`, `fre3nderscreen/` | Validated component overlay archives |
 | `rootfs-only/` | `rootfs.squashfs`, effective Buildroot configuration, manifest and checksums |
 | `full/` | Combined individual artifacts, manifest, checksums and `fre3nder-<version>-ender3-v3-ke.ota` |
 
@@ -76,7 +76,7 @@ trust-anchor relationship are specified in [OTA architecture](ota.md).
 | Command | Builds | Does not build | Output |
 | --- | --- | --- | --- |
 | `scripts/build-x2000 --kernel-only` | Buildroot toolchain and linux-firmware prerequisites, then Kernel | RootFS artifact or OTA package | `kernel-only/` |
-| `scripts/build-x2000 --rootfs-only` | Moonraker, Buildroot toolchain/RootFS, GuppyScreen | Kernel or OTA package | Component directories and `rootfs-only/` |
+| `scripts/build-x2000 --rootfs-only` | Moonraker, Buildroot toolchain/RootFS, Fre3nderScreen | Kernel or OTA package | Component directories and `rootfs-only/` |
 | `scripts/build-x2000 --compose-only` | No component | Kernel and RootFS | Validated `full/` and signed OTA package |
 
 Add `--develop` to a Kernel-only or RootFS-only development build. Add
@@ -93,15 +93,13 @@ before that command's Buildroot `--toolchain` phase.
 `--compose-only` is a standalone scope and cannot be combined with `--develop`,
 `--kernel-only`, `--rootfs-only`, or `--f005-build`. It requires existing
 `kernel-only/` and `rootfs-only/` artifacts plus the signing keypair. It
-checks required files, component hashes, matching project `VERSION`, and the
-RootFS public key against the signing pair. It does not currently compare the
-two component `artifact_mode` fields, although the compose-only fixture
-expects that mismatch to be rejected. Require equal modes when selecting
-artifacts until this code/fixture discrepancy is resolved. It permits Kernel
-and RootFS from different commits or build-input fingerprints; their origins
-are recorded separately in `component_provenance`. The final project state is
-recorded in `composition_provenance`. Check those fields before composing
-artifacts from different origins.
+checks required files, component hashes, matching project `VERSION`, matching
+component `artifact_mode`, and the RootFS public key against the signing pair.
+It permits Kernel and RootFS from different commits or build-input
+fingerprints; their origins are recorded separately in
+`component_provenance`. The final project state is recorded in
+`composition_provenance`. Check those fields before composing artifacts from
+different origins.
 The composition command reports validation start and an explicit `PASS` or
 `FAIL`; on success it prints the mode, package path, and Kernel/RootFS hashes.
 

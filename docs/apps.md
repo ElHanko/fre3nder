@@ -21,7 +21,7 @@ converted into an installable app by this interface.
 
 This catalog and the active-frontend selection apply to LAN web interfaces.
 The native local Core-UI is the independently built-in
-[GuppyScreen](guppyscreen.md); it does not open Fluidd or consume the active
+[Fre3nderScreen](fre3nderscreen.md); it does not open Fluidd or consume the active
 web-frontend selection.
 
 ## Interface and storage
