@@ -28,7 +28,12 @@ PY
 
 repository=$(source_field userspace.fre3nderscreen.repository)
 release=$(source_field userspace.fre3nderscreen.release)
-commit=$(source_field userspace.fre3nderscreen.commit)
+pinned_commit=$(source_field userspace.fre3nderscreen.commit)
+commit=$pinned_commit
+source_ref=$pinned_commit
+if [ "$artifact_mode" = development ]; then
+	source_ref=main
+fi
 
 fetch() {
 	# Fetch and build run in separate containers. The build container has
@@ -54,8 +59,8 @@ fetch() {
 	fi
 
 	[ "$(git -C "$source_dir" remote get-url origin)" = "$repository" ]
-	git -C "$source_dir" fetch --depth=1 origin "$commit"
-	git -C "$source_dir" checkout --detach "$commit"
+	git -C "$source_dir" fetch --depth=1 origin "$source_ref"
+	git -C "$source_dir" checkout --detach FETCH_HEAD
 
 	if git -C "$source_dir" config --bool --get remote.origin.promisor 2>/dev/null |
 		grep -Fxq true; then
@@ -70,6 +75,12 @@ fetch() {
 prepare_source() {
 	[ -d "$source_dir/.git" ]
 	[ "$(git -C "$source_dir" remote get-url origin)" = "$repository" ]
+	if [ "$artifact_mode" = development ]; then
+		commit=$(git -C "$source_dir" rev-parse HEAD)
+		release="${release%.*}.$(git -C "$source_dir" rev-parse --short=7 HEAD)"
+	else
+		commit=$pinned_commit
+	fi
 	git -C "$source_dir" reset --hard "$commit"
 	git -C "$source_dir" clean -fdx
 	git -C "$source_dir" submodule update --init --recursive
@@ -77,13 +88,14 @@ prepare_source() {
 	git -C "$source_dir" checkout --detach "$commit"
 	[ "$(git -C "$source_dir" rev-parse HEAD)" = "$commit" ]
 
-	python3 - "$source_dir" <<'PY'
+	python3 - "$source_dir" "$artifact_mode" <<'PY'
 import json
 import pathlib
 import subprocess
 import sys
 
 source = pathlib.Path(sys.argv[1])
+mode = sys.argv[2]
 data = json.loads(pathlib.Path("/project/configs/x2000/sources.json").read_text())
 expected = data["userspace"]["fre3nderscreen"]["submodules"]
 actual = {}
@@ -94,7 +106,7 @@ for line in subprocess.check_output(
 if set(actual) != set(expected):
     raise SystemExit("Fre3nderScreen submodule set mismatch")
 for name, record in expected.items():
-    if actual[name] != record["commit"]:
+    if mode == "release" and actual[name] != record["commit"]:
         raise SystemExit(f"Fre3nderScreen submodule mismatch: {name}")
 PY
 
@@ -132,7 +144,7 @@ build_component() {
 	prepare_source
 
 	# libhv embeds __DATE__/__TIME__. Derive SOURCE_DATE_EPOCH from the
-	# pinned Fre3nderScreen commit so repeated builds remain byte-reproducible.
+	# resolved Fre3nderScreen commit so repeated builds remain byte-reproducible.
 	source_date_epoch=$(git -C "$source_dir" show -s --format=%ct "$commit")
 	printf '%s\n' "$source_date_epoch" | grep -Eq '^[0-9]+$'
 

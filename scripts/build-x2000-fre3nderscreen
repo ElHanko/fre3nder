@@ -24,6 +24,7 @@ git -C "$root" check-ignore -q local/production
 "$docker_cmd" build -t "$image" "$root/build/x2000"
 mkdir -p "$work_root"
 "$docker_cmd" run --rm --user "$runtime_user" \
+	-e "FRE3NDER_ARTIFACT_MODE=$artifact_mode" \
 	-v "$root:/project" \
 	-v "$work_root:/work" \
 	"$image" fetch-fre3nderscreen

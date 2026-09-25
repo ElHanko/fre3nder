@@ -76,16 +76,22 @@ fi
 grep -Fq 'fetch-fre3nderscreen' "$docker_log"
 grep -Fq 'build-fre3nderscreen-component' "$docker_log"
 grep -Fq 'FRE3NDER_ARTIFACT_MODE=development' "$docker_log"
+grep -F 'fetch-fre3nderscreen' "$docker_log" |
+	grep -Fq 'FRE3NDER_ARTIFACT_MODE=development'
 
 # Fetch and build use separate containers; the build is network-isolated.
 # Fre3nderScreen therefore must not leave its top-level source as a promisor
 # clone whose blobs can be fetched lazily during the build.
 ! grep -Fq 'clone --filter=blob:none' "$fre3nderscreen_component"
-grep -Fq 'fetch --depth=1 origin "$commit"' "$fre3nderscreen_component"
+grep -Fq 'pinned_commit=$(source_field userspace.fre3nderscreen.commit)' "$fre3nderscreen_component"
+grep -Fq 'source_ref=main' "$fre3nderscreen_component"
+grep -Fq 'fetch --depth=1 origin "$source_ref"' "$fre3nderscreen_component"
+grep -Fq 'python3 - "$source_dir" "$artifact_mode"' "$fre3nderscreen_component"
+grep -Fq 'if mode == "release" and actual[name] != record["commit"]:' "$fre3nderscreen_component"
 grep -Fq 'remote.origin.promisor' "$fre3nderscreen_component"
 
 # Fre3nderScreen's libhv dependency embeds __DATE__/__TIME__. The component
-# builder must bind those macros to the pinned source commit rather than wall
+# builder must bind those macros to the resolved source commit rather than wall
 # clock time so repeated builds remain byte-reproducible.
 grep -Fq 'source_date_epoch=$(git -C "$source_dir" show -s --format=%ct "$commit")' \
 	"$fre3nderscreen_component"
