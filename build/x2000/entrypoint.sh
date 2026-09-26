@@ -884,10 +884,8 @@ prepare_klipper_overlay() {
 		"$klipper_overlay$f005_target_path"
 	install -m 0644 "$version_file" \
 		"$klipper_overlay/usr/share/fre3nder/VERSION"
-	# A dirty tree has no remotely reconstructible app-definition revision.
-	app_ref=unpublished
-	[ "$project_worktree_status" != clean ] || app_ref=$project_commit
-	printf '%s\n' "$app_ref" > "$klipper_overlay/usr/share/fre3nder/APP_REF"
+	printf '%s\n' "$project_commit" > \
+		"$klipper_overlay/usr/share/fre3nder/APP_REF"
 	if [ "$artifact_mode" = development ]; then
 		printf '%s\n' \
 			'mode=development' \
@@ -1556,9 +1554,8 @@ check_rootfs() {
 	[ ! -e "$target/etc/init.d/S50lighttpd" ]
 	cmp -s "$project/configs/x2000/rootfs-overlay/etc/lighttpd/fre3nder.conf" \
 		"$target/etc/lighttpd/fre3nder.conf"
-	app_ref=unpublished
-	[ "$project_worktree_status" != clean ] || app_ref=$project_commit
-	printf '%s\n' "$app_ref" | cmp -s - "$target/usr/share/fre3nder/APP_REF"
+	printf '%s\n' "$project_commit" |
+		cmp -s - "$target/usr/share/fre3nder/APP_REF"
 	[ -x "$target/usr/libexec/fre3nder/f005-mcu-state" ]
 	[ -x "$target/usr/libexec/fre3nder/f005-stock-to-fre3nder" ]
 	[ -x "$target/usr/bin/git" ]

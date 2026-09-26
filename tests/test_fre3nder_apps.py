@@ -237,15 +237,32 @@ class DispatcherTests(AppFixtures):
                     module.load_handler("sample", target)
                 fetch.assert_not_called()
 
-    def test_build_ref_for_clean_and_dirty_worktrees(self):
+    def test_build_ref_is_independent_of_worktree_status(self):
         source = (ROOT / "build/x2000/entrypoint.sh").read_text()
-        block = source.split("\t# A dirty tree has no remotely reconstructible app-definition revision.\n", 1)[1].split("\tif [", 1)[0]
+        line = next(
+            line for line in source.splitlines()
+            if '"$klipper_overlay/usr/share/fre3nder/APP_REF"' in line
+        )
+        block = (
+            'printf \'%s\\n\' "$project_commit" > \\\n'
+            + line.strip()
+            + "\n"
+        )
         overlay = self.root / "overlay"
         (overlay / "usr/share/fre3nder").mkdir(parents=True)
-        for status, expected in (("clean", "a" * 40), ("dirty", "unpublished")):
-            env = dict(self.env, klipper_overlay=str(overlay), project_commit="a" * 40, project_worktree_status=status)
+
+        for status in ("clean", "dirty"):
+            env = dict(
+                self.env,
+                klipper_overlay=str(overlay),
+                project_commit="a" * 40,
+                project_worktree_status=status,
+            )
             subprocess.run(["sh", "-eu", "-c", block], env=env, check=True)
-            self.assertEqual((overlay / "usr/share/fre3nder/APP_REF").read_text(), expected + "\n")
+            self.assertEqual(
+                (overlay / "usr/share/fre3nder/APP_REF").read_text(),
+                "a" * 40 + "\n",
+            )
 
     def dispatcher(self):
         spec = importlib.util.spec_from_loader("dispatcher", SourceFileLoader("dispatcher", str(DISPATCHER)))
@@ -397,6 +414,45 @@ class BootRecoveryTests(AppFixtures):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(calls.read_text(), "2\n")
         self.assertIn("fre3nder app recovery: PASS", result.stdout)
+
+    def test_boot_retries_once_when_lease_already_exists(self):
+        init = ROOT / "configs/x2000/rootfs-overlay/etc/init.d/S58fre3nder-app-restore"
+        calls = self.root / "recovery-calls"
+        lease = self.root / "network/lease"
+        core = self.root / "fake-app-core"
+
+        self.write(lease, "eth0\n")
+        self.write(
+            core,
+            "#!/bin/sh\n"
+            f'calls="{calls}"\n'
+            'count=0\n'
+            '[ ! -r "$calls" ] || count=$(cat "$calls")\n'
+            'count=$((count + 1))\n'
+            'printf "%s\\n" "$count" > "$calls"\n'
+            '[ "$count" -ge 2 ]\n',
+            executable=True,
+        )
+
+        env = dict(
+            self.env,
+            FRE3NDER_APP_CORE=str(core),
+            FRE3NDER_NETWORK_LEASE_FILE=str(lease),
+            FRE3NDER_APP_RECOVERY_NETWORK_WAIT="0",
+            FRE3NDER_APP_RECOVERY_RETRY_WAIT="0",
+        )
+
+        result = subprocess.run(
+            ["sh", str(init), "start"],
+            env=env,
+            capture_output=True,
+            text=True,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(calls.read_text(), "2\n")
+        self.assertIn("fre3nder app recovery: PASS", result.stdout)
+
 
     def test_boot_failure_does_not_block_platform(self):
         init = ROOT / "configs/x2000/rootfs-overlay/etc/init.d/S58fre3nder-app-restore"

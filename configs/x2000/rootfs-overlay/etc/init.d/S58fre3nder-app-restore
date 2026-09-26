@@ -3,34 +3,40 @@
 core=${FRE3NDER_APP_CORE:-/usr/libexec/fre3nder-app-core}
 lease=${FRE3NDER_NETWORK_LEASE_FILE:-/run/fre3nder/network/lease}
 network_wait=${FRE3NDER_APP_RECOVERY_NETWORK_WAIT:-15}
+retry_wait=${FRE3NDER_APP_RECOVERY_RETRY_WAIT:-3}
 
 case "$network_wait" in
 *[!0-9]*|'') network_wait=15 ;;
 esac
 
+case "$retry_wait" in
+*[!0-9]*|'') retry_wait=3 ;;
+esac
+
 case "${1:-}" in
 start)
-    had_lease=false
-    [ ! -s "$lease" ] || had_lease=true
+    # WLAN obtains its DHCP lease asynchronously. Give it a bounded window
+    # before the first recovery attempt.
+    seconds=0
+    while [ "$seconds" -lt "$network_wait" ] && [ ! -s "$lease" ]; do
+        sleep 1
+        seconds=$((seconds + 1))
+    done
 
     if "$core" restore-installed; then
         echo "fre3nder app recovery: PASS"
         exit 0
     fi
 
-    # WLAN starts DHCP asynchronously. Retry once only when the first attempt
-    # began without a lease; the lease may appear while that attempt is running.
-    if [ "$had_lease" = false ]; then
-        seconds=0
-        while [ "$seconds" -lt "$network_wait" ] && [ ! -s "$lease" ]; do
-            sleep 1
-            seconds=$((seconds + 1))
-        done
+    # A lease alone does not guarantee that DNS/TLS/upstream access is ready.
+    # Retry once after a short delay regardless of the initial lease state.
+    if [ "$retry_wait" -gt 0 ]; then
+        sleep "$retry_wait"
+    fi
 
-        if [ -s "$lease" ] && "$core" restore-installed; then
-            echo "fre3nder app recovery: PASS"
-            exit 0
-        fi
+    if "$core" restore-installed; then
+        echo "fre3nder app recovery: PASS"
+        exit 0
     fi
 
     echo "fre3nder app recovery: FAIL" >&2

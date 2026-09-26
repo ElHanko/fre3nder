@@ -89,8 +89,15 @@ At boot, `S58fre3nder-app-restore` invokes the internal
 `fre3nder-app-core restore-installed` operation. Apps with a regular persistent
 `installed` marker and no current `restored` marker are restored once. Apps
 whose `restored` marker is already present are skipped, so ordinary reboots do
-not repeatedly reinstall applications. A failed restore does not create the
-marker and is therefore eligible for retry on a later boot.
+not repeatedly reinstall applications.
+
+Before the first recovery attempt, S58 gives an asynchronously acquired network
+lease a bounded wait window. If recovery fails, S58 waits briefly and retries
+the complete `restore-installed` operation once regardless of whether a lease
+was already present before the first attempt. This covers transient DNS, TLS or
+upstream-readiness failures without introducing a recovery daemon or unbounded
+boot wait. If both attempts fail, boot continues. No completion marker is
+created for the failed app, so it remains eligible for recovery on a later boot.
 
 Run lifecycle commands sequentially, without a simultaneous Moonraker payload
 update.
@@ -102,7 +109,11 @@ An untagged build can retain the same `VERSION`, so a version-derived tag is
 not a sufficient source identity for that build.
 
 The RootFS build writes the already captured `project_commit` into
-`/usr/share/fre3nder/APP_REF` only when `project_worktree_status` is `clean`.
+`/usr/share/fre3nder/APP_REF`, independent of `artifact_mode` and
+`project_worktree_status`. The app-definition source is therefore bound to the
+committed repository state from which the platform build started, not to
+unrelated uncommitted platform-development changes.
+
 The loader accepts exactly a full 40-character lowercase hexadecimal commit
 and requests:
 
@@ -110,7 +121,7 @@ and requests:
 https://raw.githubusercontent.com/ElHanko/fre3nder/<commit>/apps/<name>/service
 ```
 
-This is an exact build-source compatibility boundary, not a new release or
+This is an exact committed-source compatibility boundary, not a new release or
 app-version system. There is no `main`, `latest`, or tag fallback. The commit
 and app must be published in that official repository; an unavailable source
 fails. An existing valid handler is reused only when its adjacent runtime
@@ -129,12 +140,20 @@ This is not a power-loss-atomic directory exchange: interruption between the
 directory renames can leave the runtime path absent, requiring reconstruction,
 but cannot publish a mixed pair. Run lifecycle calls sequentially.
 
-App-definition updates are consequently tied to platform-source changes and
-explicit administrator development, separate from app payload updates.
+App-definition updates are consequently tied to committed app source and
+explicit administrator app development, separate from platform-development
+state and app payload updates.
 
-Dirty builds write `unpublished` instead: their executable app definitions
-cannot be reconstructed from HEAD alone. Such builds can execute an already
-installed local handler or use an explicitly selected local source checkout:
+A dirty platform worktree does not change the normal app-definition source.
+Release and development builds, whether clean or dirty, write the captured
+`project_commit` to the platform `APP_REF`. Normal app lifecycle operations
+therefore reconstruct the committed app definition associated with that
+commit.
+
+This deliberately means that uncommitted changes under `apps/` are not selected
+implicitly merely because the overall platform build is a dirty development
+build. When an uncommitted app definition itself must be tested, use an
+explicitly selected local source checkout:
 
 ```sh
 FRE3NDER_APP_SOURCE_DIR=<project-root> fre3nder app install fluidd
@@ -143,18 +162,19 @@ FRE3NDER_APP_SOURCE_DIR=<project-root> fre3nder app install fluidd
 That override always reads and stages `<project-root>/apps/fluidd/service`
 without network access, taking priority over an existing cache even when its
 provenance matches. It removes runtime `APP_REF` so the local code is never
-misrepresented as a published commit. A subsequent non-overridden call on a
-published platform will reconstruct the matching official definition.
-It is intended for fixtures and administrator-controlled development, including
-the present uncommitted implementation; it explicitly gives the selected local
-checkout authority over executable app code. It does not claim that a dirty
-tree matches a published commit. With platform `APP_REF=unpublished`, a valid
-cached handler can be reused without remote access or invented provenance;
-without a valid cache or local override the call fails. Missing or malformed
-platform refs fail without a local override. No compatibility promise is made for
+misrepresented as the committed official definition. A subsequent
+non-overridden call reconstructs the app definition matching the platform
+commit.
+
+The override is intended for fixtures and administrator-controlled app
+development. It explicitly gives the selected local checkout authority over
+executable app code. Missing or malformed platform refs still fail without a
+local override. The dispatcher continues to recognize `unpublished` as a
+defensive source state, but normal RootFS builds no longer emit it merely
+because the platform worktree is dirty. No compatibility promise is made for
 manually mixing a definition from a different platform revision.
 
-The standard host-side workflow for a dirty development build is:
+The standard host-side workflow for testing an uncommitted app definition is:
 
 ```sh
 scripts/install-development-app <printer-host> fluidd
@@ -173,17 +193,22 @@ scripts/install-development-app --apply <printer-host> <app>
 ```
 
 After a successful install, it restarts Moonraker and then the web server. It
-does not restart Klipper. Both forms are development workflows. After a system-overlay reset, the boot-time app recovery reconciles persistent
-desired state automatically. The explicit `fre3nder app restore <app>` lifecycle
-remains available for administrator-triggered reconstruction.
+does not restart Klipper. Both forms are app-development workflows. After a
+system-overlay reset, normal boot-time recovery reconstructs the committed app
+definition identified by the platform `APP_REF`; an uncommitted local override
+is intentionally not treated as persistent platform provenance. The explicit
+`fre3nder app restore <app>` lifecycle remains available for
+administrator-triggered reconstruction.
 
-In summary, a clean build whose `APP_REF` names a published commit uses:
+In summary, normal platform builds use the committed app definition regardless
+of whether the platform worktree was clean or dirty:
 
 ```sh
 fre3nder app install <app>
 ```
 
-A dirty build carrying `APP_REF=unpublished` uses:
+When testing an uncommitted app definition, use the explicit development
+override:
 
 ```sh
 scripts/install-development-app <printer-host> <app>
