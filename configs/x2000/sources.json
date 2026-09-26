@@ -142,8 +142,8 @@
     },
     "fre3nderscreen": {
       "repository": "https://github.com/ElHanko/fre3nderscreen.git",
-      "release": "2026.1",
-      "commit": "4da29a130d3ac82572e5d86ea55420d2998bf31f",
+      "release": "2026.1.1",
+      "commit": "4c6de8a8773da06ea6bca2cf48b0be540aa3ba0a",
       "license": "GPL-3.0-only",
       "role": "Fre3nderScreen native framebuffer and evdev local UI",
       "submodules": {
