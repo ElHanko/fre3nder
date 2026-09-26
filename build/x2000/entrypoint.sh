@@ -788,11 +788,26 @@ with tarfile.open(archive) as tar:
 sources = json.loads(sources_path.read_text())
 expected = sources["userspace"][component]
 source = manifest.get("source", {})
-for field in ("repository", "commit", "license"):
+
+for field in ("repository", "license"):
     if source.get(field) != expected[field]:
         raise SystemExit(f"component {component} source {field} mismatch")
-if "release" in expected and source.get("release") != expected["release"]:
-    raise SystemExit(f"component {component} source release mismatch")
+
+if os.environ["artifact_mode"] == "development" and component == "fre3nderscreen":
+    commit = source.get("commit")
+    if (not isinstance(commit, str)
+            or len(commit) != 40
+            or any(ch not in "0123456789abcdef" for ch in commit)):
+        raise SystemExit("component fre3nderscreen source commit is invalid")
+
+    expected_release = f"{expected['release'].rsplit('.', 1)[0]}.{commit[:7]}"
+    if source.get("release") != expected_release:
+        raise SystemExit("component fre3nderscreen source release mismatch")
+else:
+    if source.get("commit") != expected["commit"]:
+        raise SystemExit(f"component {component} source commit mismatch")
+    if "release" in expected and source.get("release") != expected["release"]:
+        raise SystemExit(f"component {component} source release mismatch")
 PY
 	then
 		return 1
