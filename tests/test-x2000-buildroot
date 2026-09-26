@@ -650,7 +650,7 @@ grep -Fq 'extra_overlay="$klipper_overlay $moonraker_overlay $fre3nderscreen_ove
 ! grep -Fq 'wifi_overlay' "$entrypoint"
 grep -Fq 'prepare_rootfs_component moonraker' "$entrypoint"
 grep -Fq 'prepare_rootfs_component fre3nderscreen' "$entrypoint"
-grep -Fq 'input_name=${FRE3NDER_SCREEN_INPUT_NAME:-ns2009_ts}' "$entrypoint"
+grep -Fq 'input_name=ns2009_ts' "$entrypoint"
 ! grep -Fq 'FRE3NDER_FRE3NDERSCREEN_' "$entrypoint"
 grep -Fq 'moonraker_root="$moonraker_overlay/opt/fre3nder/moonraker"' \
 	"$entrypoint"
@@ -1267,6 +1267,7 @@ cp "$root/configs/x2000/rootfs-overlay/usr/libexec/fre3nder-ota-core" \
 	"$target/usr/libexec/"
 touch "$target/etc/init.d/fre3nder-root" \
 	"$target/etc/init.d/S20fre3nder-provision" \
+	"$target/etc/init.d/S30fre3nder-user" \
 	"$target/etc/init.d/S40fre3nder-network" \
 	"$target/etc/init.d/S50dropbear" \
 	"$target/etc/init.d/S59fre3nder-klipper-mcu" \
@@ -1293,6 +1294,7 @@ cmp "$nvram_license" \
 [ -x "$target/etc/init.d/S59fre3nder-klipper-mcu" ]
 [ -x "$target/etc/init.d/S62fre3nder-web" ]
 [ -x "$target/etc/init.d/S63fre3nder-camera" ]
+[ -x "$target/etc/init.d/S30fre3nder-user" ]
 [ -x "$target/etc/init.d/S64fre3nderscreen" ]
 [ ! -e "$target/etc/init.d/S50lighttpd" ]
 moonraker_root="$target/opt/fre3nder/moonraker"

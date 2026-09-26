@@ -19,8 +19,9 @@ framebuffer=${FRE3NDER_SCREEN_FRAMEBUFFER:-/dev/fb0}
 backlight_power=${FRE3NDER_SCREEN_BACKLIGHT_POWER:-/sys/class/backlight/backlight/bl_power}
 input_sys=${FRE3NDER_SCREEN_INPUT_SYS:-/sys/class/input}
 input_dev=${FRE3NDER_SCREEN_INPUT_DEV:-/dev/input}
-input_name=${FRE3NDER_SCREEN_INPUT_NAME:-ns2009_ts}
-beeper_input_name=${FRE3NDER_SCREEN_BEEPER_INPUT_NAME:-pwm-beeper}
+input_name=ns2009_ts
+beeper_input_name=pwm-beeper
+group_file=${FRE3NDER_SCREEN_GROUP_FILE:-/etc/group}
 display_sleep_sec=${FRE3NDER_SCREEN_DISPLAY_SLEEP_SEC:-60}
 
 log() {
@@ -40,20 +41,12 @@ root_active() {
 	regular_file_equals "$root_state/status" active
 }
 
-ensure_directory() {
-	if [ ! -e "$1" ] && [ ! -L "$1" ]; then
-		mkdir -m 0700 "$1" || return 1
-	fi
-	[ -d "$1" ] && [ ! -L "$1" ]
-}
-
 prepare_config() {
 	[ -d "$home_root" ] && [ ! -L "$home_root" ] || return 1
-	ensure_directory "$fre3nder_home" || return 1
-	ensure_directory "$fre3nder_home/.fre3nder" || return 1
-	ensure_directory "$config_dir" || return 1
-	ensure_directory "$printer_data" || return 1
-	ensure_directory "$persistent_logs" || return 1
+	for directory in "$fre3nder_home" "$fre3nder_home/.fre3nder" \
+		"$config_dir" "$printer_data" "$persistent_logs" "$printer_data/gcodes"; do
+		[ -d "$directory" ] && [ ! -L "$directory" ] || return 1
+	done
 
 	if [ -e "$config" ] || [ -L "$config" ]; then
 		[ -f "$config" ] && [ ! -L "$config" ]
@@ -62,12 +55,36 @@ prepare_config() {
 
 	[ "${FRE3NDER_SCREEN_CONFIG+x}" != x ] || return 1
 	[ -f "$default_config" ] && [ ! -L "$default_config" ] || return 1
-	install -m 0600 "$default_config" "$config"
+	install -m 0600 "$default_config" "$config" &&
+		chown fre3nder:fre3nder "$config"
+}
+
+group_gid() {
+	awk -F: -v name="$1" '$1 == name { print $3; exit }' "$group_file"
+}
+
+user_ready() {
+	[ "$(id -u fre3nder 2>/dev/null)" = 1000 ] &&
+		[ "$(id -g fre3nder 2>/dev/null)" = 1000 ] || return 1
+	user_groups=" $(id -G fre3nder) "
+	for group in video input beep; do
+		gid=$(group_gid "$group")
+		[ -n "$gid" ] || return 1
+		case "$user_groups" in
+		*" $gid "*) ;;
+		*) return 1 ;;
+		esac
+	done
+}
+
+set_device_permissions() {
+	[ ! -L "$1" ] && [ -e "$1" ] || return 1
+	chown "root:$2" "$1" && chmod "$3" "$1"
 }
 
 find_touch_device() {
 	if [ "${FRE3NDER_SCREEN_INPUT_DEVICE+x}" = x ]; then
-		[ -e "$FRE3NDER_SCREEN_INPUT_DEVICE" ] &&
+		[ -c "$FRE3NDER_SCREEN_INPUT_DEVICE" ] &&
 			[ ! -L "$FRE3NDER_SCREEN_INPUT_DEVICE" ] || return 1
 		printf '%s\n' "$FRE3NDER_SCREEN_INPUT_DEVICE"
 		return
@@ -91,7 +108,8 @@ find_touch_device() {
 
 find_beeper_device() {
 	if [ "${FRE3NDER_SCREEN_BEEPER_DEVICE+x}" = x ]; then
-		[ -c "$FRE3NDER_SCREEN_BEEPER_DEVICE" ] || return 1
+		[ -c "$FRE3NDER_SCREEN_BEEPER_DEVICE" ] &&
+			[ ! -L "$FRE3NDER_SCREEN_BEEPER_DEVICE" ] || return 1
 		printf '%s\n' "$FRE3NDER_SCREEN_BEEPER_DEVICE"
 		return
 	fi
@@ -156,17 +174,26 @@ enable_backlight() {
 }
 
 start() {
-	mkdir -p "$runtime" || {
+	mkdir -m 0700 -p "$runtime" || {
 		log 'runtime setup failed'
 		return 0
 	}
-	chmod 0700 "$runtime" || {
+	if [ ! -d "$runtime" ] || [ -L "$runtime" ]; then
 		set_status runtime-invalid
 		return 0
-	}
+	fi
 	if ! root_active; then
 		set_status degraded-root
 		log 'persistent root is unavailable; local UI remains stopped'
+		return 0
+	fi
+	if ! user_ready; then
+		set_status user-invalid
+		log 'Fre3nderScreen user or functional groups are unavailable'
+		return 0
+	fi
+	if ! chown root:fre3nder "$runtime" || ! chmod 0710 "$runtime"; then
+		set_status runtime-invalid
 		return 0
 	fi
 	if [ -r "$pid_file" ]; then
@@ -190,17 +217,33 @@ start() {
 		log 'framebuffer is unavailable; local UI remains stopped'
 		return 0
 	fi
+	if ! set_device_permissions "$framebuffer" video 0660; then
+		set_status framebuffer-permission-failed
+		return 0
+	fi
 	if ! touch_device=$(find_touch_device); then
 		set_status touch-unavailable
 		log "unique $input_name input device is unavailable; local UI remains stopped"
 		return 0
 	fi
+	if ! set_device_permissions "$touch_device" input 0660; then
+		set_status touch-permission-failed
+		return 0
+	fi
 	beeper_device=
 	if beeper_device=$(find_beeper_device); then
-		:
+		if ! set_device_permissions "$beeper_device" beep 0660; then
+			beeper_device=
+			log 'optional beeper permissions are unavailable; touch beep disabled'
+		fi
 	else
 		beeper_device=
 		log "optional $beeper_input_name input device is unavailable; touch beep disabled"
+	fi
+	if [ -f "$backlight_power" ] && [ ! -L "$backlight_power" ]; then
+		if ! set_device_permissions "$backlight_power" video 0664; then
+			log 'backlight permissions are unavailable; standby may be disabled'
+		fi
 	fi
 
 	if ! prepare_config; then
@@ -213,21 +256,33 @@ start() {
 		set_status input-link-failed
 		return 0
 	}
-	set_status starting
-	FRE3NDERSCREEN_CONFIG="$config" \
-	FRE3NDERSCREEN_THEME_DIR="$theme_dir" \
-	FRE3NDERSCREEN_INPUT="$input_link" \
-	FRE3NDERSCREEN_BACKLIGHT_POWER="$backlight_power" \
-	FRE3NDERSCREEN_BEEPER_INPUT="$beeper_device" \
-	FRE3NDERSCREEN_DISPLAY_SLEEP_SEC="$display_sleep_sec" \
-		"$binary" >"$stdout_log" 2>&1 &
-	pid=$!
-	printf '%s\n' "$pid" > "$pid_file" || {
-		terminate_fre3nderscreen "$pid"
-		set_status pid-write-failed
+	if [ -L "$stdout_log" ] || { [ -e "$stdout_log" ] && [ ! -f "$stdout_log" ]; }; then
+		set_status runtime-invalid
+		return 0
+	fi
+	if ! : > "$stdout_log"; then
+		set_status runtime-invalid
+		return 0
+	fi
+	chown fre3nder:fre3nder "$stdout_log" && chmod 0600 "$stdout_log" || {
+		set_status runtime-invalid
 		return 0
 	}
+	set_status starting
+	export FRE3NDERSCREEN_CONFIG="$config"
+	export FRE3NDERSCREEN_THEME_DIR="$theme_dir"
+	export FRE3NDERSCREEN_INPUT="$input_link"
+	export FRE3NDERSCREEN_BACKLIGHT_POWER="$backlight_power"
+	export FRE3NDERSCREEN_BEEPER_INPUT="$beeper_device"
+	export FRE3NDERSCREEN_DISPLAY_SLEEP_SEC="$display_sleep_sec"
+	if ! start-stop-daemon -S -q -b -m -p "$pid_file" \
+		-c fre3nder:fre3nder -x "$binary" -O "$stdout_log"; then
+		rm -f "$pid_file" "$input_link"
+		set_status startup-failed
+		return 0
+	fi
 	sleep 1
+	pid=$(cat "$pid_file" 2>/dev/null)
 	if pid_is_fre3nderscreen "$pid"; then
 		if ! enable_backlight; then
 			log 'backlight control is unavailable; local UI remains running'
@@ -235,7 +290,6 @@ start() {
 		set_status active
 		log 'Fre3nderScreen started from the RootFS baseline'
 	else
-		wait "$pid" 2>/dev/null || true
 		rm -f "$pid_file" "$input_link"
 		set_status startup-failed
 		log 'Fre3nderScreen exited during startup'

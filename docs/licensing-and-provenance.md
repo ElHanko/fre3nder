@@ -189,8 +189,8 @@ license provenance remains explicit in the source and wheel manifests.
 
 Fre3nderScreen is consumed from the Fre3nder-maintained fork
 `https://github.com/ElHanko/fre3nderscreen.git` at commit
-`589275a7c3a7fd904184bb5f15b058b7c0376911`, under `GPL-3.0-only`. The Fre3nder source label is
-`0.0.26-beta+fre3nder.589275a`. The repository retains the original GuppyScreen Git history and upstream provenance;
+`4da29a130d3ac82572e5d86ea55420d2998bf31f` (release `2026.1`), under
+`GPL-3.0-only`. The repository retains the original GuppyScreen Git history and upstream provenance;
 the application at this pin identifies as Fre3nderScreen.
 
 The fork descends from the published `ballaswag/guppyscreen` `0.0.26-beta`
@@ -204,6 +204,13 @@ The pinned submodules remain LVGL 8.3.11 and lv_drivers under MIT, libhv under
 BSD-3-Clause, and spdlog under MIT. The vendored wpa_supplicant control-client
 source remains BSD-3-Clause. Their license texts are copied alongside the GPL
 text into `/usr/share/licenses/fre3nderscreen/`.
+
+The inherited `assets/dejavusans_mono_14.c` font has the DejaVu Fonts License
+(Bitstream Vera derived terms); its exact font version is not established from
+the source. The inherited Material Design Icons assets use Apache-2.0.
+Fre3nderScreen release `2026.1` carries both asset license texts in `licenses/`;
+the component builder packages them as `DEJAVU-FONTS-LICENSE` and
+`MATERIAL-DESIGN-ICONS-LICENSE` under the same target license directory.
 
 Fre3nderScreen retains the three dependency patches shipped by the source tree.
 The dedicated pin removes the old generic product matrix and carries its

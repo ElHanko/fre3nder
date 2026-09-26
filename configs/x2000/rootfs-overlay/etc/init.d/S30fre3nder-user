@@ -1,0 +1,106 @@
+#!/bin/sh
+set -e
+
+root_state=${FRE3NDER_ROOT_STATE:-/run/fre3nder-root}
+home=${FRE3NDER_HOME_DIR:-/home/fre3nder}
+
+group_gid() {
+	awk -F: -v name="$1" '$1 == name { print $3; exit }' /etc/group
+}
+
+gid_used() {
+	awk -F: -v gid="$1" '$3 == gid { found = 1 } END { exit !found }' /etc/group
+}
+
+ensure_group() {
+	[ -n "$(group_gid "$1")" ] && return 0
+	if gid_used "$2"; then
+		echo "fre3nder user: GID $2 is already assigned" >&2
+		return 1
+	fi
+	addgroup -g "$2" "$1"
+}
+
+ensure_directory() {
+	[ ! -L "$1" ] || return 1
+	if [ ! -e "$1" ]; then
+		mkdir -m "$2" "$1"
+	fi
+	[ -d "$1" ] || return 1
+	chown fre3nder:fre3nder "$1"
+}
+
+ensure_account() {
+	ensure_group fre3nder 1000
+	ensure_group video 28
+	ensure_group input 1001
+	ensure_group beep 1002
+	[ "$(group_gid fre3nder)" = 1000 ] || return 1
+
+	if id -u fre3nder >/dev/null 2>&1; then
+		[ "$(id -u fre3nder)" = 1000 ] &&
+			[ "$(id -g fre3nder)" = 1000 ] &&
+			awk -F: -v home="$home" \
+				'$1 == "fre3nder" { ok = ($6 == home && $7 == "/bin/false") } END { exit !ok }' \
+				/etc/passwd || return 1
+	else
+		awk -F: '$3 == 1000 { used = 1 } END { exit !used }' /etc/passwd && {
+			echo 'fre3nder user: UID 1000 is already assigned' >&2
+			return 1
+		}
+		adduser -D -H -u 1000 -G fre3nder -h "$home" -s /bin/false fre3nder
+	fi
+
+	# BusyBox adduser -D creates a locked shadow entry; lock a pre-existing
+	# account only if needed, without rewriting it on every boot.
+	awk -F: '$1 == "fre3nder" { found = 1; locked = (substr($2, 1, 1) == "!") } \
+		END { exit !(found && locked) }' /etc/shadow || passwd -l fre3nder
+
+	for group in video input beep; do
+		gid=$(group_gid "$group")
+		case " $(id -G fre3nder) " in
+		*" $gid "*) ;;
+		*) addgroup fre3nder "$group" ;;
+		esac
+	done
+}
+
+prepare_home() {
+	[ -d "${home%/*}" ] && [ ! -L "${home%/*}" ] || return 1
+	ensure_directory "$home" 0700
+	ensure_directory "$home/.fre3nder" 0700
+	ensure_directory "$home/.fre3nder/fre3nderscreen" 0700
+	ensure_directory "$home/printer_data" 0700
+	ensure_directory "$home/printer_data/logs" 0700
+	gcodes=$home/printer_data/gcodes
+	[ ! -L "$gcodes" ] || return 1
+	if [ ! -e "$gcodes" ]; then
+		mkdir -m 0750 "$gcodes"
+	fi
+	[ -d "$gcodes" ] || return 1
+	chown root:fre3nder "$gcodes"
+	chmod 0750 "$gcodes"
+
+	config=$home/.fre3nder/fre3nderscreen/fre3nderscreen.json
+	if [ -e "$config" ] || [ -L "$config" ]; then
+		[ -f "$config" ] && [ ! -L "$config" ] || return 1
+		chown fre3nder:fre3nder "$config"
+		chmod 0600 "$config"
+	fi
+	log=$home/printer_data/logs/fre3nderscreen.log
+	if [ -e "$log" ] || [ -L "$log" ]; then
+		[ -f "$log" ] && [ ! -L "$log" ] || return 1
+		chown fre3nder:fre3nder "$log"
+	fi
+}
+
+case "${1:-}" in
+start)
+	[ -f "$root_state/status" ] && [ ! -L "$root_state/status" ] &&
+		[ "$(cat "$root_state/status")" = active ] || exit 0
+	ensure_account
+	prepare_home
+	;;
+stop) ;;
+*) echo "usage: $0 {start|stop}" >&2; exit 2 ;;
+esac

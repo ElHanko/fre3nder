@@ -12,3 +12,6 @@ CONFIG_NTPD=y
 # CONFIG_FEATURE_NTPD_SERVER is not set
 # CONFIG_FEATURE_NTPD_CONF is not set
 # CONFIG_FEATURE_NTP_AUTH is not set
+
+# S30fre3nder-user adds the screen user to existing functional groups.
+CONFIG_FEATURE_ADDUSER_TO_GROUP=y

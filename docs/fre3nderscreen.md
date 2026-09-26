@@ -1,6 +1,6 @@
 # Fre3nderScreen local Core-UI
 
-Status: **HARDWARE-QUALIFIED ON THE INVESTIGATED REFERENCE SYSTEM (2026-09-24)**.
+Status: **RELEASE 2026.1 PINNED; NEW ROOTLESS INTEGRATION NOT YET HARDWARE-QUALIFIED**.
 
 Fre3nderScreen is Fre3nder's dedicated native local Core-UI for the Ender-3 V3
 KE. It is built from source into the immutable RootFS baseline and is neither a
@@ -21,8 +21,8 @@ The productive source is the Fre3nder-maintained fork
 [`ElHanko/fre3nderscreen`](https://github.com/ElHanko/fre3nderscreen), pinned to:
 
 ```text
-source label: 0.0.26-beta+fre3nder.589275a
-commit:       589275a7c3a7fd904184bb5f15b058b7c0376911
+release:      2026.1
+commit:       4da29a130d3ac82572e5d86ea55420d2998bf31f
 license:      GPL-3.0-only
 ```
 
@@ -48,6 +48,10 @@ License texts are copied into `/usr/share/licenses/fre3nderscreen/` in the
 component payload. The GPL corresponding-source boundary is the pinned public
 fork source, its pinned submodules, the source-carried patches, and the
 reproducible builder.
+
+Release 2026.1 was validated in the Fre3nderScreen repository. Its DejaVu font
+and Material Design Icons asset license texts are packaged with the existing
+component licenses. The inherited DejaVu font's exact version is not established.
 
 The component builder applies the three dependency patches shipped by the
 pinned source tree. It builds with the Fre3nder Buildroot GCC 13.4.0 /
@@ -103,6 +107,7 @@ The Fre3nderScreen component contains only:
 The project RootFS overlay supplies:
 
 ```text
+/etc/init.d/S30fre3nder-user
 /etc/init.d/S64fre3nderscreen
 /usr/share/fre3nder/defaults/fre3nderscreen.json
 ```
@@ -125,6 +130,15 @@ that event to the application, provides the backlight power path and optional
 prerequisites stop only the local UI; they do not gate Dropbear, Klipper,
 Moonraker, or Fluidd.
 
+After the persistent root is active, S30 ensures the locked `fre3nder` account
+(UID/GID 1000), its home and screen paths, and membership in `video`, `input`,
+and `beep`. S64 retains root control of its PID, status, and input link; it
+grants only the selected framebuffer, touch, optional beeper, and backlight
+nodes to those groups and starts Fre3nderScreen as `fre3nder`. The screen can
+read the input link and write only its volatile output log under
+`/run/fre3nderscreen`. The G-code directory remains root-owned with group
+read/traverse access for `fre3nder` and no group write access.
+
 ## Qualification boundary
 
 The previous integration pin
@@ -141,7 +155,7 @@ mapping, `LV_DISP_ROT_90`, automatic backlight start, 60-second standby/wake,
 touch-beep feedback, the compact portrait UI, and one complete print initiated
 through the local UI.
 
-The current Fre3nderScreen pin
+The previous Fre3nderScreen pin
 
 ```text
 0.0.26-beta+fre3nder.589275a
@@ -159,10 +173,11 @@ mapping, persisted calibration across restart, touch-beep feedback, local
 Moonraker connectivity, normal UI operation, 60-second backlight standby, and
 touch wake.
 
-The complete print-start path was already hardware-qualified on the previous
-pin. `src/file_panel.cpp`, `src/print_panel.cpp`, and
-`src/print_status_panel.cpp` are unchanged between `baa4f66` and `589275a`, so
-that existing print-path evidence remains applicable to the current pin.
+The complete print-start path was already hardware-qualified on the older
+`baa4f66` pin. The qualification of `589275a` remains historical evidence; it
+does not qualify release 2026.1 in the new Fre3nder integration. A separately
+authorized target build and hardware test must validate the rootless service,
+its supplementary groups, device access, local UI, and print path.
 
 Historical qualification evidence remains in `CHANGELOG.md` and the repository
 history.

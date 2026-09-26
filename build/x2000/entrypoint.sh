@@ -1444,6 +1444,7 @@ check_rootfs() {
 	[ ! -e "$target/bin/bash" ]
 	[ "$(readlink "$target/bin/sh")" = busybox ]
 	grep -Fxq 'CONFIG_ASH=y' "$busybox_config"
+	grep -Fxq 'CONFIG_FEATURE_ADDUSER_TO_GROUP=y' "$busybox_config"
 	grep -Fxq '# BR2_PACKAGE_ANDROID_TOOLS is not set' "$brout/.config"
 	grep -Fxq '# BR2_PACKAGE_DAEMON is not set' "$brout/.config"
 	grep -Fxq '# BR2_PACKAGE_UTIL_LINUX is not set' "$brout/.config"
@@ -1452,7 +1453,7 @@ check_rootfs() {
 	grep -Fxq '# BR2_TARGET_ROOTFS_UBIFS is not set' "$brout/.config"
 	grep -Fxq 'BR2_TARGET_ROOTFS_SQUASHFS4_XZ=y' "$brout/.config"
 	[ -x "$target/etc/init.d/fre3nder-root" ]
-	for init_script in S10mdev S20fre3nder-provision \
+	for init_script in S10mdev S20fre3nder-provision S30fre3nder-user \
 		S40fre3nder-network S50dropbear S59fre3nder-klipper-mcu \
 		S60fre3nder-klipper \
 		S61fre3nder-moonraker S64fre3nderscreen; do
@@ -1462,6 +1463,7 @@ check_rootfs() {
 	[ ! -e "$target/usr/share/fre3nder-ssh-recovery-test" ]
 	printf '%s\n' \
 		S20fre3nder-provision \
+		S30fre3nder-user \
 		S40fre3nder-network \
 		S50dropbear \
 		S59fre3nder-klipper-mcu \
@@ -1666,8 +1668,10 @@ check_rootfs() {
 	fi
 	[ -f "$target/usr/share/fre3nderscreen/themes/blue.json" ]
 	[ -f "$target/usr/share/licenses/fre3nderscreen/COPYING" ]
+	[ -f "$target/usr/share/licenses/fre3nderscreen/DEJAVU-FONTS-LICENSE" ]
+	[ -f "$target/usr/share/licenses/fre3nderscreen/MATERIAL-DESIGN-ICONS-LICENSE" ]
 	fre3nderscreen_service="$target/etc/init.d/S64fre3nderscreen"
-	grep -Fq 'input_name=${FRE3NDER_SCREEN_INPUT_NAME:-ns2009_ts}' \
+	grep -Fxq 'input_name=ns2009_ts' \
 		"$fre3nderscreen_service"
 	grep -Fq 'FRE3NDERSCREEN_CONFIG="$config"' "$fre3nderscreen_service"
 	grep -Fq 'FRE3NDERSCREEN_THEME_DIR="$theme_dir"' "$fre3nderscreen_service"

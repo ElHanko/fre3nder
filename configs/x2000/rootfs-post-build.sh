@@ -90,6 +90,7 @@ chmod 0755 \
 	"$target/usr/libexec/fre3nder-usb" \
 	"$target/etc/init.d/fre3nder-root" \
 	"$target/etc/init.d/S20fre3nder-provision" \
+	"$target/etc/init.d/S30fre3nder-user" \
 	"$target/etc/init.d/S40fre3nder-network" \
 	"$target/etc/init.d/S50dropbear" \
 	"$target/etc/init.d/S59fre3nder-klipper-mcu" \

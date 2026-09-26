@@ -116,6 +116,10 @@ PY
 	grep -Fq 'BSD 3-Clause License' "$source_dir/libhv/LICENSE"
 	grep -Fq 'The MIT License (MIT)' "$source_dir/spdlog/LICENSE"
 	grep -Fq 'BSD license' "$source_dir/wpa_supplicant/COPYING"
+	grep -Fq 'Bitstream Vera Fonts Copyright' \
+		"$source_dir/licenses/DEJAVU-FONTS-LICENSE.txt"
+	grep -Fq 'Apache License' \
+		"$source_dir/licenses/MATERIAL-DESIGN-ICONS-LICENSE.txt"
 
 	git -C "$source_dir/lv_drivers" apply --check \
 		"$source_dir/patches/0001-lv_driver_fb_ioctls.patch"
@@ -188,6 +192,10 @@ build_component() {
 		"$stage/usr/share/licenses/fre3nderscreen/SPDLOG-LICENSE"
 	install -m 0644 "$source_dir/wpa_supplicant/COPYING" \
 		"$stage/usr/share/licenses/fre3nderscreen/WPA-SUPPLICANT-LICENSE"
+	install -m 0644 "$source_dir/licenses/DEJAVU-FONTS-LICENSE.txt" \
+		"$stage/usr/share/licenses/fre3nderscreen/DEJAVU-FONTS-LICENSE"
+	install -m 0644 "$source_dir/licenses/MATERIAL-DESIGN-ICONS-LICENSE.txt" \
+		"$stage/usr/share/licenses/fre3nderscreen/MATERIAL-DESIGN-ICONS-LICENSE"
 
 	project_commit=$(git -C "$project" rev-parse HEAD)
 	project_worktree_status=clean

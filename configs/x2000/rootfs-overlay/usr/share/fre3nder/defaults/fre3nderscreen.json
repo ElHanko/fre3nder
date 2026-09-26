@@ -6,7 +6,6 @@
   },
   "display_sleep_sec": 60,
   "fans": [],
-  "fre3nderscreen_init_script": "/etc/init.d/S64fre3nderscreen",
   "log_level": "info",
   "log_path": "/home/fre3nder/printer_data/logs/fre3nderscreen.log",
   "monitored_sensors": [],
@@ -14,6 +13,5 @@
   "moonraker_host": "127.0.0.1",
   "moonraker_port": 17126,
   "thumbnail_path": "/home/fre3nder/printer_data/gcodes",
-  "touch_calibrated": true,
-  "wpa_supplicant": "/run/wpa_supplicant"
+  "touch_calibrated": true
 }
