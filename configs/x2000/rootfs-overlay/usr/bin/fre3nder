@@ -11,11 +11,11 @@ import sys
 API_VERSION = 1
 
 DEFAULT_APP_CORE = pathlib.Path("/usr/libexec/fre3nder-app-core")
+DEFAULT_PACKAGE_CORE = pathlib.Path("/usr/libexec/fre3nder-package-core")
 DEFAULT_OTA_CORE = pathlib.Path("/usr/libexec/fre3nder-ota-core")
 DEFAULT_BACKUP_CORE = pathlib.Path("/usr/libexec/fre3nder-backup-core")
 
-APP_ACTIONS = (
-    "install",
+LEGACY_APP_ACTIONS = (
     "uninstall",
     "status",
     "restore",
@@ -40,6 +40,13 @@ def app_core_path():
     return DEFAULT_APP_CORE
 
 
+def package_core_path():
+    override = os.environ.get("FRE3NDER_PACKAGE_CORE")
+    if override:
+        return pathlib.Path(override)
+    return DEFAULT_PACKAGE_CORE
+
+
 def backup_core_path():
     override = os.environ.get(
         "FRE3NDER_BACKUP_CORE"
@@ -60,7 +67,35 @@ def ota_core_path():
 
 def usage():
     print(
-        "usage: fre3nder app {install|uninstall|status|restore} <app>",
+        "usage: fre3nder app install <app|package.fre3app>",
+        file=sys.stderr,
+    )
+    print(
+        "       fre3nder app {uninstall|status|restore} <app>",
+        file=sys.stderr,
+    )
+    print(
+        "       fre3nder app verify <package.fre3app>",
+        file=sys.stderr,
+    )
+    print(
+        "       fre3nder app update <package.fre3app> [--allow-downgrade]",
+        file=sys.stderr,
+    )
+    print(
+        "       fre3nder app remove <app>",
+        file=sys.stderr,
+    )
+    print(
+        "       fre3nder app list",
+        file=sys.stderr,
+    )
+    print(
+        "       fre3nder app key {list|show|remove} [publisher]",
+        file=sys.stderr,
+    )
+    print(
+        "       fre3nder app key add <publisher> <public-key.pem>",
         file=sys.stderr,
     )
     print(
@@ -116,6 +151,28 @@ def run_app_core(action, app):
         )
     except OSError as exc:
         raise RuntimeError(f"cannot execute app core: {core}") from exc
+
+
+def run_package_core(operation, arguments=()):
+    core = package_core_path()
+
+    try:
+        os.execv(
+            str(core),
+            [
+                str(core),
+                operation,
+                *arguments,
+            ],
+        )
+    except OSError as exc:
+        raise RuntimeError(
+            f"cannot execute package core: {core}"
+        ) from exc
+
+
+def is_package_path(value):
+    return pathlib.Path(value).suffix == ".fre3app"
 
 
 def run_backup_core(
@@ -1054,16 +1111,97 @@ def main():
     namespace = sys.argv[1]
 
     if namespace == "app":
-        if len(sys.argv) != 4 or sys.argv[2] not in APP_ACTIONS:
-            return usage()
+        arguments = sys.argv[2:]
 
-        try:
-            run_app_core(sys.argv[2], sys.argv[3])
-        except RuntimeError as exc:
-            print(f"fre3nder app: {exc}", file=sys.stderr)
-            return 1
+        if len(arguments) == 2 and arguments[0] == "install":
+            action, target = arguments
 
-        raise RuntimeError("app core unexpectedly returned")
+            try:
+                if is_package_path(target):
+                    run_package_core(action, (target,))
+                run_app_core(action, target)
+            except RuntimeError as exc:
+                print(f"fre3nder app: {exc}", file=sys.stderr)
+                return 1
+
+            raise RuntimeError("app core unexpectedly returned")
+
+        if (
+            len(arguments) == 2
+            and arguments[0] in LEGACY_APP_ACTIONS
+        ):
+            try:
+                run_app_core(arguments[0], arguments[1])
+            except RuntimeError as exc:
+                print(f"fre3nder app: {exc}", file=sys.stderr)
+                return 1
+
+            raise RuntimeError("app core unexpectedly returned")
+
+        if (
+            len(arguments) == 2
+            and arguments[0] in ("verify", "remove")
+        ):
+            try:
+                run_package_core(arguments[0], (arguments[1],))
+            except RuntimeError as exc:
+                print(f"fre3nder app: {exc}", file=sys.stderr)
+                return 1
+
+            raise RuntimeError("package core unexpectedly returned")
+
+        if arguments == ["list"]:
+            try:
+                run_package_core("list")
+            except RuntimeError as exc:
+                print(f"fre3nder app: {exc}", file=sys.stderr)
+                return 1
+
+            raise RuntimeError("package core unexpectedly returned")
+
+        if (
+            len(arguments) in (2, 3)
+            and arguments[0] == "update"
+            and (
+                len(arguments) == 2
+                or arguments[2] == "--allow-downgrade"
+            )
+        ):
+            try:
+                run_package_core("update", tuple(arguments[1:]))
+            except RuntimeError as exc:
+                print(f"fre3nder app: {exc}", file=sys.stderr)
+                return 1
+
+            raise RuntimeError("package core unexpectedly returned")
+
+        if len(arguments) >= 2 and arguments[0] == "key":
+            key_args = arguments[1:]
+
+            if key_args == ["list"]:
+                operation = "key-list"
+                core_args = ()
+            elif (
+                len(key_args) == 2
+                and key_args[0] in ("show", "remove")
+            ):
+                operation = f"key-{key_args[0]}"
+                core_args = (key_args[1],)
+            elif len(key_args) == 3 and key_args[0] == "add":
+                operation = "key-add"
+                core_args = (key_args[1], key_args[2])
+            else:
+                return usage()
+
+            try:
+                run_package_core(operation, core_args)
+            except RuntimeError as exc:
+                print(f"fre3nder app: {exc}", file=sys.stderr)
+                return 1
+
+            raise RuntimeError("package core unexpectedly returned")
+
+        return usage()
 
     if namespace == "backup":
         if (

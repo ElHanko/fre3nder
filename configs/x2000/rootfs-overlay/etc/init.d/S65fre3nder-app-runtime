@@ -1,0 +1,27 @@
+#!/bin/sh
+
+core=${FRE3NDER_PACKAGE_CORE:-/usr/libexec/fre3nder-package-core}
+
+case "${1:-}" in
+start)
+    if "$core" start-installed; then
+        echo "fre3nder app runtime: PASS"
+    else
+        echo "fre3nder app runtime: DEGRADED" >&2
+    fi
+    ;;
+stop)
+    if "$core" stop-installed; then
+        echo "fre3nder app runtime stop: PASS"
+    else
+        echo "fre3nder app runtime stop: DEGRADED" >&2
+    fi
+    ;;
+*)
+    echo "usage: $0 {start|stop}" >&2
+    exit 2
+    ;;
+esac
+
+# Optional apps must not block the platform boot.
+exit 0

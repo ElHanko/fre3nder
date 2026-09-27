@@ -1,0 +1,760 @@
+#!/usr/bin/python3
+"""Fre3nder signed application package core."""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import os
+import pathlib
+import pwd
+import re
+import shutil
+import stat
+import subprocess
+import sys
+import tempfile
+import tomllib
+import zipfile
+
+API_VERSION = 1
+FORMAT_VERSION = 1
+PLATFORM = "fre3nder-x2000"
+ARCH = "mipsel"
+APP_RE = re.compile(r"[a-z][a-z0-9_-]{0,63}")
+PUBLISHER_RE = re.compile(r"[a-z][a-z0-9_.-]{0,63}")
+SHA256_RE = re.compile(r"[0-9a-f]{64}")
+BUILTIN_KEYS = pathlib.Path("/usr/share/fre3nder/app-keys")
+HOME_DIR = pathlib.Path(os.environ.get("FRE3NDER_HOME_DIR", "/home/fre3nder"))
+PACKAGE_STATE_ROOT = pathlib.Path(
+    os.environ.get("FRE3NDER_PACKAGE_STATE_ROOT", "/home/.fre3nder")
+)
+STATE_ROOT = PACKAGE_STATE_ROOT / "packages"
+USER_KEYS = PACKAGE_STATE_ROOT / "app-keys"
+DATA_ROOT = HOME_DIR / ".local/share"
+RUNTIME_ROOT = pathlib.Path(os.environ.get("FRE3NDER_PACKAGE_RUNTIME_ROOT", "/opt/fre3nder/apps-v2"))
+RECOVERY_ROOT = pathlib.Path(os.environ.get("FRE3NDER_PACKAGE_RECOVERY_DIR", "/ota/apps-v2"))
+MAX_MANIFEST = 64 * 1024
+MAX_CHECKSUMS = 2 * 1024 * 1024
+MAX_SIGNATURE = 64
+MAX_PUBLIC_KEY = 16 * 1024
+MAX_FILES = 4096
+MAX_MEMBER = 512 * 1024 * 1024
+MAX_TOTAL = 1024 * 1024 * 1024
+MAX_PACKAGE = MAX_TOTAL + 64 * 1024 * 1024
+
+
+def regular_file(path: pathlib.Path, description: str) -> None:
+    try:
+        st = path.lstat()
+    except FileNotFoundError as exc:
+        raise ValueError(f"{description} is missing: {path}") from exc
+    if path.is_symlink() or not stat.S_ISREG(st.st_mode):
+        raise ValueError(f"{description} must be a regular non-symlink file: {path}")
+
+
+def ensure_manager_directory(path: pathlib.Path) -> None:
+    path.mkdir(parents=True, exist_ok=True, mode=0o700)
+    st = path.lstat()
+    if path.is_symlink() or not stat.S_ISDIR(st.st_mode):
+        raise ValueError(f"package-manager path must be a directory: {path}")
+    if st.st_uid != os.geteuid() or st.st_mode & 0o022:
+        raise ValueError(f"package-manager path has unsafe ownership or mode: {path}")
+
+
+def openssl() -> str:
+    value = shutil.which("openssl")
+    if value is None:
+        raise ValueError("openssl command is unavailable")
+    return value
+
+
+def key_der(path: pathlib.Path) -> bytes:
+    regular_file(path, "publisher public key")
+    result = subprocess.run(
+        [openssl(), "pkey", "-pubin", "-in", str(path), "-outform", "DER"],
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+    if result.returncode != 0:
+        raise ValueError(f"invalid public key: {path}")
+    text = subprocess.run(
+        [openssl(), "pkey", "-pubin", "-in", str(path), "-text", "-noout"],
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+        text=True,
+        check=False,
+    )
+    if text.returncode != 0 or not text.stdout.startswith("ED25519 Public-Key:"):
+        raise ValueError(f"publisher key is not Ed25519: {path}")
+    return result.stdout
+
+
+def fingerprint(path: pathlib.Path) -> str:
+    return hashlib.sha256(key_der(path)).hexdigest()
+
+
+def key_path(publisher: str) -> pathlib.Path:
+    if not PUBLISHER_RE.fullmatch(publisher):
+        raise ValueError("invalid publisher id")
+    builtin = BUILTIN_KEYS / f"{publisher}.pem"
+    if builtin.exists() or builtin.is_symlink():
+        regular_file(builtin, "built-in publisher key")
+        return builtin
+    ensure_manager_directory(PACKAGE_STATE_ROOT)
+    ensure_manager_directory(USER_KEYS)
+    user = USER_KEYS / f"{publisher}.pem"
+    regular_file(user, "user publisher key")
+    return user
+
+
+def list_keys() -> list[dict]:
+    result = []
+    seen = set()
+    for root, trust in ((BUILTIN_KEYS, "built-in"), (USER_KEYS, "user")):
+        if not root.exists():
+            continue
+        if root == USER_KEYS:
+            ensure_manager_directory(PACKAGE_STATE_ROOT)
+            ensure_manager_directory(USER_KEYS)
+        for path in sorted(root.glob("*.pem")):
+            publisher = path.stem
+            if publisher in seen or not PUBLISHER_RE.fullmatch(publisher):
+                continue
+            try:
+                fp = fingerprint(path)
+            except ValueError:
+                continue
+            seen.add(publisher)
+            result.append({"publisher": publisher, "fingerprint": fp, "trust": trust})
+    return result
+
+
+def add_key(publisher: str, source: pathlib.Path) -> dict:
+    if not PUBLISHER_RE.fullmatch(publisher):
+        raise ValueError("invalid publisher id")
+    if (BUILTIN_KEYS / f"{publisher}.pem").exists():
+        raise ValueError("cannot replace a built-in publisher key")
+    target = USER_KEYS / f"{publisher}.pem"
+    if target.exists() or target.is_symlink():
+        raise ValueError("publisher key already exists")
+    regular_file(source, "publisher public key")
+    if source.stat().st_size > MAX_PUBLIC_KEY:
+        raise ValueError("publisher public key is too large")
+    key_data = source.read_bytes()
+    if len(key_data) > MAX_PUBLIC_KEY:
+        raise ValueError("publisher public key is too large")
+    ensure_manager_directory(PACKAGE_STATE_ROOT)
+    ensure_manager_directory(USER_KEYS)
+    with tempfile.NamedTemporaryFile(dir=USER_KEYS, prefix=f".{publisher}.", delete=False) as tmp:
+        tmp_path = pathlib.Path(tmp.name)
+        tmp.write(key_data)
+    try:
+        tmp_path.chmod(0o644)
+        fp = fingerprint(tmp_path)
+        os.replace(tmp_path, target)
+    finally:
+        if tmp_path.exists():
+            tmp_path.unlink()
+    return {"publisher": publisher, "fingerprint": fp, "trust": "user"}
+
+
+def remove_key(publisher: str) -> None:
+    if (BUILTIN_KEYS / f"{publisher}.pem").exists():
+        raise ValueError("cannot remove a built-in publisher key")
+    if STATE_ROOT.exists():
+        for root in STATE_ROOT.iterdir():
+            if not APP_RE.fullmatch(root.name) or not installed(root.name):
+                continue
+            metadata = read_metadata(root.name)
+            if metadata.get("publisher") == publisher:
+                raise ValueError(
+                    f"publisher key is required by installed app: {root.name}"
+                )
+    ensure_manager_directory(PACKAGE_STATE_ROOT)
+    ensure_manager_directory(USER_KEYS)
+    target = USER_KEYS / f"{publisher}.pem"
+    regular_file(target, "user publisher key")
+    target.unlink()
+
+
+def safe_zip_name(name: str) -> pathlib.PurePosixPath:
+    if (
+        not name
+        or "\\" in name
+        or name.startswith("/")
+        or "\x00" in name
+        or any(ord(character) < 32 or ord(character) == 127 for character in name)
+    ):
+        raise ValueError(f"unsafe package member: {name}")
+    parts = name.split("/")
+    if any(part in ("", ".", "..") for part in parts):
+        raise ValueError(f"unsafe package member: {name}")
+    path = pathlib.PurePosixPath(*parts)
+    if path.as_posix() != name:
+        raise ValueError(f"non-canonical package member: {name}")
+    return path
+
+
+def is_zip_symlink(info: zipfile.ZipInfo) -> bool:
+    mode = (info.external_attr >> 16) & 0xFFFF
+    return stat.S_IFMT(mode) == stat.S_IFLNK
+
+
+def read_member(archive: zipfile.ZipFile, info: zipfile.ZipInfo, maximum: int) -> bytes:
+    if info.file_size > maximum:
+        raise ValueError(f"package member too large: {info.filename}")
+    with archive.open(info, "r") as stream:
+        data = stream.read(maximum + 1)
+    if len(data) != info.file_size or len(data) > maximum:
+        raise ValueError(f"cannot read complete package member: {info.filename}")
+    return data
+
+
+def parse_checksums(data: bytes, expected: list[str]) -> dict[str, str]:
+    try:
+        text = data.decode("ascii")
+    except UnicodeDecodeError as exc:
+        raise ValueError("SHA256SUMS is not ASCII") from exc
+    if not text.endswith("\n"):
+        raise ValueError("SHA256SUMS must end with newline")
+    lines = text.splitlines()
+    if len(lines) != len(expected):
+        raise ValueError("SHA256SUMS has unexpected entries")
+    result = {}
+    for line, name in zip(lines, expected):
+        match = re.fullmatch(r"([0-9a-f]{64})  (.+)", line)
+        if match is None or match.group(2) != name:
+            raise ValueError("SHA256SUMS has unexpected order or syntax")
+        result[name] = match.group(1)
+    return result
+
+
+def verify_signature(checksums: bytes, signature: bytes, key: pathlib.Path) -> None:
+    if len(signature) != 64:
+        raise ValueError("SHA256SUMS.sig is not an Ed25519 signature")
+    with tempfile.TemporaryDirectory(prefix="fre3app-signature-") as tmp:
+        tmp = pathlib.Path(tmp)
+        sums = tmp / "SHA256SUMS"
+        sig = tmp / "SHA256SUMS.sig"
+        sums.write_bytes(checksums)
+        sig.write_bytes(signature)
+        result = subprocess.run(
+            [openssl(), "pkeyutl", "-verify", "-rawin", "-pubin", "-inkey", str(key),
+             "-in", str(sums), "-sigfile", str(sig)],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        )
+    if result.returncode != 0:
+        raise ValueError("Ed25519 signature verification failed")
+
+
+def verify_package(package: pathlib.Path) -> dict:
+    regular_file(package, "fre3app package")
+    if package.stat().st_size > MAX_PACKAGE:
+        raise ValueError("fre3app package exceeds size limit")
+    try:
+        archive = zipfile.ZipFile(package, "r")
+    except (OSError, zipfile.BadZipFile) as exc:
+        raise ValueError(f"cannot open fre3app package: {exc}") from exc
+    with archive:
+        infos = archive.infolist()
+        if len(infos) > MAX_FILES:
+            raise ValueError("fre3app contains too many members")
+        names = [info.filename for info in infos]
+        if len(names) != len(set(names)):
+            raise ValueError("fre3app contains duplicate members")
+        canonical_names = set()
+        total = 0
+        files = {}
+        for info in infos:
+            logical_name = info.filename[:-1] if info.is_dir() else info.filename
+            canonical = safe_zip_name(logical_name).as_posix()
+            if canonical in canonical_names:
+                raise ValueError(f"fre3app contains colliding members: {logical_name}")
+            canonical_names.add(canonical)
+            if info.flag_bits & 0x1:
+                raise ValueError(f"encrypted package member is not allowed: {info.filename}")
+            if is_zip_symlink(info):
+                raise ValueError(f"symlinks are not allowed: {info.filename}")
+            if info.is_dir():
+                continue
+            if info.file_size > MAX_MEMBER:
+                raise ValueError(f"package member too large: {info.filename}")
+            total += info.file_size
+            if total > MAX_TOTAL:
+                raise ValueError("fre3app uncompressed size exceeds limit")
+            files[info.filename] = info
+        for required in ("manifest.toml", "service", "SHA256SUMS", "SHA256SUMS.sig"):
+            if required not in files:
+                raise ValueError(f"fre3app member missing: {required}")
+        manifest_data = read_member(archive, files["manifest.toml"], MAX_MANIFEST)
+        try:
+            manifest = tomllib.loads(manifest_data.decode("utf-8"))
+        except (UnicodeDecodeError, tomllib.TOMLDecodeError) as exc:
+            raise ValueError("manifest.toml is invalid") from exc
+        publisher = manifest.get("publisher")
+        if not isinstance(publisher, dict):
+            raise ValueError("manifest publisher metadata is missing")
+        publisher_id = publisher.get("id")
+        expected_fp = publisher.get("key_fingerprint")
+        if not isinstance(publisher_id, str) or not PUBLISHER_RE.fullmatch(publisher_id):
+            raise ValueError("manifest publisher id is invalid")
+        if not isinstance(expected_fp, str) or not SHA256_RE.fullmatch(expected_fp):
+            raise ValueError("manifest publisher fingerprint is invalid")
+        key = key_path(publisher_id)
+        actual_fp = fingerprint(key)
+        if actual_fp != expected_fp:
+            raise ValueError("package publisher fingerprint differs from trusted key")
+        sums_data = read_member(archive, files["SHA256SUMS"], MAX_CHECKSUMS)
+        signature = read_member(archive, files["SHA256SUMS.sig"], MAX_SIGNATURE)
+        verify_signature(sums_data, signature, key)
+        signed_names = sorted(name for name in files if name not in ("SHA256SUMS", "SHA256SUMS.sig"))
+        checksums = parse_checksums(sums_data, signed_names)
+        for name in signed_names:
+            with archive.open(files[name], "r") as stream:
+                digest = hashlib.sha256()
+                size = 0
+                for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                    digest.update(chunk)
+                    size += len(chunk)
+            if size != files[name].file_size or digest.hexdigest() != checksums[name]:
+                raise ValueError(f"package checksum mismatch: {name}")
+        if manifest.get("format") != FORMAT_VERSION:
+            raise ValueError("unsupported fre3app format")
+        app = manifest.get("app")
+        target = manifest.get("target")
+        runtime = manifest.get("runtime")
+        signature_meta = manifest.get("signature")
+        if not isinstance(app, dict) or not isinstance(target, dict) or not isinstance(runtime, dict):
+            raise ValueError("manifest application metadata is incomplete")
+        name = app.get("name")
+        version = app.get("version")
+        serial = app.get("release_serial")
+        if not isinstance(name, str) or not APP_RE.fullmatch(name):
+            raise ValueError("manifest app name is invalid")
+        if not isinstance(version, str) or not version or len(version) > 128:
+            raise ValueError("manifest app version is invalid")
+        if type(serial) is not int or serial < 1:
+            raise ValueError("manifest release_serial is invalid")
+        if target.get("platform") != PLATFORM or target.get("arch") != ARCH:
+            raise ValueError("fre3app targets a different platform or architecture")
+        if runtime.get("service") != "service" or type(runtime.get("autostart", True)) is not bool:
+            raise ValueError("manifest runtime contract is invalid")
+        if signature_meta != {"algorithm": "Ed25519", "file": "SHA256SUMS.sig", "signed_file": "SHA256SUMS"}:
+            raise ValueError("unsupported fre3app signature contract")
+        return {
+            "manifest": manifest,
+            "name": name,
+            "version": version,
+            "release_serial": serial,
+            "publisher": publisher_id,
+            "fingerprint": actual_fp,
+            "autostart": runtime.get("autostart", True),
+        }
+
+
+def state_dir(name: str) -> pathlib.Path:
+    return STATE_ROOT / name
+
+
+def runtime_dir(name: str) -> pathlib.Path:
+    return RUNTIME_ROOT / name
+
+
+def metadata_path(name: str) -> pathlib.Path:
+    return state_dir(name) / "metadata.json"
+
+
+def installed(name: str) -> bool:
+    path = state_dir(name) / "installed"
+    return path.is_file() and not path.is_symlink()
+
+
+def read_metadata(name: str) -> dict:
+    regular_file(metadata_path(name), "installed package metadata")
+    data = json.loads(metadata_path(name).read_text())
+    if not isinstance(data, dict) or data.get("name") != name:
+        raise ValueError("installed package metadata is invalid")
+    return data
+
+
+def app_user():
+    try:
+        account = pwd.getpwnam("fre3nder")
+    except KeyError as exc:
+        raise ValueError("fre3nder runtime user is unavailable") from exc
+    return account.pw_uid, account.pw_gid
+
+
+def chown_tree(path: pathlib.Path, uid: int, gid: int) -> None:
+    for root, dirs, files in os.walk(path):
+        os.chown(root, uid, gid)
+        for item in dirs:
+            os.chown(os.path.join(root, item), uid, gid)
+        for item in files:
+            os.chown(os.path.join(root, item), uid, gid)
+
+
+def service_action(name: str, action: str, runtime: pathlib.Path | None = None) -> int:
+    runtime = runtime or runtime_dir(name)
+    service = runtime / "service"
+    regular_file(service, "app service")
+    uid, gid = app_user()
+    data_dir = DATA_ROOT / name
+    data_dir.mkdir(parents=True, exist_ok=True)
+    os.chown(data_dir, uid, gid)
+    env = os.environ.copy()
+    env.update({
+        "HOME": str(HOME_DIR),
+        "USER": "fre3nder",
+        "LOGNAME": "fre3nder",
+        "FRE3NDER_APP_NAME": name,
+        "FRE3NDER_APP_RUNTIME_DIR": str(runtime),
+        "FRE3NDER_APP_STATE_DIR": str(state_dir(name)),
+        "FRE3NDER_APP_DATA_DIR": str(data_dir),
+        "FRE3NDER_HOME_DIR": str(HOME_DIR),
+    })
+    def demote():
+        os.setgroups([])
+        os.setgid(gid)
+        os.setuid(uid)
+    result = subprocess.run(
+        [str(service), action],
+        cwd=runtime,
+        env=env,
+        stdin=subprocess.DEVNULL,
+        check=False,
+        preexec_fn=demote,
+    )
+    return result.returncode
+
+
+def extract_runtime(package: pathlib.Path, verified: dict, target: pathlib.Path) -> None:
+    uid, gid = app_user()
+    with zipfile.ZipFile(package, "r") as archive:
+        target.mkdir(parents=True, mode=0o755)
+        for info in archive.infolist():
+            name = info.filename
+            if name in ("SHA256SUMS", "SHA256SUMS.sig"):
+                continue
+            path = target.joinpath(*pathlib.PurePosixPath(name).parts)
+            if info.is_dir():
+                path.mkdir(parents=True, exist_ok=True)
+                continue
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with archive.open(info, "r") as src, path.open("wb") as dst:
+                shutil.copyfileobj(src, dst)
+            path.chmod(0o755 if name == "service" else 0o644)
+    chown_tree(target, uid, gid)
+
+
+def write_state(package: pathlib.Path, verified: dict) -> None:
+    name = verified["name"]
+    ensure_manager_directory(PACKAGE_STATE_ROOT)
+    ensure_manager_directory(STATE_ROOT)
+    with tempfile.TemporaryDirectory(dir=STATE_ROOT, prefix=f".{name}.state.") as tmp:
+        transaction = pathlib.Path(tmp)
+        staged = transaction / "new"
+        staged.mkdir(mode=0o755)
+        cached = staged / "package.fre3app"
+        shutil.copyfile(package, cached)
+        cached.chmod(0o644)
+        metadata = {
+            "name": name,
+            "version": verified["version"],
+            "release_serial": verified["release_serial"],
+            "publisher": verified["publisher"],
+            "fingerprint": verified["fingerprint"],
+            "autostart": verified["autostart"],
+        }
+        (staged / "metadata.json").write_text(
+            json.dumps(metadata, sort_keys=True) + "\n"
+        )
+        (staged / "installed").touch()
+        if verified["autostart"]:
+            (staged / "autostart").touch()
+
+        current = state_dir(name)
+        previous = transaction / "previous"
+        if current.exists() or current.is_symlink():
+            os.replace(current, previous)
+        try:
+            os.replace(staged, current)
+        except Exception:
+            if previous.exists() or previous.is_symlink():
+                os.replace(previous, current)
+            raise
+
+
+def activate_package(package: pathlib.Path, operation: str, allow_downgrade: bool = False) -> dict:
+    verified = verify_package(package)
+    name = verified["name"]
+    exists = installed(name)
+    if operation == "install" and exists:
+        raise ValueError(f"app already installed: {name}")
+    if operation == "update" and not exists:
+        raise ValueError(f"app is not installed: {name}")
+    if exists:
+        old = read_metadata(name)
+        if (
+            old.get("publisher") != verified["publisher"]
+            or old.get("fingerprint") != verified["fingerprint"]
+        ):
+            raise ValueError("package publisher differs from installed app")
+        old_serial = old.get("release_serial")
+        if type(old_serial) is not int:
+            raise ValueError("installed release_serial is invalid")
+        if verified["release_serial"] == old_serial:
+            raise ValueError("same package release is already installed")
+        if verified["release_serial"] < old_serial and not allow_downgrade:
+            raise ValueError("package downgrade requires --allow-downgrade")
+    RUNTIME_ROOT.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(dir=RUNTIME_ROOT, prefix=f".{name}.") as tmp:
+        staged = pathlib.Path(tmp) / "new"
+        extract_runtime(package, verified, staged)
+        current = runtime_dir(name)
+        previous = pathlib.Path(tmp) / "previous"
+        was_running = False
+        if exists and current.exists():
+            was_running = service_action(name, "status", current) == 0
+            if was_running:
+                rc = service_action(name, "stop", current)
+                if rc != 0:
+                    raise ValueError(f"app service stop failed: exit {rc}")
+            os.replace(current, previous)
+        try:
+            os.replace(staged, current)
+            action = "update" if exists else "install"
+            rc = service_action(name, action, current)
+            if rc != 0:
+                raise ValueError(f"app service {action} failed: exit {rc}")
+            started = False
+            if verified["autostart"]:
+                rc = service_action(name, "start", current)
+                if rc != 0:
+                    raise ValueError(f"app service start failed: exit {rc}")
+                started = True
+            try:
+                write_state(package, verified)
+            except Exception:
+                if started:
+                    service_action(name, "stop", current)
+                raise
+        except Exception:
+            if current.exists():
+                shutil.rmtree(current, ignore_errors=True)
+            if previous.exists():
+                os.replace(previous, current)
+                if was_running:
+                    service_action(name, "start", current)
+            raise
+    recovery = RECOVERY_ROOT / name
+    recovery.mkdir(parents=True, exist_ok=True)
+    (recovery / "restored").touch(exist_ok=True)
+    return verified
+
+
+def remove_package(name: str) -> None:
+    if not APP_RE.fullmatch(name) or not installed(name):
+        raise ValueError(f"app is not installed: {name}")
+    current = runtime_dir(name)
+    was_running = False
+    if current.exists():
+        was_running = service_action(name, "status", current) == 0
+        if was_running:
+            rc = service_action(name, "stop", current)
+            if rc != 0:
+                raise ValueError(f"app service stop failed: exit {rc}")
+        rc = service_action(name, "uninstall", current)
+        if rc != 0:
+            if was_running:
+                service_action(name, "start", current)
+            raise ValueError(f"app service uninstall failed: exit {rc}")
+
+    ensure_manager_directory(PACKAGE_STATE_ROOT)
+    ensure_manager_directory(STATE_ROOT)
+    with tempfile.TemporaryDirectory(dir=STATE_ROOT, prefix=f".{name}.remove.") as tmp:
+        transaction = pathlib.Path(tmp)
+        removed_state = transaction / "state"
+        current_state = state_dir(name)
+        os.replace(current_state, removed_state)
+        try:
+            if current.exists():
+                shutil.rmtree(current)
+            shutil.rmtree(RECOVERY_ROOT / name, ignore_errors=True)
+        except Exception:
+            if not current_state.exists() and removed_state.exists():
+                os.replace(removed_state, current_state)
+            if was_running and current.exists():
+                service_action(name, "start", current)
+            raise
+
+
+def restore_installed() -> int:
+    failed = False
+    if not STATE_ROOT.exists():
+        return 0
+    for root in sorted(STATE_ROOT.iterdir(), key=lambda p: p.name):
+        name = root.name
+        if not APP_RE.fullmatch(name) or not installed(name):
+            continue
+        try:
+            marker = RECOVERY_ROOT / name / "restored"
+            if marker.is_file() and runtime_dir(name).is_dir():
+                continue
+            package = state_dir(name) / "package.fre3app"
+            verified = verify_package(package)
+            metadata = read_metadata(name)
+            expected = {
+                "name": verified["name"],
+                "version": verified["version"],
+                "release_serial": verified["release_serial"],
+                "publisher": verified["publisher"],
+                "fingerprint": verified["fingerprint"],
+                "autostart": verified["autostart"],
+            }
+            if metadata != expected or verified["name"] != name:
+                raise ValueError("cached package differs from installed state")
+            RUNTIME_ROOT.mkdir(parents=True, exist_ok=True)
+            with tempfile.TemporaryDirectory(dir=RUNTIME_ROOT, prefix=f".{name}.") as tmp:
+                transaction = pathlib.Path(tmp)
+                staged = transaction / "new"
+                previous = transaction / "previous"
+                extract_runtime(package, verified, staged)
+                current = runtime_dir(name)
+                if current.exists():
+                    os.replace(current, previous)
+                try:
+                    os.replace(staged, current)
+                    rc = service_action(name, "restore", current)
+                    if rc != 0:
+                        raise ValueError(f"app service restore failed: exit {rc}")
+                except Exception:
+                    if current.exists():
+                        shutil.rmtree(current, ignore_errors=True)
+                    if previous.exists():
+                        os.replace(previous, current)
+                    raise
+            marker.parent.mkdir(parents=True, exist_ok=True)
+            marker.touch(exist_ok=True)
+            print(f"fre3nder package recovery: restored {name}")
+        except Exception as exc:
+            print(f"fre3nder package recovery: {name}: {exc}", file=sys.stderr)
+            failed = True
+    return 1 if failed else 0
+
+
+def start_installed() -> int:
+    failed = False
+    if not STATE_ROOT.exists():
+        return 0
+    for root in sorted(STATE_ROOT.iterdir(), key=lambda p: p.name):
+        name = root.name
+        marker = root / "autostart"
+        if (
+            not APP_RE.fullmatch(name)
+            or not installed(name)
+            or not marker.is_file()
+            or marker.is_symlink()
+        ):
+            continue
+        try:
+            if service_action(name, "status") == 0:
+                continue
+            rc = service_action(name, "start")
+            if rc != 0:
+                raise ValueError(f"exit {rc}")
+        except Exception as exc:
+            print(f"fre3nder app runtime: {name}: start failed: {exc}", file=sys.stderr)
+            failed = True
+    return 1 if failed else 0
+
+
+def stop_installed() -> int:
+    failed = False
+    if not STATE_ROOT.exists():
+        return 0
+    for root in sorted(STATE_ROOT.iterdir(), key=lambda p: p.name, reverse=True):
+        name = root.name
+        if not APP_RE.fullmatch(name) or not installed(name) or not runtime_dir(name).is_dir():
+            continue
+        try:
+            if service_action(name, "status") != 0:
+                continue
+            rc = service_action(name, "stop")
+            if rc != 0:
+                raise ValueError(f"exit {rc}")
+        except Exception as exc:
+            print(f"fre3nder app runtime: {name}: stop failed: {exc}", file=sys.stderr)
+            failed = True
+    return 1 if failed else 0
+
+
+def response(operation: str, ok: bool, **fields):
+    value = {"api_version": API_VERSION, "operation": operation, "ok": ok}
+    value.update(fields)
+    print(json.dumps(value, sort_keys=True))
+
+
+def main() -> int:
+    args = sys.argv[1:]
+    if args == ["key-list"]:
+        response("key-list", True, keys=list_keys()); return 0
+    if len(args) == 3 and args[0] == "key-add":
+        result = add_key(args[1], pathlib.Path(args[2])); response("key-add", True, key=result); return 0
+    if len(args) == 2 and args[0] == "key-show":
+        path = key_path(args[1]); response("key-show", True, key={"publisher": args[1], "fingerprint": fingerprint(path), "path": str(path)}); return 0
+    if len(args) == 2 and args[0] == "key-remove":
+        remove_key(args[1]); response("key-remove", True, publisher=args[1]); return 0
+    if len(args) == 2 and args[0] == "verify":
+        item = verify_package(pathlib.Path(args[1])); response("verify", True, package={k: item[k] for k in ("name","version","release_serial","publisher","fingerprint")}); return 0
+    if len(args) == 2 and args[0] == "install":
+        item = activate_package(pathlib.Path(args[1]), "install"); response("install", True, package={k: item[k] for k in ("name","version","release_serial","publisher")}); return 0
+    if len(args) in (2, 3) and args[0] == "update":
+        allow = len(args) == 3 and args[2] == "--allow-downgrade"
+        if len(args) == 3 and not allow:
+            raise ValueError("unsupported update option")
+        item = activate_package(pathlib.Path(args[1]), "update", allow); response("update", True, package={k: item[k] for k in ("name","version","release_serial","publisher")}); return 0
+    if len(args) == 2 and args[0] == "remove":
+        remove_package(args[1]); response("remove", True, name=args[1]); return 0
+    if args == ["list"]:
+        apps = []
+        if STATE_ROOT.exists():
+            for root in sorted(STATE_ROOT.iterdir(), key=lambda p: p.name):
+                if APP_RE.fullmatch(root.name) and installed(root.name):
+                    apps.append(read_metadata(root.name))
+        response("list", True, apps=apps); return 0
+    if len(args) == 2 and args[0] == "status":
+        if not installed(args[1]):
+            raise ValueError(f"app is not installed: {args[1]}")
+        meta = read_metadata(args[1]); meta["running"] = service_action(args[1], "status") == 0
+        response("status", True, app=meta); return 0
+    if args == ["restore-installed"]:
+        return restore_installed()
+    if args == ["start-installed"]:
+        return start_installed()
+    if args == ["stop-installed"]:
+        return stop_installed()
+    raise ValueError("unsupported package-core operation")
+
+
+if __name__ == "__main__":
+    try:
+        sys.exit(main())
+    except (
+        OSError,
+        ValueError,
+        RuntimeError,
+        NotImplementedError,
+        json.JSONDecodeError,
+        zipfile.BadZipFile,
+    ) as exc:
+        operation = sys.argv[1] if len(sys.argv) > 1 else "unknown"
+        response(operation, False, error=str(exc))
+        sys.exit(1)

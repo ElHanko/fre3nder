@@ -86,6 +86,7 @@ rm -f "$target/etc/init.d/S50lighttpd"
 chmod 0755 \
 	"$target/usr/bin/fre3nder" \
 	"$target/usr/libexec/fre3nder-app-core" \
+	"$target/usr/libexec/fre3nder-package-core" \
 	"$target/usr/libexec/fre3nder-ota-core" \
 	"$target/usr/libexec/fre3nder-usb" \
 	"$target/etc/init.d/fre3nder-root" \
@@ -99,6 +100,7 @@ chmod 0755 \
 	"$target/etc/init.d/S62fre3nder-web" \
 	"$target/etc/init.d/S63fre3nder-camera" \
 	"$target/etc/init.d/S64fre3nderscreen" \
+	"$target/etc/init.d/S65fre3nder-app-runtime" \
 	"$target/usr/libexec/fre3nder/f005-mcu-state" \
 	"$target/usr/libexec/fre3nder/f005-stock-to-fre3nder" \
 	"$target/usr/libexec/fre3nder-udhcpc"

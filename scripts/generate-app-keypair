@@ -1,0 +1,135 @@
+#!/bin/sh
+set -eu
+
+root=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+
+usage() {
+	echo "usage: $0 [key-directory]" >&2
+	exit 2
+}
+
+[ "$#" -le 1 ] || usage
+
+key_dir=${1:-"$root/local/production/keys/apps"}
+private_key="$key_dir/private.pem"
+public_key="$key_dir/public.pem"
+rootfs_key="$root/configs/x2000/rootfs-overlay/usr/share/fre3nder/app-keys/fre3nder-official.pem"
+
+command -v openssl >/dev/null 2>&1 || {
+	echo 'openssl is required to prepare the app signing keypair' >&2
+	exit 1
+}
+
+command -v sha256sum >/dev/null 2>&1 || {
+	echo 'sha256sum is required to fingerprint the app signing keypair' >&2
+	exit 1
+}
+
+have_private=false
+have_public=false
+[ -e "$private_key" ] && have_private=true
+[ -e "$public_key" ] && have_public=true
+
+if [ "$have_private" != "$have_public" ]; then
+	echo "incomplete app signing keypair in $key_dir" >&2
+	exit 1
+fi
+
+generated=false
+
+if [ "$have_private" = false ]; then
+	if [ -e "$rootfs_key" ]; then
+		echo "official app public key already exists: $rootfs_key" >&2
+		echo "refusing to generate a replacement keypair; restore the matching private/public keypair instead" >&2
+		exit 1
+	fi
+
+	umask 077
+	mkdir -p "$key_dir"
+	tmp=$(mktemp -d "$key_dir/.generate.XXXXXX")
+
+	cleanup() {
+		rm -rf -- "$tmp"
+	}
+	trap cleanup EXIT HUP INT TERM
+
+	openssl genpkey -algorithm ED25519 -out "$tmp/private.pem"
+	openssl pkey -in "$tmp/private.pem" -pubout -out "$tmp/public.pem"
+
+	chmod 0600 "$tmp/private.pem"
+	chmod 0644 "$tmp/public.pem"
+
+	mv "$tmp/private.pem" "$private_key"
+	mv "$tmp/public.pem" "$public_key"
+	generated=true
+fi
+
+tmp_verify=$(mktemp -d "${TMPDIR:-/tmp}/fre3nder-app-key.XXXXXX")
+
+cleanup_verify() {
+	rm -rf -- "$tmp_verify"
+}
+trap cleanup_verify EXIT HUP INT TERM
+
+openssl pkey \
+	-in "$private_key" \
+	-pubout \
+	-outform DER \
+	-out "$tmp_verify/from-private.der"
+
+openssl pkey \
+	-pubin \
+	-in "$public_key" \
+	-outform DER \
+	-out "$tmp_verify/public.der"
+
+openssl pkey \
+	-pubin \
+	-in "$public_key" \
+	-text \
+	-noout \
+	| grep -q '^ED25519 Public-Key:' || {
+	echo "app signing public key is not Ed25519: $public_key" >&2
+	exit 1
+}
+
+cmp -s "$tmp_verify/from-private.der" "$tmp_verify/public.der" || {
+	echo "app signing private/public keypair does not match" >&2
+	exit 1
+}
+
+chmod 0600 "$private_key"
+chmod 0644 "$public_key"
+
+if [ -e "$rootfs_key" ]; then
+	openssl pkey \
+		-pubin \
+		-in "$rootfs_key" \
+		-outform DER \
+		-out "$tmp_verify/rootfs.der"
+
+	cmp -s "$tmp_verify/public.der" "$tmp_verify/rootfs.der" || {
+		echo "rootfs official app public key differs from local signing keypair: $rootfs_key" >&2
+		exit 1
+	}
+else
+	rootfs_dir=$(dirname -- "$rootfs_key")
+	mkdir -p "$rootfs_dir"
+	tmp_rootfs=$(mktemp "$rootfs_dir/.fre3nder-official.XXXXXX")
+	cp "$public_key" "$tmp_rootfs"
+	chmod 0644 "$tmp_rootfs"
+	mv "$tmp_rootfs" "$rootfs_key"
+fi
+
+fingerprint=$(sha256sum "$tmp_verify/public.der")
+fingerprint=${fingerprint%% *}
+
+if [ "$generated" = true ]; then
+	echo "App signing keypair: CREATED"
+else
+	echo "App signing keypair: VALID"
+fi
+printf 'App private key:      %s\n' "$private_key"
+printf 'App public key:       %s\n' "$public_key"
+printf 'RootFS public key:    %s\n' "$rootfs_key"
+printf 'Publisher fingerprint: %s\n' "$fingerprint"
