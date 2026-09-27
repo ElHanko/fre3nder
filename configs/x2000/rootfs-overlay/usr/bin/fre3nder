@@ -10,16 +10,9 @@ import sys
 
 API_VERSION = 1
 
-DEFAULT_APP_CORE = pathlib.Path("/usr/libexec/fre3nder-app-core")
 DEFAULT_PACKAGE_CORE = pathlib.Path("/usr/libexec/fre3nder-package-core")
 DEFAULT_OTA_CORE = pathlib.Path("/usr/libexec/fre3nder-ota-core")
 DEFAULT_BACKUP_CORE = pathlib.Path("/usr/libexec/fre3nder-backup-core")
-
-LEGACY_APP_ACTIONS = (
-    "uninstall",
-    "status",
-    "restore",
-)
 
 OTA_ACTIONS = (
     "verify",
@@ -31,13 +24,6 @@ OTA_ACTIONS = (
     "readback",
     "prepare-activation",
 )
-
-
-def app_core_path():
-    override = os.environ.get("FRE3NDER_APP_CORE")
-    if override:
-        return pathlib.Path(override)
-    return DEFAULT_APP_CORE
 
 
 def package_core_path():
@@ -67,11 +53,11 @@ def ota_core_path():
 
 def usage():
     print(
-        "usage: fre3nder app install <app|package.fre3app>",
+        "usage: fre3nder app install <package.fre3app>",
         file=sys.stderr,
     )
     print(
-        "       fre3nder app {uninstall|status|restore} <app>",
+        "       fre3nder app status <app>",
         file=sys.stderr,
     )
     print(
@@ -135,22 +121,6 @@ def usage():
         file=sys.stderr,
     )
     return 2
-
-
-def run_app_core(action, app):
-    core = app_core_path()
-
-    try:
-        os.execv(
-            str(core),
-            [
-                str(core),
-                action,
-                app,
-            ],
-        )
-    except OSError as exc:
-        raise RuntimeError(f"cannot execute app core: {core}") from exc
 
 
 def run_package_core(operation, arguments=()):
@@ -1115,32 +1085,19 @@ def main():
 
         if len(arguments) == 2 and arguments[0] == "install":
             action, target = arguments
-
+            if not is_package_path(target):
+                return usage()
             try:
-                if is_package_path(target):
-                    run_package_core(action, (target,))
-                run_app_core(action, target)
+                run_package_core(action, (target,))
             except RuntimeError as exc:
                 print(f"fre3nder app: {exc}", file=sys.stderr)
                 return 1
 
-            raise RuntimeError("app core unexpectedly returned")
+            raise RuntimeError("package core unexpectedly returned")
 
         if (
             len(arguments) == 2
-            and arguments[0] in LEGACY_APP_ACTIONS
-        ):
-            try:
-                run_app_core(arguments[0], arguments[1])
-            except RuntimeError as exc:
-                print(f"fre3nder app: {exc}", file=sys.stderr)
-                return 1
-
-            raise RuntimeError("app core unexpectedly returned")
-
-        if (
-            len(arguments) == 2
-            and arguments[0] in ("verify", "remove")
+            and arguments[0] in ("verify", "remove", "status")
         ):
             try:
                 run_package_core(arguments[0], (arguments[1],))

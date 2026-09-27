@@ -24,10 +24,11 @@ class WebServiceTests(unittest.TestCase):
         self.runtime = self.root / "run/web"
         self.root_state = self.root / "run/root"
         self.home = self.root / "home/fre3nder"
-        self.active = self.home / ".fre3nder/frontend/active"
+        self.package_state = self.root / "home/.fre3nder"
+        self.active = self.package_state / "frontend/active"
         self.disabled = self.home / ".fre3nder/web/disabled"
-        self.web = self.root / "opt/web"
-        self.payload = self.web / "sample-ui"
+        self.web = self.root / "opt/apps-v2"
+        self.payload = self.web / "sample-ui/payload"
         self.daemon = self.root / "bin/lighttpd"
         self.calls = self.root / "calls"
         self.env = {k: v for k, v in os.environ.items() if not k.startswith("FRE3NDER_")}
@@ -35,7 +36,8 @@ class WebServiceTests(unittest.TestCase):
             "FRE3NDER_WEB_RUNTIME": str(self.runtime),
             "FRE3NDER_ROOT_STATE": str(self.root_state),
             "FRE3NDER_HOME_DIR": str(self.home),
-            "FRE3NDER_WEB_DIR": str(self.web),
+            "FRE3NDER_PACKAGE_STATE_ROOT": str(self.package_state),
+            "FRE3NDER_PACKAGE_RUNTIME_ROOT": str(self.web),
             "FRE3NDER_WEB_BASE_CONFIG": str(BASE_CONFIG),
             "FRE3NDER_LIGHTTPD": str(self.daemon),
             "FRE3NDER_PYTHON": sys.executable,
@@ -80,6 +82,7 @@ while True:
 
     def setup_frontend(self):
         self.write(self.root_state / "status", "active\n")
+        self.home.mkdir(parents=True, exist_ok=True)
         self.write(self.active, "sample-ui\n")
         self.write(self.payload / "index.html", "fixture frontend")
 
@@ -233,10 +236,6 @@ snapshot_url: /webcam/?action=snapshot
         self.assertFalse((OVERLAY / "etc/init.d/S50lighttpd").exists())
         entrypoint = (ROOT / "build/x2000/entrypoint.sh").read_text()
         self.assertIn('[ -f "$target/usr/lib/lighttpd/mod_proxy.so" ]', entrypoint)
-        fluidd = (ROOT / "apps/fluidd/service").read_text().lower()
-        self.assertNotIn("lighttpd", fluidd)
-        self.assertNotIn("webcam", fluidd)
-        self.assertNotIn("camera.conf", fluidd)
 
 
 if __name__ == "__main__":

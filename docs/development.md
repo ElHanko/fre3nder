@@ -47,11 +47,8 @@ functional dependency on `research/`. The exact pinned dependencies are in
    [versioning](versioning.md); user-visible release changes belong in the
    [changelog](../CHANGELOG.md).
 
-For a dirty development RootFS with `APP_REF=unpublished`, app definitions need
-an explicit local source. The helper
-[scripts/install-development-app](../scripts/install-development-app)
-transfers only a checked app definition to the printer; see the
-[app guide](apps.md#app-definition-source-revision) for its normal and `--apply`
-forms. The Moonraker, Fre3nderScreen, F005, storage, and OTA documents describe
-their own specific boundaries. Historical X2000 and F005 investigations remain
-indexed from [`research/README.md`](../research/README.md).
+Application packages are developed and signed from the separate
+`fre3nder-apps` repository. The [app guide](apps.md) describes the platform
+installer and recovery contract. The Moonraker, Fre3nderScreen, F005, storage,
+and OTA documents describe their own specific boundaries. Historical X2000 and
+F005 investigations remain indexed from [`research/README.md`](../research/README.md).

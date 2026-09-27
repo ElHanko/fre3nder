@@ -1198,7 +1198,6 @@ sed -n '/^prepare_klipper_overlay() {$/,/^}$/p' "$entrypoint" \
 . "$tmp/validate-f005-firmware.sh"
 . "$tmp/prepare-klipper-overlay.sh"
 prepare_klipper_overlay
-[ "$(cat "$klipper_overlay/usr/share/fre3nder/APP_REF")" = "$project_commit" ]
 staged_f005=$klipper_overlay$f005_target_path
 python3 - "$f005_release_manifest" "$staged_f005" <<'PY'
 import hashlib
@@ -1261,7 +1260,7 @@ install -D -m 0644 "$nvram" \
 install -D -m 0644 "$nvram_license" \
 	"$target/usr/share/licenses/radxa-rkwifibt/LICENSE"
 cp "$root/configs/x2000/rootfs-overlay/usr/bin/fre3nder" "$target/usr/bin/"
-cp "$root/configs/x2000/rootfs-overlay/usr/libexec/fre3nder-app-core" \
+cp "$root/configs/x2000/rootfs-overlay/usr/libexec/fre3nder-package-core" \
 	"$target/usr/libexec/"
 cp "$root/configs/x2000/rootfs-overlay/usr/libexec/fre3nder-ota-core" \
 	"$target/usr/libexec/"
@@ -1270,12 +1269,14 @@ touch "$target/etc/init.d/fre3nder-root" \
 	"$target/etc/init.d/S30fre3nder-user" \
 	"$target/etc/init.d/S40fre3nder-network" \
 	"$target/etc/init.d/S50dropbear" \
+	"$target/etc/init.d/S58fre3nder-app-restore" \
 	"$target/etc/init.d/S59fre3nder-klipper-mcu" \
 	"$target/etc/init.d/S60fre3nder-klipper" \
 	"$target/etc/init.d/S61fre3nder-moonraker" \
 	"$target/etc/init.d/S62fre3nder-web" \
 	"$target/etc/init.d/S63fre3nder-camera" \
 	"$target/etc/init.d/S64fre3nderscreen" \
+	"$target/etc/init.d/S65fre3nder-app-runtime" \
 	"$target/etc/init.d/S50lighttpd" \
 	"$target/usr/libexec/fre3nder/f005-mcu-state" \
 	"$target/usr/libexec/fre3nder/f005-stock-to-fre3nder" \
@@ -1289,7 +1290,7 @@ cmp "$nvram" "$target/lib/firmware/brcm/brcmfmac43430-sdio.txt"
 cmp "$nvram_license" \
 	"$target/usr/share/licenses/radxa-rkwifibt/LICENSE"
 [ -x "$target/usr/bin/fre3nder" ]
-[ -x "$target/usr/libexec/fre3nder-app-core" ]
+[ -x "$target/usr/libexec/fre3nder-package-core" ]
 [ -x "$target/usr/libexec/fre3nder-ota-core" ]
 [ -x "$target/etc/init.d/S59fre3nder-klipper-mcu" ]
 [ -x "$target/etc/init.d/S62fre3nder-web" ]

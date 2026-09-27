@@ -2,12 +2,16 @@
 """Host-side trust-contract tests for fre3nder-package-core."""
 
 import hashlib
+import contextlib
 import importlib.machinery
 import importlib.util
+import io
+import json
 import os
 import pathlib
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 from unittest import mock
@@ -130,6 +134,7 @@ class Fre3AppLifecycleTests(unittest.TestCase):
             "publisher": publisher,
             "fingerprint": fingerprint,
             "autostart": True,
+            "web_frontend": False,
         }
 
     def test_update_cannot_change_publisher(self):
@@ -148,6 +153,7 @@ class Fre3AppLifecycleTests(unittest.TestCase):
                     "publisher": "publisher-b",
                     "fingerprint": "b" * 64,
                     "autostart": True,
+                    "web_frontend": False,
                 },
             ),
         ):
@@ -186,6 +192,7 @@ class Fre3AppLifecycleTests(unittest.TestCase):
                     "publisher": "publisher-a",
                     "fingerprint": "a" * 64,
                     "autostart": True,
+                    "web_frontend": False,
                 },
             ),
             mock.patch.object(self.core, "extract_runtime", side_effect=extract_runtime),
@@ -197,6 +204,200 @@ class Fre3AppLifecycleTests(unittest.TestCase):
 
         state_writer.assert_not_called()
         self.assertTrue((current / "old").is_file())
+
+
+class Fre3AppWebTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = pathlib.Path(self.temp.name)
+        self.core = load_core_module()
+        self.core.PACKAGE_STATE_ROOT = self.root / "manager"
+        self.core.STATE_ROOT = self.core.PACKAGE_STATE_ROOT / "packages"
+        self.core.FRONTEND_ROOT = self.core.PACKAGE_STATE_ROOT / "frontend"
+        self.core.ACTIVE_FRONTEND = self.core.FRONTEND_ROOT / "active"
+        self.core.RUNTIME_ROOT = self.root / "runtime"
+        self.core.RECOVERY_ROOT = self.root / "recovery"
+        self.core.DATA_ROOT = self.root / "data"
+        self.calls = self.root / "web-calls"
+        self.core.WEB_SERVICE = self.root / "web-service"
+        self.core.WEB_SERVICE.write_text(
+            f"#!/bin/sh\nprintf '%s\\n' \"$1\" >> '{self.calls}'\n"
+        )
+        self.core.WEB_SERVICE.chmod(0o755)
+
+    def package(self, web=None, index=b"<html></html>"):
+        # Build only an in-memory verification fixture, never a signed app artifact.
+        lines = [
+            'format = 1',
+            '[app]', 'name = "fluidd"', 'version = "1.37.6-fre3nder.1"', 'release_serial = 1',
+            '[publisher]', 'id = "fre3nder-official"', f'key_fingerprint = "{"a" * 64}"',
+            '[target]', 'platform = "fre3nder-x2000"', 'arch = "mipsel"',
+            '[runtime]', 'service = "service"', 'autostart = false',
+        ]
+        if web is not None:
+            lines.extend(['[web]', f'frontend = {web}'])
+        lines.extend(['[signature]', 'algorithm = "Ed25519"', 'file = "SHA256SUMS.sig"', 'signed_file = "SHA256SUMS"'])
+        files = {"manifest.toml": ("\n".join(lines) + "\n").encode(), "service": b"#!/bin/sh\n"}
+        if index is not None:
+            files["payload/index.html"] = index
+        sums = "".join(f"{hashlib.sha256(data).hexdigest()}  {name}\n" for name, data in sorted(files.items())).encode()
+        files["SHA256SUMS"] = sums
+        files["SHA256SUMS.sig"] = b"s" * 64
+        package = self.root / "fixture.zip"
+        with zipfile.ZipFile(package, "w") as archive:
+            for name, data in files.items():
+                archive.writestr(name, data)
+        return package
+
+    def verify(self, package):
+        with (mock.patch.object(self.core, "key_path", return_value=self.root / "key"),
+              mock.patch.object(self.core, "fingerprint", return_value="a" * 64),
+              mock.patch.object(self.core, "verify_signature")):
+            return self.core.verify_package(package)
+
+    def test_web_manifest_validation(self):
+        self.assertIs(self.verify(self.package())["web_frontend"], False)
+        self.assertIs(self.verify(self.package("true"))["web_frontend"], True)
+        for web, index in (("1", b"valid"), ("true", None), ("true", b"")):
+            with self.subTest(web=web, index=index):
+                with self.assertRaises(ValueError):
+                    self.verify(self.package(web, index))
+
+    def test_verify_response_reports_web_capability(self):
+        package = self.package("true")
+        output = io.StringIO()
+        with (contextlib.redirect_stdout(output),
+              mock.patch.object(self.core, "verify_package", return_value=self.verify(package)),
+              mock.patch.object(sys, "argv", [str(CORE), "verify", str(package)])):
+            self.core.main()
+        self.assertIs(json.loads(output.getvalue())["package"]["web_frontend"], True)
+
+    def verified(self, name="fluidd", serial=1, web=True):
+        return {
+            "name": name, "version": f"1.37.6-fre3nder.{serial}",
+            "release_serial": serial, "publisher": "fre3nder-official",
+            "fingerprint": "a" * 64, "autostart": False,
+            "web_frontend": web,
+        }
+
+    def extract(self, _package, _verified, target):
+        target.mkdir(parents=True)
+        (target / "service").write_text("#!/bin/sh\n")
+
+    def activate(self, verified, operation="install"):
+        package = self.root / "source.zip"
+        package.write_bytes(b"fixture")
+        with (mock.patch.object(self.core, "verify_package", return_value=verified),
+              mock.patch.object(self.core, "extract_runtime", side_effect=self.extract),
+              mock.patch.object(self.core, "service_action", return_value=0)):
+            return self.core.activate_package(package, operation)
+
+    def test_selection_metadata_and_refresh(self):
+        self.activate(self.verified())
+        self.assertEqual(self.core.ACTIVE_FRONTEND.read_text(), "fluidd\n")
+        self.assertEqual(self.core.read_metadata("fluidd")["web_frontend"], True)
+        self.assertEqual(self.calls.read_text(), "restart\n")
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output), mock.patch.object(self.core, "service_action", return_value=0), mock.patch.object(sys, "argv", [str(CORE), "status", "fluidd"]):
+            self.core.main()
+        self.assertIs(json.loads(output.getvalue())["app"]["web_frontend"], True)
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output), mock.patch.object(sys, "argv", [str(CORE), "list"]):
+            self.core.main()
+        self.assertIs(json.loads(output.getvalue())["apps"][0]["web_frontend"], True)
+        self.activate(self.verified(serial=2), "update")
+        self.assertEqual(self.calls.read_text(), "restart\nrestart\n")
+        with mock.patch.object(self.core, "service_action", return_value=0):
+            self.core.remove_package("fluidd")
+        self.assertFalse(self.core.ACTIVE_FRONTEND.exists())
+        self.assertEqual(self.calls.read_text(), "restart\nrestart\nrestart\n")
+
+    def test_other_selection_is_preserved_and_capability_cannot_change(self):
+        self.core.PACKAGE_STATE_ROOT.mkdir(mode=0o700)
+        self.core.FRONTEND_ROOT.mkdir(mode=0o700)
+        self.core.ACTIVE_FRONTEND.write_text("another-ui\n")
+        self.core.ACTIVE_FRONTEND.chmod(0o644)
+        self.activate(self.verified())
+        self.assertEqual(self.core.ACTIVE_FRONTEND.read_text(), "another-ui\n")
+        self.assertFalse(self.calls.exists())
+        with self.assertRaisesRegex(ValueError, "capability differs"):
+            self.activate(self.verified(serial=2, web=False), "update")
+        with mock.patch.object(self.core, "service_action", return_value=0):
+            self.core.remove_package("fluidd")
+        self.assertEqual(self.core.ACTIVE_FRONTEND.read_text(), "another-ui\n")
+        self.assertFalse(self.calls.exists())
+
+    def test_boot_restore_never_refreshes_web(self):
+        self.activate(self.verified())
+        self.calls.unlink()
+        shutil.rmtree(self.core.runtime_dir("fluidd"))
+        (self.core.RECOVERY_ROOT / "fluidd/restored").unlink()
+        with (mock.patch.object(self.core, "verify_package", return_value=self.verified()),
+              mock.patch.object(self.core, "extract_runtime", side_effect=self.extract),
+              mock.patch.object(self.core, "service_action", return_value=0)):
+            self.assertEqual(self.core.restore_installed(), 0)
+        self.assertFalse(self.calls.exists())
+        self.assertEqual(self.core.ACTIVE_FRONTEND.read_text(), "fluidd\n")
+
+    def test_restore_pre_web_metadata_and_cached_package(self):
+        package = self.package()
+        verified = self.verify(package)
+        self.assertIs(verified["web_frontend"], False)
+        self.core.write_state(package, verified)
+        metadata = self.core.metadata_path("fluidd")
+        value = json.loads(metadata.read_text())
+        del value["web_frontend"]
+        metadata.write_text(json.dumps(value) + "\n")
+        self.assertNotIn("web_frontend", json.loads(metadata.read_text()))
+        cached = self.core.state_dir("fluidd") / "package.fre3app"
+        with zipfile.ZipFile(cached) as archive:
+            self.assertNotIn(b"[web]", archive.read("manifest.toml"))
+
+        with (mock.patch.object(self.core, "key_path", return_value=self.root / "key"),
+              mock.patch.object(self.core, "fingerprint", return_value="a" * 64),
+              mock.patch.object(self.core, "verify_signature"),
+              mock.patch.object(self.core, "extract_runtime", side_effect=self.extract),
+              mock.patch.object(self.core, "service_action", return_value=0),
+              mock.patch.object(sys, "argv", [str(CORE), "restore-installed"])):
+            self.assertEqual(self.core.main(), 0)
+
+        self.assertIs(self.core.read_metadata("fluidd")["web_frontend"], False)
+        self.assertTrue((self.core.runtime_dir("fluidd") / "service").is_file())
+        self.assertTrue((self.core.RECOVERY_ROOT / "fluidd/restored").is_file())
+        self.assertFalse(self.core.ACTIVE_FRONTEND.exists())
+
+    def test_restore_rejects_changed_web_metadata(self):
+        self.activate(self.verified())
+        self.calls.unlink()
+        shutil.rmtree(self.core.runtime_dir("fluidd"))
+        (self.core.RECOVERY_ROOT / "fluidd/restored").unlink()
+        metadata = self.core.metadata_path("fluidd")
+        value = json.loads(metadata.read_text())
+        value["web_frontend"] = False
+        metadata.write_text(json.dumps(value))
+        with mock.patch.object(self.core, "verify_package", return_value=self.verified()):
+            self.assertEqual(self.core.restore_installed(), 1)
+        self.assertFalse(self.calls.exists())
+
+    def test_web_refresh_failure_does_not_undo_install(self):
+        self.core.WEB_SERVICE.write_text("#!/bin/sh\nexit 23\n")
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr):
+            self.activate(self.verified())
+        self.assertIn("web refresh failed", stderr.getvalue())
+        self.assertTrue(self.core.installed("fluidd"))
+        self.assertEqual(self.core.ACTIVE_FRONTEND.read_text(), "fluidd\n")
+
+    def test_s58_only_calls_package_core_and_never_blocks_boot(self):
+        service = self.root / "package-core"
+        service.write_text("#!/bin/sh\nexit 23\n")
+        service.chmod(0o755)
+        script = ROOT / "configs/x2000/rootfs-overlay/etc/init.d/S58fre3nder-app-restore"
+        env = dict(os.environ, FRE3NDER_PACKAGE_CORE=str(service))
+        result = subprocess.run(["sh", str(script), "start"], env=env, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("DEGRADED", result.stderr)
 
 
 if __name__ == "__main__":

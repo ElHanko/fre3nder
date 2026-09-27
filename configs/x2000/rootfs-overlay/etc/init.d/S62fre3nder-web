@@ -3,7 +3,8 @@
 runtime=${FRE3NDER_WEB_RUNTIME:-/run/fre3nder-web}
 root_state=${FRE3NDER_ROOT_STATE:-/run/fre3nder-root}
 fre3nder_home=${FRE3NDER_HOME_DIR:-/home/fre3nder}
-web_root=${FRE3NDER_WEB_DIR:-/opt/fre3nder/web}
+package_state=${FRE3NDER_PACKAGE_STATE_ROOT:-/home/.fre3nder}
+package_runtime=${FRE3NDER_PACKAGE_RUNTIME_ROOT:-/opt/fre3nder/apps-v2}
 base_config=${FRE3NDER_WEB_BASE_CONFIG:-/etc/lighttpd/fre3nder.conf}
 daemon=${FRE3NDER_LIGHTTPD:-/usr/sbin/lighttpd}
 python=${FRE3NDER_PYTHON:-/usr/bin/python3}
@@ -40,14 +41,14 @@ prepare_runtime() {
 }
 
 prepare_config() {
-	"$python" - "$runtime" "$root_state" "$fre3nder_home" "$web_root" "$base_config" <<'PY'
+	"$python" - "$runtime" "$root_state" "$fre3nder_home" "$package_state" "$package_runtime" "$base_config" <<'PY'
 import os
 from pathlib import Path
 import re
 import sys
 import tempfile
 
-runtime, root_state, home, web_root, base = map(Path, sys.argv[1:])
+runtime, root_state, home, package_state, package_runtime, base = map(Path, sys.argv[1:])
 
 
 def safe(path):
@@ -82,13 +83,13 @@ try:
     disabled = home / ".fre3nder/web/disabled"
     if regular(disabled):
         stop("disabled")
-    active = home / ".fre3nder/frontend/active"
+    active = package_state / "frontend/active"
     if not regular(active):
         stop("no-frontend")
     name = active.read_text().removesuffix("\n")
     if not re.fullmatch(r"[a-z][a-z0-9_-]{0,63}", name):
         stop("frontend-invalid")
-    document_root = web_root / name
+    document_root = package_runtime / name / "payload"
     safe(document_root)
     if not document_root.is_dir():
         stop("payload-unavailable")

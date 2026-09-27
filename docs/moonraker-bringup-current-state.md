@@ -121,10 +121,10 @@ packages remain exclusively Fre3nder-owned.
 
 The default now also contains `[include fre3nder/*.conf]`. The current S61
 preparation supplies the fragment directory and app-neutral `00-base.conf`,
-without migrating existing user configuration. The repository-only
-[Fluidd app handler](apps.md) owns `fre3nder/fluidd.conf` and bootstraps its web
-payload outside the RootFS. Existing installations must add the include
-manually. Fragment changes report the existing S61 restart command.
+without migrating existing user configuration. Existing installations must add
+the include manually. The signed Fluidd package does not create a Moonraker
+updater fragment. A persistent fragment from the legacy installation is a
+separate device-migration concern; its removal requires one S61 restart.
 Optional frontend-neutral Lighttpd/S62 infrastructure is now offline
 implemented above the loopback-only Moonraker API. It proxies HTTP/WebSocket
 without taking ownership of application updates. On the reference X2000,

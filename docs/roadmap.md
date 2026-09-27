@@ -40,7 +40,7 @@ work is separate from Fre3nderScreen integration qualification above.
 
 ### Managed applications
 
-Extend the simple managed-application model beyond the qualified Fluidd path as
+Extend the signed `.fre3app` model beyond the previously qualified Fluidd path as
 real applications require it, and prove that the generic layer works for more
 than one useful application or frontend. Improve install, remove, status,
 restore, version/pin, dependency, discovery, and user-management behavior while

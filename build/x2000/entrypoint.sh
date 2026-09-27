@@ -884,8 +884,6 @@ prepare_klipper_overlay() {
 		"$klipper_overlay$f005_target_path"
 	install -m 0644 "$version_file" \
 		"$klipper_overlay/usr/share/fre3nder/VERSION"
-	printf '%s\n' "$project_commit" > \
-		"$klipper_overlay/usr/share/fre3nder/APP_REF"
 	if [ "$artifact_mode" = development ]; then
 		printf '%s\n' \
 			'mode=development' \
@@ -1542,11 +1540,13 @@ check_rootfs() {
 	find "$numpy_dir/core" -type f -name '_multiarray_umath*.so' \
 		-print -quit | grep -q .
 	[ -x "$target/usr/bin/fre3nder" ]
-	[ -x "$target/usr/libexec/fre3nder-app-core" ]
+	[ -x "$target/usr/libexec/fre3nder-package-core" ]
 	[ -x "$target/usr/libexec/fre3nder-ota-core" ]
+	[ -x "$target/etc/init.d/S58fre3nder-app-restore" ]
 	[ -x "$target/usr/sbin/lighttpd" ]
 	[ -f "$target/usr/lib/lighttpd/mod_proxy.so" ]
 	[ -x "$target/etc/init.d/S62fre3nder-web" ]
+	[ -x "$target/etc/init.d/S65fre3nder-app-runtime" ]
 	[ -x "$target/usr/bin/mjpg_streamer" ]
 	[ -f "$target/usr/lib/mjpg-streamer/input_uvc.so" ]
 	[ -f "$target/usr/lib/mjpg-streamer/output_http.so" ]
@@ -1554,8 +1554,6 @@ check_rootfs() {
 	[ ! -e "$target/etc/init.d/S50lighttpd" ]
 	cmp -s "$project/configs/x2000/rootfs-overlay/etc/lighttpd/fre3nder.conf" \
 		"$target/etc/lighttpd/fre3nder.conf"
-	printf '%s\n' "$project_commit" |
-		cmp -s - "$target/usr/share/fre3nder/APP_REF"
 	[ -x "$target/usr/libexec/fre3nder/f005-mcu-state" ]
 	[ -x "$target/usr/libexec/fre3nder/f005-stock-to-fre3nder" ]
 	[ -x "$target/usr/bin/git" ]

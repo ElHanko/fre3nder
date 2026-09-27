@@ -1,55 +1,10 @@
 #!/bin/sh
 
 package_core=${FRE3NDER_PACKAGE_CORE:-/usr/libexec/fre3nder-package-core}
-legacy_core=${FRE3NDER_APP_CORE:-/usr/libexec/fre3nder-app-core}
-lease=${FRE3NDER_NETWORK_LEASE_FILE:-/run/fre3nder/network/lease}
-network_wait=${FRE3NDER_APP_RECOVERY_NETWORK_WAIT:-15}
-retry_wait=${FRE3NDER_APP_RECOVERY_RETRY_WAIT:-3}
-
-case "$network_wait" in
-*[!0-9]*|'') network_wait=15 ;;
-esac
-
-case "$retry_wait" in
-*[!0-9]*|'') retry_wait=3 ;;
-esac
-
-restore_legacy() {
-    if "$legacy_core" restore-installed; then
-        return 0
-    fi
-
-    if [ "$retry_wait" -gt 0 ]; then
-        sleep "$retry_wait"
-    fi
-
-    "$legacy_core" restore-installed
-}
 
 case "${1:-}" in
 start)
-    package_ok=true
-    legacy_ok=true
-
-    # New signed packages recover exclusively from their persistent cached
-    # .fre3app and therefore never require network access.
-    if ! "$package_core" restore-installed; then
-        package_ok=false
-    fi
-
-    # Legacy app definitions still come from the platform source revision until
-    # Fluidd has migrated. Keep the bounded network wait only for that path.
-    seconds=0
-    while [ "$seconds" -lt "$network_wait" ] && [ ! -s "$lease" ]; do
-        sleep 1
-        seconds=$((seconds + 1))
-    done
-
-    if ! restore_legacy; then
-        legacy_ok=false
-    fi
-
-    if [ "$package_ok" = true ] && [ "$legacy_ok" = true ]; then
+    if "$package_core" restore-installed; then
         echo "fre3nder app recovery: PASS"
     else
         echo "fre3nder app recovery: DEGRADED" >&2

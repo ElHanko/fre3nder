@@ -34,6 +34,9 @@ USER_KEYS = PACKAGE_STATE_ROOT / "app-keys"
 DATA_ROOT = HOME_DIR / ".local/share"
 RUNTIME_ROOT = pathlib.Path(os.environ.get("FRE3NDER_PACKAGE_RUNTIME_ROOT", "/opt/fre3nder/apps-v2"))
 RECOVERY_ROOT = pathlib.Path(os.environ.get("FRE3NDER_PACKAGE_RECOVERY_DIR", "/ota/apps-v2"))
+FRONTEND_ROOT = PACKAGE_STATE_ROOT / "frontend"
+ACTIVE_FRONTEND = FRONTEND_ROOT / "active"
+WEB_SERVICE = pathlib.Path(os.environ.get("FRE3NDER_WEB_SERVICE", "/etc/init.d/S62fre3nder-web"))
 MAX_MANIFEST = 64 * 1024
 MAX_CHECKSUMS = 2 * 1024 * 1024
 MAX_SIGNATURE = 64
@@ -346,6 +349,12 @@ def verify_package(package: pathlib.Path) -> dict:
             raise ValueError("fre3app targets a different platform or architecture")
         if runtime.get("service") != "service" or type(runtime.get("autostart", True)) is not bool:
             raise ValueError("manifest runtime contract is invalid")
+        web = manifest.get("web", {})
+        if not isinstance(web, dict) or type(web.get("frontend", False)) is not bool:
+            raise ValueError("manifest web capability is invalid")
+        web_frontend = web.get("frontend", False)
+        if web_frontend and ("payload/index.html" not in files or files["payload/index.html"].file_size == 0):
+            raise ValueError("web frontend requires a nonempty payload/index.html")
         if signature_meta != {"algorithm": "Ed25519", "file": "SHA256SUMS.sig", "signed_file": "SHA256SUMS"}:
             raise ValueError("unsupported fre3app signature contract")
         return {
@@ -356,6 +365,7 @@ def verify_package(package: pathlib.Path) -> dict:
             "publisher": publisher_id,
             "fingerprint": actual_fp,
             "autostart": runtime.get("autostart", True),
+            "web_frontend": web_frontend,
         }
 
 
@@ -381,7 +391,55 @@ def read_metadata(name: str) -> dict:
     data = json.loads(metadata_path(name).read_text())
     if not isinstance(data, dict) or data.get("name") != name:
         raise ValueError("installed package metadata is invalid")
+    # Packages installed before the web capability existed were non-frontends.
+    data.setdefault("web_frontend", False)
+    if type(data["web_frontend"]) is not bool:
+        raise ValueError("installed web capability is invalid")
     return data
+
+
+def active_frontend() -> str | None:
+    if not FRONTEND_ROOT.exists() and not FRONTEND_ROOT.is_symlink():
+        return None
+    ensure_manager_directory(PACKAGE_STATE_ROOT)
+    ensure_manager_directory(FRONTEND_ROOT)
+    if not ACTIVE_FRONTEND.exists() and not ACTIVE_FRONTEND.is_symlink():
+        return None
+    regular_file(ACTIVE_FRONTEND, "active frontend")
+    st = ACTIVE_FRONTEND.stat()
+    if st.st_uid != os.geteuid() or st.st_mode & 0o022:
+        raise ValueError("active frontend has unsafe ownership or mode")
+    value = ACTIVE_FRONTEND.read_text()
+    if not value.endswith("\n") or not APP_RE.fullmatch(value[:-1]):
+        raise ValueError("active frontend name is invalid")
+    return value[:-1]
+
+
+def select_frontend(name: str) -> None:
+    if active_frontend() is not None:
+        return
+    ensure_manager_directory(PACKAGE_STATE_ROOT)
+    ensure_manager_directory(FRONTEND_ROOT)
+    with tempfile.NamedTemporaryFile(mode="w", dir=FRONTEND_ROOT, prefix=".active.", delete=False) as output:
+        staged = pathlib.Path(output.name)
+        try:
+            output.write(name + "\n")
+            output.flush()
+            staged.chmod(0o644)
+            os.replace(staged, ACTIVE_FRONTEND)
+        finally:
+            staged.unlink(missing_ok=True)
+
+
+def refresh_web() -> None:
+    try:
+        result = subprocess.run([str(WEB_SERVICE), "restart"], check=False)
+        if result.returncode == 0:
+            return
+        reason = f"exit {result.returncode}"
+    except OSError as exc:
+        reason = str(exc)
+    print(f"fre3nder package: web refresh failed ({reason}); package transaction remains complete", file=sys.stderr)
 
 
 def app_user():
@@ -472,6 +530,7 @@ def write_state(package: pathlib.Path, verified: dict) -> None:
             "publisher": verified["publisher"],
             "fingerprint": verified["fingerprint"],
             "autostart": verified["autostart"],
+            "web_frontend": verified["web_frontend"],
         }
         (staged / "metadata.json").write_text(
             json.dumps(metadata, sort_keys=True) + "\n"
@@ -495,6 +554,7 @@ def write_state(package: pathlib.Path, verified: dict) -> None:
 def activate_package(package: pathlib.Path, operation: str, allow_downgrade: bool = False) -> dict:
     verified = verify_package(package)
     name = verified["name"]
+    selected_before = active_frontend() if verified["web_frontend"] else None
     exists = installed(name)
     if operation == "install" and exists:
         raise ValueError(f"app already installed: {name}")
@@ -502,6 +562,8 @@ def activate_package(package: pathlib.Path, operation: str, allow_downgrade: boo
         raise ValueError(f"app is not installed: {name}")
     if exists:
         old = read_metadata(name)
+        if old.get("web_frontend") != verified["web_frontend"]:
+            raise ValueError("web frontend capability differs from installed app")
         if (
             old.get("publisher") != verified["publisher"]
             or old.get("fingerprint") != verified["fingerprint"]
@@ -540,9 +602,15 @@ def activate_package(package: pathlib.Path, operation: str, allow_downgrade: boo
                 if rc != 0:
                     raise ValueError(f"app service start failed: exit {rc}")
                 started = True
+            selected_new = False
             try:
+                if operation == "install" and verified["web_frontend"] and selected_before is None:
+                    select_frontend(name)
+                    selected_new = True
                 write_state(package, verified)
             except Exception:
+                if selected_new:
+                    ACTIVE_FRONTEND.unlink(missing_ok=True)
                 if started:
                     service_action(name, "stop", current)
                 raise
@@ -557,6 +625,8 @@ def activate_package(package: pathlib.Path, operation: str, allow_downgrade: boo
     recovery = RECOVERY_ROOT / name
     recovery.mkdir(parents=True, exist_ok=True)
     (recovery / "restored").touch(exist_ok=True)
+    if verified["web_frontend"] and active_frontend() == name:
+        refresh_web()
     return verified
 
 
@@ -564,6 +634,7 @@ def remove_package(name: str) -> None:
     if not APP_RE.fullmatch(name) or not installed(name):
         raise ValueError(f"app is not installed: {name}")
     current = runtime_dir(name)
+    was_active = active_frontend() == name
     was_running = False
     if current.exists():
         was_running = service_action(name, "status", current) == 0
@@ -594,6 +665,9 @@ def remove_package(name: str) -> None:
             if was_running and current.exists():
                 service_action(name, "start", current)
             raise
+    if was_active:
+        ACTIVE_FRONTEND.unlink()
+        refresh_web()
 
 
 def restore_installed() -> int:
@@ -618,6 +692,7 @@ def restore_installed() -> int:
                 "publisher": verified["publisher"],
                 "fingerprint": verified["fingerprint"],
                 "autostart": verified["autostart"],
+                "web_frontend": verified["web_frontend"],
             }
             if metadata != expected or verified["name"] != name:
                 raise ValueError("cached package differs from installed state")
@@ -713,7 +788,7 @@ def main() -> int:
     if len(args) == 2 and args[0] == "key-remove":
         remove_key(args[1]); response("key-remove", True, publisher=args[1]); return 0
     if len(args) == 2 and args[0] == "verify":
-        item = verify_package(pathlib.Path(args[1])); response("verify", True, package={k: item[k] for k in ("name","version","release_serial","publisher","fingerprint")}); return 0
+        item = verify_package(pathlib.Path(args[1])); response("verify", True, package={k: item[k] for k in ("name","version","release_serial","publisher","fingerprint","web_frontend")}); return 0
     if len(args) == 2 and args[0] == "install":
         item = activate_package(pathlib.Path(args[1]), "install"); response("install", True, package={k: item[k] for k in ("name","version","release_serial","publisher")}); return 0
     if len(args) in (2, 3) and args[0] == "update":

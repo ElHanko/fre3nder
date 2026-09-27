@@ -40,12 +40,10 @@ For the earlier functional milestone and reference-system bring-up, see
 [roadmap history](../research/docs/roadmap-history.md) and
 [X2000 A/B bring-up](../research/docs/x2000-ab-bringup-plan.md).
 
-Installable app definitions use the exact build-source commit rather than a
-version-derived tag. A clean RootFS embeds `project_commit` in
-`/usr/share/fre3nder/APP_REF`; a dirty build writes `unpublished` and needs a
-valid cached handler or explicit local source. There is no floating-branch
-fallback. The [app-definition source rule](apps.md#app-definition-source-revision)
-is authoritative for that interface.
+Installable applications are versioned and signed as `.fre3app` packages
+independently of the platform build commit. The exact installed package is
+cached under `/home/.fre3nder/packages/` for offline recovery; see the
+[application contract](fre3app.md).
 
 ## Open development-line scope assignment
 

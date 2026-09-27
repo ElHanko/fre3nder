@@ -85,7 +85,6 @@ rm -f "$target/etc/init.d/S50lighttpd"
 
 chmod 0755 \
 	"$target/usr/bin/fre3nder" \
-	"$target/usr/libexec/fre3nder-app-core" \
 	"$target/usr/libexec/fre3nder-package-core" \
 	"$target/usr/libexec/fre3nder-ota-core" \
 	"$target/usr/libexec/fre3nder-usb" \
@@ -94,6 +93,7 @@ chmod 0755 \
 	"$target/etc/init.d/S30fre3nder-user" \
 	"$target/etc/init.d/S40fre3nder-network" \
 	"$target/etc/init.d/S50dropbear" \
+	"$target/etc/init.d/S58fre3nder-app-restore" \
 	"$target/etc/init.d/S59fre3nder-klipper-mcu" \
 	"$target/etc/init.d/S60fre3nder-klipper" \
 	"$target/etc/init.d/S61fre3nder-moonraker" \

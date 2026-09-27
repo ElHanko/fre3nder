@@ -15,7 +15,7 @@ and input shaping, require independent calibration on another printer.
 | Moonraker main configuration | `/home/fre3nder/printer_data/config/moonraker.conf` | Userdata in HOME; seeded once, existing file retained |
 | Fre3nder Moonraker fragments | `/home/fre3nder/printer_data/config/fre3nder/*.conf` | Platform/app fragments in HOME; main config needs `[include fre3nder/*.conf]` |
 | Fre3nderScreen settings and touch calibration | `/home/fre3nder/.fre3nder/fre3nderscreen/fre3nderscreen.json` | Userdata in HOME; seeded once, then retained; obsolete GuppyScreen configuration is not imported |
-| Web frontend selection and app intent | `/home/fre3nder/.fre3nder/frontend/active` and `.fre3nder/services/` | Userdata in HOME; managed through `fre3nder app` |
+| Web frontend selection and installed packages | `/home/.fre3nder/frontend/active` and `/home/.fre3nder/packages/` | Root-managed persistent package state; managed through `fre3nder app` |
 | SSH host identity | `/home/fre3nder/.fre3nder/ssh/` | Persistent host identity when persistent root is active |
 | WLAN and SSH boot provisioning | FAT32 USB root: `wpa_supplicant.conf`, `authorized_keys`, `enable_ssh` | Boot-local inputs copied to volatile `/run`; not baked into a build |
 | System code and application payloads | `/opt`, `/usr`, and the writable SYS overlay | Reconstructible system state; reset exposes the immutable RootFS baseline |
@@ -58,8 +58,9 @@ motion-limit overrides.
 Moonraker's main configuration must include the exact line
 `[include fre3nder/*.conf]` for platform and managed-app fragments to load.
 Newly seeded defaults include it; older persistent files are **not** rewritten.
-The [managed-app guide](apps.md#moonraker-configuration-and-update-ownership)
-explains the one-time edit, Fluidd ownership, and service restart.
+The [app guide](apps.md) explains package and web ownership. A legacy
+`fre3nder/fluidd.conf` needs a separate, controlled one-time removal during
+device migration; new Fluidd packages do not create that updater fragment.
 [Moonraker runtime](moonraker-bringup-current-state.md) describes its baseline
 and the current updater limit.
 

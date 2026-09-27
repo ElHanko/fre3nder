@@ -92,6 +92,18 @@ signed_file = "SHA256SUMS"
 
 `release_serial` is a publisher-controlled monotonically increasing integer used for deterministic upgrade/downgrade decisions independently from the display version string. An update must retain the installed publisher identity and key fingerprint; changing publisher ownership is not an ordinary update operation.
 
+An optional section declares a static web frontend:
+
+```toml
+[web]
+frontend = true
+```
+
+Without `[web]`, `web_frontend` is false. If supplied, `frontend` must be a
+Boolean. A frontend package must include a signed, nonempty
+`payload/index.html`. The capability is stored in `metadata.json`, returned by
+verify/list/status, and cannot change during a normal package update.
+
 ## Service contract
 
 `service` is a signed executable POSIX-compatible program. The package core invokes it as the unprivileged `fre3nder` user and supplies:
@@ -116,7 +128,7 @@ status
 uninstall
 ```
 
-`status` returns zero while the application is running and non-zero otherwise. Lifecycle operations must be idempotent where practical. Package service code must not require root privileges; privileged platform work belongs in the generic Fre3nder core.
+`status` returns zero while the application is healthy or running and non-zero otherwise. A static web frontend can report a valid payload without starting a daemon. Lifecycle operations must be idempotent where practical. Package service code must not require root privileges; privileged platform work belongs in the generic Fre3nder core.
 
 ## Runtime and persistence
 
@@ -136,6 +148,12 @@ Root-controlled persistent package-manager state:
 └── package.fre3app    # exact verified package used for installation
 ```
 
+The root-managed active web frontend is recorded separately at
+`/home/.fre3nder/frontend/active` as `<app>\n`. The first installed frontend
+is selected; an existing valid selection survives other installs and updates.
+Removing the selected frontend clears the file. Package services cannot write
+this state.
+
 Unprivileged persistent application data is exposed separately as:
 
 ```text
@@ -148,9 +166,7 @@ The exact installed `.fre3app` is cached in root-controlled persistent state und
 
 During boot the package recovery step verifies each cached package again, reconstructs missing `/opt` runtime state, then calls `service restore`.
 
-`S65fre3nder-app-runtime` subsequently starts packages marked for autostart and asks running packages to stop during platform shutdown.
-
-The existing legacy app loader remains in place until Fluidd has migrated to `.fre3app`. New package runtime paths intentionally use `apps-v2` during that transition to avoid collisions.
+`S65fre3nder-app-runtime` subsequently starts packages marked for autostart and asks running packages to stop during platform shutdown. Static web frontends such as Fluidd set `autostart = false`; S62 remains the platform HTTP daemon. S58 recovery does not restart S62. Interactive install, update, and remove of the selected frontend ask the privileged package core to refresh S62 after the package transaction; a web refresh failure is reported without rolling back the package.
 
 ## Repository layer
 
@@ -161,7 +177,7 @@ Repository management is not part of the core package format. The optional `fre3
 - search and version resolution;
 - package downloads;
 - update discovery;
-- Moonraker/Fluidd integration.
+- optional package-update reporting to Moonraker.
 
 The repository layer ultimately hands the downloaded `.fre3app` to the same package core used for USB/SSH/local installation.
 
