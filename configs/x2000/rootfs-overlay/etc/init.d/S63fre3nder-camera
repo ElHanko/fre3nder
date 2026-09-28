@@ -14,6 +14,8 @@ status_file=$runtime/status
 log_file=$runtime/mjpg_streamer.log
 port=8080
 listen_address=127.0.0.1
+resolution=${FRE3NDER_CAMERA_RESOLUTION:-1920x1080}
+fps=${FRE3NDER_CAMERA_FPS:-30}
 
 log() {
 	echo "fre3nder camera: $*"
@@ -115,7 +117,7 @@ start() {
 		return 0
 	fi
 
-	input_spec="$input_plugin -d $video_device"
+	input_spec="$input_plugin -d $video_device -r $resolution -f $fps"
 	output_spec="$output_plugin -p $port -l $listen_address"
 	set_status starting
 	"$streamer" -i "$input_spec" -o "$output_spec" >> "$log_file" 2>&1 &
