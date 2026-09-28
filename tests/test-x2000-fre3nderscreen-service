@@ -193,8 +193,8 @@ config = json.loads((overlay / "usr/share/fre3nder/defaults/fre3nderscreen.json"
 source = sources["userspace"]["fre3nderscreen"]
 
 assert source["repository"] == "https://github.com/ElHanko/fre3nderscreen.git"
-assert source["release"] == "2026.1"
-assert source["commit"] == "4da29a130d3ac82572e5d86ea55420d2998bf31f"
+assert source["release"] == "2026.1.1"
+assert source["commit"] == "4c6de8a8773da06ea6bca2cf48b0be540aa3ba0a"
 assert source["license"] == "GPL-3.0-only"
 assert {name: item["commit"] for name, item in source["submodules"].items()} == {
     "libhv": "a1d81857131fe7ea499a23e333513bfb279df6b0",
@@ -219,12 +219,14 @@ for line in (
     assert line in user, line
 for path in (
     "$home", "$home/.fre3nder", "$home/.fre3nder/fre3nderscreen",
-    "$home/printer_data", "$home/printer_data/logs",
+    "$home/printer_data", "$home/printer_data/config",
+    "$home/printer_data/logs",
 ):
     assert f'ensure_directory "{path}"' in user, path
-assert 'chown root:fre3nder "$gcodes"' in user
+assert 'chown fre3nder:fre3nder "$gcodes"' in user
 assert 'chmod 0750 "$gcodes"' in user
-assert "chown -R" not in user
+assert 'find "$home/printer_data" \\( -type d -o -type f \\)' in user
+assert '-exec chown fre3nder:fre3nder {} +' in user
 
 for line in (
     "root_active", "validate_baseline", "user_ready", "set_status user-invalid",

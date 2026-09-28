@@ -89,6 +89,17 @@ start() {
 		log 'runtime setup failed; camera remains stopped'
 		return 0
 	}
+	[ -d "$runtime" ] && [ ! -L "$runtime" ] || {
+		log 'runtime path is invalid; camera remains stopped'
+		return 0
+	}
+	[ ! -L "$status_file" ] && { [ ! -e "$status_file" ] || [ -f "$status_file" ]; } &&
+		: >> "$status_file" && chown root:root "$status_file" &&
+		chmod 0644 "$status_file" && chown root:fre3nder "$runtime" &&
+		chmod 1770 "$runtime" || {
+		log 'runtime permissions are invalid; camera remains stopped'
+		return 0
+	}
 	if [ -r "$pid_file" ]; then
 		pid=$(cat "$pid_file")
 		if pid_is_streamer "$pid"; then
@@ -116,17 +127,28 @@ start() {
 		log 'no uvcvideo V4L2 capture node found; camera remains stopped'
 		return 0
 	fi
+	chown root:video "$video_device" && chmod 0660 "$video_device" || {
+		set_status camera-permissions-failed
+		return 0
+	}
+	[ ! -L "$log_file" ] && { [ ! -e "$log_file" ] || [ -f "$log_file" ]; } &&
+		: >> "$log_file" && chown fre3nder:fre3nder "$log_file" &&
+		chmod 0600 "$log_file" || {
+		set_status runtime-invalid
+		return 0
+	}
 
 	input_spec="$input_plugin -d $video_device -r $resolution -f $fps"
 	output_spec="$output_plugin -p $port -l $listen_address"
 	set_status starting
-	"$streamer" -i "$input_spec" -o "$output_spec" >> "$log_file" 2>&1 &
-	pid=$!
-	printf '%s\n' "$pid" > "$pid_file" || {
-		stop_verified_pid "$pid"
-		set_status pid-write-failed
+	if ! HOME=/home/fre3nder start-stop-daemon -S -q -b -m \
+		-p "$pid_file" -c fre3nder:fre3nder -x "$streamer" \
+		-O "$log_file" -- -i "$input_spec" -o "$output_spec"; then
+		rm -f "$pid_file"
+		set_status startup-failed
 		return 0
-	}
+	fi
+	pid=$(cat "$pid_file" 2>/dev/null)
 	sleep 1
 	if pid_is_streamer "$pid"; then
 		set_status active

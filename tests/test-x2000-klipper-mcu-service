@@ -8,8 +8,34 @@ runtime=$tmp/runtime
 host_tty=$tmp/klipper_host_mcu
 binary=$tmp/klipper_mcu
 spi_device=$tmp/spidev2.0
+mockbin=$tmp/bin
+permissions=$tmp/permissions
+cmdline_marker=$tmp/final-cmdline
+race_pid_file=$tmp/race-pid
+mkdir -p "$mockbin"
+
+cat > "$mockbin/chown" <<'EOF'
+#!/bin/sh
+printf 'chown %s %s\n' "$1" "$2" >> "$FIXTURE_PERMISSIONS"
+EOF
+cat > "$mockbin/chmod" <<'EOF'
+#!/bin/sh
+printf 'chmod %s %s\n' "$1" "$2" >> "$FIXTURE_PERMISSIONS"
+EOF
+cat > "$mockbin/tr" <<'EOF'
+#!/bin/sh
+if [ -n "${FIXTURE_CMDLINE_MARKER:-}" ] && [ ! -e "$FIXTURE_CMDLINE_MARKER" ]; then
+	cat >/dev/null
+	exit 0
+fi
+exec /usr/bin/tr "$@"
+EOF
+chmod 0755 "$mockbin"/*
 
 cleanup() {
+	if [ -r "$race_pid_file" ]; then
+		kill "$(cat "$race_pid_file")" 2>/dev/null || true
+	fi
 	FRE3NDER_KLIPPER_MCU_RUNTIME=$runtime \
 	FRE3NDER_KLIPPER_MCU=$binary \
 	FRE3NDER_KLIPPER_HOST_MCU_TTY=$host_tty \
@@ -32,6 +58,11 @@ while [ "$#" -gt 0 ]; do
 done
 
 [ "${FIXTURE_FAIL_FAST:-0}" != 1 ] || exit 1
+if [ "${FIXTURE_TTY_DELAY:-0}" -gt 0 ]; then
+	printf '%s\n' "$$" > "$FIXTURE_RACE_PID_FILE"
+	sleep "$FIXTURE_TTY_DELAY"
+	: > "$FIXTURE_CMDLINE_MARKER"
+fi
 if [ "${FIXTURE_NO_TTY:-0}" != 1 ]; then
 	rm -f "$host_tty"
 	ln -s /dev/null "$host_tty"
@@ -42,8 +73,11 @@ while :; do
 done
 EOF
 chmod 0755 "$binary"
+grep -Fq '"$binary" -r -I "$host_tty"' "$service"
+! grep -Fq 'start-stop-daemon' "$service"
 
 run_service() {
+	PATH=$mockbin:$PATH FIXTURE_PERMISSIONS=$permissions \
 	FRE3NDER_KLIPPER_MCU_RUNTIME=$runtime \
 	FRE3NDER_KLIPPER_MCU=$binary \
 	FRE3NDER_KLIPPER_HOST_MCU_TTY=$host_tty \
@@ -51,6 +85,9 @@ run_service() {
 	FRE3NDER_KLIPPER_MCU_START_TIMEOUT=${FRE3NDER_KLIPPER_MCU_START_TIMEOUT:-2} \
 	FIXTURE_FAIL_FAST=${FIXTURE_FAIL_FAST:-0} \
 	FIXTURE_NO_TTY=${FIXTURE_NO_TTY:-0} \
+	FIXTURE_TTY_DELAY=${FIXTURE_TTY_DELAY:-0} \
+	FIXTURE_CMDLINE_MARKER=${FIXTURE_CMDLINE_MARKER:-} \
+	FIXTURE_RACE_PID_FILE=$race_pid_file \
 		"$service" "$1"
 }
 
@@ -64,6 +101,8 @@ ln -s /dev/null "$spi_device"
 run_service start
 [ "$(cat "$runtime/status")" = active ]
 [ -L "$host_tty" ] && [ -c "$host_tty" ]
+grep -Fxq 'chown root:fre3nder /dev/null' "$permissions"
+grep -Fxq 'chmod 0660 /dev/null' "$permissions"
 pid=$(cat "$runtime/klipper_mcu.pid")
 kill -0 "$pid"
 
@@ -102,6 +141,31 @@ kill -0 "$foreign_pid"
 run_service stop
 kill "$foreign_pid"
 wait "$foreign_pid" 2>/dev/null || true
+
+# The child exists before its final command line becomes visible. It creates
+# the PTY only after the fixture exposes that command line.
+rm -rf -- "$runtime"
+rm -f "$cmdline_marker" "$race_pid_file" "$permissions"
+FIXTURE_TTY_DELAY=2 FIXTURE_CMDLINE_MARKER=$cmdline_marker \
+	FRE3NDER_KLIPPER_MCU_START_TIMEOUT=4 run_service start &
+race_service_pid=$!
+i=0
+while [ ! -r "$race_pid_file" ] && [ "$i" -lt 50 ]; do
+	sleep 0.01
+	i=$((i + 1))
+done
+[ -r "$race_pid_file" ]
+race_pid=$(cat "$race_pid_file")
+kill -0 "$race_pid"
+[ ! -e "$cmdline_marker" ]
+[ ! -e "$host_tty" ]
+wait "$race_service_pid"
+[ "$(cat "$runtime/status")" = active ]
+[ "$(cat "$runtime/klipper_mcu.pid")" = "$race_pid" ]
+grep -Fxq 'chown root:fre3nder /dev/null' "$permissions"
+grep -Fxq 'chmod 0660 /dev/null' "$permissions"
+run_service stop
+rm -f "$race_pid_file"
 
 if FRE3NDER_KLIPPER_MCU_RUNTIME=$runtime \
 	FRE3NDER_KLIPPER_MCU=$tmp/missing \

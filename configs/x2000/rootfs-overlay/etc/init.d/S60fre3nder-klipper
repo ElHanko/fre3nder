@@ -6,6 +6,7 @@ status=$runtime/status
 input_tty=$runtime/printer
 api_socket=${FRE3NDER_KLIPPER_API_SOCKET:-$runtime/klippy.sock}
 host_mcu_tty=${FRE3NDER_KLIPPER_HOST_MCU_TTY:-/tmp/klipper_host_mcu}
+serial_tty=${FRE3NDER_KLIPPER_SERIAL_TTY:-/dev/ttyS1}
 startup_timeout=${FRE3NDER_KLIPPER_START_TIMEOUT:-10}
 state_helper=${FRE3NDER_MCU_STATE_HELPER:-/usr/libexec/fre3nder/f005-mcu-state}
 python=${FRE3NDER_PYTHON:-/usr/bin/python3}
@@ -43,7 +44,7 @@ ensure_directory() {
 	if [ ! -e "$1" ] && [ ! -L "$1" ]; then
 		mkdir -m 0700 "$1" || return 1
 	fi
-	[ -d "$1" ] && [ ! -L "$1" ]
+	[ -d "$1" ] && [ ! -L "$1" ] && chown fre3nder:fre3nder "$1"
 }
 
 prepare_printer_data() {
@@ -53,15 +54,14 @@ prepare_printer_data() {
 	ensure_directory "$persistent_logs" || return 1
 
 	if [ -e "$config" ] || [ -L "$config" ]; then
-		[ -f "$config" ] && [ ! -L "$config" ]
-		return
+		[ -f "$config" ] && [ ! -L "$config" ] || return 1
+	else
+		# An explicitly overridden config path is never implicitly populated.
+		[ "${FRE3NDER_KLIPPER_CONFIG+x}" != x ] || return 1
+		[ -f "$default_config" ] && [ ! -L "$default_config" ] || return 1
+		install -m 0644 "$default_config" "$config" || return 1
 	fi
-
-	# An explicitly overridden config path is never implicitly populated.
-	[ "${FRE3NDER_KLIPPER_CONFIG+x}" != x ] || return 1
-
-	[ -f "$default_config" ] && [ ! -L "$default_config" ] || return 1
-	install -m 0644 "$default_config" "$config" || return 1
+	chown fre3nder:fre3nder "$config"
 }
 
 pid_has_arg() {
@@ -118,6 +118,16 @@ f005_auto_transition_enabled() {
 start() {
 	mkdir -p "$runtime" || {
 		log 'runtime setup failed'
+		return 0
+	}
+	[ -d "$runtime" ] && [ ! -L "$runtime" ] || {
+		log 'runtime path is invalid'
+		return 0
+	}
+	[ ! -L "$status" ] && { [ ! -e "$status" ] || [ -f "$status" ]; } &&
+		: >> "$status" && chown root:root "$status" && chmod 0644 "$status" &&
+		chown root:fre3nder "$runtime" && chmod 1770 "$runtime" || {
+		log 'runtime permissions are invalid'
 		return 0
 	}
 	if ! root_active; then
@@ -211,23 +221,31 @@ start() {
 		return 0
 	}
 	log_file=$persistent_logs/klippy.log
+	if [ -e "$log_file" ] || [ -L "$log_file" ]; then
+		[ -f "$log_file" ] && [ ! -L "$log_file" ] || {
+			set_status printer-data-invalid
+			return 0
+		}
+	fi
+	[ -c "$serial_tty" ] && [ ! -L "$serial_tty" ] &&
+		chown root:fre3nder "$serial_tty" && chmod 0660 "$serial_tty" || {
+		set_status serial-permissions-failed
+		return 1
+	}
 	rm -f "$input_tty" "$api_socket"
 	set_status starting
 
-	"$python" "$klippy" \
+	if ! HOME="$fre3nder_home" start-stop-daemon -S -q -b -m \
+		-p "$pid_file" -c fre3nder:fre3nder -x "$python" -- "$klippy" \
 		-I "$input_tty" \
 		-a "$api_socket" \
 		-l "$log_file" \
-		"$config" \
-		>/dev/null 2>&1 &
-	pid=$!
-
-	printf '%s\n' "$pid" > "$pid_file" || {
-		kill "$pid" 2>/dev/null || true
-		rm -f "$input_tty" "$api_socket"
-		set_status pid-write-failed
+		"$config" >/dev/null 2>&1; then
+		rm -f "$pid_file" "$input_tty" "$api_socket"
+		set_status startup-failed
 		return 0
-	}
+	fi
+	pid=$(cat "$pid_file" 2>/dev/null)
 
 	ready_rc=0
 	wait_for_klippy_ready "$pid" || ready_rc=$?

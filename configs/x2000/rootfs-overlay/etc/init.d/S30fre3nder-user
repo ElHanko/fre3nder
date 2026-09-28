@@ -71,6 +71,7 @@ prepare_home() {
 	ensure_directory "$home/.fre3nder" 0700
 	ensure_directory "$home/.fre3nder/fre3nderscreen" 0700
 	ensure_directory "$home/printer_data" 0700
+	ensure_directory "$home/printer_data/config" 0700
 	ensure_directory "$home/printer_data/logs" 0700
 	gcodes=$home/printer_data/gcodes
 	[ ! -L "$gcodes" ] || return 1
@@ -78,8 +79,11 @@ prepare_home() {
 		mkdir -m 0750 "$gcodes"
 	fi
 	[ -d "$gcodes" ] || return 1
-	chown root:fre3nder "$gcodes"
+	chown fre3nder:fre3nder "$gcodes"
 	chmod 0750 "$gcodes"
+	# Migrate existing printer files without following symlinks.
+	find "$home/printer_data" \( -type d -o -type f \) \
+		-exec chown fre3nder:fre3nder {} + || return 1
 
 	config=$home/.fre3nder/fre3nderscreen/fre3nderscreen.json
 	if [ -e "$config" ] || [ -L "$config" ]; then

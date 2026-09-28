@@ -31,6 +31,33 @@ called=$tmp/python-called
 klippy_uds=$tmp/run/klippy.sock
 ready_file=$tmp/moonraker-ready
 exit_before_ready=
+mockbin=$tmp/bin
+permissions=$tmp/permissions
+start_calls=$tmp/start-calls
+mkdir -p "$mockbin"
+cat > "$mockbin/chown" <<'EOF'
+#!/bin/sh
+printf 'chown %s %s\n' "$1" "$2" >> "$FIXTURE_PERMISSIONS"
+EOF
+cat > "$mockbin/start-stop-daemon" <<'EOF'
+#!/bin/sh
+printf '%s\n' "$@" > "$FIXTURE_START_CALLS"
+[ "$1" = -S ] || exit 1
+shift
+while [ "$#" -gt 0 ]; do
+	case "$1" in
+	-q|-b|-m) shift ;;
+	-p) pid_file=$2; shift 2 ;;
+	-c) [ "$2" = fre3nder:fre3nder ] || exit 1; shift 2 ;;
+	-x) binary=$2; shift 2 ;;
+	--) shift; break ;;
+	*) exit 1 ;;
+	esac
+done
+"$binary" "$@" >/dev/null 2>&1 &
+printf '%s\n' "$!" > "$pid_file"
+EOF
+chmod 0755 "$mockbin"/*
 
 mkdir -p "$state_dir" "$klipper_runtime" "$home_root" \
 	"$moonraker_root/.git" "$(dirname "$moonraker")" "$(dirname "$python")"
@@ -83,6 +110,8 @@ PY
 ln -s "$(command -v python3)" "$python"
 
 run_service() {
+	PATH=$mockbin:$PATH FIXTURE_PERMISSIONS=$permissions \
+	FIXTURE_START_CALLS=$start_calls \
 	FRE3NDER_MOONRAKER_RUNTIME=$runtime \
 	FRE3NDER_KLIPPER_RUNTIME=$klipper_runtime \
 	FRE3NDER_KLIPPER_API_SOCKET=$klippy_uds \
@@ -145,6 +174,20 @@ cmp -s "$default_config" "$config"
 [ -f "$camera_config" ] && [ ! -L "$camera_config" ]
 cmp -s "$default_camera_config" "$camera_config"
 [ "$(stat -c '%a' "$camera_config")" = 644 ]
+grep -Fxq -- '-c' "$start_calls"
+grep -Fxq -- 'fre3nder:fre3nder' "$start_calls"
+for directory in "$fre3nder_home" "$printer_data" "$printer_data/config" \
+	"$printer_data/logs" "$printer_data/config/fre3nder"; do
+	grep -Fxq "chown fre3nder:fre3nder $directory" "$permissions"
+done
+for file in "$config" "$camera_config" "$printer_data/config/fre3nder/00-base.conf"; do
+	grep -Fxq "chown fre3nder:fre3nder $file" "$permissions"
+done
+grep -Fxq "chown root:fre3nder $runtime" "$permissions"
+grep -Fxq "chown root:root $runtime/status" "$permissions"
+[ "$(stat -c '%a' "$runtime")" = 1770 ]
+[ "$(stat -c '%a' "$runtime/status")" = 644 ]
+! grep -Fq 'chown fre3nder:fre3nder "$log_file"' "$service"
 sed -n '1p' "$called" | grep -Fxq ':all:'
 grep -Fxq -- '-d' "$called"
 grep -Fxq -- "$printer_data" "$called"
@@ -159,6 +202,12 @@ grep -Fxq -- "$runtime/moonraker.sock" "$called"
 wait "$service_pid"
 [ -S "$runtime/moonraker.sock" ]
 [ "$(cat "$runtime/status")" = active ]
+pid=$(cat "$runtime/moonraker.pid")
+: > "$permissions"
+run_service start
+[ "$(cat "$runtime/moonraker.pid")" = "$pid" ]
+grep -Fxq "chown root:fre3nder $runtime" "$permissions"
+[ "$(stat -c '%a' "$runtime")" = 1770 ]
 
 : > "$ready_file"
 run_service restart

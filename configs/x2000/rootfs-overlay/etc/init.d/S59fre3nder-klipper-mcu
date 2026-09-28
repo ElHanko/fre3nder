@@ -48,16 +48,25 @@ wait_for_host_tty() {
 	remaining=$startup_timeout
 
 	while [ "$remaining" -gt 0 ]; do
-		pid_is_host_mcu "$proc_pid" || return 2
+		kill -0 "$proc_pid" 2>/dev/null || return 2
 		if [ -L "$host_tty" ] && [ -c "$host_tty" ]; then
+			pid_is_host_mcu "$proc_pid" || return 2
 			return 0
 		fi
 		sleep 1
 		remaining=$((remaining - 1))
 	done
 
+	kill -0 "$proc_pid" 2>/dev/null || return 2
+	[ -L "$host_tty" ] && [ -c "$host_tty" ] || return 1
 	pid_is_host_mcu "$proc_pid" || return 2
-	[ -L "$host_tty" ] && [ -c "$host_tty" ]
+}
+
+prepare_host_tty() {
+	[ -L "$host_tty" ] && [ -c "$host_tty" ] || return 1
+	host_pty=$(readlink -f "$host_tty") || return 1
+	[ -c "$host_pty" ] || return 1
+	chown root:fre3nder "$host_pty" && chmod 0660 "$host_pty"
 }
 
 stop_verified_pid() {
@@ -96,6 +105,10 @@ start() {
 		pid=$(cat "$pid_file")
 		if pid_is_host_mcu "$pid"; then
 			if [ -L "$host_tty" ] && [ -c "$host_tty" ]; then
+				prepare_host_tty || {
+					set_status pty-permissions-failed
+					return 1
+				}
 				set_status active
 				return 0
 			fi
@@ -128,6 +141,12 @@ start() {
 	wait_for_host_tty "$pid" || ready_rc=$?
 	case "$ready_rc" in
 	0)
+		prepare_host_tty || {
+			stop_verified_pid "$pid"
+			rm -f "$pid_file" "$host_tty"
+			set_status pty-permissions-failed
+			return 1
+		}
 		set_status active
 		log 'upstream Linux-process MCU started and host PTY is ready'
 		return 0

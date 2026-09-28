@@ -17,6 +17,8 @@ streamer=$tmp/bin/mjpg_streamer
 input_plugin=$tmp/lib/input_uvc.so
 output_plugin=$tmp/lib/output_http.so
 calls=$tmp/calls
+permissions=$tmp/permissions
+start_calls=$tmp/start-calls
 
 cleanup() {
 	FRE3NDER_CAMERA_RUNTIME=$runtime \
@@ -32,6 +34,38 @@ trap cleanup EXIT HUP INT TERM
 
 mkdir -p "$tmp/bin" "$tmp/lib" "$drivers/uvcvideo" "$drivers/other" \
 	"$sys_class" "$dev_root"
+cat > "$tmp/bin/chown" <<'EOF'
+#!/bin/sh
+printf 'chown %s %s\n' "$1" "$2" >> "$FIXTURE_PERMISSIONS"
+EOF
+cat > "$tmp/bin/chmod" <<'EOF'
+#!/bin/sh
+printf 'chmod %s %s\n' "$1" "$2" >> "$FIXTURE_PERMISSIONS"
+case "$2" in
+"$FIXTURE_DEV_ROOT"/*) ;;
+*) /bin/chmod "$@" ;;
+esac
+EOF
+cat > "$tmp/bin/start-stop-daemon" <<'EOF'
+#!/bin/sh
+printf '%s\n' "$@" > "$FIXTURE_START_CALLS"
+[ "$1" = -S ] || exit 1
+shift
+while [ "$#" -gt 0 ]; do
+	case "$1" in
+	-q|-b|-m) shift ;;
+	-p) pid_file=$2; shift 2 ;;
+	-c) [ "$2" = fre3nder:fre3nder ] || exit 1; shift 2 ;;
+	-x) binary=$2; shift 2 ;;
+	-O) output=$2; shift 2 ;;
+	--) shift; break ;;
+	*) exit 1 ;;
+	esac
+done
+"$binary" "$@" >> "$output" 2>&1 &
+printf '%s\n' "$!" > "$pid_file"
+EOF
+chmod 0755 "$tmp/bin"/*
 : > "$input_plugin"
 : > "$output_plugin"
 
@@ -46,6 +80,8 @@ EOF
 chmod 0755 "$streamer"
 
 run_service() {
+	PATH=$tmp/bin:$PATH FIXTURE_PERMISSIONS=$permissions \
+	FIXTURE_START_CALLS=$start_calls FIXTURE_DEV_ROOT=$dev_root \
 	FRE3NDER_CAMERA_RUNTIME=$runtime \
 	FRE3NDER_VIDEO_SYS_CLASS=$sys_class \
 	FRE3NDER_DEV_ROOT=$dev_root \
@@ -151,13 +187,28 @@ run_service start
 [ "$(cat "$runtime/status")" = active ]
 pid=$(cat "$runtime/mjpg_streamer.pid")
 kill -0 "$pid"
-grep -Fxq "$input_plugin -d $dev_root/video2" "$calls"
+grep -Fxq "$input_plugin -d $dev_root/video2 -r 1920x1080 -f 30" "$calls"
 grep -Fxq "$output_plugin -p 8080 -l 127.0.0.1" "$calls"
+grep -Fxq -- '-c' "$start_calls"
+grep -Fxq -- 'fre3nder:fre3nder' "$start_calls"
+grep -Fxq "chown root:video $dev_root/video2" "$permissions"
+grep -Fxq "chmod 0660 $dev_root/video2" "$permissions"
+grep -Fxq "chown fre3nder:fre3nder $runtime/mjpg_streamer.log" "$permissions"
+grep -Fxq "chmod 0600 $runtime/mjpg_streamer.log" "$permissions"
+grep -Fxq "chown root:fre3nder $runtime" "$permissions"
+grep -Fxq "chmod 1770 $runtime" "$permissions"
+grep -Fxq "chown root:root $runtime/status" "$permissions"
+[ "$(stat -c '%a' "$runtime")" = 1770 ]
+[ "$(stat -c '%a' "$runtime/status")" = 644 ]
+[ "$(stat -c '%a' "$runtime/mjpg_streamer.log")" = 600 ]
 run_service status
 
 # An already-running instance is retained; restart replaces it cleanly.
+: > "$permissions"
 run_service start
 [ "$(cat "$runtime/mjpg_streamer.pid")" = "$pid" ]
+grep -Fxq "chown root:fre3nder $runtime" "$permissions"
+[ "$(stat -c '%a' "$runtime")" = 1770 ]
 run_service restart
 new_pid=$(cat "$runtime/mjpg_streamer.pid")
 [ "$new_pid" != "$pid" ]

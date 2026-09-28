@@ -25,6 +25,41 @@ auto_transition_file=$tmp/f005-auto-transition.enabled
 python=$tmp/python3
 called=$tmp/python-called
 fail_fast=$tmp/fail-fast
+mockbin=$tmp/bin
+permissions=$tmp/permissions
+start_calls=$tmp/start-calls
+mkdir -p "$mockbin"
+cat > "$mockbin/chown" <<'EOF'
+#!/bin/sh
+printf 'chown %s %s\n' "$1" "$2" >> "$FIXTURE_PERMISSIONS"
+EOF
+cat > "$mockbin/chmod" <<'EOF'
+#!/bin/sh
+printf 'chmod %s %s\n' "$1" "$2" >> "$FIXTURE_PERMISSIONS"
+case "$2" in
+/dev/null) ;;
+*) /bin/chmod "$@" ;;
+esac
+EOF
+cat > "$mockbin/start-stop-daemon" <<'EOF'
+#!/bin/sh
+printf '%s\n' "$@" > "$FIXTURE_START_CALLS"
+[ "$1" = -S ] || exit 1
+shift
+while [ "$#" -gt 0 ]; do
+	case "$1" in
+	-q|-b|-m) shift ;;
+	-p) pid_file=$2; shift 2 ;;
+	-c) [ "$2" = fre3nder:fre3nder ] || exit 1; shift 2 ;;
+	-x) binary=$2; shift 2 ;;
+	--) shift; break ;;
+	*) exit 1 ;;
+	esac
+done
+"$binary" "$@" >/dev/null 2>&1 &
+printf '%s\n' "$!" > "$pid_file"
+EOF
+chmod 0755 "$mockbin"/*
 printf '%s\n' '[mcu]' > "$default_config"
 cat > "$helper" <<'EOF'
 #!/bin/sh
@@ -70,6 +105,9 @@ ln -s "$(command -v python3)" "$python"
 chmod 0755 "$helper" "$transition_helper"
 
 run_service() {
+	PATH=$mockbin:$PATH FIXTURE_PERMISSIONS=$permissions \
+	FIXTURE_START_CALLS=$start_calls \
+	FRE3NDER_KLIPPER_SERIAL_TTY=/dev/null \
 	FRE3NDER_KLIPPER_RUNTIME=$runtime \
 	FRE3NDER_MCU_STATE_HELPER=$helper \
 	FRE3NDER_PYTHON=$python \
@@ -185,12 +223,32 @@ done
 cmp -s "$default_config" "$config"
 [ "$(stat -c '%a' "$config")" = 644 ]
 [ -S "$api_socket" ]
+grep -Fxq -- '-c' "$start_calls"
+grep -Fxq -- 'fre3nder:fre3nder' "$start_calls"
+grep -Fxq 'chown root:fre3nder /dev/null' "$permissions"
+grep -Fxq 'chmod 0660 /dev/null' "$permissions"
+for directory in "$fre3nder_home" "$printer_data" "$printer_data/config" "$log_dir"; do
+	grep -Fxq "chown fre3nder:fre3nder $directory" "$permissions"
+done
+grep -Fxq "chown fre3nder:fre3nder $config" "$permissions"
+grep -Fxq "chown root:fre3nder $runtime" "$permissions"
+grep -Fxq "chmod 1770 $runtime" "$permissions"
+grep -Fxq "chown root:root $runtime/status" "$permissions"
+[ "$(stat -c '%a' "$runtime")" = 1770 ]
+[ "$(stat -c '%a' "$runtime/status")" = 644 ]
+! grep -Fq 'chown fre3nder:fre3nder "$log_file"' "$service"
 grep -Fxq -- '-I' "$called"
 grep -Fxq -- "$runtime/printer" "$called"
 grep -Fxq -- '-a' "$called"
 grep -Fxq -- "$api_socket" "$called"
 grep -Fxq -- "$log_dir/klippy.log" "$called"
 grep -Fxq -- "$config" "$called"
+pid=$(cat "$runtime/klippy.pid")
+: > "$permissions"
+run_service fre3nder start
+[ "$(cat "$runtime/klippy.pid")" = "$pid" ]
+grep -Fxq "chown root:fre3nder $runtime" "$permissions"
+grep -Fxq "chmod 1770 $runtime" "$permissions"
 run_service fre3nder stop
 [ ! -e "$runtime/printer" ]
 [ ! -e "$api_socket" ]
