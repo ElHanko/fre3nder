@@ -4,7 +4,7 @@ set -Eeuo pipefail
 root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 
 upstream_url=https://github.com/Klipper3d/klipper.git
-upstream_commit=0499b30374315f2a9f49fc12808527fc7d0f5cfa
+upstream_commit=$("$root/scripts/source-value" userspace.klipper.commit)
 
 patch1="$root/patches/klipper/0001-gd32f303-f005-mainline.patch"
 patch2="$root/patches/klipper/0002-f005-serial-bootloader-request.patch"
@@ -14,6 +14,7 @@ dockerfile="$root/build/klipper-f005/Dockerfile"
 chelper_builder="$root/build/klipper-f005/build-x2000-chelper.sh"
 packager="$root/scripts/package_f005_firmware.py"
 release_manifest="$root/configs/x2000/f005-mcu-release.json"
+version_file="$root/VERSION"
 
 mips_toolchain_host="$root/local/production/work/x2000/buildroot-output-fre3nder/host"
 mips_buildroot_config="$root/local/production/work/x2000/buildroot-output-fre3nder/.config"
@@ -33,6 +34,8 @@ git_cmd=${F005_BUILD_GIT:-git}
 
 mode=build
 stage=
+project_version=
+runtime_tag=
 
 cleanup() {
 	local result=$?
@@ -80,6 +83,17 @@ verify_recipe() {
 	require_regular_file "$chelper_builder"
 	require_regular_file "$packager"
 	require_regular_file "$release_manifest"
+	require_regular_file "$version_file"
+	[[ "$upstream_commit" =~ ^[0-9a-f]{40}$ ]] ||
+		die "invalid Klipper commit in sources.json"
+
+	project_version=$(cat "$version_file")
+	[[ "$project_version" =~ ^[0-9A-Za-z][0-9A-Za-z._-]*$ ]] ||
+		die "invalid project version in VERSION: $project_version"
+	runtime_tag="fre3nder-f005-$project_version"
+
+	grep -Fxq 'STOCK_COMPAT_VERSION = "mcu0_004_000"' "$packager" ||
+		die "F005 stock compatibility identity has changed"
 
 	grep -Fxq 'CONFIG_MCU="gd32f303xe"' "$config" ||
 		die "F005 config does not select gd32f303xe"
@@ -118,6 +132,9 @@ verify_recipe() {
 		die "F005 X2000 helper does not use the Buildroot MIPS wrapper"
 
 	echo "upstream commit: $upstream_commit"
+	echo "project version: $project_version"
+	echo "runtime tag: $runtime_tag"
+	echo "stock compatibility board-info: mcu0_004_000"
 	echo "patch 1: ${patch1#$root/}"
 	echo "patch 2: ${patch2#$root/}"
 	echo "config: ${config#$root/}"
@@ -138,6 +155,8 @@ prepare_source() {
 	local base_epoch
 	local patch_epoch
 	local patch_date
+	local described
+	local short_commit
 
 	mkdir -p "$work_root"
 
@@ -212,6 +231,24 @@ prepare_source() {
 		die "prepared F005 source tree is not clean"
 
 	source_commit=$("$git_cmd" -C "$source" rev-parse HEAD)
+
+	"$git_cmd" -C "$source" \
+		-c tag.gpgSign=false \
+		-c tag.forceSignAnnotated=false \
+		tag -f "$runtime_tag" "$source_commit"
+	[ "$("$git_cmd" -C "$source" rev-parse "refs/tags/$runtime_tag")" = "$source_commit" ] ||
+		die "F005 runtime tag does not point to the prepared source commit"
+	[ "$("$git_cmd" -C "$source" cat-file -t "refs/tags/$runtime_tag")" = commit ] ||
+		die "F005 runtime tag is not lightweight"
+
+	described=$("$git_cmd" -C "$source" describe --always --tags --long)
+	[[ "$described" == "$runtime_tag"-0-g* ]] ||
+		die "prepared F005 source has an unexpected runtime identity: $described"
+	short_commit=${described#"$runtime_tag-0-g"}
+	[[ "$short_commit" =~ ^[0-9a-f]+$ ]] ||
+		die "prepared F005 source has an invalid commit suffix: $described"
+	[ "$("$git_cmd" -C "$source" rev-parse --verify "${short_commit}^{commit}")" = "$source_commit" ] ||
+		die "prepared F005 source has an unexpected runtime identity"
 
 	echo "prepared source commit: $source_commit"
 }
@@ -399,6 +436,8 @@ prepare_candidate() {
 		"$git_cmd" -C "$source" \
 			describe --always --tags --long
 	)
+	[[ "$expected_runtime" == "$runtime_tag"-0-g* ]] ||
+		die "F005 runtime version does not use the Fre3nder tag: $expected_runtime"
 
 	runtime=$(
 		python3 - "$dict" <<'PY'
@@ -452,7 +491,7 @@ sys.path.insert(0, sys.argv[1])
 from package_f005_firmware import (
     BOARD_INFO_OFFSET,
     CRC_OFFSET,
-    DEFAULT_VERSION,
+    STOCK_COMPAT_VERSION,
     LENGTH_OFFSET,
     VERSION_SIZE,
     crc16_ccitt,
@@ -468,7 +507,7 @@ version = bytes(
     image[BOARD_INFO_OFFSET:BOARD_INFO_OFFSET + VERSION_SIZE]
 ).decode("ascii")
 
-if version != DEFAULT_VERSION:
+if version != STOCK_COMPAT_VERSION:
     raise SystemExit(
         f"unexpected F005 board-info version: {version}"
     )
@@ -550,6 +589,7 @@ def sha(path):
 
 
 input_paths = [
+    "VERSION",
     "build/klipper-f005/Dockerfile",
     "build/klipper-f005/build-x2000-chelper.sh",
     "build/klipper-f005/f005-gd32f303.config",
@@ -561,6 +601,7 @@ input_paths = [
     "patches/klipper/0001-gd32f303-f005-mainline.patch",
     "patches/klipper/0002-f005-serial-bootloader-request.patch",
     "scripts/build-f005",
+    "scripts/source-value",
     "scripts/package_f005_firmware.py",
 ]
 

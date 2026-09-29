@@ -8,7 +8,7 @@ performing the same Cortex-M system reset used by Klipper's normal reset
 command.
 
 This patch applies after patches/klipper/0001-gd32f303-f005-mainline.patch
-to upstream Klipper commit 0499b30374315f2a9f49fc12808527fc7d0f5cfa.
+to the upstream Klipper source pinned in configs/x2000/sources.json.
 
 The patch is derived from GPLv3-covered Klipper source and is distributed
 under the GNU GPL version 3.

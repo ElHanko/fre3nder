@@ -1,0 +1,73 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+# Rebase target: upstream Buildroot 2025.02.18
+# Upstream commit: d030e36bbc9669230c015be971b14b6e062cfdde
+# Required by the pinned Klipper Python 3.12 requirements.
+# Package versions, source URLs and archive hashes: official PyPI metadata at
+# https://pypi.org/pypi/greenlet/3.3.2/json
+# https://pypi.org/pypi/cffi/2.1.1/json
+# License-file hashes: locally computed from those verified source archives.
+diff --git a/package/python-cffi/python-cffi.hash b/package/python-cffi/python-cffi.hash
+index 2847d38b55..c8fb41f136 100644
+--- a/package/python-cffi/python-cffi.hash
++++ b/package/python-cffi/python-cffi.hash
+@@ -1,5 +1,5 @@
+ # md5, sha256 from https://pypi.org/pypi/cffi/json
+-md5  4336ca58b2df0cc3b163884d5fa2e5e2  cffi-1.17.1.tar.gz
+-sha256  1c39c6016c32bc48dd54561950ebd6836e1670f2ae46128f67cf49e789c52824  cffi-1.17.1.tar.gz
++md5  32f0067c08d797dd28cef1544105caa3  cffi-2.1.1.tar.gz
++sha256  dd31f52ea1086513bb9df30f8fcee9b8918323ae067a3d5b78bc826a000712be  cffi-2.1.1.tar.gz
+ # Locally computed sha256 checksums
+-sha256  04b80f5b077bbed68808cfebadeb5e3523f2a8c9a96495c587bd96df1eac2a33  LICENSE
++sha256  5ba24ddc57067f9249add644c3afc41a5d6dc37e23433ef759d95df370b0af63  LICENSE
+diff --git a/package/python-cffi/python-cffi.mk b/package/python-cffi/python-cffi.mk
+index 152009e8ca..120b98fad1 100644
+--- a/package/python-cffi/python-cffi.mk
++++ b/package/python-cffi/python-cffi.mk
+@@ -4,12 +4,12 @@
+ #
+ ################################################################################
+-
++
+-PYTHON_CFFI_VERSION = 1.17.1
++PYTHON_CFFI_VERSION = 2.1.1
+ PYTHON_CFFI_SOURCE = cffi-$(PYTHON_CFFI_VERSION).tar.gz
+-PYTHON_CFFI_SITE = https://files.pythonhosted.org/packages/fc/97/c783634659c2920c3fc70419e3af40972dbaf758daa229a7d6ea6135c90d
++PYTHON_CFFI_SITE = https://files.pythonhosted.org/packages/9e/ef/008a1939e372c06329a3fce4279c02f328488f3526744906eeec3da7ad5f
+ PYTHON_CFFI_SETUP_TYPE = setuptools
+ PYTHON_CFFI_DEPENDENCIES = host-pkgconf libffi
+-PYTHON_CFFI_LICENSE = MIT
++PYTHON_CFFI_LICENSE = MIT-0
+ PYTHON_CFFI_LICENSE_FILES = LICENSE
+-
++
+ # This host package uses pkg-config to find libffi, so we have to
+diff --git a/package/python-greenlet/python-greenlet.hash b/package/python-greenlet/python-greenlet.hash
+index 7ed4ff13a3..258cadc77b 100644
+--- a/package/python-greenlet/python-greenlet.hash
++++ b/package/python-greenlet/python-greenlet.hash
+@@ -1,6 +1,6 @@
+ # md5, sha256 from https://pypi.org/pypi/greenlet/json
+-md5  13a71396abdf249280fa25d258acf435  greenlet-3.1.1.tar.gz
+-sha256  4ce3ac6cdb6adf7946475d7ef31777c26d94bccc377e070a7986bd2d5c515467  greenlet-3.1.1.tar.gz
++md5  be0d9748c252575e8a69cf8724685ed8  greenlet-3.3.2.tar.gz
++sha256  2eaf067fc6d886931c7962e8c6bede15d2f01965560f3359b27c80bde2d151f2  greenlet-3.3.2.tar.gz
+ # Locally computed sha256 checksums
+ sha256  769831d6e5dfaf2c20802faccff1fafb4c2025dd8f6253dfa47fcad59d4d0979  LICENSE
+ sha256  e5ff3c23c110e494cd7d736c10fd96d462457bafeca310840db6527298c7d46b  LICENSE.PSF
+diff --git a/package/python-greenlet/python-greenlet.mk b/package/python-greenlet/python-greenlet.mk
+index 5575ddaff5..07478807aa 100644
+--- a/package/python-greenlet/python-greenlet.mk
++++ b/package/python-greenlet/python-greenlet.mk
+@@ -4,9 +4,9 @@
+ #
+ ################################################################################
+-
++
+-PYTHON_GREENLET_VERSION = 3.1.1
++PYTHON_GREENLET_VERSION = 3.3.2
+ PYTHON_GREENLET_SOURCE = greenlet-$(PYTHON_GREENLET_VERSION).tar.gz
+-PYTHON_GREENLET_SITE = https://files.pythonhosted.org/packages/2f/ff/df5fede753cc10f6a5be0931204ea30c35fa2f2ea7a35b25bdaf4fe40e46
++PYTHON_GREENLET_SITE = https://files.pythonhosted.org/packages/a3/51/1664f6b78fc6ebbd98019a1fd730e83fa78f2db7058f72b1463d3612b8db
+ PYTHON_GREENLET_SETUP_TYPE = setuptools
+ PYTHON_GREENLET_LICENSE = MIT, PSF-2.0
+ PYTHON_GREENLET_LICENSE_FILES = LICENSE LICENSE.PSF

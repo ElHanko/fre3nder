@@ -130,7 +130,7 @@
   "userspace": {
     "klipper": {
       "repository": "https://github.com/Klipper3d/klipper.git",
-      "commit": "0499b30374315f2a9f49fc12808527fc7d0f5cfa",
+      "commit": "7bc4d09465d31cd30fc0822e8d0abe02cc8c547f",
       "license": "GPL-3.0-only",
       "role": "upstream host runtime and Linux-process MCU source with project passive-UART patch"
     },
@@ -198,10 +198,16 @@
       "source": "upstream Buildroot 2025.02.18 package"
     },
     "greenlet": {
-      "version": "3.1.1",
+      "version": "3.3.2",
       "license": "MIT, PSF-2.0",
-      "source": "upstream Buildroot 2025.02.18 package",
-      "required_by": "Klipper 0499b30374315f2a9f49fc12808527fc7d0f5cfa for Python >= 3.12"
+      "source": "Fre3nder package-version patch against upstream Buildroot 2025.02.18",
+      "required_by": "Klipper for Python >= 3.12"
+    },
+    "cffi": {
+      "version": "2.1.1",
+      "license": "MIT-0",
+      "source": "Fre3nder package-version patch against upstream Buildroot 2025.02.18",
+      "required_by": "Klipper for Python >= 3.12"
     }
   },
   "userspace_toolchain": {
@@ -234,7 +240,7 @@
   "klipper_patch_set": {
     "identity": "x2000-passive-uart-opt-in-v2",
     "file": "patches/klipper/0004-x2000-passive-uart-opt-in.patch",
-    "source_commit": "0499b30374315f2a9f49fc12808527fc7d0f5cfa",
+    "source_ref": "userspace.klipper.commit",
     "license": "GPL-3.0-only"
   },
   "container": {

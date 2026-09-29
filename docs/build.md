@@ -218,6 +218,20 @@ X2000 `c_helper.so`, report, manifest, and checksums. It neither flashes nor
 promotes that candidate to the hardware-qualified release image. The detailed
 recipe is in [`build/klipper-f005/README.md`](../build/klipper-f005/README.md).
 
+### Klipper upstream refresh (2026-09-28)
+
+The productive pin moves from `0499b30374315f2a9f49fc12808527fc7d0f5cfa`
+to upstream `master` commit `7bc4d09465d31cd30fc0822e8d0abe02cc8c547f`
+(44 commits). `serialhdl.py` is unchanged, so the passive X2000 UART patch
+applies unchanged. Upstream now embeds the minimal MCU Kconfig in identify data
+and exposes it in Klippy status, fixes generic command parsing and `trapq`, and
+adds N32G45x clock changes in `stm32f1.c`. The F005 patch was rebased around
+those clock changes and keeps the 64 KiB bootloader option hidden for GD32F303;
+the serial bootloader-request patch remains necessary. The new Python 3.12
+requirements are `greenlet 3.3.2` and `cffi 2.1.1`, supplied through the
+existing Buildroot package path. No new F005 candidate or RootFS artifact was
+built or qualified during this refresh.
+
 ## Common failures and next steps
 
 - Missing signing keys: generate the local pair before a complete build or

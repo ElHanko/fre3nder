@@ -59,9 +59,10 @@ buildroot_url=https://gitlab.com/buildroot.org/buildroot.git
 buildroot_version=2025.02.18
 buildroot_commit=d030e36bbc9669230c015be971b14b6e062cfdde
 buildroot_patch="$project/patches/buildroot/0001-mips-add-ingenic-xburst2-target.patch"
+buildroot_python_patch="$project/patches/buildroot/0002-klipper-python-dependencies.patch"
 buildroot_toolchain_marker=.fre3nder-toolchain-fingerprint
 klipper_url=https://github.com/Klipper3d/klipper.git
-klipper_commit=0499b30374315f2a9f49fc12808527fc7d0f5cfa
+klipper_commit=$("$project/scripts/source-value" userspace.klipper.commit)
 moonraker_url=https://github.com/Arksine/moonraker.git
 moonraker_commit=985c1d0bbeb90bc057d34a232c9dc3b05e0c6c8d
 kernel_firmware_dir="$work/fre3nder-kernel-firmware"
@@ -183,6 +184,8 @@ prepare_buildroot() {
 	verify_buildroot_release
 	git -C "$buildroot" apply "$buildroot_patch"
 	git -C "$buildroot" apply --reverse --check "$buildroot_patch"
+	git -C "$buildroot" apply "$buildroot_python_patch"
+	git -C "$buildroot" apply --reverse --check "$buildroot_python_patch"
 	git -C "$buildroot" diff --check
 	grep -Fxq 'config BR2_mips_xburst2' "$buildroot/arch/Config.in.mips"
 	grep -Fq 'bool "XBurst II"' "$buildroot/arch/Config.in.mips"
@@ -196,8 +199,10 @@ prepare_buildroot() {
 		"$buildroot/toolchain/toolchain-wrapper.mk"
 	grep -Fq '"-ffp-contract=off",' \
 		"$buildroot/toolchain/toolchain-wrapper.c"
-	grep -Fxq 'PYTHON_GREENLET_VERSION = 3.1.1' \
+	grep -Fxq 'PYTHON_GREENLET_VERSION = 3.3.2' \
 		"$buildroot/package/python-greenlet/python-greenlet.mk"
+	grep -Fxq 'PYTHON_CFFI_VERSION = 2.1.1' \
+		"$buildroot/package/python-cffi/python-cffi.mk"
 }
 
 validate_f005_firmware() {
@@ -868,7 +873,8 @@ prepare_klipper_overlay() {
 		"$klipper_overlay/var/lib/fre3nder/firmware/f005"
 	rsync -a --exclude=.git/ "$klipper/" \
 		"$klipper_overlay/usr/share/klipper/"
-	printf '%s\n' 'v0.13.0-733-g0499b3037-fre3nder-passive-uart-v2' > \
+	klipper_version=$(git -C "$klipper" describe --always --tags --long --abbrev=9 "$klipper_commit")
+	printf '%s-fre3nder-passive-uart-v2\n' "$klipper_version" > \
 		"$klipper_overlay/usr/share/klipper/klippy/.version"
 	install -m 0644 "$project/configs/klipper-f005/printer-f005-mainline.cfg" \
 		"$klipper_overlay/usr/share/fre3nder/defaults/printer.cfg"

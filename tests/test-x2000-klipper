@@ -3,7 +3,7 @@ set -eu
 
 root=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
 source_tree=${KLIPPER_SOURCE:-$root/local/production/work/x2000/klipper}
-commit=0499b30374315f2a9f49fc12808527fc7d0f5cfa
+commit=$("$root/scripts/source-value" userspace.klipper.commit)
 patch=$root/patches/klipper/0004-x2000-passive-uart-opt-in.patch
 linux_config=$root/build/x2000/klipper-linux.config
 printer_config=$root/configs/klipper-f005/printer-f005-mainline.cfg

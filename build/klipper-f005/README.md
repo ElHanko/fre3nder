@@ -5,8 +5,8 @@ GD32F303RET6. It is a validated containerized source-build recipe, not a
 flashing or hardware procedure. The Debian base image and package versions are
 not pinned to a snapshot, so this is not a bit-for-bit hermetic environment.
 
-The recipe is based on upstream Klipper commit
-`0499b30374315f2a9f49fc12808527fc7d0f5cfa` and the public patches
+The recipe uses the upstream Klipper commit pinned in
+[`configs/x2000/sources.json`](../../configs/x2000/sources.json) and the public patches
 `patches/klipper/0001-gd32f303-f005-mainline.patch` and
 `patches/klipper/0002-f005-serial-bootloader-request.patch`, applied in that
 order.
@@ -43,6 +43,18 @@ local/production/artifacts/f005/candidate/
 The candidate contains the raw firmware, ELF, Klipper dictionary, resolved
 configuration, packaged F005 image, X2000 `c_helper.so`, packaging report,
 build manifest, and checksums.
+
+The Fre3nder runtime identity is separate from the Creality Stock compatibility
+identity. The builder reads the project version from the repository-root
+`VERSION`, places a local lightweight `fre3nder-f005-<VERSION>` tag on its
+deterministic prepared source commit, and lets Klipper's existing `git describe`
+produce `fre3nder-f005-<VERSION>-0-g<prepared-source-sha>` in the runtime
+dictionary. The packager keeps `mcu0_004_000` in the 12-byte F005 board-info
+field. That value is a deliberately stable compatibility sentinel, not the
+Fre3nder firmware version: normal Fre3nder releases must not increment it.
+It lets unchanged Creality Stock detect a different MCU version on return and
+automatically install its existing `mcu0_001_G32-mcu0_005_000.bin`. The
+Fre3nder version is represented by the Klipper runtime identity.
 
 A newly built candidate is not automatically a qualified release. In
 particular, `build-f005` does not overwrite the currently hardware-qualified
@@ -91,6 +103,11 @@ The deterministic candidate remains an unqualified candidate until separately
 exercised on hardware. `build-f005` does not promote it or replace the
 qualified deployment artifact.
 
+The 2026-09-28 upstream refresh advanced 44 commits beyond the pin used for the
+historical candidate above. Patch `0001` was rebased for STM32F1/N32G45x changes
+while retaining the F005 12 KiB bootloader choice; patch `0002` still applies
+after it. No candidate was built during that refresh.
+
 The build environment is offline-oriented rather than fully hermetic. The
 Dockerfile references `debian:13` rather than a pinned image digest, and Debian
 package versions are not pinned to a repository snapshot. The tested build log
@@ -101,7 +118,7 @@ records the concrete base-image digest and toolchain versions that were used.
 From the project root, with the upstream Klipper checkout at `klipper/`:
 
 ```sh
-git -C klipper checkout 0499b30374315f2a9f49fc12808527fc7d0f5cfa
+git -C klipper checkout "$(scripts/source-value userspace.klipper.commit)"
 git -C klipper apply ../patches/klipper/0001-gd32f303-f005-mainline.patch
 git -C klipper apply ../patches/klipper/0002-f005-serial-bootloader-request.patch
 docker build --tag ender3-ke-klipper-build:f005 build/klipper-f005
@@ -124,7 +141,7 @@ python3 scripts/package_f005_firmware.py \
 
 `klipper.bin` is the raw Klipper build. `klipper-f005-mainline.bin` is the
 separately packaged candidate image for the investigated F005 updater; the
-packager writes the board-info version, length, and CRC16 fields.
+packager writes the Stock compatibility sentinel, length, and CRC16 fields.
 
 The configuration is mounted read-only and copied to `.config` inside the
 checkout before running `make olddefconfig`. The expected resolved values

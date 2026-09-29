@@ -21,6 +21,7 @@ BUILD_INPUTS = (
     "scripts/build-x2000-fre3nderscreen",
     "scripts/build-x2000-kernel",
     "scripts/build-x2000-moonraker",
+    "scripts/source-value",
     "scripts/x2000-build-input-sha256",
 )
 

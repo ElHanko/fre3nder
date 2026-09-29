@@ -3,7 +3,7 @@ set -eu
 
 root=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
 source_tree=${KLIPPER_SOURCE:-$root/local/production/work/x2000/klipper}
-commit=0499b30374315f2a9f49fc12808527fc7d0f5cfa
+commit=$("$root/scripts/source-value" userspace.klipper.commit)
 base_patch=$root/patches/klipper/0001-gd32f303-f005-mainline.patch
 request_patch=$root/patches/klipper/0002-f005-serial-bootloader-request.patch
 config=$root/build/klipper-f005/f005-gd32f303.config
@@ -46,6 +46,8 @@ if "    select HAVE_BOOTLOADER_REQUEST\n" not in kconfig:
     raise SystemExit("STM32 bootloader request capability is not selected")
 if "select HAVE_BOOTLOADER_REQUEST if !MACH_GD32F303" in kconfig:
     raise SystemExit("GD32F303 bootloader request remains disabled")
+if 'bool "64KiB bootloader" if (MACH_STM32F1 && !MACH_GD32F303) || MACH_STM32F4' not in kconfig:
+    raise SystemExit("upstream 64KiB bootloader choice is visible for F005")
 
 expected_branch = """\
     else if (CONFIG_STM32_FLASH_START_3000)

@@ -126,6 +126,15 @@ therefore applies package-specific patches from `patches/<package-name>/`,
 after its own package patches. The current RootFS contract needs neither a
 local MIPS target patch nor a Greenlet compiler-compatibility patch.
 
+The Klipper upstream pin in [`sources.json`](../configs/x2000/sources.json)
+requires `greenlet 3.3.2` and `cffi 2.1.1` on Python 3.12. The pinned Buildroot
+2025.02.18 recipes are updated by
+[`0002-klipper-python-dependencies.patch`](../patches/buildroot/0002-klipper-python-dependencies.patch),
+without changing the Buildroot release. Its source URLs and archive hashes
+come from the [greenlet 3.3.2](https://pypi.org/pypi/greenlet/3.3.2/json) and
+[cffi 2.1.1](https://pypi.org/pypi/cffi/2.1.1/json) PyPI records; license-file
+hashes were checked against those archives. CFFI 2.1.1 declares MIT-0.
+
 ## Routine 2025.02.x update
 
 For every patch release update:

@@ -11,7 +11,7 @@ BOARD_INFO_SIZE = 0x20
 VERSION_SIZE = 0x0c
 CRC_OFFSET = 0x20c
 LENGTH_OFFSET = 0x20e
-DEFAULT_VERSION = "mcu0_004_000"
+STOCK_COMPAT_VERSION = "mcu0_004_000"
 
 
 def crc16_ccitt(data):
@@ -50,7 +50,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("input", type=Path)
     parser.add_argument("output", type=Path)
-    parser.add_argument("--version", default=DEFAULT_VERSION)
+    parser.add_argument("--version", default=STOCK_COMPAT_VERSION)
     args = parser.parse_args()
     crc, length = package(args.input, args.output, args.version)
     print("version={}".format(args.version))

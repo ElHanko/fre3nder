@@ -19,6 +19,7 @@ streaming_package="$root/configs/x2000/buildroot-external/package/python-streami
 moonraker_source=${MOONRAKER_SOURCE:-$root/local/production/work/x2000/moonraker-source}
 moonraker_wheel_cache=${MOONRAKER_WHEEL_CACHE:-$root/local/production/work/x2000/moonraker-python-wheels}
 klipper_source=${KLIPPER_SOURCE:-$root/local/production/work/x2000/klipper}
+klipper_commit=$("$root/scripts/source-value" userspace.klipper.commit)
 post_build="$root/configs/x2000/rootfs-post-build.sh"
 nvram="$root/configs/x2000/rootfs-overlay/lib/firmware/brcm/brcmfmac43430-sdio.txt"
 nvram_license="$root/configs/x2000/rootfs-overlay/usr/share/licenses/radxa-rkwifibt/LICENSE"
@@ -26,15 +27,17 @@ reuse="$root/REUSE.toml"
 kernel_wlan_patch=$root/patches/kernel/0004-ingenic-ender3-v3-ke-wlan-v6.6.157.patch
 kernel_integration_patch=$root/patches/kernel/0005-fre3nder-ender3-v3-ke-integration-v6.6.157.patch
 
-python3 - "$sources" <<'PY'
+python3 - "$sources" "$klipper_commit" <<'PY'
 import json
 import pathlib
+import re
 import sys
 
 data = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
+assert re.fullmatch(r"[0-9a-f]{40}", sys.argv[2])
 assert data["userspace"]["klipper"] == {
     "repository": "https://github.com/Klipper3d/klipper.git",
-    "commit": "0499b30374315f2a9f49fc12808527fc7d0f5cfa",
+    "commit": sys.argv[2],
     "license": "GPL-3.0-only",
     "role": (
         "upstream host runtime and Linux-process MCU source with project "
@@ -49,12 +52,19 @@ assert buildroot == {
 }
 greenlet = data["userspace"]["greenlet"]
 assert greenlet == {
-    "version": "3.1.1",
+    "version": "3.3.2",
     "license": "MIT, PSF-2.0",
-    "source": "upstream Buildroot 2025.02.18 package",
-    "required_by": (
-        "Klipper 0499b30374315f2a9f49fc12808527fc7d0f5cfa for Python >= 3.12"),
+    "source": "Fre3nder package-version patch against upstream Buildroot 2025.02.18",
+    "required_by": "Klipper for Python >= 3.12",
 }
+assert data["userspace"]["cffi"] == {
+    "version": "2.1.1",
+    "license": "MIT-0",
+    "source": "Fre3nder package-version patch against upstream Buildroot 2025.02.18",
+    "required_by": "Klipper for Python >= 3.12",
+}
+assert data["klipper_patch_set"]["source_ref"] == "userspace.klipper.commit"
+assert "source_commit" not in data["klipper_patch_set"]
 assert data["userspace_toolchain"] == {
     "identity": "Buildroot internal toolchain",
     "source": "upstream Buildroot 2025.02.18",
@@ -364,7 +374,12 @@ grep -Fq 'expected_compiler_version="mipsel-buildroot-linux-gnu-gcc.br_real (Bui
 grep -Fq 'config BR2_mips_xburst2' "$entrypoint"
 grep -Fq 'BR_FP_CONTRACT_OFF' "$entrypoint"
 grep -Fq -- '-ffp-contract=off' "$entrypoint"
-grep -Fq 'PYTHON_GREENLET_VERSION = 3.1.1' "$entrypoint"
+grep -Fq 'PYTHON_GREENLET_VERSION = 3.3.2' "$entrypoint"
+grep -Fq 'PYTHON_CFFI_VERSION = 2.1.1' "$entrypoint"
+grep -Fq '0002-klipper-python-dependencies.patch' "$entrypoint"
+grep -Fq 'klipper_commit=$("$project/scripts/source-value" userspace.klipper.commit)' "$entrypoint"
+grep -Fq 'describe --always --tags --long --abbrev=9 "$klipper_commit"' "$entrypoint"
+! grep -Fq 'v0.13.0-733-g0499b3037-fre3nder-passive-uart-v2' "$entrypoint"
 grep -Fq 'BR2_DL_DIR="$buildroot_dl"' "$entrypoint"
 grep -Fq 'BR2_GLOBAL_PATCH_DIR="$project/patches"' "$entrypoint"
 grep -Fq 'BR2_EXTERNAL="$buildroot_external"' "$entrypoint"
@@ -611,7 +626,8 @@ grep -Fq 'gcc.br_real' "$entrypoint"
 "$fingerprint" --list-inputs | grep -Fxq 'scripts/build-x2000-buildroot'
 "$fingerprint" --list-inputs | grep -Fxq 'scripts/build-x2000-moonraker'
 "$fingerprint" --list-inputs | grep -Fxq 'scripts/build-x2000-fre3nderscreen'
-grep -Fq '[--develop] [--kernel-build] [--f005-build]' "$build_script"
+"$fingerprint" --list-inputs | grep -Fxq 'scripts/source-value'
+grep -Fq '$0 [OPTIONS]' "$build_script"
 grep -Fq 'build-x2000-buildroot' "$build_script"
 grep -Fq 'build-x2000-moonraker' "$build_script"
 ! grep -Fq 'build-x2000-fre3nderscreen' "$build_script"
@@ -1184,7 +1200,7 @@ project=$root
 version_file=$root/VERSION
 klipper=$tmp/klipper
 klipper_overlay=$tmp/klipper-overlay
-klipper_commit=0499b30374315f2a9f49fc12808527fc7d0f5cfa
+klipper_commit=$("$root/scripts/source-value" userspace.klipper.commit)
 f005_release_manifest=$root/configs/x2000/f005-mcu-release.json
 f005_target_path=/var/lib/fre3nder/firmware/f005/klipper-f005-mainline.bin
 f005_firmware=$root/local/production/artifacts/x2000/f005/klipper-f005-mainline.bin

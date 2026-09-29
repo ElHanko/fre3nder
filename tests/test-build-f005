@@ -5,8 +5,31 @@ root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 build="$root/scripts/build-f005"
 dockerfile="$root/build/klipper-f005/Dockerfile"
 chelper="$root/build/klipper-f005/build-x2000-chelper.sh"
+packager="$root/scripts/package_f005_firmware.py"
+source_value="$root/scripts/source-value"
+project_version=$(cat "$root/VERSION")
+klipper_commit=$("$source_value" userspace.klipper.commit)
+canonical_commit=$(python3 - "$root/configs/x2000/sources.json" <<'PY'
+import json
+import pathlib
+import sys
+
+sources = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
+print(sources["userspace"]["klipper"]["commit"])
+PY
+)
 
 bash -n "$build"
+[[ "$klipper_commit" == "$canonical_commit" ]]
+[[ "$klipper_commit" =~ ^[0-9a-f]{40}$ ]]
+if "$source_value" userspace.klipper.unknown >/dev/null 2>&1; then
+	echo 'source-value accepted an unknown path' >&2
+	exit 1
+fi
+if "$source_value" userspace.klipper >/dev/null 2>&1; then
+	echo 'source-value accepted a non-scalar value' >&2
+	exit 1
+fi
 
 output=$("$build" --check)
 
@@ -26,9 +49,41 @@ grep -Fxq \
 	'ARTIFACT_WRITE=NOT_PERFORMED' \
 	<<<"$output"
 
-grep -Fq \
-	'0499b30374315f2a9f49fc12808527fc7d0f5cfa' \
-	"$build"
+grep -Fxq \
+	"upstream commit: $klipper_commit" \
+	<<<"$output"
+
+grep -Fxq \
+	"project version: $project_version" \
+	<<<"$output"
+
+grep -Fxq \
+	"runtime tag: fre3nder-f005-$project_version" \
+	<<<"$output"
+
+grep -Fxq \
+	'stock compatibility board-info: mcu0_004_000' \
+	<<<"$output"
+
+grep -Fq 'version_file="$root/VERSION"' "$build"
+grep -Fq 'runtime_tag="fre3nder-f005-$project_version"' "$build"
+grep -Fq 'tag -f "$runtime_tag" "$source_commit"' "$build"
+grep -Fq 'rev-parse "refs/tags/$runtime_tag")" = "$source_commit"' "$build"
+! grep -Eq 'tag (-d|--delete|--list)' "$build"
+grep -Fq 'describe --always --tags --long' "$build"
+
+grep -Fxq 'STOCK_COMPAT_VERSION = "mcu0_004_000"' "$packager"
+grep -Fq 'default=STOCK_COMPAT_VERSION' "$packager"
+grep -Fq 'if version != STOCK_COMPAT_VERSION:' "$build"
+! grep -Fq 'DEFAULT_VERSION' "$packager" "$build"
+
+grep -Fq 'upstream_commit=$("$root/scripts/source-value" userspace.klipper.commit)' "$build"
+for consumer in "$build" "$root/build/x2000/entrypoint.sh" \
+	"$root/tests/test-x2000-klipper" \
+	"$root/tests/test-f005-serial-bootloader-request"; do
+	grep -Fq 'scripts/source-value" userspace.klipper.commit)' "$consumer"
+	! grep -Fq "$klipper_commit" "$consumer"
+done
 
 grep -Fq \
 	'0001-gd32f303-f005-mainline.patch' \
@@ -37,6 +92,12 @@ grep -Fq \
 grep -Fq \
 	'0002-f005-serial-bootloader-request.patch' \
 	"$build"
+
+expected_patches=$(printf '%s\n' \
+	'patches/klipper/0001-gd32f303-f005-mainline.patch' \
+	'patches/klipper/0002-f005-serial-bootloader-request.patch')
+actual_patches=$(grep -Eo 'patches/klipper/[0-9]{4}[^"/ ]*\.patch' "$build" | sort -u)
+[ "$actual_patches" = "$expected_patches" ]
 
 ! grep -Fq \
 	'0004-x2000-passive-uart-opt-in.patch' \

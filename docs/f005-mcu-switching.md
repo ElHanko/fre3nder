@@ -420,7 +420,9 @@ DEVICE** as described above.
 A Fre3nder MCU image must continue to carry valid F005 application metadata and
 CRC/length fields expected by the Creality bootloader and updater protocol.
 
-The application identity must be distinguishable from the Stock identity.
+The Creality Stock compatibility identity in the 12-byte board-info field must
+remain distinguishable from the Stock identity. It is separate from the
+Fre3nder runtime identity in Klipper's dictionary.
 
 The current validated Mainline candidate uses:
 
@@ -434,8 +436,14 @@ and the preserved Stock application uses:
 mcu0_001_G32-mcu0_005_000
 ```
 
-These concrete version numbers are evidence from the current candidate, not a
-permanent release-numbering contract.
+The `mcu0_004_000` board-info value is an intentionally stable compatibility
+sentinel, not a Fre3nder release number. Normal Fre3nder releases must not
+increment it: unchanged Creality Stock must continue to detect `004 != 005`
+on return and automatically install its existing `005` firmware. The actual
+Fre3nder version is carried by the Klipper runtime identity, derived from
+`VERSION` as `fre3nder-f005-<VERSION>-0-g<prepared-source-sha>` for new
+candidates. The concrete values above also record the historical qualified
+transition.
 
 Future switching logic must use an explicit release manifest and expected
 identity rather than assuming that a numerically higher MCU version is always

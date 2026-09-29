@@ -33,7 +33,7 @@ existing STM32F1 code. No GD32 SDK library is required.
 ## F005 updater image profile
 
 The linker reserves raw offsets `+0x200..+0x21f` for the F005 board-info
-region. The project packager writes the 12-byte candidate version
+region. The project packager writes the 12-byte Stock compatibility sentinel
 `mcu0_004_000`, the image length as a 32-bit little-endian value at `+0x20e`,
 and the F005 CRC16/CCITT value as a 16-bit little-endian value at `+0x20c`.
 The CRC is calculated over the complete raw image with the six CRC/length bytes

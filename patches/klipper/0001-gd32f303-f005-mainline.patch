@@ -1,5 +1,5 @@
 diff --git a/src/generic/armcm_link.lds.S b/src/generic/armcm_link.lds.S
-index 94dd2100d..f747e9e48 100644
+index 94dd2100..f747e9e4 100644
 --- a/src/generic/armcm_link.lds.S
 +++ b/src/generic/armcm_link.lds.S
 @@ -22,6 +22,13 @@ SECTIONS
@@ -17,7 +17,7 @@ index 94dd2100d..f747e9e48 100644
          *(.rodata .rodata*)
      } > rom
 diff --git a/src/stm32/Kconfig b/src/stm32/Kconfig
-index da1b47442..b80c3c306 100644
+index cdfccbb2..48bd2d66 100644
 --- a/src/stm32/Kconfig
 +++ b/src/stm32/Kconfig
 @@ -7,14 +7,14 @@ config STM32_SELECT
@@ -83,7 +83,7 @@ index da1b47442..b80c3c306 100644
      default 120000000 if MACH_STM32F207
      default 84000000 if MACH_STM32F401
      default 168000000 if MACH_STM32F4x5
-@@ -220,6 +225,7 @@ config CLOCK_FREQ
+@@ -221,6 +226,7 @@ config CLOCK_FREQ
  
  config FLASH_SIZE
      hex
@@ -91,7 +91,7 @@ index da1b47442..b80c3c306 100644
      default 0x8000 if MACH_STM32F031 || MACH_STM32F042 || MACH_STM32F070x6 || MACH_STM32F103x6
      default 0x20000 if (MACH_STM32F070 || MACH_STM32F072) && !MACH_STM32F070x6
      default 0x10000 if (MACH_STM32F103 && !MACH_STM32F103x6) || MACH_STM32L412 # Flash size of stm32f103x8 (64KiB)
-@@ -241,6 +247,7 @@ config RAM_START
+@@ -242,6 +248,7 @@ config RAM_START
  
  config RAM_SIZE
      hex
@@ -99,7 +99,7 @@ index da1b47442..b80c3c306 100644
      default 0x1000 if MACH_STM32F031
      default 0x1800 if MACH_STM32F042
      default 0x1800 if MACH_STM32F070x6
-@@ -289,20 +296,22 @@ config STM32_DFU_ROM_ADDRESS
+@@ -290,42 +297,45 @@ config STM32_DFU_ROM_ADDRESS
  
  choice
      prompt "Bootloader offset"
@@ -126,7 +126,10 @@ index da1b47442..b80c3c306 100644
      config STM32_FLASH_START_C000
          bool "48KiB bootloader" if MACH_STM32F4x5 || MACH_STM32F401
      config STM32_FLASH_START_10000
-@@ -311,20 +320,21 @@ choice
+-        bool "64KiB bootloader" if MACH_STM32F1 || MACH_STM32F4
++        bool "64KiB bootloader" if (MACH_STM32F1 && !MACH_GD32F303) || MACH_STM32F4
+-
++
      config STM32_FLASH_START_800
          bool "2KiB bootloader" if MACH_STM32F103
      config STM32_FLASH_START_1000
@@ -151,7 +154,7 @@ index da1b47442..b80c3c306 100644
      default 0x8005000 if STM32_FLASH_START_5000
      default 0x8007000 if STM32_FLASH_START_7000
 diff --git a/src/stm32/Makefile b/src/stm32/Makefile
-index 3c158d518..4b20ca5c5 100644
+index 3c158d51..4b20ca5c 100644
 --- a/src/stm32/Makefile
 +++ b/src/stm32/Makefile
 @@ -21,6 +21,7 @@ MCU_UPPER := $(shell echo $(CONFIG_MCU) | tr a-z A-Z | tr X x)
@@ -163,12 +166,12 @@ index 3c158d518..4b20ca5c5 100644
  CFLAGS-$(CONFIG_MACH_STM32F1) += -Ilib/stm32f1/include
  CFLAGS-$(CONFIG_MACH_STM32F2) += -mcpu=cortex-m3 -Ilib/stm32f2/include
 diff --git a/src/stm32/stm32f1.c b/src/stm32/stm32f1.c
-index 94cfe1390..835689402 100644
+index 9eecbc7a..f46f2e16 100644
 --- a/src/stm32/stm32f1.c
 +++ b/src/stm32/stm32f1.c
-@@ -19,6 +19,13 @@
- 
- #define FREQ_PERIPH (CONFIG_CLOCK_FREQ / 2)
+@@ -17,6 +17,13 @@
+  * Clock setup
+  ****************************************************************/
  
 +#define GD32_RCC_CFGR_PLLMF_4 (1U << 27)
 +#define GD32_PWR_CR_LDOVS_HIGH (3U << 14)
@@ -180,7 +183,7 @@ index 94cfe1390..835689402 100644
  // Map a peripheral address to its enable bits
  struct cline
  lookup_clock_line(uint32_t periph_base)
-@@ -59,7 +66,16 @@ clock_setup(void)
+@@ -66,7 +73,16 @@ clock_setup(void)
  {
      // Configure and enable PLL
      uint32_t cfgr;
@@ -198,7 +201,7 @@ index 94cfe1390..835689402 100644
          // Configure 72Mhz PLL from external crystal (HSE)
          RCC->CR |= RCC_CR_HSEON;
          uint32_t div = CONFIG_CLOCK_FREQ / (CONFIG_CLOCK_REF_FREQ / 2);
-@@ -75,17 +91,31 @@ clock_setup(void)
+@@ -82,17 +98,31 @@ clock_setup(void)
          cfgr = ((0 << RCC_CFGR_PLLSRC_Pos)
                  | ((div2 - 2) << RCC_CFGR_PLLMULL_Pos));
      }
