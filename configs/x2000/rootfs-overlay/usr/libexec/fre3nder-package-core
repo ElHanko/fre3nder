@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import hashlib
+import grp
 import json
 import os
 import pathlib
@@ -19,6 +20,7 @@ import zipfile
 
 API_VERSION = 1
 FORMAT_VERSION = 1
+DISPLAY_API_VERSION = 1
 PLATFORM = "fre3nder-x2000"
 ARCH = "mipsel"
 APP_RE = re.compile(r"[a-z][a-z0-9_-]{0,63}")
@@ -36,7 +38,12 @@ RUNTIME_ROOT = pathlib.Path(os.environ.get("FRE3NDER_PACKAGE_RUNTIME_ROOT", "/op
 RECOVERY_ROOT = pathlib.Path(os.environ.get("FRE3NDER_PACKAGE_RECOVERY_DIR", "/ota/apps-v2"))
 FRONTEND_ROOT = PACKAGE_STATE_ROOT / "frontend"
 ACTIVE_FRONTEND = FRONTEND_ROOT / "active"
+DISPLAY_ROOT = PACKAGE_STATE_ROOT / "display"
+ACTIVE_DISPLAY = DISPLAY_ROOT / "active"
 WEB_SERVICE = pathlib.Path(os.environ.get("FRE3NDER_WEB_SERVICE", "/etc/init.d/S62fre3nder-web"))
+DISPLAY_SERVICE = pathlib.Path(
+    os.environ.get("FRE3NDER_DISPLAY_SERVICE", "/etc/init.d/S64fre3nder-display")
+)
 MAX_MANIFEST = 64 * 1024
 MAX_CHECKSUMS = 2 * 1024 * 1024
 MAX_SIGNATURE = 64
@@ -355,6 +362,21 @@ def verify_package(package: pathlib.Path) -> dict:
         web_frontend = web.get("frontend", False)
         if web_frontend and ("payload/index.html" not in files or files["payload/index.html"].file_size == 0):
             raise ValueError("web frontend requires a nonempty payload/index.html")
+        display = manifest.get("display", {})
+        if (
+            not isinstance(display, dict)
+            or type(display.get("frontend", False)) is not bool
+        ):
+            raise ValueError("manifest display capability is invalid")
+        display_frontend = display.get("frontend", False)
+        display_api = display.get("api")
+        if display_frontend:
+            if type(display_api) is not int or display_api != DISPLAY_API_VERSION:
+                raise ValueError("manifest display API is invalid")
+            if runtime.get("autostart", True):
+                raise ValueError("display frontend must disable autostart")
+        elif display_api is not None:
+            raise ValueError("display API requires display frontend capability")
         if signature_meta != {"algorithm": "Ed25519", "file": "SHA256SUMS.sig", "signed_file": "SHA256SUMS"}:
             raise ValueError("unsupported fre3app signature contract")
         return {
@@ -366,6 +388,8 @@ def verify_package(package: pathlib.Path) -> dict:
             "fingerprint": actual_fp,
             "autostart": runtime.get("autostart", True),
             "web_frontend": web_frontend,
+            "display_frontend": display_frontend,
+            "display_api": display_api if display_frontend else None,
         }
 
 
@@ -391,10 +415,24 @@ def read_metadata(name: str) -> dict:
     data = json.loads(metadata_path(name).read_text())
     if not isinstance(data, dict) or data.get("name") != name:
         raise ValueError("installed package metadata is invalid")
-    # Packages installed before the web capability existed were non-frontends.
+    # Packages installed before frontend capabilities existed were non-frontends.
     data.setdefault("web_frontend", False)
+    data.setdefault("display_frontend", False)
+    data.setdefault("display_api", None)
     if type(data["web_frontend"]) is not bool:
         raise ValueError("installed web capability is invalid")
+    if type(data["display_frontend"]) is not bool:
+        raise ValueError("installed display capability is invalid")
+    if data["display_frontend"]:
+        if (
+            type(data["display_api"]) is not int
+            or data["display_api"] != DISPLAY_API_VERSION
+        ):
+            raise ValueError("installed display API is invalid")
+        if data.get("autostart") is not False:
+            raise ValueError("installed display frontend must disable autostart")
+    elif data["display_api"] is not None:
+        raise ValueError("installed display API requires display frontend capability")
     return data
 
 
@@ -431,6 +469,159 @@ def select_frontend(name: str) -> None:
             staged.unlink(missing_ok=True)
 
 
+def active_display() -> str | None:
+    if not DISPLAY_ROOT.exists() and not DISPLAY_ROOT.is_symlink():
+        return None
+    ensure_manager_directory(PACKAGE_STATE_ROOT)
+    ensure_manager_directory(DISPLAY_ROOT)
+    if not ACTIVE_DISPLAY.exists() and not ACTIVE_DISPLAY.is_symlink():
+        return None
+    regular_file(ACTIVE_DISPLAY, "active display frontend")
+    st = ACTIVE_DISPLAY.stat()
+    if st.st_uid != os.geteuid() or st.st_mode & 0o022:
+        raise ValueError("active display frontend has unsafe ownership or mode")
+    value = ACTIVE_DISPLAY.read_text()
+    if not value.endswith("\n") or not APP_RE.fullmatch(value[:-1]):
+        raise ValueError("active display frontend name is invalid")
+    return value[:-1]
+
+
+def display_metadata(name: str) -> dict:
+    if not APP_RE.fullmatch(name) or not installed(name):
+        raise ValueError(f"app is not installed: {name}")
+    metadata = read_metadata(name)
+    if not metadata["display_frontend"]:
+        raise ValueError(f"app is not a display frontend: {name}")
+    return metadata
+
+
+def select_display(name: str) -> None:
+    display_metadata(name)
+    ensure_manager_directory(PACKAGE_STATE_ROOT)
+    ensure_manager_directory(DISPLAY_ROOT)
+    with tempfile.NamedTemporaryFile(
+        mode="w",
+        dir=DISPLAY_ROOT,
+        prefix=".active.",
+        delete=False,
+    ) as output:
+        staged = pathlib.Path(output.name)
+        try:
+            output.write(name + "\n")
+            output.flush()
+            staged.chmod(0o644)
+            os.replace(staged, ACTIVE_DISPLAY)
+        finally:
+            staged.unlink(missing_ok=True)
+
+
+def disable_display() -> None:
+    active_display()
+    ACTIVE_DISPLAY.unlink(missing_ok=True)
+
+
+
+def display_service_environment() -> dict[str, str]:
+    if os.environ.get("FRE3NDER_DISPLAY_API") != str(DISPLAY_API_VERSION):
+        raise ValueError("display runtime API is unavailable")
+
+    framebuffer = os.environ.get("FRE3NDER_DISPLAY_FRAMEBUFFER", "")
+    input_path = os.environ.get("FRE3NDER_DISPLAY_INPUT", "")
+    if not framebuffer:
+        raise ValueError("display framebuffer path is unavailable")
+    if not input_path:
+        raise ValueError("display input path is unavailable")
+
+    return {
+        "FRE3NDER_DISPLAY_API": str(DISPLAY_API_VERSION),
+        "FRE3NDER_DISPLAY_FRAMEBUFFER": framebuffer,
+        "FRE3NDER_DISPLAY_INPUT": input_path,
+        "FRE3NDER_DISPLAY_BACKLIGHT_POWER": os.environ.get(
+            "FRE3NDER_DISPLAY_BACKLIGHT_POWER", ""
+        ),
+        "FRE3NDER_DISPLAY_BEEPER": os.environ.get(
+            "FRE3NDER_DISPLAY_BEEPER", ""
+        ),
+    }
+
+
+def display_group_ids() -> tuple[int, ...]:
+    values = []
+    for name in ("video", "input", "beep"):
+        try:
+            gid = grp.getgrnam(name).gr_gid
+        except KeyError as exc:
+            raise ValueError(
+                f"display runtime group is unavailable: {name}"
+            ) from exc
+        values.append(gid)
+    return tuple(values)
+
+
+def display_service_action(action: str) -> int:
+    if action not in ("start", "stop", "status"):
+        raise ValueError(f"unsupported display service action: {action}")
+
+    name = active_display()
+    if name is None:
+        raise ValueError("no display frontend is selected")
+
+    display_metadata(name)
+    if not runtime_dir(name).is_dir():
+        raise ValueError(f"selected display runtime is unavailable: {name}")
+
+    return service_action(
+        name,
+        action,
+        extra_env=display_service_environment(),
+        supplementary_groups=display_group_ids(),
+    )
+
+
+def run_display_manager(action: str, *, required: bool = False) -> bool:
+    if action not in ("start", "stop", "restart", "status"):
+        raise ValueError(f"unsupported display manager action: {action}")
+
+    try:
+        result = subprocess.run(
+            [str(DISPLAY_SERVICE), action],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        )
+        if result.returncode == 0:
+            return True
+        reason = f"exit {result.returncode}"
+    except OSError as exc:
+        reason = str(exc)
+
+    if required:
+        raise ValueError(f"display manager {action} failed: {reason}")
+
+    print(
+        f"fre3nder package: display manager {action} failed ({reason}); "
+        "package state remains authoritative",
+        file=sys.stderr,
+    )
+    return False
+
+
+
+def display_manager_running() -> bool:
+    try:
+        result = subprocess.run(
+            [str(DISPLAY_SERVICE), "status"],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        )
+    except OSError:
+        return False
+    return result.returncode == 0
+
+
 def refresh_web() -> None:
     try:
         result = subprocess.run([str(WEB_SERVICE), "restart"], check=False)
@@ -459,7 +650,13 @@ def chown_tree(path: pathlib.Path, uid: int, gid: int) -> None:
             os.chown(os.path.join(root, item), uid, gid)
 
 
-def service_action(name: str, action: str, runtime: pathlib.Path | None = None) -> int:
+def service_action(
+    name: str,
+    action: str,
+    runtime: pathlib.Path | None = None,
+    extra_env: dict[str, str] | None = None,
+    supplementary_groups: tuple[int, ...] = (),
+) -> int:
     runtime = runtime or runtime_dir(name)
     service = runtime / "service"
     regular_file(service, "app service")
@@ -478,8 +675,11 @@ def service_action(name: str, action: str, runtime: pathlib.Path | None = None) 
         "FRE3NDER_APP_DATA_DIR": str(data_dir),
         "FRE3NDER_HOME_DIR": str(HOME_DIR),
     })
+    if extra_env:
+        env.update(extra_env)
+
     def demote():
-        os.setgroups([])
+        os.setgroups(list(supplementary_groups))
         os.setgid(gid)
         os.setuid(uid)
     result = subprocess.run(
@@ -508,7 +708,7 @@ def extract_runtime(package: pathlib.Path, verified: dict, target: pathlib.Path)
             path.parent.mkdir(parents=True, exist_ok=True)
             with archive.open(info, "r") as src, path.open("wb") as dst:
                 shutil.copyfileobj(src, dst)
-            path.chmod(0o755 if name == "service" else 0o644)
+            path.chmod(0o755 if name == "service" or name.startswith("payload/bin/") else 0o644)
     chown_tree(target, uid, gid)
 
 
@@ -531,6 +731,8 @@ def write_state(package: pathlib.Path, verified: dict) -> None:
             "fingerprint": verified["fingerprint"],
             "autostart": verified["autostart"],
             "web_frontend": verified["web_frontend"],
+            "display_frontend": verified["display_frontend"],
+            "display_api": verified["display_api"],
         }
         (staged / "metadata.json").write_text(
             json.dumps(metadata, sort_keys=True) + "\n"
@@ -556,6 +758,9 @@ def activate_package(package: pathlib.Path, operation: str, allow_downgrade: boo
     name = verified["name"]
     selected_before = active_frontend() if verified["web_frontend"] else None
     exists = installed(name)
+    display_selected = (
+        exists and verified["display_frontend"] and active_display() == name
+    )
     if operation == "install" and exists:
         raise ValueError(f"app already installed: {name}")
     if operation == "update" and not exists:
@@ -564,6 +769,11 @@ def activate_package(package: pathlib.Path, operation: str, allow_downgrade: boo
         old = read_metadata(name)
         if old.get("web_frontend") != verified["web_frontend"]:
             raise ValueError("web frontend capability differs from installed app")
+        if (
+            old.get("display_frontend", False) != verified["display_frontend"]
+            or old.get("display_api") != verified["display_api"]
+        ):
+            raise ValueError("display frontend capability differs from installed app")
         if (
             old.get("publisher") != verified["publisher"]
             or old.get("fingerprint") != verified["fingerprint"]
@@ -583,12 +793,17 @@ def activate_package(package: pathlib.Path, operation: str, allow_downgrade: boo
         current = runtime_dir(name)
         previous = pathlib.Path(tmp) / "previous"
         was_running = False
+        display_stopped = False
         if exists and current.exists():
-            was_running = service_action(name, "status", current) == 0
-            if was_running:
-                rc = service_action(name, "stop", current)
-                if rc != 0:
-                    raise ValueError(f"app service stop failed: exit {rc}")
+            if display_selected:
+                run_display_manager("stop", required=True)
+                display_stopped = True
+            else:
+                was_running = service_action(name, "status", current) == 0
+                if was_running:
+                    rc = service_action(name, "stop", current)
+                    if rc != 0:
+                        raise ValueError(f"app service stop failed: exit {rc}")
             os.replace(current, previous)
         try:
             os.replace(staged, current)
@@ -621,12 +836,16 @@ def activate_package(package: pathlib.Path, operation: str, allow_downgrade: boo
                 os.replace(previous, current)
                 if was_running:
                     service_action(name, "start", current)
+            if display_stopped:
+                run_display_manager("start")
             raise
     recovery = RECOVERY_ROOT / name
     recovery.mkdir(parents=True, exist_ok=True)
     (recovery / "restored").touch(exist_ok=True)
     if verified["web_frontend"] and active_frontend() == name:
         refresh_web()
+    if display_selected:
+        run_display_manager("start")
     return verified
 
 
@@ -635,17 +854,26 @@ def remove_package(name: str) -> None:
         raise ValueError(f"app is not installed: {name}")
     current = runtime_dir(name)
     was_active = active_frontend() == name
+    was_display_active = active_display() == name
     was_running = False
+    display_stopped = False
     if current.exists():
-        was_running = service_action(name, "status", current) == 0
-        if was_running:
-            rc = service_action(name, "stop", current)
-            if rc != 0:
-                raise ValueError(f"app service stop failed: exit {rc}")
+        if was_display_active:
+            run_display_manager("stop", required=True)
+            display_stopped = True
+        else:
+            was_running = service_action(name, "status", current) == 0
+            if was_running:
+                rc = service_action(name, "stop", current)
+                if rc != 0:
+                    raise ValueError(f"app service stop failed: exit {rc}")
+
         rc = service_action(name, "uninstall", current)
         if rc != 0:
             if was_running:
                 service_action(name, "start", current)
+            if display_stopped:
+                run_display_manager("start")
             raise ValueError(f"app service uninstall failed: exit {rc}")
 
     ensure_manager_directory(PACKAGE_STATE_ROOT)
@@ -664,10 +892,14 @@ def remove_package(name: str) -> None:
                 os.replace(removed_state, current_state)
             if was_running and current.exists():
                 service_action(name, "start", current)
+            if display_stopped and current.exists():
+                run_display_manager("start")
             raise
     if was_active:
         ACTIVE_FRONTEND.unlink()
         refresh_web()
+    if was_display_active:
+        ACTIVE_DISPLAY.unlink(missing_ok=True)
 
 
 def restore_installed() -> int:
@@ -693,6 +925,8 @@ def restore_installed() -> int:
                 "fingerprint": verified["fingerprint"],
                 "autostart": verified["autostart"],
                 "web_frontend": verified["web_frontend"],
+                "display_frontend": verified["display_frontend"],
+                "display_api": verified["display_api"],
             }
             if metadata != expected or verified["name"] != name:
                 raise ValueError("cached package differs from installed state")
@@ -740,6 +974,8 @@ def start_installed() -> int:
         ):
             continue
         try:
+            if read_metadata(name)["display_frontend"]:
+                continue
             if service_action(name, "status") == 0:
                 continue
             rc = service_action(name, "start")
@@ -760,6 +996,8 @@ def stop_installed() -> int:
         if not APP_RE.fullmatch(name) or not installed(name) or not runtime_dir(name).is_dir():
             continue
         try:
+            if read_metadata(name)["display_frontend"]:
+                continue
             if service_action(name, "status") != 0:
                 continue
             rc = service_action(name, "stop")
@@ -788,7 +1026,7 @@ def main() -> int:
     if len(args) == 2 and args[0] == "key-remove":
         remove_key(args[1]); response("key-remove", True, publisher=args[1]); return 0
     if len(args) == 2 and args[0] == "verify":
-        item = verify_package(pathlib.Path(args[1])); response("verify", True, package={k: item[k] for k in ("name","version","release_serial","publisher","fingerprint","web_frontend")}); return 0
+        item = verify_package(pathlib.Path(args[1])); response("verify", True, package={k: item[k] for k in ("name","version","release_serial","publisher","fingerprint","web_frontend","display_frontend","display_api")}); return 0
     if len(args) == 2 and args[0] == "install":
         item = activate_package(pathlib.Path(args[1]), "install"); response("install", True, package={k: item[k] for k in ("name","version","release_serial","publisher")}); return 0
     if len(args) in (2, 3) and args[0] == "update":
@@ -808,8 +1046,69 @@ def main() -> int:
     if len(args) == 2 and args[0] == "status":
         if not installed(args[1]):
             raise ValueError(f"app is not installed: {args[1]}")
-        meta = read_metadata(args[1]); meta["running"] = service_action(args[1], "status") == 0
+        meta = read_metadata(args[1])
+        if meta["display_frontend"]:
+            meta["running"] = (
+                active_display() == args[1] and display_manager_running()
+            )
+        else:
+            meta["running"] = service_action(args[1], "status") == 0
         response("status", True, app=meta); return 0
+    if args == ["display-list"]:
+        selected = active_display()
+        apps = []
+        if STATE_ROOT.exists():
+            for root in sorted(STATE_ROOT.iterdir(), key=lambda p: p.name):
+                if not APP_RE.fullmatch(root.name) or not installed(root.name):
+                    continue
+                meta = read_metadata(root.name)
+                if not meta["display_frontend"]:
+                    continue
+                item = dict(meta)
+                item["active"] = root.name == selected
+                apps.append(item)
+        response("display-list", True, active=selected, apps=apps); return 0
+    if args == ["display-status"]:
+        response("display-status", True, display={"active": active_display()}); return 0
+    if len(args) == 2 and args[0] == "display-select":
+        name = args[1]
+        display_metadata(name)
+        previous = active_display()
+        if previous != name:
+            if previous is not None:
+                run_display_manager("stop", required=True)
+            try:
+                select_display(name)
+            except Exception:
+                if previous is not None:
+                    run_display_manager("start")
+                raise
+            run_display_manager("start")
+        response("display-select", True, display={"active": name}); return 0
+    if args == ["display-disable"]:
+        previous = active_display()
+        if previous is not None:
+            run_display_manager("stop", required=True)
+            try:
+                disable_display()
+            except Exception:
+                run_display_manager("start")
+                raise
+        response("display-disable", True, display={"active": None, "previous": previous}); return 0
+    if len(args) == 1 and args[0] in (
+        "display-service-start",
+        "display-service-stop",
+        "display-service-status",
+    ):
+        action = args[0].removeprefix("display-service-")
+        rc = display_service_action(action)
+        response(
+            args[0],
+            rc == 0,
+            display={"active": active_display(), "service_action": action},
+            exit_code=rc,
+        )
+        return 0 if rc == 0 else 1
     if args == ["restore-installed"]:
         return restore_installed()
     if args == ["start-installed"]:

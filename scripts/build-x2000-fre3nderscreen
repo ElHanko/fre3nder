@@ -48,6 +48,13 @@ manifest="$artifact_dir/component-manifest.json"
 	exit 1
 }
 
+for member in app/bin/fre3nderscreen app/artifact-manifest.json app/SHA256SUMS; do
+	[ -f "$artifact_dir/$member" ] && [ ! -L "$artifact_dir/$member" ] || {
+		echo "Fre3nderScreen build finished without $member" >&2
+		exit 1
+	}
+done
+
 artifact_sha=$(sha256sum "$artifact" | awk '{print $1}')
 
 printf '\n'
@@ -55,3 +62,4 @@ printf '%s\n' '=== Fre3nderScreen component build: PASS ==='
 printf 'Mode:     %s\n' "$artifact_mode"
 printf 'Artifact: %s\n' "$artifact"
 printf 'SHA256:   %s\n' "$artifact_sha"
+printf 'App:      %s\n' "$artifact_dir/app"

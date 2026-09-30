@@ -63,6 +63,7 @@ The host artifact directories are:
 | --- | --- |
 | `kernel-only/` | `kernel.uImage`, DTB, effective kernel configuration, manifest and checksums |
 | `moonraker/`, `fre3nderscreen/` | Validated component overlay archives |
+| `fre3nderscreen/app/` | Neutral binary, themes, licenses, source/ABI manifest and checksums from the same Fre3nderScreen build |
 | `rootfs-only/` | `rootfs.squashfs`, effective Buildroot configuration, manifest and checksums |
 | `full/` | Combined individual artifacts, manifest, checksums and `fre3nder-<version>-ender3-v3-ke.ota` |
 

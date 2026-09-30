@@ -169,33 +169,42 @@ build_component() {
 		exit 1
 	fi
 
+	tmp=$artifact_dir.tmp
+	rm -rf -- "$tmp"
+	install -d -m 0755 "$tmp/app/bin" "$tmp/app/themes" "$tmp/app/licenses"
+	install -m 0755 "$binary" "$tmp/app/bin/fre3nderscreen"
+	for theme in blue green pink purple red yellow; do
+		install -m 0644 "$source_dir/themes/$theme.json" \
+			"$tmp/app/themes/$theme.json"
+	done
+	install -m 0644 "$source_dir/LICENSE" \
+		"$tmp/app/licenses/COPYING"
+	install -m 0644 "$source_dir/lvgl/LICENCE.txt" \
+		"$tmp/app/licenses/LVGL-LICENSE"
+	install -m 0644 "$source_dir/lv_drivers/LICENSE" \
+		"$tmp/app/licenses/LV-DRIVERS-LICENSE"
+	install -m 0644 "$source_dir/libhv/LICENSE" \
+		"$tmp/app/licenses/LIBHV-LICENSE"
+	install -m 0644 "$source_dir/spdlog/LICENSE" \
+		"$tmp/app/licenses/SPDLOG-LICENSE"
+	install -m 0644 "$source_dir/wpa_supplicant/COPYING" \
+		"$tmp/app/licenses/WPA-SUPPLICANT-LICENSE"
+	install -m 0644 "$source_dir/licenses/DEJAVU-FONTS-LICENSE.txt" \
+		"$tmp/app/licenses/DEJAVU-FONTS-LICENSE"
+	install -m 0644 "$source_dir/licenses/MATERIAL-DESIGN-ICONS-LICENSE.txt" \
+		"$tmp/app/licenses/MATERIAL-DESIGN-ICONS-LICENSE"
+
+	# The legacy RootFS component is staged from the neutral app files.
 	stage=$work/fre3nderscreen-component-overlay
 	rm -rf -- "$stage"
 	install -d -m 0755 \
 		"$stage/opt/fre3nder/fre3nderscreen" \
 		"$stage/usr/share/fre3nderscreen/themes" \
 		"$stage/usr/share/licenses/fre3nderscreen"
-	install -m 0755 "$binary" "$stage/opt/fre3nder/fre3nderscreen/fre3nderscreen"
-	for theme in blue green pink purple red yellow; do
-		install -m 0644 "$source_dir/themes/$theme.json" \
-			"$stage/usr/share/fre3nderscreen/themes/$theme.json"
-	done
-	install -m 0644 "$source_dir/LICENSE" \
-		"$stage/usr/share/licenses/fre3nderscreen/COPYING"
-	install -m 0644 "$source_dir/lvgl/LICENCE.txt" \
-		"$stage/usr/share/licenses/fre3nderscreen/LVGL-LICENSE"
-	install -m 0644 "$source_dir/lv_drivers/LICENSE" \
-		"$stage/usr/share/licenses/fre3nderscreen/LV-DRIVERS-LICENSE"
-	install -m 0644 "$source_dir/libhv/LICENSE" \
-		"$stage/usr/share/licenses/fre3nderscreen/LIBHV-LICENSE"
-	install -m 0644 "$source_dir/spdlog/LICENSE" \
-		"$stage/usr/share/licenses/fre3nderscreen/SPDLOG-LICENSE"
-	install -m 0644 "$source_dir/wpa_supplicant/COPYING" \
-		"$stage/usr/share/licenses/fre3nderscreen/WPA-SUPPLICANT-LICENSE"
-	install -m 0644 "$source_dir/licenses/DEJAVU-FONTS-LICENSE.txt" \
-		"$stage/usr/share/licenses/fre3nderscreen/DEJAVU-FONTS-LICENSE"
-	install -m 0644 "$source_dir/licenses/MATERIAL-DESIGN-ICONS-LICENSE.txt" \
-		"$stage/usr/share/licenses/fre3nderscreen/MATERIAL-DESIGN-ICONS-LICENSE"
+	install -m 0755 "$tmp/app/bin/fre3nderscreen" \
+		"$stage/opt/fre3nder/fre3nderscreen/fre3nderscreen"
+	cp -R "$tmp/app/themes/." "$stage/usr/share/fre3nderscreen/themes/"
+	cp -R "$tmp/app/licenses/." "$stage/usr/share/licenses/fre3nderscreen/"
 
 	project_commit=$(git -C "$project" rev-parse HEAD)
 	project_worktree_status=clean
@@ -205,21 +214,20 @@ build_component() {
 		"$project/scripts/x2000-build-input-sha256" --root "$project"
 	)
 
-	tmp=$artifact_dir.tmp
-	rm -rf -- "$tmp"
-	mkdir -p "$tmp"
 	tar --sort=name --format=ustar --mtime='@0' --owner=0 --group=0 \
 		--numeric-owner -C "$stage" -cf "$tmp/rootfs-overlay.tar" .
 	export artifact_mode build_input_sha256 commit project_commit
 	export project_worktree_status release repository
-	python3 - "$tmp/rootfs-overlay.tar" "$tmp/component-manifest.json" <<'PY'
+	python3 - "$tmp/rootfs-overlay.tar" "$tmp/component-manifest.json" \
+		"$tmp/app" "$source_dir" <<'PY'
 import hashlib
 import json
 import os
 import pathlib
+import subprocess
 import sys
 
-artifact, output = map(pathlib.Path, sys.argv[1:])
+artifact, output, app, source_dir = map(pathlib.Path, sys.argv[1:])
 manifest = {
     "schema": 1,
     "component": "fre3nderscreen",
@@ -239,9 +247,54 @@ manifest = {
     },
 }
 output.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n")
+
+source_config = json.loads(pathlib.Path("/project/configs/x2000/sources.json").read_text())
+expected_submodules = source_config["userspace"]["fre3nderscreen"]["submodules"]
+submodules = {}
+for line in subprocess.check_output(
+        ["git", "-C", str(source_dir), "submodule", "status"], text=True).splitlines():
+    submodule_commit, name, *_ = line.lstrip("-+ ").split()
+    expected = expected_submodules[name]
+    # prepare_source validated the license markers in this checkout.
+    record = {"commit": submodule_commit, "license": expected["license"]}
+    if submodule_commit == expected["commit"]:
+        record.update({
+            key: value for key, value in expected.items()
+            if key not in ("commit", "license")
+        })
+    submodules[name] = record
+files = {
+    path.relative_to(app).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest()
+    for path in app.rglob("*") if path.is_file()
+}
+app_manifest = {
+    "schema": 1,
+    "artifact": "fre3nderscreen-x2000-app",
+    "artifact_mode": manifest["artifact_mode"],
+    "source": manifest["source"],
+    "submodules": submodules,
+    "abi": {
+        "arch": "mipsel",
+        "isa": "mips32r2",
+        "float_abi": "hard",
+        "nan": "nan2008",
+        "linkage": "static",
+    },
+    "project_commit": manifest["project_commit"],
+    "project_worktree_status": manifest["project_worktree_status"],
+    "build_input_sha256": manifest["build_input_sha256"],
+    "files": files,
+}
+(app / "artifact-manifest.json").write_text(
+    json.dumps(app_manifest, indent=2, sort_keys=True) + "\n")
+(app / "SHA256SUMS").write_text("".join(
+    f"{hashlib.sha256((app / name).read_bytes()).hexdigest()}  {name}\n"
+    for name in sorted((*files, "artifact-manifest.json"))
+))
 PY
 	(cd "$tmp" && sha256sum component-manifest.json rootfs-overlay.tar > SHA256SUMS)
 	(cd "$tmp" && sha256sum -c SHA256SUMS)
+	(cd "$tmp/app" && sha256sum -c SHA256SUMS)
 	rm -rf -- "$artifact_dir"
 	mv "$tmp" "$artifact_dir"
 }

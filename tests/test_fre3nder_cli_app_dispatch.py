@@ -131,5 +131,32 @@ class Fre3nderAppCliDispatchTests(unittest.TestCase):
             self.assertEqual(self.dispatched(), [str(self.package), action, target])
 
 
+    def test_display_selection_commands_use_package_core(self):
+        for command, operation in (
+            ("list", "display-list"),
+            ("status", "display-status"),
+            ("disable", "display-disable"),
+        ):
+            with self.subTest(command=command):
+                result = self.run_cli("app", "display", command)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(
+                    self.dispatched(),
+                    [str(self.package), operation],
+                )
+
+        result = self.run_cli(
+            "app",
+            "display",
+            "select",
+            "fre3nderscreen",
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(
+            self.dispatched(),
+            [str(self.package), "display-select", "fre3nderscreen"],
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

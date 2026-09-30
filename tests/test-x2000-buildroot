@@ -1275,6 +1275,7 @@ touch "$target/etc/init.d/fre3nder-root" \
 	"$target/etc/init.d/S61fre3nder-moonraker" \
 	"$target/etc/init.d/S62fre3nder-web" \
 	"$target/etc/init.d/S63fre3nder-camera" \
+	"$target/etc/init.d/S64fre3nder-display" \
 	"$target/etc/init.d/S64fre3nderscreen" \
 	"$target/etc/init.d/S65fre3nder-app-runtime" \
 	"$target/etc/init.d/S50lighttpd" \
@@ -1296,7 +1297,8 @@ cmp "$nvram_license" \
 [ -x "$target/etc/init.d/S62fre3nder-web" ]
 [ -x "$target/etc/init.d/S63fre3nder-camera" ]
 [ -x "$target/etc/init.d/S30fre3nder-user" ]
-[ -x "$target/etc/init.d/S64fre3nderscreen" ]
+[ -x "$target/etc/init.d/S64fre3nder-display" ]
+[ ! -e "$target/etc/init.d/S64fre3nderscreen" ]
 [ ! -e "$target/etc/init.d/S50lighttpd" ]
 moonraker_root="$target/opt/fre3nder/moonraker"
 [ -d "$moonraker_root/.git" ]

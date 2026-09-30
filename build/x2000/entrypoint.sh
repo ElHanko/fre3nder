@@ -1467,9 +1467,10 @@ check_rootfs() {
 	for init_script in S10mdev S20fre3nder-provision S30fre3nder-user \
 		S40fre3nder-network S50dropbear S59fre3nder-klipper-mcu \
 		S60fre3nder-klipper \
-		S61fre3nder-moonraker S64fre3nderscreen; do
+		S61fre3nder-moonraker S64fre3nder-display; do
 		[ -x "$target/etc/init.d/$init_script" ]
 	done
+	[ ! -e "$target/etc/init.d/S64fre3nderscreen" ]
 	[ ! -e "$target/etc/init.d/S51fre3nder-ssh-recovery-test" ]
 	[ ! -e "$target/usr/share/fre3nder-ssh-recovery-test" ]
 	printf '%s\n' \
@@ -1480,7 +1481,7 @@ check_rootfs() {
 		S59fre3nder-klipper-mcu \
 		S60fre3nder-klipper \
 		S61fre3nder-moonraker \
-		S64fre3nderscreen | sort -C
+		S64fre3nder-display | sort -C
 	[ -n "$busybox_config" ]
 	[ -n "$dropbear_options" ]
 	[ "$(readlink "$target/sbin/init")" = ../bin/busybox ]
@@ -1680,13 +1681,15 @@ check_rootfs() {
 	[ -f "$target/usr/share/licenses/fre3nderscreen/COPYING" ]
 	[ -f "$target/usr/share/licenses/fre3nderscreen/DEJAVU-FONTS-LICENSE" ]
 	[ -f "$target/usr/share/licenses/fre3nderscreen/MATERIAL-DESIGN-ICONS-LICENSE" ]
-	fre3nderscreen_service="$target/etc/init.d/S64fre3nderscreen"
-	grep -Fxq 'input_name=ns2009_ts' \
-		"$fre3nderscreen_service"
-	grep -Fq 'FRE3NDERSCREEN_CONFIG="$config"' "$fre3nderscreen_service"
-	grep -Fq 'FRE3NDERSCREEN_THEME_DIR="$theme_dir"' "$fre3nderscreen_service"
-	grep -Fq 'FRE3NDERSCREEN_INPUT="$input_link"' "$fre3nderscreen_service"
-	! grep -Fq '/dev/input/event0' "$fre3nderscreen_service"
+	display_service="$target/etc/init.d/S64fre3nder-display"
+	grep -Fxq 'input_name=${FRE3NDER_DISPLAY_INPUT_NAME:-ns2009_ts}' \
+		"$display_service"
+	grep -Fq 'FRE3NDER_DISPLAY_API=1' "$display_service"
+	grep -Fq 'FRE3NDER_DISPLAY_FRAMEBUFFER="$framebuffer"' "$display_service"
+	grep -Fq 'FRE3NDER_DISPLAY_INPUT="$input_link"' "$display_service"
+	grep -Fq '"$package_core" "display-service-$action"' "$display_service"
+	! grep -Fq 'FRE3NDERSCREEN_' "$display_service"
+	! grep -Fq '/dev/input/event0' "$display_service"
 	[ ! -e "$target/usr/share/klipper/.git" ]
 	grep -Fxq '[update_manager]' \
 		"$target/usr/share/fre3nder/defaults/moonraker.conf"

@@ -32,6 +32,30 @@ def load_core_module():
     return module
 
 
+class Fre3AppExecutablePayloadTests(unittest.TestCase):
+    def test_extract_keeps_payload_bin_executable(self):
+        core = load_core_module()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            package = root / "fixture.zip"
+            with zipfile.ZipFile(package, "w") as archive:
+                archive.writestr("service", "#!/bin/sh\n")
+                archive.writestr("payload/bin/fre3nderscreen", b"binary")
+                archive.writestr("payload/themes/blue.json", b"{}")
+            with mock.patch.object(core, "app_user", return_value=(os.getuid(), os.getgid())):
+                core.extract_runtime(package, {}, root / "runtime")
+            runtime = root / "runtime"
+            self.assertEqual((runtime / "service").stat().st_mode & 0o777, 0o755)
+            self.assertEqual(
+                (runtime / "payload/bin/fre3nderscreen").stat().st_mode & 0o777,
+                0o755,
+            )
+            self.assertEqual(
+                (runtime / "payload/themes/blue.json").stat().st_mode & 0o777,
+                0o644,
+            )
+
+
 class Fre3AppTrustTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
@@ -135,6 +159,8 @@ class Fre3AppLifecycleTests(unittest.TestCase):
             "fingerprint": fingerprint,
             "autostart": True,
             "web_frontend": False,
+            "display_frontend": False,
+            "display_api": None,
         }
 
     def test_update_cannot_change_publisher(self):
@@ -278,7 +304,8 @@ class Fre3AppWebTests(unittest.TestCase):
             "name": name, "version": f"1.37.6-fre3nder.{serial}",
             "release_serial": serial, "publisher": "fre3nder-official",
             "fingerprint": "a" * 64, "autostart": False,
-            "web_frontend": web,
+            "web_frontend": web, "display_frontend": False,
+            "display_api": None,
         }
 
     def extract(self, _package, _verified, target):
@@ -398,6 +425,238 @@ class Fre3AppWebTests(unittest.TestCase):
         result = subprocess.run(["sh", str(script), "start"], env=env, capture_output=True, text=True)
         self.assertEqual(result.returncode, 0)
         self.assertIn("DEGRADED", result.stderr)
+
+
+class Fre3AppDisplayTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = pathlib.Path(self.temp.name)
+        self.core = load_core_module()
+        self.core.PACKAGE_STATE_ROOT = self.root / "manager"
+        self.core.STATE_ROOT = self.core.PACKAGE_STATE_ROOT / "packages"
+        self.core.FRONTEND_ROOT = self.core.PACKAGE_STATE_ROOT / "frontend"
+        self.core.ACTIVE_FRONTEND = self.core.FRONTEND_ROOT / "active"
+        self.core.DISPLAY_ROOT = self.core.PACKAGE_STATE_ROOT / "display"
+        self.core.ACTIVE_DISPLAY = self.core.DISPLAY_ROOT / "active"
+        self.core.RUNTIME_ROOT = self.root / "runtime"
+        self.core.RECOVERY_ROOT = self.root / "recovery"
+        self.core.DATA_ROOT = self.root / "data"
+        self.core.DISPLAY_SERVICE = self.root / "display-service"
+        self.core.DISPLAY_SERVICE.write_text("#!/bin/sh\nexit 0\n")
+        self.core.DISPLAY_SERVICE.chmod(0o755)
+
+    def package(self, display=None, api=None, autostart=False):
+        lines = [
+            'format = 1',
+            '[app]', 'name = "screen"', 'version = "1.0.0"', 'release_serial = 1',
+            '[publisher]', 'id = "fre3nder-official"', f'key_fingerprint = "{"a" * 64}"',
+            '[target]', 'platform = "fre3nder-x2000"', 'arch = "mipsel"',
+            '[runtime]', 'service = "service"',
+            f'autostart = {"true" if autostart else "false"}',
+        ]
+        if display is not None:
+            lines.extend(['[display]', f'frontend = {display}'])
+            if api is not None:
+                lines.append(f'api = {api}')
+        lines.extend([
+            '[signature]', 'algorithm = "Ed25519"',
+            'file = "SHA256SUMS.sig"', 'signed_file = "SHA256SUMS"',
+        ])
+        files = {
+            "manifest.toml": ("\n".join(lines) + "\n").encode(),
+            "service": b"#!/bin/sh\nexit 0\n",
+        }
+        sums = "".join(
+            f"{hashlib.sha256(data).hexdigest()}  {name}\n"
+            for name, data in sorted(files.items())
+        ).encode()
+        files["SHA256SUMS"] = sums
+        files["SHA256SUMS.sig"] = b"s" * 64
+        package = self.root / "fixture.fre3app"
+        with zipfile.ZipFile(package, "w") as archive:
+            for name, data in files.items():
+                archive.writestr(name, data)
+        return package
+
+    def verify(self, package):
+        with (
+            mock.patch.object(self.core, "key_path", return_value=self.root / "key"),
+            mock.patch.object(self.core, "fingerprint", return_value="a" * 64),
+            mock.patch.object(self.core, "verify_signature"),
+        ):
+            return self.core.verify_package(package)
+
+    def verified(self, serial=1, display=True, api=1):
+        return {
+            "name": "screen",
+            "version": f"1.0.{serial}",
+            "release_serial": serial,
+            "publisher": "fre3nder-official",
+            "fingerprint": "a" * 64,
+            "autostart": False,
+            "web_frontend": False,
+            "display_frontend": display,
+            "display_api": api if display else None,
+        }
+
+    def extract(self, _package, _verified, target):
+        target.mkdir(parents=True)
+        (target / "service").write_text("#!/bin/sh\nexit 0\n")
+
+    def activate(self, verified, operation="install"):
+        package = self.root / "source.fre3app"
+        package.write_bytes(b"fixture")
+        with (
+            mock.patch.object(self.core, "verify_package", return_value=verified),
+            mock.patch.object(self.core, "extract_runtime", side_effect=self.extract),
+            mock.patch.object(self.core, "service_action", return_value=0),
+        ):
+            return self.core.activate_package(package, operation)
+
+    def test_display_manifest_validation(self):
+        plain = self.verify(self.package())
+        self.assertIs(plain["display_frontend"], False)
+        self.assertIsNone(plain["display_api"])
+
+        display = self.verify(self.package("true", 1))
+        self.assertIs(display["display_frontend"], True)
+        self.assertEqual(display["display_api"], 1)
+
+        for frontend, api, autostart in (
+            ("1", 1, False),
+            ("true", None, False),
+            ("true", 2, False),
+            ("true", 1, True),
+            ("false", 1, False),
+        ):
+            with self.subTest(frontend=frontend, api=api, autostart=autostart):
+                with self.assertRaises(ValueError):
+                    self.verify(self.package(frontend, api, autostart))
+
+    def test_verify_list_and_status_report_display_capability(self):
+        package = self.package("true", 1)
+        verified = self.verify(package)
+
+        output = io.StringIO()
+        with (
+            contextlib.redirect_stdout(output),
+            mock.patch.object(self.core, "verify_package", return_value=verified),
+            mock.patch.object(sys, "argv", [str(CORE), "verify", str(package)]),
+        ):
+            self.assertEqual(self.core.main(), 0)
+        package_result = json.loads(output.getvalue())["package"]
+        self.assertIs(package_result["display_frontend"], True)
+        self.assertEqual(package_result["display_api"], 1)
+
+        self.activate(self.verified())
+
+        output = io.StringIO()
+        with (
+            contextlib.redirect_stdout(output),
+            mock.patch.object(sys, "argv", [str(CORE), "list"]),
+        ):
+            self.assertEqual(self.core.main(), 0)
+        listed = json.loads(output.getvalue())["apps"][0]
+        self.assertIs(listed["display_frontend"], True)
+        self.assertEqual(listed["display_api"], 1)
+
+        output = io.StringIO()
+        with (
+            contextlib.redirect_stdout(output),
+            mock.patch.object(self.core, "service_action", return_value=0),
+            mock.patch.object(sys, "argv", [str(CORE), "status", "screen"]),
+        ):
+            self.assertEqual(self.core.main(), 0)
+        status = json.loads(output.getvalue())["app"]
+        self.assertIs(status["display_frontend"], True)
+        self.assertEqual(status["display_api"], 1)
+
+    def test_install_does_not_select_display_and_selection_is_explicit(self):
+        self.activate(self.verified())
+        self.assertFalse(self.core.ACTIVE_DISPLAY.exists())
+        self.assertTrue(self.core.read_metadata("screen")["display_frontend"])
+
+        self.core.select_display("screen")
+        self.assertEqual(self.core.active_display(), "screen")
+        self.assertEqual(self.core.ACTIVE_DISPLAY.read_text(), "screen\n")
+
+        self.activate(self.verified(serial=2), "update")
+        self.assertEqual(self.core.active_display(), "screen")
+
+        with mock.patch.object(self.core, "service_action", return_value=0):
+            self.core.remove_package("screen")
+        self.assertFalse(self.core.ACTIVE_DISPLAY.exists())
+
+    def test_select_requires_installed_display_frontend(self):
+        with self.assertRaisesRegex(ValueError, "not installed"):
+            self.core.select_display("missing")
+
+        self.activate(self.verified(display=False, api=None))
+        with self.assertRaisesRegex(ValueError, "not a display frontend"):
+            self.core.select_display("screen")
+
+    def test_update_cannot_change_display_capability(self):
+        self.activate(self.verified())
+        with self.assertRaisesRegex(ValueError, "display frontend capability differs"):
+            self.activate(self.verified(serial=2, display=False, api=None), "update")
+
+    def test_display_core_operations_report_selection(self):
+        self.activate(self.verified())
+
+        output = io.StringIO()
+        with (
+            contextlib.redirect_stdout(output),
+            mock.patch.object(sys, "argv", [str(CORE), "display-list"]),
+        ):
+            self.assertEqual(self.core.main(), 0)
+        result = json.loads(output.getvalue())
+        self.assertIsNone(result["active"])
+        self.assertEqual(result["apps"][0]["name"], "screen")
+        self.assertIs(result["apps"][0]["active"], False)
+
+        output = io.StringIO()
+        with (
+            contextlib.redirect_stdout(output),
+            mock.patch.object(
+                sys,
+                "argv",
+                [str(CORE), "display-select", "screen"],
+            ),
+        ):
+            self.assertEqual(self.core.main(), 0)
+        self.assertEqual(json.loads(output.getvalue())["display"]["active"], "screen")
+
+        output = io.StringIO()
+        with (
+            contextlib.redirect_stdout(output),
+            mock.patch.object(sys, "argv", [str(CORE), "display-status"]),
+        ):
+            self.assertEqual(self.core.main(), 0)
+        self.assertEqual(json.loads(output.getvalue())["display"]["active"], "screen")
+
+        output = io.StringIO()
+        with (
+            contextlib.redirect_stdout(output),
+            mock.patch.object(sys, "argv", [str(CORE), "display-disable"]),
+        ):
+            self.assertEqual(self.core.main(), 0)
+        self.assertIsNone(json.loads(output.getvalue())["display"]["active"])
+        self.assertFalse(self.core.ACTIVE_DISPLAY.exists())
+
+    def test_pre_display_metadata_defaults_to_no_capability(self):
+        package = self.package()
+        verified = self.verify(package)
+        self.core.write_state(package, verified)
+        metadata = self.core.metadata_path("screen")
+        value = json.loads(metadata.read_text())
+        del value["display_frontend"]
+        del value["display_api"]
+        metadata.write_text(json.dumps(value) + "\n")
+
+        restored = self.core.read_metadata("screen")
+        self.assertIs(restored["display_frontend"], False)
+        self.assertIsNone(restored["display_api"])
 
 
 if __name__ == "__main__":

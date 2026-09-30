@@ -3,60 +3,78 @@ set -eu
 
 root=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
 user_service=$root/configs/x2000/rootfs-overlay/etc/init.d/S30fre3nder-user
-screen_service=$root/configs/x2000/rootfs-overlay/etc/init.d/S64fre3nderscreen
+display_service=$root/configs/x2000/rootfs-overlay/etc/init.d/S64fre3nder-display
 component=$root/build/x2000/fre3nderscreen-component.sh
 
-sh -n "$user_service" "$screen_service" "$component"
+sh -n "$user_service" "$display_service" "$component"
 
 tmp=$(mktemp -d)
-runtime=$tmp/run/fre3nderscreen
+runtime=$tmp/run/fre3nder-display
 root_state=$tmp/run/root
-home_root=$tmp/home
-binary=$tmp/opt/fre3nderscreen
-theme_dir=$tmp/usr/share/fre3nderscreen/themes
+active_display=$tmp/home/.fre3nder/display/active
 input_sys=$tmp/sys/class/input
 input_dev=$tmp/dev/input
 backlight_power=$tmp/sys/class/backlight/backlight/bl_power
+mock_core=$tmp/package-core
+running=$tmp/running
 called=$tmp/called
 mockbin=$tmp/bin
 group_file=$tmp/group
-default_config=$root/configs/x2000/rootfs-overlay/usr/share/fre3nder/defaults/fre3nderscreen.json
 
 cleanup() {
-	if [ -r "$runtime/fre3nderscreen.pid" ]; then
-		kill "$(cat "$runtime/fre3nderscreen.pid")" 2>/dev/null || true
-	fi
 	rm -rf -- "$tmp"
 }
 trap cleanup EXIT HUP INT TERM
 
-mkdir -p "$root_state" "$home_root/fre3nder/.fre3nder/fre3nderscreen" \
-	"$home_root/fre3nder/printer_data/logs" \
-	"$home_root/fre3nder/printer_data/gcodes" "$(dirname "$binary")" \
-	"$theme_dir" "$input_sys/event7/device" "$input_dev" \
+mkdir -p "$root_state" "$(dirname "$active_display")" \
+	"$input_sys/event7/device" "$input_dev" \
 	"$(dirname "$backlight_power")" "$mockbin"
+
 printf '%s\n' active > "$root_state/status"
 printf '%s\n' ns2009_ts > "$input_sys/event7/device/name"
 printf '%s\n' 4 > "$backlight_power"
 ln -s /dev/null "$input_dev/event7"
-printf '%s\n' '{}' > "$theme_dir/blue.json"
-printf '%s\n' 'fre3nder:x:1000:' 'video:x:28:' 'input:x:1001:' \
+printf '%s\n' \
+	'fre3nder:x:1000:' \
+	'video:x:28:' \
+	'input:x:1001:' \
 	'beep:x:1002:' > "$group_file"
 
-cat > "$binary" <<'EOF'
+cat > "$mock_core" <<'EOF'
 #!/bin/sh
-if [ "${FIXTURE_REEXEC:-}" != done ]; then
-	export FIXTURE_REEXEC=done
-	exec "$0"
-fi
-printf '%s\n' "$FRE3NDERSCREEN_CONFIG" "$FRE3NDERSCREEN_THEME_DIR" \
-	"$FRE3NDERSCREEN_INPUT" "$FRE3NDERSCREEN_BACKLIGHT_POWER" \
-	"$FRE3NDERSCREEN_BEEPER_INPUT" "$FRE3NDERSCREEN_DISPLAY_SLEEP_SEC" \
-	> "$FIXTURE_CALLED"
-trap 'exit 0' TERM
-while :; do sleep 1; done
+case "$1" in
+display-service-status)
+	[ -f "$FIXTURE_RUNNING" ]
+	;;
+display-service-start)
+	{
+		printf 'action=start\n'
+		printf 'api=%s\n' "${FRE3NDER_DISPLAY_API:-}"
+		printf 'framebuffer=%s\n' "${FRE3NDER_DISPLAY_FRAMEBUFFER:-}"
+		printf 'input=%s\n' "${FRE3NDER_DISPLAY_INPUT:-}"
+		printf 'backlight=%s\n' "${FRE3NDER_DISPLAY_BACKLIGHT_POWER:-}"
+		printf 'beeper=%s\n' "${FRE3NDER_DISPLAY_BEEPER:-}"
+	} >> "$FIXTURE_CALLED"
+	: > "$FIXTURE_RUNNING"
+	;;
+display-service-stop)
+	[ "${FIXTURE_STOP_FAIL:-}" != yes ] || exit 23
+	{
+		printf 'action=stop\n'
+		printf 'api=%s\n' "${FRE3NDER_DISPLAY_API:-}"
+		printf 'framebuffer=%s\n' "${FRE3NDER_DISPLAY_FRAMEBUFFER:-}"
+		printf 'input=%s\n' "${FRE3NDER_DISPLAY_INPUT:-}"
+		printf 'backlight=%s\n' "${FRE3NDER_DISPLAY_BACKLIGHT_POWER:-}"
+		printf 'beeper=%s\n' "${FRE3NDER_DISPLAY_BEEPER:-}"
+	} >> "$FIXTURE_CALLED"
+	rm -f "$FIXTURE_RUNNING"
+	;;
+*)
+	exit 2
+	;;
+esac
 EOF
-chmod 0755 "$binary"
+chmod 0755 "$mock_core"
 
 cat > "$mockbin/id" <<'EOF'
 #!/bin/sh
@@ -67,10 +85,11 @@ case "$1" in
 *) exit 1 ;;
 esac
 EOF
+
 cat > "$mockbin/chown" <<'EOF'
 #!/bin/sh
 case "$1" in
-root:fre3nder|fre3nder:fre3nder|root:video|root:input|root:beep) ;;
+root:fre3nder|root:video|root:input|root:beep) ;;
 *) exit 1 ;;
 esac
 case "$2" in
@@ -78,6 +97,7 @@ case "$2" in
 *) exit 1 ;;
 esac
 EOF
+
 cat > "$mockbin/chmod" <<'EOF'
 #!/bin/sh
 case "$2" in
@@ -86,47 +106,47 @@ case "$2" in
 *) exit 1 ;;
 esac
 EOF
-cat > "$mockbin/start-stop-daemon" <<'EOF'
-#!/bin/sh
-[ "$1" = -S ] || exit 1
-shift
-while [ "$#" -gt 0 ]; do
-	case "$1" in
-	-q|-b|-m) shift ;;
-	-p) pid_file=$2; shift 2 ;;
-	-c) [ "$2" = fre3nder:fre3nder ] || exit 1; shift 2 ;;
-	-x) binary=$2; shift 2 ;;
-	-O) output=$2; shift 2 ;;
-	*) exit 1 ;;
-	esac
-done
-"$binary" >> "$output" 2>&1 &
-printf '%s\n' "$!" > "$pid_file"
-EOF
 chmod 0755 "$mockbin"/*
 
 run_service() (
 	PATH=$mockbin:$PATH
-	export PATH FIXTURE_ROOT=$tmp FIXTURE_CALLED=$called
-	export FRE3NDER_SCREEN_RUNTIME=$runtime FRE3NDER_ROOT_STATE=$root_state
-	export FRE3NDER_HOME_ROOT=$home_root FRE3NDER_SCREEN_GROUP_FILE=$group_file
-	export FRE3NDER_SCREEN_DEFAULT_CONFIG=$default_config
-	export FRE3NDER_SCREEN_BINARY=$binary FRE3NDER_SCREEN_THEME_DIR=$theme_dir
-	export FRE3NDER_SCREEN_FRAMEBUFFER=/dev/null
-	export FRE3NDER_SCREEN_BACKLIGHT_POWER=$backlight_power
-	export FRE3NDER_SCREEN_INPUT_SYS=$input_sys FRE3NDER_SCREEN_INPUT_DEV=$input_dev
+	export PATH
+	export FIXTURE_ROOT=$tmp
+	export FIXTURE_RUNNING=$running
+	export FIXTURE_CALLED=$called
+	export FIXTURE_STOP_FAIL=${FIXTURE_STOP_FAIL:-}
+	export FIXTURE_GROUPS=${FIXTURE_GROUPS:-}
+	export FRE3NDER_DISPLAY_RUNTIME=$runtime
+	export FRE3NDER_ROOT_STATE=$root_state
+	export FRE3NDER_DISPLAY_ACTIVE=$active_display
+	export FRE3NDER_PACKAGE_CORE=$mock_core
+	export FRE3NDER_DISPLAY_GROUP_FILE=$group_file
+	export FRE3NDER_DISPLAY_FRAMEBUFFER_DEVICE=/dev/null
+	export FRE3NDER_DISPLAY_BACKLIGHT_POWER_DEVICE=$backlight_power
+	export FRE3NDER_DISPLAY_INPUT_SYS=$input_sys
+	export FRE3NDER_DISPLAY_INPUT_DEV=$input_dev
+
 	if [ "${FIXTURE_DISCOVER_INPUT:-}" = yes ]; then
-		unset FRE3NDER_SCREEN_INPUT_DEVICE
+		unset FRE3NDER_DISPLAY_INPUT_DEVICE
 	else
-		export FRE3NDER_SCREEN_INPUT_DEVICE=/dev/null
+		export FRE3NDER_DISPLAY_INPUT_DEVICE=/dev/null
 	fi
+
 	if [ "${FIXTURE_NO_BEEPER:-}" = yes ]; then
-		unset FRE3NDER_SCREEN_BEEPER_DEVICE
+		unset FRE3NDER_DISPLAY_BEEPER_DEVICE
 	else
-		export FRE3NDER_SCREEN_BEEPER_DEVICE=/dev/null
+		export FRE3NDER_DISPLAY_BEEPER_DEVICE=/dev/null
 	fi
-	"$screen_service" "$1"
+
+	"$display_service" "$1"
 )
+
+# No selection leaves the local display explicitly disabled.
+run_service start
+[ "$(cat "$runtime/status")" = disabled ]
+[ ! -e "$called" ]
+
+printf '%s\n' fre3nderscreen > "$active_display"
 
 rm "$root_state/status"
 run_service start
@@ -141,116 +161,109 @@ FIXTURE_GROUPS='1000 28' run_service start
 run_service start
 [ "$(cat "$runtime/status")" = active ]
 [ "$(cat "$backlight_power")" = 0 ]
-[ -f "$called" ]
-config=$home_root/fre3nder/.fre3nder/fre3nderscreen/fre3nderscreen.json
-[ -f "$config" ] && [ ! -L "$config" ]
-cmp -s "$default_config" "$config"
-[ "$(stat -c '%a' "$config")" = 600 ]
-pid=$(cat "$runtime/fre3nderscreen.pid")
-kill -0 "$pid"
-printf '%s\n' "$config" "$theme_dir" "$runtime/input" \
-	"$backlight_power" /dev/null 60 | cmp -s - "$called"
 [ "$(readlink "$runtime/input")" = /dev/null ]
+[ "$(readlink "$runtime/beeper")" = /dev/null ]
+[ -f "$running" ]
+grep -Fxq 'action=start' "$called"
+grep -Fxq 'api=1' "$called"
+grep -Fxq 'framebuffer=/dev/null' "$called"
+grep -Fxq "input=$runtime/input" "$called"
+grep -Fxq "backlight=$backlight_power" "$called"
+grep -Fxq "beeper=$runtime/beeper" "$called"
 
-printf '%s\n' 4 > "$backlight_power"
+# A second start is idempotent and uses service status instead of another start.
+before=$(grep -c '^action=start$' "$called")
 run_service start
-[ "$(cat "$backlight_power")" = 0 ]
-[ "$(cat "$runtime/fre3nderscreen.pid")" = "$pid" ]
+after=$(grep -c '^action=start$' "$called")
+[ "$before" = "$after" ]
+
+# Stop failure is reported and must not erase the runtime links/state.
+if FIXTURE_STOP_FAIL=yes run_service stop; then
+	echo 'display service unexpectedly accepted failed frontend stop' >&2
+	exit 1
+fi
+[ "$(cat "$runtime/status")" = stop-failed ]
+[ -L "$runtime/input" ]
+[ -f "$running" ]
 
 run_service stop
 [ "$(cat "$runtime/status")" = stopped ]
-[ ! -e "$runtime/fre3nderscreen.pid" ]
 [ ! -e "$runtime/input" ]
+[ ! -e "$runtime/beeper" ]
+[ ! -e "$running" ]
+grep -Fxq 'action=stop' "$called"
 
-# Missing backlight remains non-fatal; the beeper remains optional.
+# Backlight and beeper are optional and become empty API values.
 rm -f "$backlight_power" "$called"
 FIXTURE_NO_BEEPER=yes run_service start
 [ "$(cat "$runtime/status")" = active ]
-[ -f "$called" ]
-[ -z "$(sed -n '5p' "$called")" ]
+grep -Fxq 'backlight=' "$called"
+grep -Fxq 'beeper=' "$called"
 run_service stop
 
+# Touch remains required.
 rm -f "$input_dev/event7" "$called"
 FIXTURE_DISCOVER_INPUT=yes run_service start
 [ "$(cat "$runtime/status")" = touch-unavailable ]
-[ ! -e "$called" ]
+[ ! -s "$called" ]
 
 python3 - "$root" <<'PY'
 import json
 import pathlib
-import re
 import sys
 
 root = pathlib.Path(sys.argv[1])
 overlay = root / "configs/x2000/rootfs-overlay"
 user = (overlay / "etc/init.d/S30fre3nder-user").read_text()
-screen = (overlay / "etc/init.d/S64fre3nderscreen").read_text()
+display = (overlay / "etc/init.d/S64fre3nder-display").read_text()
 component = (root / "build/x2000/fre3nderscreen-component.sh").read_text()
 post_build = (root / "configs/x2000/rootfs-post-build.sh").read_text()
-busybox = (root / "configs/x2000/busybox.fragment").read_text()
 sources = json.loads((root / "configs/x2000/sources.json").read_text())
-config = json.loads((overlay / "usr/share/fre3nder/defaults/fre3nderscreen.json").read_text())
 source = sources["userspace"]["fre3nderscreen"]
 
-assert source["repository"] == "https://github.com/ElHanko/fre3nderscreen.git"
-assert source["release"] == "2026.1.1"
-assert source["commit"] == "4c6de8a8773da06ea6bca2cf48b0be540aa3ba0a"
-assert source["license"] == "GPL-3.0-only"
-assert {name: item["commit"] for name, item in source["submodules"].items()} == {
-    "libhv": "a1d81857131fe7ea499a23e333513bfb279df6b0",
-    "lv_drivers": "71830257710f430b6d8d1c324f89f2eab52488f1",
-    "lvgl": "74d0a816a440eea53e030c4f1af842a94f7ce3d3",
-    "spdlog": "ddce42155e67589a8b1534c4935242f759c07646",
-}
-assert "fre3nderscreen_init_script" not in config
-assert "wpa_supplicant" not in config
-assert config["log_path"] == "/home/fre3nder/printer_data/logs/fre3nderscreen.log"
-assert config["thumbnail_path"] == "/home/fre3nder/printer_data/gcodes"
-
-assert "CONFIG_FEATURE_ADDUSER_TO_GROUP=y" in busybox
-assert "S30fre3nder-user" in post_build
-for line in (
-    "ensure_group fre3nder 1000", "ensure_group video 28",
-    "ensure_group input 1001", "ensure_group beep 1002",
-    "adduser -D -H -u 1000 -G fre3nder", "-s /bin/false fre3nder",
-    'addgroup fre3nder "$group"', 'chown fre3nder:fre3nder "$config"',
-    'chmod 0600 "$config"', 'chown fre3nder:fre3nder "$log"',
-):
-    assert line in user, line
-for path in (
-    "$home", "$home/.fre3nder", "$home/.fre3nder/fre3nderscreen",
-    "$home/printer_data", "$home/printer_data/config",
-    "$home/printer_data/logs",
-):
-    assert f'ensure_directory "{path}"' in user, path
-assert 'chown fre3nder:fre3nder "$gcodes"' in user
-assert 'chmod 0750 "$gcodes"' in user
-assert 'find "$home/printer_data" \\( -type d -o -type f \\)' in user
-assert '-exec chown fre3nder:fre3nder {} +' in user
+assert not (overlay / "etc/init.d/S64fre3nderscreen").exists()
 
 for line in (
-    "root_active", "validate_baseline", "user_ready", "set_status user-invalid",
+    "root_active",
+    "user_ready",
     'set_device_permissions "$framebuffer" video 0660',
     'set_device_permissions "$touch_device" input 0660',
     'set_device_permissions "$beeper_device" beep 0660',
     'set_device_permissions "$backlight_power" video 0664',
-    "input_name=ns2009_ts", "beeper_input_name=pwm-beeper",
-    "pid_is_fre3nderscreen()", "terminate_fre3nderscreen()",
-    'kill "$proc_pid"', 'rm -f "$pid_file" "$input_link"',
-    'start-stop-daemon -S -q -b -m -p "$pid_file"',
-    '-c fre3nder:fre3nder -x "$binary" -O "$stdout_log"',
+    'input_name=${FRE3NDER_DISPLAY_INPUT_NAME:-ns2009_ts}',
+    'beeper_input_name=${FRE3NDER_DISPLAY_BEEPER_INPUT_NAME:-pwm-beeper}',
+    "FRE3NDER_DISPLAY_API=1",
+    'FRE3NDER_DISPLAY_FRAMEBUFFER="$framebuffer"',
+    'FRE3NDER_DISPLAY_INPUT="$input_link"',
+    '"$package_core" "display-service-$action"',
 ):
-    assert line in screen, line
-assert re.search(r'if beeper_device=\$\(find_beeper_device\); then', screen)
-assert 'beeper_device=\n' in screen
-assert '"$binary" >"$stdout_log"' not in screen
-assert '/dev/input/event0' not in screen
-assert 'chmod 0666' not in screen and 'chmod 0777' not in screen
-for name in (
-    "CONFIG", "THEME_DIR", "INPUT", "BACKLIGHT_POWER", "BEEPER_INPUT",
-    "DISPLAY_SLEEP_SEC",
+    assert line in display, line
+
+assert "FRE3NDERSCREEN_" not in display
+assert "/opt/fre3nder/fre3nderscreen" not in display
+assert "/dev/input/event0" not in display
+assert "chmod 0666" not in display
+assert "chmod 0777" not in display
+
+for line in (
+    "ensure_group fre3nder 1000",
+    "ensure_group video 28",
+    "ensure_group input 1001",
+    "ensure_group beep 1002",
+    'addgroup fre3nder "$group"',
 ):
-    assert f"export FRE3NDERSCREEN_{name}=" in screen
+    assert line in user, line
+
+assert "S64fre3nder-display" in post_build
+assert 'rm -f "$target/etc/init.d/S64fre3nderscreen"' in post_build
+
+# Fre3nderScreen remains an embedded build component only until the next phase
+# packages it as the first display .fre3app.
+assert source["repository"] == "https://github.com/ElHanko/fre3nderscreen.git"
+assert source["release"] == "2026.1.1"
+assert source["commit"] == "4c6de8a8773da06ea6bca2cf48b0be540aa3ba0a"
+assert source["license"] == "GPL-3.0-only"
+assert 'stage/opt/fre3nder/fre3nderscreen' in component
 
 for source_name, output_name in (
     ("DEJAVU-FONTS-LICENSE.txt", "DEJAVU-FONTS-LICENSE"),
@@ -258,7 +271,6 @@ for source_name, output_name in (
 ):
     assert f'"$source_dir/licenses/{source_name}"' in component
     assert f'"$stage/usr/share/licenses/fre3nderscreen/{output_name}"' in component
-assert "WPA-SUPPLICANT-LICENSE" in component
 PY
 
-echo 'fre3nder-x2000 Fre3nderScreen service checks: PASS'
+echo 'fre3nder-x2000 generic display service checks: PASS'

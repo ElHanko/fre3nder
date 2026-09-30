@@ -104,6 +104,51 @@ Boolean. A frontend package must include a signed, nonempty
 `payload/index.html`. The capability is stored in `metadata.json`, returned by
 verify/list/status, and cannot change during a normal package update.
 
+An optional section declares a local display frontend:
+
+```toml
+[display]
+frontend = true
+api = 1
+```
+
+Without `[display]`, `display_frontend` is false and `display_api` is null. A
+display frontend must declare `api = 1` and set `runtime.autostart = false`. The
+capability and API version are stored in `metadata.json`, returned by
+verify/list/status, and cannot change during a normal package update. Installing
+a display frontend never selects it automatically.
+
+## Display Frontend API v1
+
+Exactly one installed display frontend may be selected by the root-controlled
+platform state. The selected application is started by the platform display
+manager, not by the generic application autostart path. The manager retains
+privileged ownership of hardware discovery and permission setup and invokes the
+selected package service as the unprivileged `fre3nder` user.
+
+For `service start`, a selected display frontend receives these additional
+environment variables:
+
+```text
+FRE3NDER_DISPLAY_API=1
+FRE3NDER_DISPLAY_FRAMEBUFFER=<framebuffer device>
+FRE3NDER_DISPLAY_INPUT=<touch input path>
+FRE3NDER_DISPLAY_BACKLIGHT_POWER=<backlight power path or empty>
+FRE3NDER_DISPLAY_BEEPER=<beeper input path or empty>
+```
+
+`FRE3NDER_DISPLAY_FRAMEBUFFER` and `FRE3NDER_DISPLAY_INPUT` are required for
+display-managed `start`, `stop`, and `status` actions. Backlight and beeper are
+optional and are represented by empty values when unavailable. Applications
+must consume the supplied paths and must not depend on platform-specific input
+names, `eventX` numbering, or privileged device setup.
+
+`S64fre3nder-display` implements this platform contract. Ordinary `.fre3app`
+service actions run without supplementary groups. For the selected display
+frontend only, the package core supplies the `video`, `input`, and `beep`
+supplementary groups while the display manager retains root ownership of device
+discovery and permission setup.
+
 ## Service contract
 
 `service` is a signed executable POSIX-compatible program. The package core invokes it as the unprivileged `fre3nder` user and supplies:
@@ -130,6 +175,9 @@ uninstall
 
 `status` returns zero while the application is healthy or running and non-zero otherwise. A static web frontend can report a valid payload without starting a daemon. Lifecycle operations must be idempotent where practical. Package service code must not require root privileges; privileged platform work belongs in the generic Fre3nder core.
 
+Signed files under `payload/bin/` are extracted with mode 0755 for
+native app executables. Other payload files are extracted with mode 0644.
+
 ## Runtime and persistence
 
 Reconstructible runtime:
@@ -154,6 +202,13 @@ is selected; an existing valid selection survives other installs and updates.
 Removing the selected frontend clears the file. Package services cannot write
 this state.
 
+The independently selected local display frontend is recorded at
+`/home/.fre3nder/display/active` as `<app>\n`. Display selection is always
+explicit: installing another display frontend does not change the current
+selection. Updating a selected package preserves the selection. Removing the
+selected package or explicitly disabling the display clears it. Boot recovery
+never invents a display selection. Package services cannot write this state.
+
 Unprivileged persistent application data is exposed separately as:
 
 ```text
@@ -166,7 +221,7 @@ The exact installed `.fre3app` is cached in root-controlled persistent state und
 
 During boot the package recovery step verifies each cached package again, reconstructs missing `/opt` runtime state, then calls `service restore`.
 
-`S65fre3nder-app-runtime` subsequently starts packages marked for autostart and asks running packages to stop during platform shutdown. Static web frontends such as Fluidd set `autostart = false`; S62 remains the platform HTTP daemon. S58 recovery does not restart S62. Interactive install, update, and remove of the selected frontend ask the privileged package core to refresh S62 after the package transaction; a web refresh failure is reported without rolling back the package.
+`S65fre3nder-app-runtime` subsequently starts packages marked for autostart and asks running packages to stop during platform shutdown. Static web frontends such as Fluidd and all display frontends set `autostart = false`; their platform managers own activation instead. S62 remains the platform HTTP daemon. S58 recovery does not restart S62. Interactive install, update, and remove of the selected web frontend ask the privileged package core to refresh S62 after the package transaction; a web refresh failure is reported without rolling back the package. Display selection is persistent package-manager state and is restored without being changed or invented.
 
 ## Repository layer
 

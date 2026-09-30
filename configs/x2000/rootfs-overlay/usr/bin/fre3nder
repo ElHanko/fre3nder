@@ -77,6 +77,14 @@ def usage():
         file=sys.stderr,
     )
     print(
+        "       fre3nder app display {list|status|disable}",
+        file=sys.stderr,
+    )
+    print(
+        "       fre3nder app display select <app>",
+        file=sys.stderr,
+    )
+    print(
         "       fre3nder app key {list|show|remove} [publisher]",
         file=sys.stderr,
     )
@@ -1126,6 +1134,26 @@ def main():
         ):
             try:
                 run_package_core("update", tuple(arguments[1:]))
+            except RuntimeError as exc:
+                print(f"fre3nder app: {exc}", file=sys.stderr)
+                return 1
+
+            raise RuntimeError("package core unexpectedly returned")
+
+        if len(arguments) >= 2 and arguments[0] == "display":
+            display_args = arguments[1:]
+
+            if display_args in (["list"], ["status"], ["disable"]):
+                operation = f"display-{display_args[0]}"
+                core_args = ()
+            elif len(display_args) == 2 and display_args[0] == "select":
+                operation = "display-select"
+                core_args = (display_args[1],)
+            else:
+                return usage()
+
+            try:
+                run_package_core(operation, core_args)
             except RuntimeError as exc:
                 print(f"fre3nder app: {exc}", file=sys.stderr)
                 return 1

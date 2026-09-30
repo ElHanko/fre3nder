@@ -1,0 +1,322 @@
+#!/bin/sh
+
+runtime=${FRE3NDER_DISPLAY_RUNTIME:-/run/fre3nder-display}
+status=$runtime/status
+input_link=$runtime/input
+beeper_link=$runtime/beeper
+root_state=${FRE3NDER_ROOT_STATE:-/run/fre3nder-root}
+active_display=${FRE3NDER_DISPLAY_ACTIVE:-/home/.fre3nder/display/active}
+package_core=${FRE3NDER_PACKAGE_CORE:-/usr/libexec/fre3nder-package-core}
+framebuffer=${FRE3NDER_DISPLAY_FRAMEBUFFER_DEVICE:-/dev/fb0}
+backlight_power=${FRE3NDER_DISPLAY_BACKLIGHT_POWER_DEVICE:-/sys/class/backlight/backlight/bl_power}
+input_sys=${FRE3NDER_DISPLAY_INPUT_SYS:-/sys/class/input}
+input_dev=${FRE3NDER_DISPLAY_INPUT_DEV:-/dev/input}
+input_name=${FRE3NDER_DISPLAY_INPUT_NAME:-ns2009_ts}
+beeper_input_name=${FRE3NDER_DISPLAY_BEEPER_INPUT_NAME:-pwm-beeper}
+group_file=${FRE3NDER_DISPLAY_GROUP_FILE:-/etc/group}
+
+log() {
+	echo "fre3nder display: $*"
+}
+
+set_status() {
+	mkdir -p "$runtime" 2>/dev/null || return 0
+	printf '%s\n' "$1" > "$status" 2>/dev/null || true
+}
+
+regular_file_equals() {
+	[ -f "$1" ] && [ ! -L "$1" ] && [ "$(cat "$1")" = "$2" ]
+}
+
+root_active() {
+	regular_file_equals "$root_state/status" active
+}
+
+selection_present() {
+	[ -e "$active_display" ] || [ -L "$active_display" ]
+}
+
+selection_file_valid() {
+	[ -f "$active_display" ] && [ ! -L "$active_display" ]
+}
+
+group_gid() {
+	awk -F: -v name="$1" '$1 == name { print $3; exit }' "$group_file"
+}
+
+user_ready() {
+	[ "$(id -u fre3nder 2>/dev/null)" = 1000 ] &&
+		[ "$(id -g fre3nder 2>/dev/null)" = 1000 ] || return 1
+
+	user_groups=" $(id -G fre3nder) "
+	for group in video input beep; do
+		gid=$(group_gid "$group")
+		[ -n "$gid" ] || return 1
+		case "$user_groups" in
+		*" $gid "*) ;;
+		*) return 1 ;;
+		esac
+	done
+}
+
+set_device_permissions() {
+	[ ! -L "$1" ] && [ -e "$1" ] || return 1
+	chown "root:$2" "$1" && chmod "$3" "$1"
+}
+
+find_touch_device() {
+	if [ "${FRE3NDER_DISPLAY_INPUT_DEVICE+x}" = x ]; then
+		[ -c "$FRE3NDER_DISPLAY_INPUT_DEVICE" ] &&
+			[ ! -L "$FRE3NDER_DISPLAY_INPUT_DEVICE" ] || return 1
+		printf '%s\n' "$FRE3NDER_DISPLAY_INPUT_DEVICE"
+		return
+	fi
+
+	found=
+	for name_file in "$input_sys"/event*/device/name; do
+		[ -f "$name_file" ] && [ ! -L "$name_file" ] || continue
+		[ "$(cat "$name_file")" = "$input_name" ] || continue
+		event_dir=${name_file%/device/name}
+		event=${event_dir##*/}
+		device=$input_dev/$event
+		[ -c "$device" ] || continue
+		[ -z "$found" ] || return 1
+		found=$device
+	done
+
+	[ -n "$found" ] || return 1
+	printf '%s\n' "$found"
+}
+
+find_beeper_device() {
+	if [ "${FRE3NDER_DISPLAY_BEEPER_DEVICE+x}" = x ]; then
+		[ -c "$FRE3NDER_DISPLAY_BEEPER_DEVICE" ] &&
+			[ ! -L "$FRE3NDER_DISPLAY_BEEPER_DEVICE" ] || return 1
+		printf '%s\n' "$FRE3NDER_DISPLAY_BEEPER_DEVICE"
+		return
+	fi
+
+	found=
+	for name_file in "$input_sys"/event*/device/name; do
+		[ -f "$name_file" ] && [ ! -L "$name_file" ] || continue
+		[ "$(cat "$name_file")" = "$beeper_input_name" ] || continue
+		event_dir=${name_file%/device/name}
+		event=${event_dir##*/}
+		device=$input_dev/$event
+		[ -c "$device" ] || continue
+		[ -z "$found" ] || return 1
+		found=$device
+	done
+
+	[ -n "$found" ] || return 1
+	printf '%s\n' "$found"
+}
+
+enable_backlight() {
+	[ -n "$display_backlight" ] || return 1
+	[ -f "$display_backlight" ] && [ ! -L "$display_backlight" ] || return 1
+	printf '%s\n' 0 2>/dev/null > "$display_backlight"
+}
+
+run_display_service() {
+	action=$1
+	FRE3NDER_DISPLAY_API=1 \
+	FRE3NDER_DISPLAY_FRAMEBUFFER="$framebuffer" \
+	FRE3NDER_DISPLAY_INPUT="$input_link" \
+	FRE3NDER_DISPLAY_BACKLIGHT_POWER="$display_backlight" \
+	FRE3NDER_DISPLAY_BEEPER="$display_beeper" \
+		"$package_core" "display-service-$action"
+}
+
+prepare_runtime() {
+	mkdir -m 0700 -p "$runtime" || return 1
+	[ -d "$runtime" ] && [ ! -L "$runtime" ] || return 1
+	chown root:fre3nder "$runtime" && chmod 0710 "$runtime" || return 1
+
+	rm -f "$input_link" "$beeper_link"
+	ln -s "$touch_device" "$input_link" || return 1
+	if [ -n "$beeper_device" ]; then
+		ln -s "$beeper_device" "$beeper_link" || return 1
+		display_beeper=$beeper_link
+	else
+		display_beeper=
+	fi
+}
+
+prepare_optional_paths() {
+	display_backlight=
+	if [ -f "$backlight_power" ] && [ ! -L "$backlight_power" ]; then
+		display_backlight=$backlight_power
+	fi
+
+	display_beeper=
+	if [ -L "$beeper_link" ]; then
+		display_beeper=$beeper_link
+	fi
+}
+
+start() {
+	mkdir -m 0700 -p "$runtime" || {
+		log 'runtime setup failed'
+		return 0
+	}
+	if [ ! -d "$runtime" ] || [ -L "$runtime" ]; then
+		set_status runtime-invalid
+		return 0
+	fi
+	if ! root_active; then
+		set_status degraded-root
+		log 'persistent root is unavailable; local display remains stopped'
+		return 0
+	fi
+	if ! selection_present; then
+		rm -f "$input_link" "$beeper_link"
+		set_status disabled
+		return 0
+	fi
+	if ! selection_file_valid; then
+		set_status selection-invalid
+		log 'active display selection is invalid'
+		return 0
+	fi
+	if [ ! -x "$package_core" ] || [ -L "$package_core" ]; then
+		set_status package-core-unavailable
+		log 'package core is unavailable; local display remains stopped'
+		return 0
+	fi
+	if ! user_ready; then
+		set_status user-invalid
+		log 'display runtime user or functional groups are unavailable'
+		return 0
+	fi
+	if [ ! -c "$framebuffer" ]; then
+		set_status framebuffer-unavailable
+		log 'framebuffer is unavailable; local display remains stopped'
+		return 0
+	fi
+	if ! set_device_permissions "$framebuffer" video 0660; then
+		set_status framebuffer-permission-failed
+		return 0
+	fi
+	if ! touch_device=$(find_touch_device); then
+		set_status touch-unavailable
+		log "unique $input_name input device is unavailable; local display remains stopped"
+		return 0
+	fi
+	if ! set_device_permissions "$touch_device" input 0660; then
+		set_status touch-permission-failed
+		return 0
+	fi
+
+	beeper_device=
+	if beeper_device=$(find_beeper_device); then
+		if ! set_device_permissions "$beeper_device" beep 0660; then
+			beeper_device=
+			log 'optional beeper permissions are unavailable'
+		fi
+	else
+		beeper_device=
+		log "optional $beeper_input_name input device is unavailable"
+	fi
+
+	display_backlight=
+	if [ -f "$backlight_power" ] && [ ! -L "$backlight_power" ]; then
+		if set_device_permissions "$backlight_power" video 0664; then
+			display_backlight=$backlight_power
+		else
+			log 'backlight permissions are unavailable'
+		fi
+	fi
+
+	if ! prepare_runtime; then
+		set_status runtime-invalid
+		return 0
+	fi
+
+	if run_display_service status >/dev/null 2>&1; then
+		if [ -n "$display_backlight" ] && ! enable_backlight; then
+			log 'backlight control is unavailable; local display remains running'
+		fi
+		set_status active
+		return 0
+	fi
+
+	set_status starting
+	if ! result=$(run_display_service start 2>&1); then
+		rm -f "$input_link" "$beeper_link"
+		set_status startup-failed
+		log "selected display frontend failed to start: $result"
+		return 0
+	fi
+
+	if ! run_display_service status >/dev/null 2>&1; then
+		run_display_service stop >/dev/null 2>&1 || true
+		rm -f "$input_link" "$beeper_link"
+		set_status startup-failed
+		log 'selected display frontend did not become active'
+		return 0
+	fi
+
+	if [ -n "$display_backlight" ] && ! enable_backlight; then
+		log 'backlight control is unavailable; local display remains running'
+	fi
+	set_status active
+	log 'selected display frontend started'
+	return 0
+}
+
+stop() {
+	if ! selection_present; then
+		rm -f "$input_link" "$beeper_link"
+		set_status stopped
+		return 0
+	fi
+	if ! selection_file_valid; then
+		set_status selection-invalid
+		return 1
+	fi
+	if [ ! -x "$package_core" ] || [ -L "$package_core" ]; then
+		set_status package-core-unavailable
+		return 1
+	fi
+
+	prepare_optional_paths
+	if run_display_service status >/dev/null 2>&1; then
+		if ! result=$(run_display_service stop 2>&1); then
+			set_status stop-failed
+			log "selected display frontend failed to stop: $result"
+			return 1
+		fi
+	fi
+
+	rm -f "$input_link" "$beeper_link"
+	set_status stopped
+	return 0
+}
+
+service_status() {
+	selection_file_valid || return 1
+	[ -x "$package_core" ] && [ ! -L "$package_core" ] || return 1
+	prepare_optional_paths
+	run_display_service status >/dev/null 2>&1
+}
+
+case "${1:-}" in
+start)
+	start
+	;;
+stop)
+	stop
+	;;
+restart)
+	stop || exit $?
+	start
+	;;
+status)
+	service_status
+	;;
+*)
+	echo "usage: $0 {start|stop|restart|status}" >&2
+	exit 2
+	;;
+esac

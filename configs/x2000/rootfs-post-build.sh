@@ -80,8 +80,9 @@ awk -v disk="$disk_rule" -v partition="$partition_rule" '
 
 mv "$mdev_tmp" "$mdev_conf"
 
-# Buildroot installs this competing autostart; S62 is the sole web start path.
+# Remove competing/stale init paths that must not survive incremental assembly.
 rm -f "$target/etc/init.d/S50lighttpd"
+rm -f "$target/etc/init.d/S64fre3nderscreen"
 
 chmod 0755 \
 	"$target/usr/bin/fre3nder" \
@@ -99,7 +100,7 @@ chmod 0755 \
 	"$target/etc/init.d/S61fre3nder-moonraker" \
 	"$target/etc/init.d/S62fre3nder-web" \
 	"$target/etc/init.d/S63fre3nder-camera" \
-	"$target/etc/init.d/S64fre3nderscreen" \
+	"$target/etc/init.d/S64fre3nder-display" \
 	"$target/etc/init.d/S65fre3nder-app-runtime" \
 	"$target/usr/libexec/fre3nder/f005-mcu-state" \
 	"$target/usr/libexec/fre3nder/f005-stock-to-fre3nder" \

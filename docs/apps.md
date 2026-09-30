@@ -1,4 +1,4 @@
-# Installable applications and web frontends
+# Installable applications and frontends
 
 Status: the signed `.fre3app` package core is implemented in the platform
 repository. Fluidd's earlier Legacy-app and web integration was qualified on
@@ -18,6 +18,8 @@ fre3nder app update <package.fre3app> [--allow-downgrade]
 fre3nder app remove <app>
 fre3nder app list
 fre3nder app status <app>
+fre3nder app display {list|status|disable}
+fre3nder app display select <app>
 fre3nder app key {list|show|add|remove} ...
 ```
 
@@ -63,6 +65,68 @@ or removal of that frontend, the privileged package core requests an S62 web
 restart. A restart failure produces a warning and does not roll back an already
 completed package transaction. S62 respects the persistent opt-out marker
 `/home/fre3nder/.fre3nder/web/disabled`. Package services do not start S62.
+
+## Local display frontend selection
+
+A package may declare `[display] frontend = true` with `api = 1`. Display
+frontends must set `runtime.autostart = false`; the generic S65 application
+runtime must never start them in parallel. The capability and API version are
+signed package metadata and cannot change during a normal update.
+
+The package core owns `/home/.fre3nder/display/active`, a root-managed file
+containing exactly `<app>\n`. Unlike the web frontend's first-install default,
+installing a display frontend never changes this selection. Selection is
+explicit through `fre3nder app display select <app>`, and only an installed
+display-capable package can be selected. `fre3nder app display disable` clears
+the selection. Updating the selected package preserves it; removing the selected
+package clears it; boot recovery never invents it.
+
+Display Frontend API v1 separates application lifecycle from hardware privilege.
+The platform display manager owns framebuffer, touch, optional backlight, and
+optional beeper discovery and permissions, then supplies their paths to the
+selected unprivileged package service through `FRE3NDER_DISPLAY_*` environment
+variables. Applications must not hard-code printer-specific input device names
+or perform privileged device setup.
+
+The platform display manager is `/etc/init.d/S64fre3nder-display`. It owns
+hardware discovery and permission setup, then asks the package core to run only
+the explicitly selected Display Frontend API v1 application. The generic S65
+application runtime skips display frontends entirely. Packaging Fre3nderScreen
+itself as a `.fre3app` and removing its old embedded RootFS component are the
+next integration steps.
+
+## Planned Fre3nderScreen factory app
+
+The final RootFS will carry an already signed package at
+`/usr/share/fre3nder/factory-apps/fre3nderscreen.fre3app`. The RootFS build
+will validate it against the official publisher key before embedding it.
+This package is a seed for a new system, not an update channel: later app
+updates, replacement, selection, and removal use the normal package core.
+
+A planned `S63fre3nder-factory-app` boot step will run after the platform
+services and before `S64fre3nder-display`. It will use the existing package
+core for separate `install` and `display-select` operations; it will not
+unpack the package into `/opt` itself. Bootstrap failures will be reported
+without blocking Klipper, Moonraker, or SSH.
+
+The root-controlled file `/home/.fre3nder/factory-apps/fre3nderscreen`
+will contain either `pending` or `complete`:
+
+- With no marker and no existing display-app or user decision, write
+  `pending`, install the factory package through the package core, explicitly
+  select `fre3nderscreen`, then write `complete`.
+- With `pending`, resume the interrupted install or selection idempotently.
+- With `complete`, never automatically install, update, or select the
+  factory package again.
+- Preserve any existing user decision instead of replacing it with the
+  factory default. A later Fre3nderScreen removal, another selected display,
+  or `display-disable` leaves `complete` in place.
+- An OTA may deliver a newer factory seed, but `complete` prevents its
+  import on an already initialized system. Damaged or ambiguous package
+  state must fail closed without automatic overwrite.
+
+This is the target design; the factory package staging and boot step have
+not yet been implemented.
 
 ## Platform web service
 
