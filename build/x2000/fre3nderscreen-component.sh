@@ -135,7 +135,7 @@ PY
 		"$source_dir/patches/0003-lvgl-dpi-text-scale.patch"
 }
 
-build_component() {
+build_app() {
 	prefix=$buildroot_output/host/bin/mipsel-buildroot-linux-gnu-
 	[ -x "${prefix}gcc" ] && [ -x "${prefix}g++" ] && [ -x "${prefix}strip" ] || {
 		echo 'prepared Fre3nder Buildroot toolchain is missing' >&2
@@ -194,18 +194,6 @@ build_component() {
 	install -m 0644 "$source_dir/licenses/MATERIAL-DESIGN-ICONS-LICENSE.txt" \
 		"$tmp/app/licenses/MATERIAL-DESIGN-ICONS-LICENSE"
 
-	# The legacy RootFS component is staged from the neutral app files.
-	stage=$work/fre3nderscreen-component-overlay
-	rm -rf -- "$stage"
-	install -d -m 0755 \
-		"$stage/opt/fre3nder/fre3nderscreen" \
-		"$stage/usr/share/fre3nderscreen/themes" \
-		"$stage/usr/share/licenses/fre3nderscreen"
-	install -m 0755 "$tmp/app/bin/fre3nderscreen" \
-		"$stage/opt/fre3nder/fre3nderscreen/fre3nderscreen"
-	cp -R "$tmp/app/themes/." "$stage/usr/share/fre3nderscreen/themes/"
-	cp -R "$tmp/app/licenses/." "$stage/usr/share/licenses/fre3nderscreen/"
-
 	project_commit=$(git -C "$project" rev-parse HEAD)
 	project_worktree_status=clean
 	[ -z "$(git -C "$project" status --porcelain=v1)" ] ||
@@ -214,12 +202,9 @@ build_component() {
 		"$project/scripts/x2000-build-input-sha256" --root "$project"
 	)
 
-	tar --sort=name --format=ustar --mtime='@0' --owner=0 --group=0 \
-		--numeric-owner -C "$stage" -cf "$tmp/rootfs-overlay.tar" .
 	export artifact_mode build_input_sha256 commit project_commit
 	export project_worktree_status release repository
-	python3 - "$tmp/rootfs-overlay.tar" "$tmp/component-manifest.json" \
-		"$tmp/app" "$source_dir" <<'PY'
+	python3 - "$tmp/app" "$source_dir" <<'PY'
 import hashlib
 import json
 import os
@@ -227,26 +212,7 @@ import pathlib
 import subprocess
 import sys
 
-artifact, output, app, source_dir = map(pathlib.Path, sys.argv[1:])
-manifest = {
-    "schema": 1,
-    "component": "fre3nderscreen",
-    "source": {
-        "repository": os.environ["repository"],
-        "release": os.environ["release"],
-        "commit": os.environ["commit"],
-        "license": "GPL-3.0-only",
-    },
-    "artifact_mode": os.environ["artifact_mode"],
-    "project_commit": os.environ["project_commit"],
-    "project_worktree_status": os.environ["project_worktree_status"],
-    "build_input_sha256": os.environ["build_input_sha256"],
-    "artifact": {
-        "name": artifact.name,
-        "sha256": hashlib.sha256(artifact.read_bytes()).hexdigest(),
-    },
-}
-output.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n")
+app, source_dir = map(pathlib.Path, sys.argv[1:])
 
 source_config = json.loads(pathlib.Path("/project/configs/x2000/sources.json").read_text())
 expected_submodules = source_config["userspace"]["fre3nderscreen"]["submodules"]
@@ -270,8 +236,13 @@ files = {
 app_manifest = {
     "schema": 1,
     "artifact": "fre3nderscreen-x2000-app",
-    "artifact_mode": manifest["artifact_mode"],
-    "source": manifest["source"],
+    "artifact_mode": os.environ["artifact_mode"],
+    "source": {
+        "repository": os.environ["repository"],
+        "release": os.environ["release"],
+        "commit": os.environ["commit"],
+        "license": "GPL-3.0-only",
+    },
     "submodules": submodules,
     "abi": {
         "arch": "mipsel",
@@ -280,9 +251,9 @@ app_manifest = {
         "nan": "nan2008",
         "linkage": "static",
     },
-    "project_commit": manifest["project_commit"],
-    "project_worktree_status": manifest["project_worktree_status"],
-    "build_input_sha256": manifest["build_input_sha256"],
+    "project_commit": os.environ["project_commit"],
+    "project_worktree_status": os.environ["project_worktree_status"],
+    "build_input_sha256": os.environ["build_input_sha256"],
     "files": files,
 }
 (app / "artifact-manifest.json").write_text(
@@ -292,8 +263,6 @@ app_manifest = {
     for name in sorted((*files, "artifact-manifest.json"))
 ))
 PY
-	(cd "$tmp" && sha256sum component-manifest.json rootfs-overlay.tar > SHA256SUMS)
-	(cd "$tmp" && sha256sum -c SHA256SUMS)
 	(cd "$tmp/app" && sha256sum -c SHA256SUMS)
 	rm -rf -- "$artifact_dir"
 	mv "$tmp" "$artifact_dir"
@@ -301,6 +270,6 @@ PY
 
 case "${1:-}" in
 fetch) fetch ;;
-build) build_component ;;
+build) build_app ;;
 *) echo "usage: $0 {fetch|build}" >&2; exit 2 ;;
 esac

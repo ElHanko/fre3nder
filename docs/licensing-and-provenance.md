@@ -185,32 +185,32 @@ The pure-Python wheel contents are staged into the RootFS Moonraker environment;
 the wheels themselves remain build inputs outside Git. Source, dependency, and
 license provenance remains explicit in the source and wheel manifests.
 
-## Fre3nderScreen RootFS baseline
+## Fre3nderScreen application artifact
 
 Fre3nderScreen is consumed from the Fre3nder-maintained fork
 `https://github.com/ElHanko/fre3nderscreen.git` at commit
-`4da29a130d3ac82572e5d86ea55420d2998bf31f` (release `2026.1`), under
+`4c6de8a8773da06ea6bca2cf48b0be540aa3ba0a` (release `2026.1.1`), under
 `GPL-3.0-only`. The repository retains the original GuppyScreen Git history and upstream provenance;
 the application at this pin identifies as Fre3nderScreen.
 
 The fork descends from the published `ballaswag/guppyscreen` `0.0.26-beta`
 baseline at commit `cf5c6d7539a2dca090ca71c177f57a2d96df443a`. Exact source and
 submodule identities are recorded in
-`configs/x2000/sources.json`. The component builder fetches the pinned public
+`configs/x2000/sources.json`. The artifact builder fetches the pinned public
 source and submodules before the network-disabled build phase and builds them
 with Fre3nder's Buildroot GCC 13.4.0 MIPS userspace toolchain.
 
 The pinned submodules remain LVGL 8.3.11 and lv_drivers under MIT, libhv under
 BSD-3-Clause, and spdlog under MIT. The vendored wpa_supplicant control-client
 source remains BSD-3-Clause. Their license texts are copied alongside the GPL
-text into `/usr/share/licenses/fre3nderscreen/`.
+text into the neutral app artifact and then into the signed package payload.
 
 The inherited `assets/dejavusans_mono_14.c` font has the DejaVu Fonts License
 (Bitstream Vera derived terms); its exact font version is not established from
 the source. The inherited Material Design Icons assets use Apache-2.0.
-Fre3nderScreen release `2026.1` carries both asset license texts in `licenses/`;
-the component builder packages them as `DEJAVU-FONTS-LICENSE` and
-`MATERIAL-DESIGN-ICONS-LICENSE` under the same target license directory.
+Fre3nderScreen release `2026.1.1` carries both asset license texts in `licenses/`;
+the artifact builder records them as `DEJAVU-FONTS-LICENSE` and
+`MATERIAL-DESIGN-ICONS-LICENSE` for unchanged package import.
 
 Fre3nderScreen retains the three dependency patches shipped by the source tree.
 The dedicated pin removes the old generic product matrix and carries its

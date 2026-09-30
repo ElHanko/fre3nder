@@ -69,7 +69,6 @@ prepare_home() {
 	[ -d "${home%/*}" ] && [ ! -L "${home%/*}" ] || return 1
 	ensure_directory "$home" 0700
 	ensure_directory "$home/.fre3nder" 0700
-	ensure_directory "$home/.fre3nder/fre3nderscreen" 0700
 	ensure_directory "$home/printer_data" 0700
 	ensure_directory "$home/printer_data/config" 0700
 	ensure_directory "$home/printer_data/logs" 0700
@@ -85,17 +84,6 @@ prepare_home() {
 	find "$home/printer_data" \( -type d -o -type f \) \
 		-exec chown fre3nder:fre3nder {} + || return 1
 
-	config=$home/.fre3nder/fre3nderscreen/fre3nderscreen.json
-	if [ -e "$config" ] || [ -L "$config" ]; then
-		[ -f "$config" ] && [ ! -L "$config" ] || return 1
-		chown fre3nder:fre3nder "$config"
-		chmod 0600 "$config"
-	fi
-	log=$home/printer_data/logs/fre3nderscreen.log
-	if [ -e "$log" ] || [ -L "$log" ]; then
-		[ -f "$log" ] && [ ! -L "$log" ] || return 1
-		chown fre3nder:fre3nder "$log"
-	fi
 }
 
 case "${1:-}" in

@@ -67,9 +67,7 @@ moonraker_commit=985c1d0bbeb90bc057d34a232c9dc3b05e0c6c8d
 kernel_firmware_dir="$work/fre3nder-kernel-firmware"
 klipper_overlay="$work/fre3nder-klipper-overlay"
 moonraker_overlay="$work/fre3nder-moonraker-overlay"
-fre3nderscreen_overlay="$work/fre3nderscreen-overlay"
 moonraker_component="$artifact_root/moonraker"
-fre3nderscreen_component="$artifact_root/fre3nderscreen"
 development_marker="$klipper_overlay/usr/share/fre3nder/DEVELOPMENT"
 firmware_names='brcm/brcmfmac43430-sdio.bin brcm/brcmfmac43430-sdio.clm_blob brcm/brcmfmac43430-sdio.txt'
 artifact_mode=${FRE3NDER_ARTIFACT_MODE:-release}
@@ -145,6 +143,15 @@ if ota_public_key:
     manifest["ota_public_key_sha256"] = hashlib.sha256(
         ota_public_key_path.read_bytes()
     ).hexdigest()
+
+factory_seed = os.environ.get("FRE3NDER_FACTORY_FRE3NDERSCREEN_APP")
+if factory_seed:
+    path = pathlib.Path(factory_seed)
+    if path.is_symlink() or not path.is_file():
+        raise SystemExit("Fre3nderScreen factory app is missing or not a regular file")
+    manifest["factory_apps"] = {
+        "fre3nderscreen": {"sha256": hashlib.sha256(path.read_bytes()).hexdigest()}
+    }
 
 manifest["artifacts"] = {
     name: hashlib.sha256(out.joinpath(name).read_bytes()).hexdigest()
@@ -793,21 +800,10 @@ for field in ("repository", "license"):
     if source.get(field) != expected[field]:
         raise SystemExit(f"component {component} source {field} mismatch")
 
-if os.environ["artifact_mode"] == "development" and component == "fre3nderscreen":
-    commit = source.get("commit")
-    if (not isinstance(commit, str)
-            or len(commit) != 40
-            or any(ch not in "0123456789abcdef" for ch in commit)):
-        raise SystemExit("component fre3nderscreen source commit is invalid")
-
-    expected_release = f"{expected['release'].rsplit('.', 1)[0]}.{commit[:7]}"
-    if source.get("release") != expected_release:
-        raise SystemExit("component fre3nderscreen source release mismatch")
-else:
-    if source.get("commit") != expected["commit"]:
-        raise SystemExit(f"component {component} source commit mismatch")
-    if "release" in expected and source.get("release") != expected["release"]:
-        raise SystemExit(f"component {component} source release mismatch")
+if source.get("commit") != expected["commit"]:
+    raise SystemExit(f"component {component} source commit mismatch")
+if "release" in expected and source.get("release") != expected["release"]:
+    raise SystemExit(f"component {component} source release mismatch")
 PY
 	then
 		return 1
@@ -820,8 +816,7 @@ PY
 record_rootfs_components() {
 	manifest=$1/build-manifest.json
 	python3 - "$manifest" \
-		"$moonraker_component/component-manifest.json" \
-		"$fre3nderscreen_component/component-manifest.json" <<'PY'
+		"$moonraker_component/component-manifest.json" <<'PY'
 import json
 import pathlib
 import sys
@@ -1467,7 +1462,8 @@ check_rootfs() {
 	for init_script in S10mdev S20fre3nder-provision S30fre3nder-user \
 		S40fre3nder-network S50dropbear S59fre3nder-klipper-mcu \
 		S60fre3nder-klipper \
-		S61fre3nder-moonraker S64fre3nder-display; do
+		S61fre3nder-moonraker S63fre3nder-factory-app \
+		S64fre3nder-display; do
 		[ -x "$target/etc/init.d/$init_script" ]
 	done
 	[ ! -e "$target/etc/init.d/S64fre3nderscreen" ]
@@ -1481,6 +1477,8 @@ check_rootfs() {
 		S59fre3nder-klipper-mcu \
 		S60fre3nder-klipper \
 		S61fre3nder-moonraker \
+		S63fre3nder-camera \
+		S63fre3nder-factory-app \
 		S64fre3nder-display | sort -C
 	[ -n "$busybox_config" ]
 	[ -n "$dropbear_options" ]
@@ -1579,7 +1577,6 @@ check_rootfs() {
 	[ -f "$target/usr/share/fre3nder/defaults/printer.cfg" ]
 	[ -f "$target/usr/share/fre3nder/defaults/moonraker.conf" ]
 	[ -f "$target/usr/share/fre3nder/defaults/camera.conf" ]
-	[ -f "$target/usr/share/fre3nder/defaults/fre3nderscreen.json" ]
 	cmp -s "$project/configs/klipper-f005/printer-f005-mainline.cfg" \
 		"$target/usr/share/fre3nder/defaults/printer.cfg"
 	cmp -s \
@@ -1588,9 +1585,6 @@ check_rootfs() {
 	cmp -s \
 		"$project/configs/x2000/rootfs-overlay/usr/share/fre3nder/defaults/camera.conf" \
 		"$target/usr/share/fre3nder/defaults/camera.conf"
-	cmp -s \
-		"$project/configs/x2000/rootfs-overlay/usr/share/fre3nder/defaults/fre3nderscreen.json" \
-		"$target/usr/share/fre3nder/defaults/fre3nderscreen.json"
 	grep -Fxq 'x2000_passive_uart: True' \
 		"$target/usr/share/fre3nder/defaults/printer.cfg"
 	file "$target/usr/bin/klipper_mcu" |
@@ -1666,21 +1660,19 @@ check_rootfs() {
 	[ "$(readlink "$moonraker_env/bin/python")" = /usr/bin/python3 ]
 	[ "$(readlink "$moonraker_env/bin/pip")" = /usr/bin/pip3 ]
 	[ -d "$moonraker_env/lib/python3.12/site-packages" ]
-	fre3nderscreen="$target/opt/fre3nder/fre3nderscreen/fre3nderscreen"
-	[ -x "$fre3nderscreen" ] && [ ! -L "$fre3nderscreen" ]
-	file "$fre3nderscreen" | grep -q 'ELF 32-bit LSB.*MIPS, MIPS32 rel2'
-	file "$fre3nderscreen" | grep -Fq 'statically linked'
-	readelf -h "$fre3nderscreen" | grep -Eq 'Flags:.*nan2008, o32, mips32r2'
-	readelf -A "$fre3nderscreen" |
-		grep -Fq 'FP ABI: Hard float (32-bit CPU, Any FPU)'
-	if readelf -l "$fre3nderscreen" | grep -Eq '^[[:space:]]*INTERP[[:space:]]'; then
-		echo 'RootFS Fre3nderScreen binary unexpectedly contains a PT_INTERP segment' >&2
-		exit 1
-	fi
-	[ -f "$target/usr/share/fre3nderscreen/themes/blue.json" ]
-	[ -f "$target/usr/share/licenses/fre3nderscreen/COPYING" ]
-	[ -f "$target/usr/share/licenses/fre3nderscreen/DEJAVU-FONTS-LICENSE" ]
-	[ -f "$target/usr/share/licenses/fre3nderscreen/MATERIAL-DESIGN-ICONS-LICENSE" ]
+	factory_seed=${FRE3NDER_FACTORY_FRE3NDERSCREEN_APP:?}
+	rootfs_seed="$target/usr/share/fre3nder/factory-apps/fre3nderscreen.fre3app"
+	[ -f "$rootfs_seed" ] && [ ! -L "$rootfs_seed" ]
+	[ "$(stat -c '%a' "$rootfs_seed")" = 644 ]
+	cmp -s "$factory_seed" "$rootfs_seed"
+	for legacy in \
+		"$target/opt/fre3nder/fre3nderscreen" \
+		"$target/usr/share/fre3nderscreen" \
+		"$target/usr/share/licenses/fre3nderscreen" \
+		"$target/usr/share/fre3nder/defaults/fre3nderscreen.json"; do
+		[ ! -e "$legacy" ] && [ ! -L "$legacy" ]
+	done
+	! grep -Fq 'fre3nderscreen' "$target/etc/init.d/S30fre3nder-user"
 	display_service="$target/etc/init.d/S64fre3nder-display"
 	grep -Fxq 'input_name=${FRE3NDER_DISPLAY_INPUT_NAME:-ns2009_ts}' \
 		"$display_service"
@@ -1850,9 +1842,8 @@ build() {
 	prepare_buildroot
 	prepare_klipper_overlay
 	prepare_rootfs_component moonraker "$moonraker_component" "$moonraker_overlay"
-	prepare_rootfs_component fre3nderscreen "$fre3nderscreen_component" "$fre3nderscreen_overlay"
 	brout="$work/buildroot-output-fre3nder"
-	extra_overlay="$klipper_overlay $moonraker_overlay $fre3nderscreen_overlay"
+	extra_overlay="$klipper_overlay $moonraker_overlay"
 	configure_buildroot "$brout" "$extra_overlay"
 	make -C "$buildroot" O="$brout" -j"$jobs" toolchain
 	write_buildroot_toolchain_fingerprint "$brout"
@@ -1964,10 +1955,9 @@ build_rootfs_only() {
 	prepare_buildroot
 	prepare_klipper_overlay
 	prepare_rootfs_component moonraker "$moonraker_component" "$moonraker_overlay"
-	prepare_rootfs_component fre3nderscreen "$fre3nderscreen_component" "$fre3nderscreen_overlay"
 	brout="$work/buildroot-output-fre3nder"
 	configure_buildroot "$brout" \
-		"$klipper_overlay $moonraker_overlay $fre3nderscreen_overlay"
+		"$klipper_overlay $moonraker_overlay"
 	make -C "$buildroot" O="$brout" -j"${JOBS:-4}" toolchain
 	write_buildroot_toolchain_fingerprint "$brout"
 	build_klipper_chelper "$brout"
@@ -2010,7 +2000,7 @@ case "${1:-build}" in
 	build-kernel-only) prepare_artifact_provenance; build_kernel_only ;;
 	build-rootfs-only) prepare_artifact_provenance; build_rootfs_only ;;
 	build-moonraker-component) build_moonraker_component ;;
-	build-fre3nderscreen-component) "$project/build/x2000/fre3nderscreen-component.sh" build ;;
+	build-fre3nderscreen-app) "$project/build/x2000/fre3nderscreen-component.sh" build ;;
 	prepare-buildroot-toolchain) prepare_buildroot_toolchain ;;
-	*) echo 'usage: fre3nder-x2000 {fetch-kernel|fetch-rootfs|fetch-buildroot|fetch-moonraker|fetch-fre3nderscreen|build|build-kernel-only|build-rootfs-only|build-moonraker-component|build-fre3nderscreen-component|prepare-buildroot-toolchain}' >&2; exit 2 ;;
+	*) echo 'usage: fre3nder-x2000 {fetch-kernel|fetch-rootfs|fetch-buildroot|fetch-moonraker|fetch-fre3nderscreen|build|build-kernel-only|build-rootfs-only|build-moonraker-component|build-fre3nderscreen-app|prepare-buildroot-toolchain}' >&2; exit 2 ;;
 esac

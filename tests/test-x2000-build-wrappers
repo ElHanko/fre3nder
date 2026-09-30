@@ -70,11 +70,11 @@ git -C "$screen_fixture" init -q
 if X2000_BUILD_DOCKER="$fake_docker" X2000_TEST_DOCKER_LOG="$docker_log" \
 	"$screen_fixture/scripts/build-x2000-fre3nderscreen" --develop \
 	>/dev/null 2>&1; then
-	echo 'Fre3nderScreen wrapper accepted a missing component artifact' >&2
+	echo 'Fre3nderScreen wrapper accepted a missing neutral app artifact' >&2
 	exit 1
 fi
 grep -Fq 'fetch-fre3nderscreen' "$docker_log"
-grep -Fq 'build-fre3nderscreen-component' "$docker_log"
+grep -Fq 'build-fre3nderscreen-app' "$docker_log"
 grep -Fq 'FRE3NDER_ARTIFACT_MODE=development' "$docker_log"
 grep -F 'fetch-fre3nderscreen' "$docker_log" |
 	grep -Fq 'FRE3NDER_ARTIFACT_MODE=development'
@@ -106,15 +106,14 @@ grep -Fq 'prepare-buildroot-toolchain' "$docker_log"
 grep -Fq 'FRE3NDER_ARTIFACT_MODE=development' "$docker_log"
 
 : > "$docker_log"
-X2000_BUILD_DOCKER="$fake_docker" X2000_TEST_DOCKER_LOG="$docker_log" \
-	"$buildroot_builder" --assemble --develop
-grep -Fq 'fetch-rootfs' "$docker_log"
-grep -Fq 'build-rootfs-only' "$docker_log"
-grep -Fq 'FRE3NDER_ARTIFACT_MODE=development' "$docker_log"
-grep -Fq 'FRE3NDER_REUSE_PREPARED_TOOLCHAIN=1' "$docker_log"
-grep -Fq 'FRE3NDER_OTA_PUBLIC_KEY=/ota-public-key' "$docker_log"
-grep -Fq -- "-v $generated_keys/public.pem:/ota-public-key:ro" "$docker_log"
-! grep -Fq 'fetch-kernel' "$docker_log"
+if FRE3NDER_FACTORY_FRE3NDERSCREEN_APP="$tmp/missing-seed" \
+	X2000_BUILD_DOCKER="$fake_docker" X2000_TEST_DOCKER_LOG="$docker_log" \
+	"$buildroot_builder" --assemble --develop >/dev/null 2>&1; then
+	echo 'RootFS assembly accepted a missing factory app' >&2
+	exit 1
+fi
+! grep -Fq 'build-rootfs-only' "$docker_log"
+grep -Fq -- '-v "$factory_seed:/factory-fre3nderscreen-app:ro"' "$buildroot_builder"
 
 for invalid in --kernel-build --f005-build --rootfs-only --kernel-only --unknown; do
 	if "$kernel_builder" "$invalid" >/dev/null 2>&1; then
@@ -311,7 +310,6 @@ printf '%s\n' \
 	'kernel ' \
 	'moonraker ' \
 	'buildroot --toolchain default' \
-	'fre3nderscreen ' \
 	'buildroot --assemble default' | cmp -s - "$tmp/wrapper.log"
 
 full="$fixture/local/production/artifacts/x2000/full"
@@ -325,7 +323,6 @@ printf '%s\n' \
 	'kernel --develop' \
 	'moonraker --develop' \
 	'buildroot --toolchain --develop default' \
-	'fre3nderscreen --develop' \
 	'buildroot --assemble --develop default' | cmp -s - "$tmp/wrapper.log"
 [ -f "$fixture/local/production/artifacts/x2000/full/rootfs.squashfs" ]
 
@@ -344,7 +341,6 @@ run_orchestrator --rootfs-only
 printf '%s\n' \
 	'moonraker ' \
 	'buildroot --toolchain default' \
-	'fre3nderscreen ' \
 	'buildroot --assemble default' | cmp -s - "$tmp/wrapper.log"
 [ ! -e "$fixture/local/production/artifacts/x2000/kernel-only" ]
 [ -d "$fixture/local/production/artifacts/x2000/rootfs-only" ]
@@ -354,7 +350,6 @@ run_orchestrator --rootfs-only --develop
 printf '%s\n' \
 	'moonraker --develop' \
 	'buildroot --toolchain --develop default' \
-	'fre3nderscreen --develop' \
 	'buildroot --assemble --develop default' | cmp -s - "$tmp/wrapper.log"
 
 # F005 is an additional RootFS input and does not define build scope.
@@ -364,7 +359,6 @@ printf '%s\n' \
 	'f005' \
 	'moonraker ' \
 	'buildroot --toolchain default' \
-	'fre3nderscreen ' \
 	"buildroot --assemble $fixture/local/production/artifacts/f005/candidate/klipper-f005-mainline.bin" | \
 	cmp -s - "$tmp/wrapper.log"
 
@@ -373,7 +367,6 @@ printf '%s\n' \
 	'f005' \
 	'moonraker ' \
 	'buildroot --toolchain default' \
-	'fre3nderscreen ' \
 	"buildroot --assemble $fixture/local/production/artifacts/f005/candidate/klipper-f005-mainline.bin" | \
 	cmp -s - "$tmp/wrapper.log"
 

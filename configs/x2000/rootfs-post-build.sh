@@ -3,7 +3,15 @@ set -eu
 
 target=$1
 ota_public_key=${FRE3NDER_OTA_PUBLIC_KEY:?FRE3NDER_OTA_PUBLIC_KEY is required}
+factory_seed=${FRE3NDER_FACTORY_FRE3NDERSCREEN_APP:?FRE3NDER_FACTORY_FRE3NDERSCREEN_APP is required}
 linux_firmware_license="$BUILD_DIR/linux-firmware-20250211/LICENCE.cypress"
+
+[ -f "$factory_seed" ] && [ ! -L "$factory_seed" ] || {
+	echo 'Fre3nderScreen factory app must be a regular non-symlink file' >&2
+	exit 1
+}
+install -D -m 0644 "$factory_seed" \
+	"$target/usr/share/fre3nder/factory-apps/fre3nderscreen.fre3app"
 
 [ -f "$linux_firmware_license" ]
 install -D -m 0644 "$linux_firmware_license" \
@@ -18,14 +26,19 @@ mv "$moonraker_transport_git" "$moonraker_git"
 [ -d "$moonraker_git" ]
 [ ! -e "$moonraker_transport_git" ]
 
-# Development Buildroot output may be reused. Remove obsolete GuppyScreen
-# paths so the Fre3nderScreen rename is deterministic with a stale target tree.
+# Development Buildroot output may be reused. Remove obsolete embedded display
+# paths so stale target trees cannot retain a legacy RootFS component.
 rm -rf -- \
 	"$target/etc/init.d/S64fre3nder-guppyscreen" \
 	"$target/opt/fre3nder/guppyscreen" \
 	"$target/usr/share/fre3nder/defaults/guppyconfig.json" \
 	"$target/usr/share/guppyscreen" \
-	"$target/usr/share/licenses/guppyscreen"
+	"$target/usr/share/licenses/guppyscreen" \
+	"$target/opt/fre3nder/fre3nderscreen" \
+	"$target/usr/share/fre3nderscreen" \
+	"$target/usr/share/licenses/fre3nderscreen" \
+	"$target/usr/share/fre3nder/defaults/fre3nderscreen.json" \
+	"$target/etc/init.d/S64fre3nderscreen"
 
 for obsolete in \
 	"$target/etc/init.d/S64fre3nder-guppyscreen" \
@@ -82,7 +95,6 @@ mv "$mdev_tmp" "$mdev_conf"
 
 # Remove competing/stale init paths that must not survive incremental assembly.
 rm -f "$target/etc/init.d/S50lighttpd"
-rm -f "$target/etc/init.d/S64fre3nderscreen"
 
 chmod 0755 \
 	"$target/usr/bin/fre3nder" \
@@ -100,6 +112,7 @@ chmod 0755 \
 	"$target/etc/init.d/S61fre3nder-moonraker" \
 	"$target/etc/init.d/S62fre3nder-web" \
 	"$target/etc/init.d/S63fre3nder-camera" \
+	"$target/etc/init.d/S63fre3nder-factory-app" \
 	"$target/etc/init.d/S64fre3nder-display" \
 	"$target/etc/init.d/S65fre3nder-app-runtime" \
 	"$target/usr/libexec/fre3nder/f005-mcu-state" \

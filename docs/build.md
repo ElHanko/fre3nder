@@ -37,24 +37,34 @@ scripts/generate-ota-keypair  # once per build environment
 scripts/build-x2000
 ```
 
-The default command builds Kernel, Moonraker, the Buildroot toolchain,
-Fre3nderScreen, and RootFS, then composes a signed OTA package. For a development
-artifact from the current worktree, use:
+The default command builds Kernel, Moonraker, the Buildroot toolchain, and
+RootFS, then composes a signed OTA package. RootFS assembly requires an already
+signed Fre3nderScreen factory `.fre3app` at
+`local/production/factory-apps/fre3nderscreen.fre3app`, or an explicit
+`FRE3NDER_FACTORY_FRE3NDERSCREEN_APP` path. The package must match the selected
+release or development build mode. For a development artifact from the current
+worktree, use:
 
 ```sh
 scripts/build-x2000 --develop
 ```
 
 The orchestrator runs the Kernel builder, then Moonraker, Buildroot
-`--toolchain`, Fre3nderScreen, and Buildroot `--assemble`. It uses the pinned
+`--toolchain`, and Buildroot `--assemble`. It uses the pinned
 Buildroot internal MIPS toolchain for the host components. The resulting
 RootFS is read-only SquashFS.
+
+Build Fre3nderScreen separately with
+[`scripts/build-x2000-fre3nderscreen`](../scripts/build-x2000-fre3nderscreen),
+then import and sign its neutral artifact with `fre3nder-apps`. RootFS assembly
+validates the finished package using the same package core as runtime install
+and embeds it without unpacking. Its SHA256 is recorded under `factory_apps` in
+the RootFS build manifest; the seed is not part of the Fre3nder build-input hash.
 
 The component scripts are
 [`scripts/build-x2000-kernel`](../scripts/build-x2000-kernel),
 [`scripts/build-x2000-moonraker`](../scripts/build-x2000-moonraker),
-[`scripts/build-x2000-buildroot`](../scripts/build-x2000-buildroot), and
-[`scripts/build-x2000-fre3nderscreen`](../scripts/build-x2000-fre3nderscreen).
+[`scripts/build-x2000-buildroot`](../scripts/build-x2000-buildroot).
 Use the top-level orchestrator for normal build scopes.
 
 The host artifact directories are:
@@ -62,8 +72,8 @@ The host artifact directories are:
 | Directory under `local/production/artifacts/x2000/` | Result |
 | --- | --- |
 | `kernel-only/` | `kernel.uImage`, DTB, effective kernel configuration, manifest and checksums |
-| `moonraker/`, `fre3nderscreen/` | Validated component overlay archives |
-| `fre3nderscreen/app/` | Neutral binary, themes, licenses, source/ABI manifest and checksums from the same Fre3nderScreen build |
+| `moonraker/` | Validated component overlay archive |
+| `fre3nderscreen/app/` | Separate neutral binary, themes, licenses, source/ABI manifest and checksums |
 | `rootfs-only/` | `rootfs.squashfs`, effective Buildroot configuration, manifest and checksums |
 | `full/` | Combined individual artifacts, manifest, checksums and `fre3nder-<version>-ender3-v3-ke.ota` |
 
@@ -77,7 +87,7 @@ trust-anchor relationship are specified in [OTA architecture](ota.md).
 | Command | Builds | Does not build | Output |
 | --- | --- | --- | --- |
 | `scripts/build-x2000 --kernel-only` | Buildroot toolchain and linux-firmware prerequisites, then Kernel | RootFS artifact or OTA package | `kernel-only/` |
-| `scripts/build-x2000 --rootfs-only` | Moonraker, Buildroot toolchain/RootFS, Fre3nderScreen | Kernel or OTA package | Component directories and `rootfs-only/` |
+| `scripts/build-x2000 --rootfs-only` | Moonraker and Buildroot toolchain/RootFS | Kernel, Fre3nderScreen cross-build, or OTA package | Moonraker component and `rootfs-only/` |
 | `scripts/build-x2000 --compose-only` | No component | Kernel and RootFS | Validated `full/` and signed OTA package |
 
 Add `--develop` to a Kernel-only or RootFS-only development build. Add

@@ -10,6 +10,7 @@ work_root="$local_root/work/x2000"
 release_manifest="$root/configs/x2000/f005-mcu-release.json"
 f005_firmware=${FRE3NDER_F005_FIRMWARE:-"$local_root/artifacts/x2000/f005/klipper-f005-mainline.bin"}
 ota_public_key=${FRE3NDER_OTA_PUBLIC_KEY:-"$local_root/keys/ota/public.pem"}
+factory_seed=${FRE3NDER_FACTORY_FRE3NDERSCREEN_APP:-"$local_root/factory-apps/fre3nderscreen.fre3app"}
 docker_cmd=${X2000_BUILD_DOCKER:-docker}
 artifact_mode=release
 phase=
@@ -66,6 +67,36 @@ if [ "$phase" = --toolchain ]; then
 	exit 0
 fi
 
+[ -f "$factory_seed" ] && [ ! -L "$factory_seed" ] || {
+	echo "missing regular Fre3nderScreen factory app: $factory_seed" >&2
+	exit 1
+}
+PYTHONDONTWRITEBYTECODE=1 python3 - "$root" "$factory_seed" "$artifact_mode" <<'PY'
+import importlib.machinery
+import importlib.util
+from pathlib import Path
+import sys
+
+root, seed = map(Path, sys.argv[1:3])
+mode = sys.argv[3]
+core_path = root / "configs/x2000/rootfs-overlay/usr/libexec/fre3nder-package-core"
+loader = importlib.machinery.SourceFileLoader("fre3nder_factory_package_core", str(core_path))
+spec = importlib.util.spec_from_loader(loader.name, loader)
+core = importlib.util.module_from_spec(spec)
+loader.exec_module(core)
+core.BUILTIN_KEYS = root / "configs/x2000/rootfs-overlay/usr/share/fre3nder/app-keys"
+package = core.verify_package(seed)
+if (package["name"] != "fre3nderscreen"
+        or package["publisher"] != "fre3nder-official"
+        or package["display_frontend"] is not True
+        or package["display_api"] != 1
+        or package["autostart"] is not False):
+    raise SystemExit("factory app identity or display contract is invalid")
+serial = package["release_serial"]
+if (mode == "development" and serial != 0) or (mode == "release" and serial < 1):
+    raise SystemExit("factory app release serial does not match build mode")
+PY
+
 command -v openssl >/dev/null 2>&1 || {
 	echo 'openssl is required to validate the OTA public key' >&2
 	exit 1
@@ -116,8 +147,10 @@ PY
 	-e FRE3NDER_REUSE_PREPARED_TOOLCHAIN=1 \
 	-e FRE3NDER_F005_FIRMWARE=/f005-firmware \
 	-e FRE3NDER_OTA_PUBLIC_KEY=/ota-public-key \
+	-e FRE3NDER_FACTORY_FRE3NDERSCREEN_APP=/factory-fre3nderscreen-app \
 	-v "$f005_firmware:/f005-firmware:ro" \
 	-v "$ota_public_key:/ota-public-key:ro" \
+	-v "$factory_seed:/factory-fre3nderscreen-app:ro" \
 	-v "$root:/project" \
 	-v "$work_root:/work" \
 	"$image" build-rootfs-only

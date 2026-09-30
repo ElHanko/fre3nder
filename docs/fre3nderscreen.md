@@ -1,11 +1,12 @@
 # Fre3nderScreen local Core-UI
 
-Status: **RELEASE 2026.1 PINNED; NEW ROOTLESS INTEGRATION NOT YET HARDWARE-QUALIFIED**.
+Status: **Factory `.fre3app` integration implemented; new RootFS and boot path
+not yet build- or hardware-qualified**.
 
 Fre3nderScreen is Fre3nder's dedicated native local Core-UI for the Ender-3 V3
-KE. It is built from source into the immutable RootFS baseline and is neither a
-managed application nor a web frontend. Fluidd remains the independently
-selected LAN web interface.
+KE. It is cross-built from source into a neutral artifact, then packaged as a
+normal signed display `.fre3app`. The immutable RootFS carries only its signed
+factory seed. Fluidd remains the independently selected LAN web interface.
 
 ```text
 Web:    Klipper <-> Moonraker <-> Fluidd / alternative web frontends
@@ -21,8 +22,8 @@ The productive source is the Fre3nder-maintained fork
 [`ElHanko/fre3nderscreen`](https://github.com/ElHanko/fre3nderscreen), pinned to:
 
 ```text
-release:      2026.1
-commit:       4da29a130d3ac82572e5d86ea55420d2998bf31f
+release:      2026.1.1
+commit:       4c6de8a8773da06ea6bca2cf48b0be540aa3ba0a
 license:      GPL-3.0-only
 ```
 
@@ -43,17 +44,16 @@ submodule identities remain:
 | spdlog | `ddce42155e67589a8b1534c4935242f759c07646` | MIT |
 | vendored wpa_supplicant control client | pinned by the Fre3nderScreen commit | BSD-3-Clause |
 
-The exact records are machine-readable in `configs/x2000/sources.json`.
-License texts are copied into `/usr/share/licenses/fre3nderscreen/` in the
-component payload. The GPL corresponding-source boundary is the pinned public
-fork source, its pinned submodules, the source-carried patches, and the
-reproducible builder.
+The release records are machine-readable in `configs/x2000/sources.json`.
+The neutral artifact contains the byte-exact qualified license texts, which
+`fre3nder-apps` imports unchanged into the signed package payload. The GPL
+corresponding-source boundary is the public fork source, its recorded
+submodules, source-carried patches, and the reproducible builder.
 
-Release 2026.1 was validated in the Fre3nderScreen repository. Its DejaVu font
-and Material Design Icons asset license texts are packaged with the existing
-component licenses. The inherited DejaVu font's exact version is not established.
+DejaVu font and Material Design Icons notices accompany the package payload.
+The inherited DejaVu font's exact version is not established.
 
-The component builder applies the three dependency patches shipped by the
+The artifact builder applies the three dependency patches shipped by the
 pinned source tree. It builds with the Fre3nder Buildroot GCC 13.4.0 /
 binutils 2.43.1 MIPS userspace toolchain. Because libhv embeds `__DATE__` and
 `__TIME__`, `SOURCE_DATE_EPOCH` is derived from the pinned source commit.
@@ -83,61 +83,30 @@ are not part of the Fre3nderScreen production scope.
 
 ## Build and RootFS contract
 
-The component flow is:
+The separate `scripts/build-x2000-fre3nderscreen` cross-build produces
+`local/production/artifacts/x2000/fre3nderscreen/app/` with the binary, themes,
+licenses, manifest, and checksums. `fre3nder-apps` imports it, builds, and signs
+the `.fre3app` in a separate authorized step. The RootFS assembly takes that
+finished package through `FRE3NDER_FACTORY_FRE3NDERSCREEN_APP`, verifies it with
+the package core and official publisher key, and embeds it unchanged at
+`/usr/share/fre3nder/factory-apps/fre3nderscreen.fre3app`.
 
-```text
-scripts/build-x2000
-  ├── scripts/build-x2000-moonraker
-  │     └── artifacts/x2000/moonraker/rootfs-overlay.tar
-  ├── scripts/build-x2000-buildroot --toolchain
-  ├── scripts/build-x2000-fre3nderscreen
-  │     └── artifacts/x2000/fre3nderscreen/rootfs-overlay.tar
-  └── scripts/build-x2000-buildroot --assemble
-        └── artifacts/x2000/rootfs-only/rootfs.squashfs
-```
+On a fresh persistent system, `S63fre3nder-factory-app` installs this seed
+through the package core and explicitly selects it. The persistent
+`/home/.fre3nder/factory-apps/fre3nderscreen` marker records `pending` or
+`complete`. A completed bootstrap is never rerun after OTA, removal, or a
+different display choice. `S64fre3nder-display` remains a generic manager of
+framebuffer, touch, optional backlight, and optional beeper access; S65 skips
+display frontends.
 
-The Fre3nderScreen component contains only:
-
-```text
-/opt/fre3nder/fre3nderscreen/fre3nderscreen
-/usr/share/fre3nderscreen/themes/*.json
-/usr/share/licenses/fre3nderscreen/*
-```
-
-The project RootFS overlay supplies:
-
-```text
-/etc/init.d/S30fre3nder-user
-/etc/init.d/S64fre3nderscreen
-/usr/share/fre3nder/defaults/fre3nderscreen.json
-```
-
-The service seeds a missing configuration once at:
-
-```text
-/home/fre3nder/.fre3nder/fre3nderscreen/fre3nderscreen.json
-```
-
-The new path intentionally starts a clean Fre3nderScreen configuration rather
-than importing the obsolete nested GuppyScreen schema. `/home` still owns the
-persistent user configuration. Logs go to
-`/home/fre3nder/printer_data/logs/fre3nderscreen.log`; early process output and
-service state remain volatile under `/run/fre3nderscreen/`.
-
-The service discovers exactly one Linux input event named `ns2009_ts`, exposes
-that event to the application, provides the backlight power path and optional
-`pwm-beeper`, and never waits for Moonraker readiness. Missing local-UI
-prerequisites stop only the local UI; they do not gate Dropbear, Klipper,
+The unprivileged app service stores its settings at
+`$FRE3NDER_APP_DATA_DIR/fre3nderscreen.json`. On first setup it copies an
+existing regular legacy config from
+`/home/fre3nder/.fre3nder/fre3nderscreen/fre3nderscreen.json`; otherwise it
+uses the packaged default. It never deletes the legacy file. The old nested
+GuppyScreen schema is not imported. App logs and PID live under the app data
+directory. Missing local UI prerequisites do not gate Dropbear, Klipper,
 Moonraker, or Fluidd.
-
-After the persistent root is active, S30 ensures the locked `fre3nder` account
-(UID/GID 1000), its home and screen paths, and membership in `video`, `input`,
-and `beep`. S64 retains root control of its PID, status, and input link; it
-grants only the selected framebuffer, touch, optional beeper, and backlight
-nodes to those groups and starts Fre3nderScreen as `fre3nder`. The screen can
-read the input link and write only its volatile output log under
-`/run/fre3nderscreen`. The G-code directory remains root-owned with group
-read/traverse access for `fre3nder` and no group write access.
 
 ## Qualification boundary
 

@@ -92,25 +92,25 @@ The platform display manager is `/etc/init.d/S64fre3nder-display`. It owns
 hardware discovery and permission setup, then asks the package core to run only
 the explicitly selected Display Frontend API v1 application. The generic S65
 application runtime skips display frontends entirely. Packaging Fre3nderScreen
-itself as a `.fre3app` and removing its old embedded RootFS component are the
-next integration steps.
+itself as a `.fre3app` uses this same generic display path.
 
-## Planned Fre3nderScreen factory app
+## Fre3nderScreen factory app
 
-The final RootFS will carry an already signed package at
-`/usr/share/fre3nder/factory-apps/fre3nderscreen.fre3app`. The RootFS build
-will validate it against the official publisher key before embedding it.
+The separate X2000 Fre3nderScreen cross-build produces a neutral app artifact.
+`fre3nder-apps` imports that artifact and signs a `.fre3app`. The RootFS build
+verifies the finished package with the package core and the official publisher
+key, then embeds it unchanged at
+`/usr/share/fre3nder/factory-apps/fre3nderscreen.fre3app`.
 This package is a seed for a new system, not an update channel: later app
 updates, replacement, selection, and removal use the normal package core.
 
-A planned `S63fre3nder-factory-app` boot step will run after the platform
-services and before `S64fre3nder-display`. It will use the existing package
-core for separate `install` and `display-select` operations; it will not
-unpack the package into `/opt` itself. Bootstrap failures will be reported
-without blocking Klipper, Moonraker, or SSH.
+`S63fre3nder-factory-app` runs after the platform services and before
+`S64fre3nder-display`. It uses the package core for separate `install` and
+`display-select` operations. Bootstrap failures are reported without blocking
+Klipper, Moonraker, or SSH.
 
 The root-controlled file `/home/.fre3nder/factory-apps/fre3nderscreen`
-will contain either `pending` or `complete`:
+contains either `pending` or `complete`:
 
 - With no marker and no existing display-app or user decision, write
   `pending`, install the factory package through the package core, explicitly
@@ -125,8 +125,8 @@ will contain either `pending` or `complete`:
   import on an already initialized system. Damaged or ambiguous package
   state must fail closed without automatic overwrite.
 
-This is the target design; the factory package staging and boot step have
-not yet been implemented.
+The seed path may change during an OTA. A `complete` marker remains in
+persistent `/home`, so the new seed is never imported over a later user choice.
 
 ## Platform web service
 

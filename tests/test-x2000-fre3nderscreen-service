@@ -255,22 +255,23 @@ for line in (
     assert line in user, line
 
 assert "S64fre3nder-display" in post_build
-assert 'rm -f "$target/etc/init.d/S64fre3nderscreen"' in post_build
+assert '"$target/etc/init.d/S63fre3nder-factory-app"' in post_build
+assert '"$target/etc/init.d/S64fre3nderscreen"' in post_build
+assert "fre3nderscreen" not in user
 
-# Fre3nderScreen remains an embedded build component only until the next phase
-# packages it as the first display .fre3app.
 assert source["repository"] == "https://github.com/ElHanko/fre3nderscreen.git"
 assert source["release"] == "2026.1.1"
 assert source["commit"] == "4c6de8a8773da06ea6bca2cf48b0be540aa3ba0a"
 assert source["license"] == "GPL-3.0-only"
-assert 'stage/opt/fre3nder/fre3nderscreen' in component
+assert '"$tmp/app/bin/fre3nderscreen"' in component
+assert 'rootfs-overlay.tar' not in component
 
 for source_name, output_name in (
     ("DEJAVU-FONTS-LICENSE.txt", "DEJAVU-FONTS-LICENSE"),
     ("MATERIAL-DESIGN-ICONS-LICENSE.txt", "MATERIAL-DESIGN-ICONS-LICENSE"),
 ):
     assert f'"$source_dir/licenses/{source_name}"' in component
-    assert f'"$stage/usr/share/licenses/fre3nderscreen/{output_name}"' in component
+    assert f'"$tmp/app/licenses/{output_name}"' in component
 PY
 
 echo 'fre3nder-x2000 generic display service checks: PASS'

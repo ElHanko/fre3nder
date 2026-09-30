@@ -1,0 +1,174 @@
+#!/usr/bin/python3
+"""Install the factory display app once on a fresh persistent Fre3nder root."""
+
+import json
+import os
+from pathlib import Path
+import stat
+import subprocess
+import sys
+import tempfile
+
+
+APP_NAME = "fre3nderscreen"
+PACKAGE_CORE = Path(os.environ.get("FRE3NDER_PACKAGE_CORE", "/usr/libexec/fre3nder-package-core"))
+SEED = Path(os.environ.get(
+    "FRE3NDER_FACTORY_FRE3NDERSCREEN_APP",
+    "/usr/share/fre3nder/factory-apps/fre3nderscreen.fre3app",
+))
+STATE_ROOT = Path(os.environ.get("FRE3NDER_PACKAGE_STATE_ROOT", "/home/.fre3nder"))
+MARKER = Path(os.environ.get(
+    "FRE3NDER_FACTORY_MARKER",
+    str(STATE_ROOT / "factory-apps" / APP_NAME),
+))
+ROOT_STATUS = Path(os.environ.get("FRE3NDER_ROOT_STATE", "/run/fre3nder-root")) / "status"
+
+
+def regular_file(path):
+    try:
+        return stat.S_ISREG(path.lstat().st_mode)
+    except FileNotFoundError:
+        return False
+
+
+def safe_directory(path, create=False):
+    if create:
+        path.mkdir(parents=True, exist_ok=True, mode=0o700)
+    if not path.exists() and not path.is_symlink():
+        return False
+    info = path.lstat()
+    if (not stat.S_ISDIR(info.st_mode) or info.st_uid != os.geteuid()
+            or info.st_mode & 0o022):
+        raise ValueError(f"unsafe package state directory: {path}")
+    return True
+
+
+def marker_state():
+    if not MARKER.exists() and not MARKER.is_symlink():
+        return None
+    if not regular_file(MARKER):
+        raise ValueError("factory marker is not a regular file")
+    value = MARKER.read_bytes()
+    if value not in (b"pending\n", b"complete\n"):
+        raise ValueError("factory marker has an invalid state")
+    return value.decode().strip()
+
+
+def check_package_layout():
+    packages = STATE_ROOT / "packages"
+    if not safe_directory(packages):
+        return
+    for entry in packages.iterdir():
+        if not stat.S_ISDIR(entry.lstat().st_mode) or not regular_file(entry / "installed"):
+            raise ValueError(f"ambiguous installed package state: {entry.name}")
+
+
+def write_marker(value):
+    safe_directory(STATE_ROOT, create=True)
+    safe_directory(MARKER.parent, create=True)
+    with tempfile.NamedTemporaryFile(mode="wb", dir=MARKER.parent, prefix=".fre3nderscreen.", delete=False) as stream:
+        staged = Path(stream.name)
+        try:
+            stream.write((value + "\n").encode())
+            stream.flush()
+            os.fsync(stream.fileno())
+            os.replace(staged, MARKER)
+        finally:
+            staged.unlink(missing_ok=True)
+
+
+def package_core(*args):
+    result = subprocess.run(
+        [str(PACKAGE_CORE), *args], capture_output=True, text=True, check=False,
+    )
+    try:
+        value = json.loads(result.stdout)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"package core {args[0]} returned invalid JSON") from exc
+    if (result.returncode != 0 or not isinstance(value, dict)
+            or value.get("api_version") != 1 or value.get("operation") != args[0]
+            or value.get("ok") is not True):
+        detail = value.get("error", result.stderr.strip()) if isinstance(value, dict) else result.stderr.strip()
+        raise ValueError(f"package core {args[0]} failed: {detail}")
+    return value
+
+
+def display_state():
+    value = package_core("display-list")
+    active = value.get("active")
+    apps = value.get("apps")
+    if (active is not None and not isinstance(active, str)) or not isinstance(apps, list):
+        raise ValueError("package core display state is invalid")
+    names = set()
+    for app in apps:
+        if (not isinstance(app, dict) or not isinstance(app.get("name"), str)
+                or app.get("display_frontend") is not True or app["name"] in names):
+            raise ValueError("package core display app state is invalid")
+        names.add(app["name"])
+    if active is not None and active not in names:
+        raise ValueError("active display selection has no installed display app")
+    return active, names
+
+
+def installed_factory_app():
+    value = package_core("list")
+    apps = value.get("apps")
+    if not isinstance(apps, list):
+        raise ValueError("package core app state is invalid")
+    names = set()
+    for app in apps:
+        if (not isinstance(app, dict) or not isinstance(app.get("name"), str)
+                or app["name"] in names):
+            raise ValueError("package core app state is invalid")
+        names.add(app["name"])
+        if app["name"] == APP_NAME and app.get("display_frontend") is not True:
+            raise ValueError("installed Fre3nderScreen is not a display app")
+    return APP_NAME in names
+
+
+def start():
+    if not regular_file(ROOT_STATUS) or ROOT_STATUS.read_bytes() != b"active\n":
+        return
+    safe_directory(STATE_ROOT)
+    safe_directory(MARKER.parent)
+    state = marker_state()
+    if state == "complete":
+        return
+    check_package_layout()
+    if not regular_file(PACKAGE_CORE) or not os.access(PACKAGE_CORE, os.X_OK):
+        raise ValueError("package core is unavailable")
+    active, apps = display_state()
+    if state is None:
+        if active is not None or apps:
+            write_marker("complete")
+            return
+        write_marker("pending")
+    elif active not in (None, APP_NAME) or apps - {APP_NAME}:
+        write_marker("complete")
+        return
+
+    if not installed_factory_app():
+        if not regular_file(SEED):
+            raise ValueError("factory seed is missing or not a regular file")
+        verified = package_core("verify", str(SEED)).get("package")
+        if (not isinstance(verified, dict) or verified.get("name") != APP_NAME
+                or verified.get("publisher") != "fre3nder-official"
+                or verified.get("display_frontend") is not True
+                or verified.get("display_api") != 1):
+            raise ValueError("factory seed has an invalid display app identity")
+        package_core("install", str(SEED))
+    package_core("display-select", APP_NAME)
+    write_marker("complete")
+
+
+if __name__ == "__main__":
+    if sys.argv[1:] == ["stop"]:
+        sys.exit(0)
+    if sys.argv[1:] != ["start"]:
+        print("usage: S63fre3nder-factory-app {start|stop}", file=sys.stderr)
+        sys.exit(2)
+    try:
+        start()
+    except (OSError, ValueError) as exc:
+        print(f"fre3nder factory app: DEGRADED: {exc}", file=sys.stderr)
+    sys.exit(0)

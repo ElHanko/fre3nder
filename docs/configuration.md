@@ -14,7 +14,7 @@ and input shaping, require independent calibration on another printer.
 | Klipper printer configuration | `/home/fre3nder/printer_data/config/printer.cfg` | Userdata in HOME; seeded once from the RootFS default if missing |
 | Moonraker main configuration | `/home/fre3nder/printer_data/config/moonraker.conf` | Userdata in HOME; seeded once, existing file retained |
 | Fre3nder Moonraker fragments | `/home/fre3nder/printer_data/config/fre3nder/*.conf` | Platform/app fragments in HOME; main config needs `[include fre3nder/*.conf]` |
-| Fre3nderScreen settings and touch calibration | `/home/fre3nder/.fre3nder/fre3nderscreen/fre3nderscreen.json` | Userdata in HOME; seeded once, then retained; obsolete GuppyScreen configuration is not imported |
+| Fre3nderScreen settings and touch calibration | `/home/fre3nder/.local/share/fre3nderscreen/fre3nderscreen.json` | App data; initialized once from the old regular Fre3nderScreen config if present, otherwise from the signed package default |
 | Web frontend selection and installed packages | `/home/.fre3nder/frontend/active` and `/home/.fre3nder/packages/` | Root-managed persistent package state; managed through `fre3nder app` |
 | SSH host identity | `/home/fre3nder/.fre3nder/ssh/` | Persistent host identity when persistent root is active |
 | WLAN and SSH boot provisioning | FAT32 USB root: `wpa_supplicant.conf`, `authorized_keys`, `enable_ssh` | Boot-local inputs copied to volatile `/run`; not baked into a build |

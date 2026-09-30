@@ -614,7 +614,7 @@ grep -Fq 'gcc.br_real' "$entrypoint"
 grep -Fq '[--develop] [--kernel-build] [--f005-build]' "$build_script"
 grep -Fq 'build-x2000-buildroot' "$build_script"
 grep -Fq 'build-x2000-moonraker' "$build_script"
-grep -Fq 'build-x2000-fre3nderscreen' "$build_script"
+! grep -Fq 'build-x2000-fre3nderscreen' "$build_script"
 grep -Fq 'build-x2000-kernel' "$build_script"
 grep -Fq 'build-f005' "$build_script"
 ! grep -Fq -- '--rootfs-only' "$build_script"
@@ -645,11 +645,11 @@ grep -Fq 'moonraker_commit=985c1d0bbeb90bc057d34a232c9dc3b05e0c6c8d' \
 	"$entrypoint"
 grep -Fq 'prepare_moonraker_overlay()' "$entrypoint"
 [ "$(grep -Fc 'prepare_moonraker_overlay' "$entrypoint")" -eq 2 ]
-grep -Fq 'extra_overlay="$klipper_overlay $moonraker_overlay $fre3nderscreen_overlay"' \
+grep -Fq 'extra_overlay="$klipper_overlay $moonraker_overlay"' \
 	"$entrypoint"
 ! grep -Fq 'wifi_overlay' "$entrypoint"
 grep -Fq 'prepare_rootfs_component moonraker' "$entrypoint"
-grep -Fq 'prepare_rootfs_component fre3nderscreen' "$entrypoint"
+! grep -Fq 'prepare_rootfs_component fre3nderscreen' "$entrypoint"
 grep -Fq 'input_name=ns2009_ts' "$entrypoint"
 ! grep -Fq 'FRE3NDER_FRE3NDERSCREEN_' "$entrypoint"
 grep -Fq 'moonraker_root="$moonraker_overlay/opt/fre3nder/moonraker"' \
@@ -830,10 +830,10 @@ directory = pathlib.Path(sys.argv[2])
 archive = directory / "rootfs-overlay.tar"
 manifest = {
     "schema": 1,
-    "component": "fre3nderscreen",
+    "component": "moonraker",
     "source": {
-        key: sources["userspace"]["fre3nderscreen"][key]
-        for key in ("repository", "release", "commit", "license")
+        key: sources["userspace"]["moonraker"][key]
+        for key in ("repository", "commit", "license")
     },
     "artifact_mode": "development",
     "project_commit": "fixture-commit",
@@ -850,7 +850,7 @@ project=$component_project
 artifact_mode=development
 project_commit=fixture-commit
 project_worktree_status=dirty
-prepare_rootfs_component fre3nderscreen "$component_artifact" "$component_overlay"
+prepare_rootfs_component moonraker "$component_artifact" "$component_overlay"
 grep -Fxq payload "$component_overlay/opt/fixture/file"
 cp "$component_artifact/component-manifest.json" "$tmp/component-manifest.valid"
 python3 - "$component_artifact/component-manifest.json" <<'PY'
@@ -863,7 +863,7 @@ manifest = json.loads(path.read_text())
 manifest["source"]["commit"] = "0" * 40
 path.write_text(json.dumps(manifest) + "\n")
 PY
-if prepare_rootfs_component fre3nderscreen "$component_artifact" \
+if prepare_rootfs_component moonraker "$component_artifact" \
 	"$component_overlay.invalid" 2>/dev/null; then
 	echo 'RootFS accepted a component with the wrong source identity' >&2
 	exit 1
@@ -871,7 +871,7 @@ fi
 cp "$tmp/component-manifest.valid" \
 	"$component_artifact/component-manifest.json"
 printf x >> "$component_artifact/rootfs-overlay.tar"
-if prepare_rootfs_component fre3nderscreen "$component_artifact" \
+if prepare_rootfs_component moonraker "$component_artifact" \
 	"$component_overlay.invalid" 2>/dev/null; then
 	echo 'RootFS accepted a component with the wrong artifact hash' >&2
 	exit 1
@@ -1250,6 +1250,9 @@ build_dir=$tmp/build
 ota_public_key=$tmp/ota-public.pem
 printf '%s\n' 'fixture OTA public key' > "$ota_public_key"
 export FRE3NDER_OTA_PUBLIC_KEY="$ota_public_key"
+factory_seed=$tmp/fre3nderscreen-factory.fixture
+printf '%s\n' 'signed factory fixture' > "$factory_seed"
+export FRE3NDER_FACTORY_FRE3NDERSCREEN_APP="$factory_seed"
 mkdir -p "$build_dir/linux-firmware-20250211"
 printf '%s\n' 'fixture Cypress license' > \
 	"$build_dir/linux-firmware-20250211/LICENCE.cypress"
@@ -1275,6 +1278,7 @@ touch "$target/etc/init.d/fre3nder-root" \
 	"$target/etc/init.d/S61fre3nder-moonraker" \
 	"$target/etc/init.d/S62fre3nder-web" \
 	"$target/etc/init.d/S63fre3nder-camera" \
+	"$target/etc/init.d/S63fre3nder-factory-app" \
 	"$target/etc/init.d/S64fre3nder-display" \
 	"$target/etc/init.d/S64fre3nderscreen" \
 	"$target/etc/init.d/S65fre3nder-app-runtime" \
@@ -1296,9 +1300,16 @@ cmp "$nvram_license" \
 [ -x "$target/etc/init.d/S59fre3nder-klipper-mcu" ]
 [ -x "$target/etc/init.d/S62fre3nder-web" ]
 [ -x "$target/etc/init.d/S63fre3nder-camera" ]
+[ -x "$target/etc/init.d/S63fre3nder-factory-app" ]
 [ -x "$target/etc/init.d/S30fre3nder-user" ]
 [ -x "$target/etc/init.d/S64fre3nder-display" ]
 [ ! -e "$target/etc/init.d/S64fre3nderscreen" ]
+[ ! -e "$target/opt/fre3nder/fre3nderscreen" ]
+[ ! -e "$target/usr/share/fre3nderscreen" ]
+[ ! -e "$target/usr/share/licenses/fre3nderscreen" ]
+[ ! -e "$target/usr/share/fre3nder/defaults/fre3nderscreen.json" ]
+cmp "$factory_seed" "$target/usr/share/fre3nder/factory-apps/fre3nderscreen.fre3app"
+[ "$(stat -c '%a' "$target/usr/share/fre3nder/factory-apps/fre3nderscreen.fre3app")" = 644 ]
 [ ! -e "$target/etc/init.d/S50lighttpd" ]
 moonraker_root="$target/opt/fre3nder/moonraker"
 [ -d "$moonraker_root/.git" ]
