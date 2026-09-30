@@ -56,6 +56,99 @@ class Fre3AppExecutablePayloadTests(unittest.TestCase):
             )
 
 
+class Fre3AppDevelopmentPolicyTests(unittest.TestCase):
+    def test_manifest_accepts_zero_and_rejects_negative_serial(self):
+        core = load_core_module()
+        with tempfile.TemporaryDirectory() as tmp:
+            package = pathlib.Path(tmp) / "fixture.zip"
+
+            def verify(serial):
+                manifest = f'''format = 1
+[app]
+name = "dummy"
+version = "1.0.0-fre3nder.0.test"
+release_serial = {serial}
+[publisher]
+id = "test-publisher"
+key_fingerprint = "{"a" * 64}"
+[target]
+platform = "fre3nder-x2000"
+arch = "mipsel"
+[runtime]
+service = "service"
+autostart = false
+[signature]
+algorithm = "Ed25519"
+file = "SHA256SUMS.sig"
+signed_file = "SHA256SUMS"
+'''.encode()
+                members = {"manifest.toml": manifest, "service": b"#!/bin/sh\n"}
+                sums = "".join(
+                    f"{hashlib.sha256(data).hexdigest()}  {name}\n"
+                    for name, data in sorted(members.items())
+                ).encode()
+                members.update({"SHA256SUMS": sums, "SHA256SUMS.sig": b"fixture"})
+                with zipfile.ZipFile(package, "w") as archive:
+                    for name, data in sorted(members.items()):
+                        archive.writestr(name, data)
+                with (mock.patch.object(core, "key_path", return_value=pathlib.Path(tmp) / "key"),
+                      mock.patch.object(core, "fingerprint", return_value="a" * 64),
+                      mock.patch.object(core, "verify_signature")):
+                    return core.verify_package(package)
+
+            self.assertEqual(verify(0)["release_serial"], 0)
+            with self.assertRaisesRegex(ValueError, "manifest release_serial is invalid"):
+                verify(-1)
+
+    def test_update_serial_transitions(self):
+        cases = (
+            (0, "dev-a", 0, "dev-a", False, "same development package is already installed"),
+            (0, "dev-a", 0, "dev-b", False, None),
+            (0, "dev-a", 1, "release-a", False, None),
+            (1, "release-a", 0, "dev-a", False, "package downgrade requires --allow-downgrade"),
+            (1, "release-a", 0, "dev-a", True, None),
+            (1, "release-a", 1, "release-b", False, "same package release is already installed"),
+            (2, "release-b", 1, "release-a", False, "package downgrade requires --allow-downgrade"),
+            (1, "release-a", 2, "release-b", False, None),
+            (-1, "invalid", 0, "dev-a", False, "installed release_serial is invalid"),
+        )
+        for old_serial, old_version, new_serial, new_version, allow, error in cases:
+            with self.subTest(old_serial=old_serial, new_serial=new_serial, allow=allow, error=error):
+                core = load_core_module()
+                with tempfile.TemporaryDirectory() as tmp:
+                    root = pathlib.Path(tmp)
+                    core.RUNTIME_ROOT = root / "runtime"
+                    core.RECOVERY_ROOT = root / "recovery"
+                    verified = {
+                        "name": "dummy", "version": new_version, "release_serial": new_serial,
+                        "publisher": "publisher", "fingerprint": "a" * 64,
+                        "autostart": False, "web_frontend": False,
+                        "display_frontend": False, "display_api": None,
+                    }
+                    old = {
+                        "version": old_version, "release_serial": old_serial,
+                        "publisher": "publisher", "fingerprint": "a" * 64,
+                        "web_frontend": False, "display_frontend": False,
+                        "display_api": None,
+                    }
+                    with (mock.patch.object(core, "verify_package", return_value=verified),
+                          mock.patch.object(core, "installed", return_value=True),
+                          mock.patch.object(core, "read_metadata", return_value=old),
+                          mock.patch.object(core, "extract_runtime", side_effect=lambda _p, _v, target: target.mkdir()),
+                          mock.patch.object(core, "service_action", return_value=0),
+                          mock.patch.object(core, "write_state") as write_state):
+                        if error:
+                            with self.assertRaisesRegex(ValueError, error):
+                                core.activate_package(root / "fixture.zip", "update", allow)
+                            write_state.assert_not_called()
+                        else:
+                            self.assertEqual(
+                                core.activate_package(root / "fixture.zip", "update", allow),
+                                verified,
+                            )
+                            write_state.assert_called_once()
+
+
 class Fre3AppTrustTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()

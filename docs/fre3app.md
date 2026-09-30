@@ -90,7 +90,14 @@ file = "SHA256SUMS.sig"
 signed_file = "SHA256SUMS"
 ```
 
-`release_serial` is a publisher-controlled monotonically increasing integer used for deterministic upgrade/downgrade decisions independently from the display version string. An update must retain the installed publisher identity and key fingerprint; changing publisher ownership is not an ordinary update operation.
+`release_serial = 0` is reserved for development packages outside the
+published release sequence. Development serial 0 has no ordering: updating
+between different `version` values is allowed, while the same version is
+rejected. Published releases use monotonically increasing `release_serial`
+values starting at 1. Moving from development to a release is a normal
+upgrade; moving from a release to development requires `--allow-downgrade`.
+An update must retain the installed publisher identity and key fingerprint;
+changing publisher ownership is not an ordinary update operation.
 
 An optional section declares a static web frontend:
 

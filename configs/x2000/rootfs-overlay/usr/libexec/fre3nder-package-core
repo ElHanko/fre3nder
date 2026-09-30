@@ -350,7 +350,7 @@ def verify_package(package: pathlib.Path) -> dict:
             raise ValueError("manifest app name is invalid")
         if not isinstance(version, str) or not version or len(version) > 128:
             raise ValueError("manifest app version is invalid")
-        if type(serial) is not int or serial < 1:
+        if type(serial) is not int or serial < 0:
             raise ValueError("manifest release_serial is invalid")
         if target.get("platform") != PLATFORM or target.get("arch") != ARCH:
             raise ValueError("fre3app targets a different platform or architecture")
@@ -780,9 +780,12 @@ def activate_package(package: pathlib.Path, operation: str, allow_downgrade: boo
         ):
             raise ValueError("package publisher differs from installed app")
         old_serial = old.get("release_serial")
-        if type(old_serial) is not int:
+        if type(old_serial) is not int or old_serial < 0:
             raise ValueError("installed release_serial is invalid")
-        if verified["release_serial"] == old_serial:
+        if verified["release_serial"] == old_serial == 0:
+            if verified["version"] == old.get("version"):
+                raise ValueError("same development package is already installed")
+        elif verified["release_serial"] == old_serial:
             raise ValueError("same package release is already installed")
         if verified["release_serial"] < old_serial and not allow_downgrade:
             raise ValueError("package downgrade requires --allow-downgrade")
