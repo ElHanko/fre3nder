@@ -1862,6 +1862,8 @@ def write_response(
         **kwargs,
     )
 
+    validate_inactive_slot_identity(response)
+
     manifest = verify_package(
         package,
         kwargs.get(

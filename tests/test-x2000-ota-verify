@@ -12,6 +12,7 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+from unittest.mock import patch
 
 sys.dont_write_bytecode = True
 
@@ -958,6 +959,168 @@ def test_partition_identity():
             )
 
 
+def make_slot_identity_fixture(directory):
+    dev = directory / "dev"
+    sysfs = directory / "sys-class-block"
+    parent = directory / "devices" / "mmcblk0"
+    labels = directory / "by-partlabel"
+    dev.mkdir(parents=True)
+    sysfs.mkdir()
+    parent.mkdir(parents=True)
+    labels.mkdir()
+
+    devices = {}
+    for number, sectors, label in (
+        (5, 16384, "kernel"),
+        (6, 16384, "kernel2"),
+        (7, 1024000, "rootfs"),
+        (8, 1024000, "rootfs2"),
+    ):
+        name = f"mmcblk0p{number}"
+        device = dev / name
+        device.write_bytes(b"UNCHANGED" * 1024)
+        devices[f"/dev/{name}"] = device
+        metadata = parent / name
+        metadata.mkdir()
+        (metadata / "partition").write_text(f"{number}\n")
+        (metadata / "size").write_text(f"{sectors}\n")
+        (sysfs / name).symlink_to(metadata)
+        (labels / label).symlink_to(device)
+
+    return devices, sysfs, labels
+
+
+def fixture_partition_identity(
+    devices,
+    sysfs,
+    labels,
+    *,
+    allow_regular_target,
+):
+    # Only the fixture adapter maps /dev paths. Both production validators
+    # still execute; file permission and metadata paths are explicit here.
+    validate = module.validate_partition_identity
+
+    def validate_fixture(
+        device, partition, sectors, partlabel, active_root, *_paths
+    ):
+        return validate(
+            devices[str(device)],
+            partition,
+            sectors,
+            partlabel,
+            devices[str(active_root)],
+            sys_class_block=sysfs,
+            partlabel_directory=labels,
+            allow_regular_target=allow_regular_target,
+        )
+
+    return patch.object(
+        module, "validate_partition_identity", side_effect=validate_fixture
+    )
+
+
+def test_write_identity_failures(package, arguments, options, directory):
+    pending = options["pending_transaction_path"]
+    confirmed = pending.read_text()
+    state = json.loads(confirmed)
+    response = module.validate_transaction_binding(
+        package,
+        state,
+        public_key=options["public_key"],
+        **options["runtime"],
+    )
+
+    cases = (
+        ("response", ("target", "slot"), "A", "active/target slot identity"),
+        ("response", ("target", "slot"), "C", "active/target slot identity"),
+        ("response", ("runtime", "active_root"), "/dev/mmcblk0p8", "active root does not match"),
+        ("response", ("target", "kernel"), "/dev/mmcblk0p5", "kernel target does not match"),
+        ("response", ("target", "rootfs"), "/dev/mmcblk0p7", "rootfs target does not match"),
+        ("metadata", ("mmcblk0p6", "partition"), "5", "target partition number mismatch"),
+        ("metadata", ("mmcblk0p8", "partition"), "7", "target partition number mismatch"),
+        ("metadata", ("mmcblk0p6", "size"), "16385", "target size mismatch"),
+        ("metadata", ("mmcblk0p8", "size"), "1024001", "target size mismatch"),
+        ("metadata", ("mmcblk0p7", "partition"), "8", "active OTA root partition number mismatch"),
+        ("topology", "mmcblk0p6", None, "not on the same block device"),
+        ("topology", "mmcblk0p8", None, "not on the same block device"),
+        ("label", "kernel2", "/dev/mmcblk0p8", "kernel2 partlabel does not resolve"),
+        ("label", "rootfs2", "/dev/mmcblk0p6", "rootfs2 partlabel does not resolve"),
+        ("label", "kernel2", None, "kernel2 partlabel is absent"),
+        ("label", "rootfs2", None, "rootfs2 partlabel is absent"),
+        ("regular", None, None, "is not a block device"),
+    )
+
+    for index, (kind, field, value, error) in enumerate(cases):
+        fixture = directory / str(index)
+        devices, sysfs, labels = make_slot_identity_fixture(fixture)
+        current = json.loads(json.dumps(response))
+        bound_state = json.loads(confirmed)
+        if kind == "response":
+            section, key = field
+            current[section][key] = value
+            # A mutually consistent but invalid plan must fail identity,
+            # rather than merely fail the pre-existing transaction binding.
+            bound_state[section][key] = value
+        elif kind == "metadata":
+            device, key = field
+            (sysfs / device / key).write_text(value + "\n")
+        elif kind == "topology":
+            other = fixture / "devices" / "mmcblk1" / field
+            other.mkdir(parents=True)
+            for key in ("partition", "size"):
+                (other / key).write_text((sysfs / field / key).read_text())
+            (sysfs / field).unlink()
+            (sysfs / field).symlink_to(other)
+        elif kind == "label":
+            (labels / field).unlink()
+            if value is not None:
+                (labels / field).symlink_to(devices[value])
+
+        pending.write_text(json.dumps(bound_state) + "\n")
+        pending_before = pending.read_bytes()
+        kernel_target = devices["/dev/mmcblk0p6"]
+        rootfs_target = devices["/dev/mmcblk0p8"]
+        before = {path: path.read_bytes() for path in devices.values()}
+        lock = fixture / "write.lock"
+
+        try:
+            with (
+                patch.object(module, "preflight_response", return_value=current),
+                fixture_partition_identity(
+                    devices, sysfs, labels, allow_regular_target=kind != "regular"
+                ),
+                patch.object(module, "target_capacity", wraps=module.target_capacity) as capacity,
+                patch.object(module, "write_payload_member", wraps=module.write_payload_member) as payload,
+            ):
+                try:
+                    module.write_response(
+                        package,
+                        arguments,
+                        pending_transaction_path=pending,
+                        write_lock_path=lock,
+                        target_overrides={"kernel": kernel_target, "rootfs": rootfs_target},
+                        allow_regular_targets=True,
+                        public_key=options["public_key"],
+                        **options["runtime"],
+                    )
+                except ValueError as exc:
+                    assert error in str(exc), (kind, field, str(exc))
+                else:
+                    raise AssertionError(f"invalid OTA identity accepted: {kind} {field}")
+
+                capacity.assert_not_called()
+                payload.assert_not_called()
+
+            assert {path: path.read_bytes() for path in devices.values()} == before
+            assert pending.read_bytes() == pending_before
+            assert not lock.exists()
+        finally:
+            pending.write_text(confirmed)
+
+    print(f"fre3nder OTA pre-write identity rejection fixtures: {len(cases)} PASS")
+
+
 def test_write_inactive_slot():
     with tempfile.TemporaryDirectory() as temporary:
         temporary = Path(temporary)
@@ -1017,8 +1180,9 @@ def test_write_inactive_slot():
             manifest["artifact_sizes"]["rootfs.squashfs"]
         )
 
-        kernel_target = temporary / "kernel.target"
-        rootfs_target = temporary / "rootfs.target"
+        devices, sysfs, labels = make_slot_identity_fixture(temporary / "identity")
+        kernel_target = devices["/dev/mmcblk0p6"]
+        rootfs_target = devices["/dev/mmcblk0p8"]
 
         kernel_target.write_bytes(
             b"K" * (kernel_size + 4096)
@@ -1066,19 +1230,47 @@ def test_write_inactive_slot():
             **transaction_runtime,
         )
 
-        response = module.write_response(
+        test_write_identity_failures(
             package,
             [transaction_id],
-            pending_transaction_path=pending,
-            write_lock_path=temporary / "write.lock",
-            target_overrides={
-                "kernel": kernel_target,
-                "rootfs": rootfs_target,
+            {
+                "pending_transaction_path": pending,
+                "public_key": public_key,
+                "runtime": transaction_runtime,
             },
-            allow_regular_targets=True,
-            public_key=public_key,
-            **transaction_runtime,
+            temporary / "identity-failures",
         )
+
+        with fixture_partition_identity(
+            devices, sysfs, labels, allow_regular_target=True
+        ) as identity:
+            write_payload = module.write_payload_member
+
+            def write_after_identity(*args, **kwargs):
+                assert identity.call_count == 2
+                return write_payload(*args, **kwargs)
+
+            with patch.object(module, "write_payload_member", side_effect=write_after_identity) as payload:
+                response = module.write_response(
+                    package,
+                    [transaction_id],
+                    pending_transaction_path=pending,
+                    write_lock_path=temporary / "write.lock",
+                    target_overrides={
+                        "kernel": kernel_target,
+                        "rootfs": rootfs_target,
+                    },
+                    allow_regular_targets=True,
+                    public_key=public_key,
+                    **transaction_runtime,
+                )
+
+            assert [call.args[1] for call in payload.call_args_list] == [
+                "rootfs.squashfs", "kernel.uImage"
+            ]
+            assert [call.args[0] for call in identity.call_args_list] == [
+                Path("/dev/mmcblk0p6"), Path("/dev/mmcblk0p8")
+            ]
 
         assert response["operation"] == "write"
         assert response["write_result"]["complete"] is True
