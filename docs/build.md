@@ -54,9 +54,24 @@ The orchestrator runs the Kernel builder, then Moonraker, Buildroot
 Buildroot internal MIPS toolchain for the host components. The resulting
 RootFS is read-only SquashFS.
 
-Build Fre3nderScreen separately with
-[`scripts/build-x2000-fre3nderscreen`](../scripts/build-x2000-fre3nderscreen),
-then import and sign its neutral artifact with `fre3nder-apps`. RootFS assembly
+Prepare the Fre3nderScreen release factory seed separately with:
+
+```sh
+scripts/build-x2000-fre3nderscreen-release
+```
+
+This release-only pipeline runs `scripts/build-x2000-fre3nderscreen`, then the
+existing `../fre3nder-apps/scripts/build-fre3nderscreen-release` importer/package
+wrapper. It takes the package path from that wrapper's PASS block and atomically
+copies the package to `local/production/factory-apps/fre3nderscreen.fre3app` with
+mode `0644`, checking byte equality and SHA256. Defaults are the sibling
+`../fre3nder-apps` repository and the existing key at
+`local/production/keys/apps/private.pem`; `--apps-repo <path>` and `--key <path>`
+override them. It performs no RootFS build or deployment and requires explicit
+build/signing authorization before execution.
+
+The underlying cross-builder remains available for separate artifact builds,
+including `--develop`; the release pipeline accepts no `--develop`. RootFS assembly
 validates the finished package using the same package core as runtime install
 and embeds it without unpacking. Its SHA256 is recorded under `factory_apps` in
 the RootFS build manifest; the seed is not part of the Fre3nder build-input hash.

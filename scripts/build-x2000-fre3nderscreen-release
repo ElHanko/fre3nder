@@ -1,0 +1,92 @@
+#!/bin/sh
+set -eu
+
+root=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd -P)
+caller_dir=$(pwd -P)
+apps_repo=$root/../fre3nder-apps
+key=$root/local/production/keys/apps/private.pem
+
+fail() {
+	echo "build-x2000-fre3nderscreen-release: $*" >&2
+	exit 1
+}
+
+while [ "$#" -gt 0 ]; do
+	case "$1" in
+	--apps-repo)
+		[ "$#" -ge 2 ] && [ -n "$2" ] || fail '--apps-repo requires a path'
+		apps_repo=$2
+		shift 2
+		;;
+	--key)
+		[ "$#" -ge 2 ] && [ -n "$2" ] || fail '--key requires a path'
+		key=$2
+		shift 2
+		;;
+	*) fail "unknown option: $1" ;;
+	esac
+done
+
+case "$apps_repo" in /*) ;; *) apps_repo=$caller_dir/$apps_repo ;; esac
+case "$key" in /*) ;; *) key=$caller_dir/$key ;; esac
+apps_repo=$(CDPATH='' cd -- "$apps_repo" && pwd -P)
+[ -x "$root/scripts/build-x2000-fre3nderscreen" ] || fail 'missing Fre3nderScreen cross-builder'
+[ -x "$apps_repo/scripts/build-fre3nderscreen-release" ] || fail 'missing apps release wrapper'
+git -C "$apps_repo" diff --quiet -- &&
+	git -C "$apps_repo" diff --cached --quiet -- ||
+	fail 'fre3nder-apps has tracked worktree changes'
+artifact=$root/local/production/artifacts/x2000/fre3nderscreen/app
+seed_dir=$root/local/production/factory-apps
+factory_seed=$seed_dir/fre3nderscreen.fre3app
+
+cd "$root"
+"$root/scripts/build-x2000-fre3nderscreen"
+package_output=$("$apps_repo/scripts/build-fre3nderscreen-release" \
+	--artifact "$artifact" --key "$key")
+package=$(printf '%s\n' "$package_output" | awk '
+$0 == "=== Fre3nderScreen release package: PASS ===" { passes++; in_pass = 1; next }
+/^Package:/ {
+    packages++
+    if (!in_pass || index($0, "Package:  ") != 1) invalid = 1
+    package = substr($0, 11)
+}
+END {
+    if (passes != 1 || packages != 1 || invalid || package == "") exit 1
+    print package
+}') || fail 'missing or ambiguous package path in apps release output'
+case "$package" in /*) ;; *) fail 'apps release wrapper returned a non-absolute package path' ;; esac
+[ -f "$package" ] && [ ! -L "$package" ] || fail 'package is not a regular non-symlink file'
+
+for directory in "$root/local" "$root/local/production" "$seed_dir"; do
+	[ ! -L "$directory" ] || fail "symlinked factory seed directory: $directory"
+	if [ -e "$directory" ]; then
+		[ -d "$directory" ] || fail "factory seed directory is not a directory: $directory"
+	else
+		mkdir -- "$directory"
+	fi
+done
+[ ! -L "$factory_seed" ] || fail 'factory seed must not be a symlink'
+[ ! -e "$factory_seed" ] || [ -f "$factory_seed" ] || fail 'factory seed is not a regular file'
+
+tmp=$(mktemp "$seed_dir/.fre3nderscreen.fre3app.XXXXXX")
+trap 'rm -f -- "$tmp"' EXIT
+trap 'exit 1' HUP INT TERM
+cp -- "$package" "$tmp"
+chmod 0644 "$tmp"
+cmp -s -- "$package" "$tmp" || fail 'staged factory seed differs from package'
+sha256=$(sha256sum < "$package")
+sha256=${sha256%% *}
+seed_sha256=$(sha256sum < "$tmp")
+seed_sha256=${seed_sha256%% *}
+[ "$sha256" = "$seed_sha256" ] || fail 'staged factory seed SHA256 differs from package'
+mv -fT -- "$tmp" "$factory_seed"
+cmp -s -- "$package" "$factory_seed" || fail 'factory seed differs from package'
+seed_sha256=$(sha256sum < "$factory_seed")
+seed_sha256=${seed_sha256%% *}
+[ "$sha256" = "$seed_sha256" ] || fail 'factory seed SHA256 differs from package'
+
+printf '\n=== Fre3nderScreen release pipeline: PASS ===\n'
+printf 'Artifact:     %s\n' "$artifact"
+printf 'Package:      %s\n' "$package"
+printf 'Factory seed: %s\n' "$factory_seed"
+printf 'SHA256:       %s\n' "$sha256"

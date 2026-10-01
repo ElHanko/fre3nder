@@ -93,7 +93,14 @@ are not part of the Fre3nderScreen production scope.
 The separate `scripts/build-x2000-fre3nderscreen` cross-build produces
 `local/production/artifacts/x2000/fre3nderscreen/app/` with the binary, themes,
 licenses, manifest, and checksums. `fre3nder-apps` imports it, builds, and signs
-the `.fre3app` in a separate authorized step. The RootFS assembly takes that
+the `.fre3app`. After explicit build/signing authorization,
+`scripts/build-x2000-fre3nderscreen-release` orchestrates these release-only
+steps through the existing cross-builder and the sibling apps release wrapper.
+It atomically replaces `local/production/factory-apps/fre3nderscreen.fre3app`
+with a byte-identical copy of the resulting package, mode `0644`, and verifies
+SHA256. Its defaults are `../fre3nder-apps` and the existing
+`local/production/keys/apps/private.pem`; `--apps-repo` and `--key` override them.
+It runs no RootFS build or deployment. The RootFS assembly takes that
 finished package through `FRE3NDER_FACTORY_FRE3NDERSCREEN_APP`, verifies it with
 the package core and official publisher key, and embeds it unchanged at
 `/usr/share/fre3nder/factory-apps/fre3nderscreen.fre3app`.
