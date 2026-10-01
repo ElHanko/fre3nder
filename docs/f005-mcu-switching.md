@@ -72,20 +72,20 @@ successfully.
 
 The repository also provides
 [`scripts/deploy-f005`](../scripts/deploy-f005) as the standardized
-operator-side deployment interface. The qualified Fre3nder F005 image is
-embedded in the immutable RootFS baseline and may be replaced in persistent
-storage.
+operator-side deployment interface. The immutable RootFS baseline embeds its
+effective F005 target image, which may be replaced in persistent storage.
 
 The interface deliberately remains separate from
 [`scripts/deploy-x2000`](../scripts/deploy-x2000):
 
 - `deploy-x2000` stages only the inactive X2000 A/B kernel and RootFS;
-- `deploy-f005` manages only the current F005 firmware staging and the already
-  qualified open Stock-to-Fre3nder MCU transition;
+- `deploy-f005` manages F005 firmware staging and the existing open MCU
+  transition primitives;
 - neither tool silently expands into the other's persistent-write scope.
 
-`deploy-f005` requires Fre3nder B to be active on p8 and requires the selector
-to already be restored to `STOCK_A`. Its default mode is read-only. It validates
+Without `--develop`, `deploy-f005` requires Fre3nder B to be active on p8 and
+requires the selector to already be restored to `STOCK_A`. Its default mode is
+read-only. It validates
 the local F005 image through the product release manifest, compares the remote
 manifest and product helpers against the current project sources, verifies
 an active persistent root, and accepts only MCU states classified by the normal
@@ -98,14 +98,37 @@ requires the existing transition helper's no-write preflight to pass before
 performing one `--write` invocation. The wrapper does not implement retry or
 automatic recovery.
 
+The explicit `--develop` mode instead validates the local
+`local/production/artifacts/f005/candidate/` build manifest through the shared
+Candidate validation, including the current project commit, recipe inputs,
+Klipper pin and exact image. It requires a Candidate/Development Runtime target
+with `hardware_qualified: false`, an exact match with the remote Runtime target,
+the unchanged project Qualified record, and matching installed product helpers.
+Fre3nder A or B may be active, but its selector must select that active slot;
+p1 identity checks and active persistent-root checks remain required.
+
+`deploy-f005 <printer-host> --develop` is read-only. An exact Qualified
+predecessor uses the transition helper's `--from-qualified` dry-run; an exact
+Stock MCU uses its original dry-run. The predecessor dry-run requires the exact
+target image to be installed and otherwise refuses without writing. The Stock
+dry-run retains its existing deferral when target firmware needs staging.
+An explicitly authorized `--develop --write` stages the Candidate if needed and
+performs one existing transfer with `--from-qualified --write` for the Qualified
+predecessor, or the unchanged Stock transition for Stock. The current target is
+a no-op even with `--write`. Unknown MCU states refuse. There are no retries or
+recovery attempts, and the Candidate remains hardware-unqualified.
+
 The wrapper and its fail-closed orchestration are **OFFLINE CONFIRMED** by the
 current fixture test. This does not create a new hardware qualification: the
 underlying Stock-to-Fre3nder transition and F005 product components retain
 their existing **QUALIFIED ON DEVICE** status.
 
-The immutable RootFS now contains the qualified F005 release. A persistent
-system-overlay replacement remains possible, and `deploy-f005` remains the
-explicit operator-side staging and transition interface.
+`/usr/share/fre3nder/f005-mcu-release.json` remains immutable qualification
+evidence. `/usr/share/fre3nder/f005-runtime-target.json` describes the desired
+current MCU and embedded image. A previous exact Qualified Fre3nder identity
+is a recognized predecessor when it differs from that target, rather than an
+unknown or already-current MCU. A persistent system-overlay replacement remains
+possible, and `deploy-f005` remains the explicit operator-side update interface.
 
 The normal Fre3nder startup path remains fail-closed by default. If the exact
 supported Stock runtime identity is observed, S60 starts no Klippy unless the
@@ -115,6 +138,12 @@ trailing newline. With that opt-in present, S60 invokes the existing
 `f005-stock-to-fre3nder --write` helper exactly once. An unknown MCU identity,
 missing helper, invalid marker, or failed transition does not start normal
 Klippy.
+
+For `fre3nder-qualified`, S60 reports `f005-update-required` and starts no
+Klippy. It never automatically upgrades this predecessor, including when the
+Stock auto-transition opt-in is enabled. A Development Candidate update requires
+the explicit `deploy-f005 --develop [--write]` workflow above and subsequent
+on-device qualification; recognizing the predecessor does not qualify the target.
 
 ## Historical 2026-08-27 `mcu_util` qualification
 
@@ -505,24 +534,30 @@ that every return path has already been qualified.
 
 ## Fre3nder-owned MCU lifecycle
 
-Fre3nder B is responsible for establishing the MCU state required before
-Upstream Klipper takes normal printer ownership. A later release implementation
-must use an explicit Fre3nder MCU release manifest with the expected identity,
-size, and SHA-256. It must identify the installed application and apply this
-fail-closed policy:
+Fre3nder is responsible for establishing the MCU state required before
+Upstream Klipper takes normal printer ownership. The effective Runtime target
+sets the expected identity, size and SHA-256; the separate Qualified record
+identifies the hardware-qualified predecessor. Classification uses exact
+runtime version and all `REQUIRED_CONSTANTS`, in this order:
 
 ```text
-known expected Fre3nder MCU
-  -> no flash required
+fre3nder: exact current Runtime target
+  -> no flash required; normal Klippy start
 
-known supported Stock MCU
-  -> controlled transition may be allowed
+stock: exact supported Stock identity
+  -> existing controlled Stock transition may be allowed
 
-unknown MCU identity
+fre3nder-qualified: exact previous Qualified identity
+  -> explicit update required; no automatic transition or Klippy start
+
+unknown: all other identities
   -> fail closed
   -> do not guess or flash
   -> do not start normal printer operation
 ```
+
+When Runtime target and Qualified identity coincide, the current MCU is
+`fre3nder`, never `fre3nder-qualified`. No version-prefix matching is used.
 
 ### Fre3nder-side safety contract
 
@@ -530,7 +565,7 @@ Before Fre3nder initiates an MCU write, it must verify all of the following:
 
 1. the current MCU/application identity is known and matches an expected
    Fre3nder or supported Stock source identity;
-2. the exact target image matches the Fre3nder release manifest, including its
+2. the exact target image matches the effective Runtime target, including its
    expected identity, size, and SHA-256;
 3. no print is active and heaters are not intentionally active;
 4. `/dev/ttyS1` is controlled and free of unexpected owners before the

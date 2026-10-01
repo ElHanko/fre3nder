@@ -153,6 +153,35 @@ reference system. Read [F005 switching](f005-mcu-switching.md) before an MCU
 operation. A newly built `build-f005` candidate is not automatically the
 qualified deployment image.
 
+The immutable `/usr/share/fre3nder/f005-mcu-release.json` remains qualification
+evidence; `/usr/share/fre3nder/f005-runtime-target.json` is the desired current
+MCU. With a Development Candidate target, the previous exact Qualified MCU is
+reported as `fre3nder-qualified`. S60 then reports `f005-update-required` and
+starts neither Klippy nor a transition, even with the Stock auto-transition
+opt-in enabled.
+
+An explicit Candidate-update preflight uses:
+
+```sh
+scripts/deploy-f005 <printer-host> --develop
+```
+
+It validates the local Candidate build metadata, exact remote Runtime target,
+unchanged Qualified record and installed helpers. This Development path permits
+active Fre3nder A or B only when the selector matches the actual active slot;
+the historical Qualified-only slot requirements above remain unchanged.
+The preflight makes no write. The Qualified-predecessor dry-run requires the
+exact target image to be installed and otherwise refuses. The Stock path retains
+its existing dry-run deferral when staging is needed.
+
+Only after separate authorization, add `--write` to update the exact Qualified
+predecessor through one `--from-qualified` transition, or the exact supported
+Stock MCU through the existing Stock path. An already-current target is a no-op;
+unknown identities refuse. The Candidate remains hardware-unqualified until
+on-device qualification. This host deployment and MCU update are separate
+operations; booting a Candidate RootFS does not automatically upgrade the
+Qualified predecessor.
+
 ## Stock-A staging and return
 
 When Slot B is active and selected, the host tool can preflight a complete raw

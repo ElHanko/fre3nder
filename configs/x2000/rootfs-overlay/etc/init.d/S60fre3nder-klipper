@@ -179,6 +179,11 @@ start() {
 	mcu_state=$("$state_helper" 2>>"$runtime/mcu-state.log") || mcu_state=unknown
 	case "$mcu_state" in
 	fre3nder) ;;
+	fre3nder-qualified)
+		set_status f005-update-required
+		log 'known qualified F005 predecessor detected; explicit F005 update required; Klippy remains stopped'
+		return 0
+		;;
 	stock)
 		if ! f005_auto_transition_enabled; then
 			set_status stock-mcu

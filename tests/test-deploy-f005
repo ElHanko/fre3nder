@@ -136,12 +136,12 @@ set -eu
 	exit 1
 
 printf '%s\n' \
-	'ACTIVE_ROOT=/dev/mmcblk0p8' \
+	"ACTIVE_ROOT=${F005_TEST_ACTIVE_ROOT:-/dev/mmcblk0p8}" \
 	'P1_DEVICE=/dev/mmcblk0p1' \
 	'P1_PARTITION_NUMBER=1' \
 	'P1_START=2048' \
 	'P1_SECTORS=2048' \
-	'P1_IDENTITY=VALID' \
+	"P1_IDENTITY=${F005_TEST_P1_IDENTITY:-VALID}" \
 	"CLASSIFICATION=$(cat "$F005_TEST_SELECTOR")"
 EOF
 
@@ -167,7 +167,7 @@ command=${1:-}
 
 case "$command" in
 
-'sh -eu')
+'sh -eu'|'F005_DEPLOY_MODE=candidate sh -eu')
 	body=$(cat)
 
 	printf '%s\n' "$body" |
@@ -178,6 +178,10 @@ case "$command" in
 		exit 1
 
 	manifest_sha=${F005_TEST_MANIFEST_SHA_OVERRIDE:-$F005_TEST_MANIFEST_SHA}
+	runtime_target=QUALIFIED
+	if [ "$command" = 'F005_DEPLOY_MODE=candidate sh -eu' ]; then
+		runtime_target=CANDIDATE
+	fi
 
 	firmware_present=NO
 	firmware_size=0
@@ -192,7 +196,8 @@ case "$command" in
 
 	printf '%s\n' \
 		"MANIFEST_SHA256=$manifest_sha" \
-		"RUNTIME_TARGET=${F005_TEST_RUNTIME_TARGET:-QUALIFIED}" \
+		"RUNTIME_TARGET=${F005_TEST_RUNTIME_TARGET:-$runtime_target}" \
+		"RUNTIME_TARGET_SHA256=${F005_TEST_TARGET_SHA_OVERRIDE:-${F005_TEST_TARGET_SHA:-UNSET}}" \
 		"TRANSITION_SHA256=$F005_TEST_TRANSITION_SHA" \
 		"STATE_SHA256=$F005_TEST_STATE_SHA" \
 		"MCU_HELPER_SHA256=$F005_TEST_MCU_SHA" \
@@ -206,10 +211,15 @@ case "$command" in
 		'F005_SURFACE=PASS'
 	;;
 
-'/usr/libexec/fre3nder/f005-stock-to-fre3nder')
-	printf '%s\n' dry-run >> "$F005_TEST_LOG"
-
-	[ "$(cat "$F005_TEST_KLIPPER_STATUS")" = stock-mcu ] ||
+'/usr/libexec/fre3nder/f005-stock-to-fre3nder'|'/usr/libexec/fre3nder/f005-stock-to-fre3nder --from-qualified')
+	source_status=stock-mcu
+	call=dry-run
+	if [ "$command" = '/usr/libexec/fre3nder/f005-stock-to-fre3nder --from-qualified' ]; then
+		source_status=f005-update-required
+		call='dry-run --from-qualified'
+	fi
+	printf '%s\n' "$call" >> "$F005_TEST_LOG"
+	[ "$(cat "$F005_TEST_KLIPPER_STATUS")" = "$source_status" ] ||
 		exit 1
 
 	[ "${F005_TEST_DRY_RUN_FAIL:-false}" != true ] ||
@@ -227,10 +237,15 @@ case "$command" in
 		'no reset sent and no flash invoked; use --write only after operator authorization'
 	;;
 
-'/usr/libexec/fre3nder/f005-stock-to-fre3nder --write')
-	printf '%s\n' flash >> "$F005_TEST_LOG"
-
-	[ "$(cat "$F005_TEST_KLIPPER_STATUS")" = stock-mcu ] ||
+'/usr/libexec/fre3nder/f005-stock-to-fre3nder --write'|'/usr/libexec/fre3nder/f005-stock-to-fre3nder --from-qualified --write')
+	source_status=stock-mcu
+	call=flash
+	if [ "$command" = '/usr/libexec/fre3nder/f005-stock-to-fre3nder --from-qualified --write' ]; then
+		source_status=f005-update-required
+		call='flash --from-qualified --write'
+	fi
+	printf '%s\n' "$call" >> "$F005_TEST_LOG"
+	[ "$(cat "$F005_TEST_KLIPPER_STATUS")" = "$source_status" ] ||
 		exit 1
 
 	[ "${F005_TEST_FLASH_FAIL:-false}" != true ] ||
@@ -294,11 +309,17 @@ reset_case() {
 		F005_TEST_FLASH_FAIL \
 		F005_TEST_SERVICE_FAIL \
 		F005_TEST_STAGE_FAIL
+	unset F005_TEST_ACTIVE_ROOT F005_TEST_P1_IDENTITY F005_TEST_TARGET_SHA_OVERRIDE
 }
 
 
 run_deploy() {
-	F005_DEPLOY_ARTIFACT="$artifact" \
+	local local_artifact=$artifact
+	local record_sha=$manifest_sha
+	case " $* " in
+	*' --develop '*) local_artifact=$candidate_artifact; record_sha=$project_manifest_sha ;;
+	esac
+	F005_DEPLOY_ARTIFACT="$local_artifact" \
 	F005_DEPLOY_MANIFEST="$manifest" \
 	F005_DEPLOY_SSH="$bin/ssh" \
 	F005_DEPLOY_AB="$bin/ab" \
@@ -306,7 +327,8 @@ run_deploy() {
 	F005_TEST_KLIPPER_STATUS="$klipper_status" \
 	F005_TEST_REMOTE_FIRMWARE="$remote_firmware" \
 	F005_TEST_LOG="$log" \
-	F005_TEST_MANIFEST_SHA="$manifest_sha" \
+	F005_TEST_MANIFEST_SHA="$record_sha" \
+	F005_TEST_TARGET_SHA="${candidate_target_sha:-UNSET}" \
 	F005_TEST_TRANSITION_SHA="$transition_sha" \
 	F005_TEST_STATE_SHA="$state_sha" \
 	F005_TEST_MCU_SHA="$mcu_sha" \
@@ -520,6 +542,164 @@ assert_not_called service-start
 
 unset F005_TEST_FLASH_FAIL
 
+# Development uses the same packaged fixture image with its own validated
+# Candidate manifest, built against the current source inputs. No builder runs.
+candidate_dir=$tmp/candidate
+mkdir -p "$candidate_dir"
+candidate_artifact=$candidate_dir/klipper-f005-mainline.bin
+cp "$artifact" "$candidate_artifact"
+project_manifest_sha=$(sha256sum "$root/configs/x2000/f005-mcu-release.json" | awk '{print $1}')
+candidate_target_sha=$(python3 - "$root" "$candidate_artifact" <<'PY'
+import hashlib
+import json
+from pathlib import Path
+import subprocess
+import sys
+
+sys.dont_write_bytecode = True
+root, firmware = map(Path, sys.argv[1:])
+sys.path.insert(0, str(root / "build/x2000"))
+from f005_firmware import CANDIDATE_INPUTS, runtime_target, sha256
+
+sources = json.loads((root / "configs/x2000/sources.json").read_text())
+candidate = {
+    "schema": 1, "classification": "candidate", "qualified_release_match": False,
+    "runtime_version": "fre3nder-f005-development-fixture",
+    "project_commit": subprocess.check_output(["git", "-C", str(root), "rev-parse", "HEAD"], text=True).strip(),
+    "upstream": {"commit": sources["userspace"]["klipper"]["commit"]},
+    "inputs": {relative: sha256(root / relative) for relative in CANDIDATE_INPUTS},
+    "artifacts": {firmware.name: {"size": firmware.stat().st_size, "sha256": sha256(firmware)}},
+}
+(firmware.parent / "build-manifest.json").write_text(json.dumps(candidate))
+target = runtime_target(root, firmware, "candidate", "development")
+print(hashlib.sha256(json.dumps(target, sort_keys=True).encode()).hexdigest())
+PY
+)
+cp "$candidate_dir/build-manifest.json" "$tmp/candidate-manifest.valid"
+
+# Exact Candidate predecessor preflight works on either selected active slot.
+for slot in A B; do
+	reset_case
+	if [ "$slot" = A ]; then
+		export F005_TEST_ACTIVE_ROOT=/dev/mmcblk0p7
+		printf STOCK_A > "$selector"
+	else
+		export F005_TEST_ACTIVE_ROOT=/dev/mmcblk0p8
+		printf DEVELOP_B > "$selector"
+	fi
+	printf f005-update-required > "$klipper_status"
+	cp "$candidate_artifact" "$remote_firmware"
+	run_deploy --develop > "$tmp/development-$slot.out"
+	assert_called 'dry-run --from-qualified'
+	[ "$(wc -l < "$log")" -eq 1 ]
+	grep -Fxq 'PERSISTENT_WRITE=NOT_PERFORMED' "$tmp/development-$slot.out"
+done
+
+# Selector mismatch, unknown active slot, invalid p1, and degraded root refuse
+# before staging or invoking any MCU transition.
+for failure in selector active-root p1 root; do
+	reset_case
+	printf f005-update-required > "$klipper_status"
+	case "$failure" in
+	selector) export F005_TEST_ACTIVE_ROOT=/dev/mmcblk0p8; printf STOCK_A > "$selector" ;;
+	active-root) export F005_TEST_ACTIVE_ROOT=/dev/mmcblk0p9 ;;
+	p1) export F005_TEST_ACTIVE_ROOT=/dev/mmcblk0p7 F005_TEST_P1_IDENTITY=INVALID ;;
+	root) export F005_TEST_ACTIVE_ROOT=/dev/mmcblk0p7 F005_TEST_ROOT_STATUS=degraded ;;
+	esac
+	must_fail run_deploy --develop --write
+	[ ! -s "$log" ]
+done
+
+# Qualified targets and mismatched remote Candidate/Qualified records refuse.
+for failure in qualified-target target-hash qualified-record unknown; do
+	reset_case
+	export F005_TEST_ACTIVE_ROOT=/dev/mmcblk0p7
+	printf f005-update-required > "$klipper_status"
+	case "$failure" in
+	qualified-target) export F005_TEST_RUNTIME_TARGET=QUALIFIED ;;
+	target-hash) export F005_TEST_TARGET_SHA_OVERRIDE=wrong ;;
+	qualified-record) export F005_TEST_MANIFEST_SHA_OVERRIDE=wrong ;;
+	unknown) printf unknown-mcu > "$klipper_status" ;;
+	esac
+	must_fail run_deploy --develop --write
+	[ ! -s "$log" ]
+done
+
+# Central Candidate validation rejects stale/wrong metadata before writes.
+for failure in project upstream input size classification schema; do
+	reset_case
+	export F005_TEST_ACTIVE_ROOT=/dev/mmcblk0p7
+	cp "$tmp/candidate-manifest.valid" "$candidate_dir/build-manifest.json"
+	python3 - "$candidate_dir/build-manifest.json" "$failure" <<'PY'
+import json
+from pathlib import Path
+import sys
+path, failure = Path(sys.argv[1]), sys.argv[2]
+manifest = json.loads(path.read_text())
+if failure == "project": manifest["project_commit"] = "0" * 40
+elif failure == "upstream": manifest["upstream"]["commit"] = "0" * 40
+elif failure == "input": manifest["inputs"]["VERSION"] = "0" * 64
+elif failure == "size": manifest["artifacts"]["klipper-f005-mainline.bin"]["size"] += 1
+elif failure == "classification": manifest["classification"] = "qualified"
+elif failure == "schema": manifest["schema"] = 2
+path.write_text(json.dumps(manifest))
+PY
+	must_fail run_deploy --develop --write
+	[ ! -s "$log" ]
+done
+cp "$tmp/candidate-manifest.valid" "$candidate_dir/build-manifest.json"
+
+# Current Candidate is a no-op, even with --write and a missing staged image.
+for write_flag in '' --write; do
+	reset_case
+	export F005_TEST_ACTIVE_ROOT=/dev/mmcblk0p7
+	run_deploy --develop $write_flag > "$tmp/candidate-current.out"
+	[ ! -s "$log" ]
+	grep -Fxq 'MCU_ACTION=ALREADY_FRE3NDER' "$tmp/candidate-current.out"
+	grep -Fxq 'PERSISTENT_WRITE=NOT_PERFORMED' "$tmp/candidate-current.out"
+done
+
+# A predecessor preflight always invokes its dry-run; missing target firmware
+# refuses without writing and cannot bypass the transition image checks.
+reset_case
+export F005_TEST_ACTIVE_ROOT=/dev/mmcblk0p7
+printf f005-update-required > "$klipper_status"
+must_fail run_deploy --develop
+assert_called 'dry-run --from-qualified'
+[ "$(wc -l < "$log")" -eq 1 ]
+
+# Explicit predecessor write: stage if needed, one dry-run, one flash, start.
+reset_case
+export F005_TEST_ACTIVE_ROOT=/dev/mmcblk0p7
+printf f005-update-required > "$klipper_status"
+run_deploy --develop --write > "$tmp/candidate-write.out"
+printf '%s\n' stage 'dry-run --from-qualified' 'flash --from-qualified --write' service-start |
+	cmp -s - "$log"
+grep -Fxq 'DEPLOY_F005=PASS' "$tmp/candidate-write.out"
+grep -Fxq 'FINAL_SELECTOR=STOCK_A' "$tmp/candidate-write.out"
+
+# Development Stock updates still use only the original exact Stock path.
+reset_case
+export F005_TEST_ACTIVE_ROOT=/dev/mmcblk0p8
+printf DEVELOP_B > "$selector"
+printf stock-mcu > "$klipper_status"
+run_deploy --develop --write > "$tmp/candidate-stock-write.out"
+printf '%s\n' stage dry-run flash service-start | cmp -s - "$log"
+grep -Fxq 'FINAL_SELECTOR=DEVELOP_B' "$tmp/candidate-stock-write.out"
+
+# A failed Candidate transfer is never retried or followed by Klippy start.
+reset_case
+export F005_TEST_ACTIVE_ROOT=/dev/mmcblk0p7 F005_TEST_FLASH_FAIL=true
+printf f005-update-required > "$klipper_status"
+cp "$candidate_artifact" "$remote_firmware"
+must_fail run_deploy --develop --write
+[ "$(grep -Fxc 'flash --from-qualified --write' "$log")" -eq 1 ]
+assert_not_called service-start
+
+# Repeated/unknown flags fail before entering any deployment workflow.
+must_fail run_deploy --develop --develop
+must_fail run_deploy --write --write
+must_fail run_deploy --unknown
 
 assert_no_overlay_bytecode
 

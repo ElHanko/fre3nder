@@ -16,6 +16,7 @@ bootloader_source="$root/configs/x2000/rootfs-overlay/usr/libexec/fre3nder/f005_
 klipper_service_source="$root/configs/x2000/rootfs-overlay/etc/init.d/S60fre3nder-klipper"
 
 mode=preflight
+develop=false
 host=
 
 firmware_path=
@@ -23,6 +24,8 @@ firmware_size=
 firmware_sha=
 
 manifest_sha=
+runtime_target_sha=
+final_selector=
 transition_sha=
 state_sha=
 mcu_sha=
@@ -35,7 +38,7 @@ stage_needed=
 usage() {
 	cat >&2 <<EOF
 usage:
-  $0 <fre3nder-host> [--write]
+  $0 <fre3nder-host> [--develop] [--write]
 
 default:
   fail-closed read-only preflight
@@ -45,6 +48,11 @@ default:
   if the startup gate reports the exact supported Stock MCU, perform one
   qualified Stock-to-Fre3nder transition; if Fre3nder MCU is already active,
   do not flash it.
+
+--develop:
+  validate the local development Candidate and exact remote Runtime target;
+  permit an explicit Stock or qualified-predecessor update on the selected
+  active Fre3nder A/B slot. The Candidate remains hardware-unqualified.
 EOF
 	exit 2
 }
@@ -93,13 +101,17 @@ verify_local_product() {
 		python3 - \
 			"$libdir" \
 			"$manifest" \
-			"$artifact" <<'PY'
+			"$artifact" \
+			"$root" \
+			"$develop" <<'PY'
+import hashlib
+import json
 import pathlib
 import sys
 
 sys.dont_write_bytecode = True
 
-libdir, manifest_path, artifact_path = sys.argv[1:]
+libdir, manifest_path, artifact_path, root, develop = sys.argv[1:]
 
 sys.path.insert(0, libdir)
 
@@ -107,6 +119,11 @@ from f005_mcu import load_release_manifest
 from f005_bootloader import image_policy_from_manifest, validate_image
 
 manifest = load_release_manifest(manifest_path)
+if develop == "true":
+    sys.path.insert(0, str(pathlib.Path(root) / "build/x2000"))
+    from f005_firmware import runtime_target
+    manifest = runtime_target(pathlib.Path(root), pathlib.Path(artifact_path),
+                              "candidate", "development")
 firmware_path, policy = image_policy_from_manifest(manifest)
 
 image = pathlib.Path(artifact_path).read_bytes()
@@ -116,11 +133,20 @@ print(firmware_path)
 print(info.size)
 print(info.sha256)
 print(info.version)
+if develop == "true":
+    print(hashlib.sha256(json.dumps(manifest, sort_keys=True).encode()).hexdigest())
 PY
 	) || die "local F005 firmware or release manifest validation failed"
 
-	[ "${#result[@]}" -eq 4 ] ||
+	local expected_fields=4
+	if [ "$develop" = true ]; then
+		expected_fields=5
+	fi
+	[ "${#result[@]}" -eq "$expected_fields" ] ||
 		die "local F005 validation output is invalid"
+	if [ "$develop" = true ]; then
+		runtime_target_sha=${result[4]}
+	fi
 
 	firmware_path=${result[0]}
 	firmware_size=${result[1]}
@@ -161,11 +187,18 @@ verify_host_gate() {
 			field CLASSIFICATION
 	) || die "invalid selector classification from $host"
 
-	[ "$active_root" = /dev/mmcblk0p8 ] ||
-		die "F005 deployment requires active Fre3nder B on p8"
-
-	[ "$selector" = STOCK_A ] ||
-		die "F005 deployment requires the established STOCK_A fallback selector"
+	if [ "$develop" = true ]; then
+		case "$active_root:$selector" in
+		/dev/mmcblk0p7:STOCK_A|/dev/mmcblk0p8:DEVELOP_B) ;;
+		*) die "development F005 update requires the selector to match active slot A or B" ;;
+		esac
+	else
+		[ "$active_root" = /dev/mmcblk0p8 ] ||
+			die "F005 deployment requires active Fre3nder B on p8"
+		[ "$selector" = STOCK_A ] ||
+			die "F005 deployment requires the established STOCK_A fallback selector"
+	fi
+	final_selector=$selector
 
 	[ "$(printf '%s\n' "$status" | field P1_DEVICE)" = /dev/mmcblk0p1 ] ||
 		die "p1 identity is invalid"
@@ -187,7 +220,11 @@ verify_host_gate() {
 }
 
 remote_surface() {
-	"$ssh_cmd" -o BatchMode=yes "$host" 'sh -eu' <<'REMOTE'
+	local remote_command='sh -eu'
+	if [ "$develop" = true ]; then
+		remote_command='F005_DEPLOY_MODE=candidate sh -eu'
+	fi
+	"$ssh_cmd" -o BatchMode=yes "$host" "$remote_command" <<'REMOTE'
 fail() {
 	echo "REMOTE REFUSED: $*" >&2
 	exit 1
@@ -215,9 +252,11 @@ do
 		fail "required F005 product file is missing or linked: $file"
 done
 
-# This deployment workflow remains restricted to the hardware-qualified target.
+# Both modes require their exact local target; Qualified remains the default.
 python3 - "$manifest" "$runtime_target" <<'PY'
+import hashlib
 import json
+import os
 import sys
 
 with open(sys.argv[1], encoding="utf-8") as stream:
@@ -225,13 +264,26 @@ with open(sys.argv[1], encoding="utf-8") as stream:
 with open(sys.argv[2], encoding="utf-8") as stream:
     target = json.load(stream)
 metadata = target.get("firmware_target", {})
-if (target.get("schema") != 1
-        or metadata.get("classification") != "qualified"
-        or metadata.get("hardware_qualified") is not True
-        or any(target.get(key) != qualified.get(key)
-               for key in ("uart", "stock_identity", "fre3nder_release"))):
-    raise SystemExit("qualified F005 deployment requires the qualified Runtime target")
-print("RUNTIME_TARGET=QUALIFIED")
+mode = os.environ.get("F005_DEPLOY_MODE", "qualified")
+if mode == "candidate":
+    if (type(target.get("schema")) is not int or target["schema"] != 1
+            or metadata.get("classification") != "candidate"
+            or metadata.get("artifact_mode") != "development"
+            or metadata.get("hardware_qualified") is not False):
+        raise SystemExit("development F005 deployment requires an unqualified Candidate Runtime target")
+    print("RUNTIME_TARGET=CANDIDATE")
+elif mode == "qualified":
+    if (target.get("schema") != 1
+            or metadata.get("classification") != "qualified"
+            or metadata.get("hardware_qualified") is not True
+            or any(target.get(key) != qualified.get(key)
+                   for key in ("uart", "stock_identity", "fre3nder_release"))):
+        raise SystemExit("qualified F005 deployment requires the qualified Runtime target")
+    print("RUNTIME_TARGET=QUALIFIED")
+else:
+    raise SystemExit("unsupported F005 deployment mode")
+print("RUNTIME_TARGET_SHA256=" + hashlib.sha256(
+    json.dumps(target, sort_keys=True).encode()).hexdigest())
 PY
 
 [ -x "$transition" ] ||
@@ -296,8 +348,15 @@ verify_remote_surface() {
 	[ "$(printf '%s\n' "$output" | field MANIFEST_SHA256)" = "$manifest_sha" ] ||
 		die "remote F005 release manifest differs from local product manifest"
 
-	[ "$(printf '%s\n' "$output" | field RUNTIME_TARGET)" = QUALIFIED ] ||
-		die "F005 deployment requires the qualified Runtime target"
+	if [ "$develop" = true ]; then
+		[ "$(printf '%s\n' "$output" | field RUNTIME_TARGET)" = CANDIDATE ] ||
+			die "development F005 deployment requires a Candidate Runtime target"
+		[ "$(printf '%s\n' "$output" | field RUNTIME_TARGET_SHA256)" = "$runtime_target_sha" ] ||
+			die "remote F005 Runtime target differs from the validated local Candidate target"
+	else
+		[ "$(printf '%s\n' "$output" | field RUNTIME_TARGET)" = QUALIFIED ] ||
+			die "F005 deployment requires the qualified Runtime target"
+	fi
 
 	[ "$(printf '%s\n' "$output" | field TRANSITION_SHA256)" = "$transition_sha" ] ||
 		die "remote Stock-to-Fre3nder helper differs from local product source"
@@ -329,6 +388,10 @@ verify_remote_surface() {
 		;;
 	stock-mcu)
 		mcu_state=stock
+		;;
+	f005-update-required)
+		[ "$develop" = true ] || die "qualified deployment cannot upgrade a predecessor"
+		mcu_state=fre3nder-qualified
 		;;
 	*)
 		die "F005 state is not safely classified by the startup gate: $klipper_status"
@@ -370,10 +433,14 @@ verify_remote_surface() {
 
 transition_dry_run() {
 	local output
+	local command='/usr/libexec/fre3nder/f005-stock-to-fre3nder'
+	if [ "$mcu_state" = fre3nder-qualified ]; then
+		command+=' --from-qualified'
+	fi
 
 	output=$(
 		"$ssh_cmd" -o BatchMode=yes "$host" \
-			'/usr/libexec/fre3nder/f005-stock-to-fre3nder'
+			"$command"
 	) || die "Stock-to-Fre3nder dry-run failed"
 
 	printf '%s\n' "$output" |
@@ -434,10 +501,15 @@ stage_firmware() {
 transition_write() {
 	local output
 	local final_status
+	local command='/usr/libexec/fre3nder/f005-stock-to-fre3nder'
+	if [ "$mcu_state" = fre3nder-qualified ]; then
+		command+=' --from-qualified'
+	fi
+	command+=' --write'
 
 	output=$(
 		"$ssh_cmd" -o BatchMode=yes "$host" \
-			'/usr/libexec/fre3nder/f005-stock-to-fre3nder --write'
+			"$command"
 	) || die "Stock-to-Fre3nder MCU transition failed"
 
 	printf '%s\n' "$output" |
@@ -457,7 +529,7 @@ transition_write() {
 }
 
 main() {
-	[[ $# -ge 1 && $# -le 2 ]] ||
+	[[ $# -ge 1 && $# -le 3 ]] ||
 		usage
 
 	host=$1
@@ -466,11 +538,17 @@ main() {
 	[[ -n "$host" && "$host" != -* ]] ||
 		usage
 
-	if [[ $# -eq 1 ]]; then
-		[[ $1 == --write ]] ||
-			usage
-
-		mode=write
+	while [[ $# -gt 0 ]]; do
+		case "$1" in
+		--write) [ "$mode" = preflight ] || usage; mode=write ;;
+		--develop) [ "$develop" = false ] || usage; develop=true ;;
+		*) usage ;;
+		esac
+		shift
+	done
+	if [ "$develop" = true ]; then
+		artifact=${F005_DEPLOY_ARTIFACT:-"$root/local/production/artifacts/f005/candidate/klipper-f005-mainline.bin"}
+		manifest="$root/configs/x2000/f005-mcu-release.json"
 	fi
 
 	echo "=== F005 DEPLOY PLAN ==="
@@ -495,8 +573,8 @@ main() {
 		echo
 		echo "=== F005 PREFLIGHT RESULT ==="
 
-		if [ "$mcu_state" = stock ]; then
-			if [ "$stage_needed" = false ]; then
+		if [ "$mcu_state" = stock ] || [ "$mcu_state" = fre3nder-qualified ]; then
+			if [ "$stage_needed" = false ] || [ "$mcu_state" = fre3nder-qualified ]; then
 				transition_dry_run
 				echo "MCU_ACTION=READY_TO_TRANSITION"
 			else
@@ -517,6 +595,15 @@ main() {
 	echo
 	echo "=== F005 WRITE ==="
 
+	if [ "$develop" = true ] && [ "$mcu_state" = fre3nder ]; then
+		echo 'MCU_ACTION=ALREADY_FRE3NDER'
+		echo 'PERSISTENT_WRITE=NOT_PERFORMED'
+		echo 'MCU_RESET=NOT_PERFORMED'
+		echo 'MCU_FLASH=NOT_PERFORMED'
+		echo 'DEPLOY_F005=PASS'
+		return
+	fi
+
 	if [ "$stage_needed" = true ]; then
 		stage_firmware
 
@@ -531,7 +618,7 @@ main() {
 		echo "exact Fre3nder MCU already active; flash skipped"
 		;;
 
-	stock)
+	stock|fre3nder-qualified)
 		transition_dry_run
 		transition_write
 		;;
@@ -559,7 +646,7 @@ main() {
 	echo "FIRMWARE_STAGED=PASS"
 	echo "F005_MCU=PASS"
 	echo "KLIPPER_STATUS=active"
-	echo "FINAL_SELECTOR=STOCK_A"
+	echo "FINAL_SELECTOR=$final_selector"
 	echo "DEPLOY_F005=PASS"
 }
 

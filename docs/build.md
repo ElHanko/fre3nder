@@ -240,8 +240,12 @@ probe. Qualified targets preserve the release model. Candidate targets carry
 their actual runtime version, size and SHA256, with explicit Development and
 unqualified metadata; UART, Stock identity, MCU constants and the stable
 `mcu0_001_G32-mcu0_004_000` bootloader identity remain unchanged.
-`scripts/deploy-f005` continues to use the qualified record and rejects a
-different effective Runtime target before staging firmware or invoking a transition.
+Without `--develop`, `scripts/deploy-f005` continues to use the qualified record
+and rejects a different effective Runtime target. Its explicit `--develop`
+mode validates the Candidate and exact remote Runtime target before a separately
+authorized MCU update. A previous exact Qualified MCU is recognized as
+`fre3nder-qualified`; S60 reports `f005-update-required` and never upgrades it
+automatically. See [F005 switching](f005-mcu-switching.md#f005-build-and-transitional-deployment-interfaces).
 
 ### Klipper upstream refresh (2026-09-28)
 

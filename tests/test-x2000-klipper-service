@@ -144,6 +144,21 @@ run_service stock start
 [ ! -e "$called" ]
 [ ! -e "$transition_calls" ]
 
+# A known Qualified predecessor is never covered by the Stock opt-in.
+for marker in absent enabled; do
+	rm -rf -- "$runtime"
+	rm -f "$auto_transition_file"
+	if [ "$marker" = enabled ]; then
+		printf '%s' enabled > "$auto_transition_file"
+	fi
+	run_service fre3nder-qualified start > "$tmp/predecessor.log"
+	[ "$(cat "$runtime/status")" = f005-update-required ]
+	grep -Fq 'known qualified F005 predecessor' "$tmp/predecessor.log"
+	[ ! -e "$called" ]
+	[ ! -e "$transition_calls" ]
+done
+rm -f "$auto_transition_file"
+
 rm -rf -- "$runtime"
 run_service unknown start
 [ "$(cat "$runtime/status")" = unknown-mcu ]

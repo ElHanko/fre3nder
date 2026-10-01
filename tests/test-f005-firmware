@@ -173,7 +173,7 @@ class FirmwareFixtures(unittest.TestCase):
         command = [sys.executable, "-", str(self.release_path), str(path)]
         result = subprocess.run(command, input=guard, text=True, capture_output=True)
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(result.stdout.strip(), "RUNTIME_TARGET=QUALIFIED")
+        self.assertEqual(result.stdout.splitlines()[0], "RUNTIME_TARGET=QUALIFIED")
         self.write_candidate()
         candidate_target = runtime_target(ROOT, self.firmware, "candidate", "development")
         for target in (candidate_target,
@@ -183,6 +183,31 @@ class FirmwareFixtures(unittest.TestCase):
                 result = subprocess.run(command, input=guard, text=True, capture_output=True)
                 self.assertNotEqual(result.returncode, 0)
                 self.assertIn("qualified Runtime target", result.stderr)
+
+    def test_development_deploy_guard_requires_unqualified_candidate(self):
+        self.write_candidate()
+        target = runtime_target(ROOT, self.firmware, "candidate", "development")
+        path = self.directory / "deployment-runtime-target.json"
+        script = (ROOT / "scripts/deploy-f005").read_text()
+        guard = re.search(r'python3 - "\$manifest" "\$runtime_target" <<\x27PY\x27\n(.*?)^PY$',
+                          script, re.M | re.S)[1]
+        command = [sys.executable, "-", str(self.release_path), str(path)]
+        env = dict(os.environ, F005_DEPLOY_MODE="candidate")
+        path.write_text(json.dumps(target))
+        result = subprocess.run(command, input=guard, text=True, capture_output=True, env=env)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.splitlines()[0], "RUNTIME_TARGET=CANDIDATE")
+        for field, value in (("classification", "qualified"), ("artifact_mode", "release"),
+                             ("hardware_qualified", True), ("hardware_qualified", "false")):
+            invalid = copy.deepcopy(target)
+            invalid["firmware_target"][field] = value
+            path.write_text(json.dumps(invalid))
+            result = subprocess.run(command, input=guard, text=True, capture_output=True, env=env)
+            self.assertNotEqual(result.returncode, 0)
+        target["schema"] = True
+        path.write_text(json.dumps(target))
+        result = subprocess.run(command, input=guard, text=True, capture_output=True, env=env)
+        self.assertNotEqual(result.returncode, 0)
 
     def test_modified_binary_hash_rejected(self):
         self.write_candidate()

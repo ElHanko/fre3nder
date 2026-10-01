@@ -10,6 +10,7 @@ UART_PATH = "/dev/ttyS1"
 UART_BAUD = 230400
 KLIPPY_DIR = "/usr/share/klipper/klippy"
 RUNTIME_TARGET_MANIFEST = "/usr/share/fre3nder/f005-runtime-target.json"
+QUALIFIED_RELEASE_MANIFEST = "/usr/share/fre3nder/f005-mcu-release.json"
 RESET_QUEUE_DEADLINE = 0.050
 BYTES_WRITE_RE = re.compile(r"(?:^|\s)bytes_write=([0-9]+)(?:\s|$)")
 REQUIRED_CONSTANTS = ("MCU", "CLOCK_FREQ", "SERIAL_BAUD")
@@ -47,11 +48,14 @@ def identity_matches(observed, expected):
                for name in REQUIRED_CONSTANTS)
 
 
-def classify_identity(observed, manifest):
-    if identity_matches(observed, manifest["stock_identity"]):
-        return "stock"
+def classify_identity(observed, manifest, qualified_manifest=None):
     if identity_matches(observed, manifest["fre3nder_release"]):
         return "fre3nder"
+    if identity_matches(observed, manifest["stock_identity"]):
+        return "stock"
+    if (qualified_manifest is not None
+            and identity_matches(observed, qualified_manifest["fre3nder_release"])):
+        return "fre3nder-qualified"
     return "unknown"
 
 
@@ -86,7 +90,10 @@ def _send_reset_once(reader, msgparser):
     raise SafetyError("reset was queued but no UART write was observed")
 
 
-def probe_mcu(manifest, send_reset=False, klippy_dir=KLIPPY_DIR):
+def probe_mcu(manifest, send_reset=False, klippy_dir=KLIPPY_DIR,
+              qualified_manifest=None, expected_reset_state="stock"):
+    if expected_reset_state not in ("stock", "fre3nder-qualified"):
+        raise SafetyError("unsupported reset source state")
     if klippy_dir not in sys.path:
         sys.path.insert(0, klippy_dir)
     import reactor
@@ -107,10 +114,10 @@ def probe_mcu(manifest, send_reset=False, klippy_dir=KLIPPY_DIR):
                 "constants": msgparser.get_constants(),
                 "reset_supported": dictionary_has_reset(msgparser),
             }
-            observed["state"] = classify_identity(observed, manifest)
+            observed["state"] = classify_identity(observed, manifest, qualified_manifest)
             if send_reset:
-                if observed["state"] != "stock":
-                    raise SafetyError("reset requires exact supported Stock identity")
+                if observed["state"] != expected_reset_state:
+                    raise SafetyError("reset requires exact %s identity" % expected_reset_state)
                 _send_reset_once(reader, msgparser)
                 observed["reset_sent"] = True
             result["value"] = observed

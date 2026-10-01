@@ -8,7 +8,8 @@ import sys
 import time
 
 from f005_bootloader import FlasherError, flash_image, load_validated_image
-from f005_mcu import RUNTIME_TARGET_MANIFEST, SafetyError, load_release_manifest, probe_mcu
+from f005_mcu import (QUALIFIED_RELEASE_MANIFEST, RUNTIME_TARGET_MANIFEST,
+                     SafetyError, load_release_manifest, probe_mcu)
 
 
 ROOT_STATUS = "/run/fre3nder-root/status"
@@ -44,29 +45,39 @@ def preflight(manifest_path, root_status):
 
 def transition(write=False, manifest_path=None,
                root_status=ROOT_STATUS, probe=probe_mcu,
-               flash=flash_image, sleep=time.sleep):
+               flash=flash_image, sleep=time.sleep,
+               from_qualified=False,
+               qualified_manifest_path=QUALIFIED_RELEASE_MANIFEST):
     manifest, image, policy = preflight(
         manifest_path or RUNTIME_TARGET_MANIFEST,
         root_status)
 
-    observed = probe(manifest, send_reset=write)
-    if observed.get("state") != "stock":
-        raise SafetyError("current MCU is not exact supported Stock F005")
+    source_state = "stock"
+    probe_options = {}
+    if from_qualified:
+        source_state = "fre3nder-qualified"
+        probe_options = {
+            "qualified_manifest": load_release_manifest(qualified_manifest_path),
+            "expected_reset_state": source_state,
+        }
+    observed = probe(manifest, send_reset=write, **probe_options)
+    if observed.get("state") != source_state:
+        raise SafetyError("current MCU is not exact supported %s F005" % source_state)
     if not observed.get("reset_supported"):
-        raise SafetyError("Stock dictionary lacks exact reset command")
+        raise SafetyError("source dictionary lacks exact reset command")
     if not write:
         return "dry-run-ready"
     if not observed.get("reset_sent"):
         raise SafetyError("write mode did not confirm the single reset")
     if not observed.get("connection_closed"):
-        raise SafetyError("Stock UART cleanup was not confirmed")
+        raise SafetyError("source UART cleanup was not confirmed")
     sleep(1.0)
     try:
         flash(image, policy)
     except FlasherError as exc:
         raise SafetyError("open bootloader flash failed: %s" % exc) from exc
 
-    final = probe(manifest, send_reset=False)
+    final = probe(manifest, send_reset=False, **probe_options)
     if final.get("state") != "fre3nder":
         raise SafetyError("post-update MCU identity is not Fre3nder")
     return "transition-complete"
@@ -76,9 +87,11 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--write", action="store_true",
                         help="send one reset and run one open bootloader transfer")
+    parser.add_argument("--from-qualified", action="store_true",
+                        help="require the exact previous qualified MCU instead of Stock")
     args = parser.parse_args()
     try:
-        result = transition(write=args.write)
+        result = transition(write=args.write, from_qualified=args.from_qualified)
     except Exception as exc:
         print("f005-stock-to-fre3nder: FAIL CLOSED: %s" % exc,
               file=sys.stderr)

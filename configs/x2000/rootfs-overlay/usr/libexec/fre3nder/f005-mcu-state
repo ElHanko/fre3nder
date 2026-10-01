@@ -3,14 +3,16 @@
 
 import sys
 
-from f005_mcu import load_release_manifest, probe_mcu
+from f005_mcu import QUALIFIED_RELEASE_MANIFEST, load_release_manifest, probe_mcu
 
 
 def main():
     if len(sys.argv) != 1:
         raise SystemExit("usage: f005-mcu-state")
     try:
-        observed = probe_mcu(load_release_manifest())
+        manifest = load_release_manifest()
+        qualified = load_release_manifest(QUALIFIED_RELEASE_MANIFEST)
+        observed = probe_mcu(manifest, qualified_manifest=qualified)
     except Exception as exc:
         print("f005-mcu-state: identify failed: %s" % exc, file=sys.stderr)
         print("unknown")
