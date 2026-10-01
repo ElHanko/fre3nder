@@ -11,7 +11,7 @@
       "CLOCK_FREQ": 120000000,
       "SERIAL_BAUD": 230400
     },
-    "evidence": "docs/klipper-stock.md and qualified Stock Klippy log"
+    "evidence": "research/docs/klipper-stock.md and qualified Stock Klippy log"
   },
   "fre3nder_release": {
     "name": "f005-mainline-qualified-2026-08-30",
@@ -29,6 +29,6 @@
       "license": "GPL-3.0-only",
       "distribution": "embedded in immutable RootFS baseline; replaceable through persistent system overlay"
     },
-    "evidence": "reproducible data dictionary and packaged artifact documented by docs/f005-mainline-config.md"
+    "evidence": "reproducible data dictionary and packaged artifact documented by docs/f005.md"
   }
 }

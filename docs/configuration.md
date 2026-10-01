@@ -33,7 +33,7 @@ not current Fre3nder persistence backends. `/run` and `/tmp` are volatile.
    The RootFS default seeds only a missing file; an update does not merge new
    sections into an existing persistent file.
 2. Confirm board identity and pin mapping against the
-   [F005 pin matrix](f005-pin-matrix.md) before changing pins, motor directions,
+   [F005 pin matrix](f005.md#pin-matrix) before changing pins, motor directions,
    heaters, fans, probe, or the `[mcu]` serial path. The current F005 host
    path is passive `/dev/ttyS1` at 230400 baud. Normal Klippy starts only after
    exact Fre3nder MCU identity classification; a Stock or unknown MCU leaves
@@ -46,7 +46,7 @@ not current Fre3nder persistence backends. `/run` and `/tmp` are volatile.
 4. Validate the edited configuration through Klipper/Moonraker before relying
    on motion or heat. If a new RootFS added default sections, merge only the
    required sections manually into the persistent file; inspect the relevant
-   release and [F005 configuration](f005-mainline-config.md) documentation.
+   release and [F005 configuration](f005.md) documentation.
 
 The OrcaSlicer preset and its import instructions are in
 [`configs/orcaslicer/README.md`](../configs/orcaslicer/README.md). It inherits
@@ -61,20 +61,20 @@ Newly seeded defaults include it; older persistent files are **not** rewritten.
 The [app guide](apps.md) explains package and web ownership. A legacy
 `fre3nder/fluidd.conf` needs a separate, controlled one-time removal during
 device migration; new Fluidd packages do not create that updater fragment.
-[Moonraker runtime](moonraker-bringup-current-state.md) describes its baseline
+[Moonraker runtime](moonraker.md) describes its baseline
 and the current updater limit.
 
 Fre3nderScreen uses its own persistent JSON settings, while framebuffer, NS2009
 input discovery, and backlight are platform hardware paths. See
-[Fre3nderScreen integration](fre3nderscreen.md) for runtime behavior and
-[display/touch hardware](x2000-display-touch.md) for physical interfaces.
+[display integration](display.md) for runtime behavior and physical interfaces.
 
 The boot-local FAT32 provisioning path can provide WLAN configuration and
 public-key SSH access without storing credentials in the repository. The
 `enable_ssh` marker is separate from `authorized_keys`; WLAN setup alone does
 not enable SSH. Existing provisioned inputs are copied under `/run` for that
 boot. The [X2000 architecture](x2000-open-host-architecture.md#provisioning-and-administrative-access)
-explains the access boundary. Keep credentials and device-specific values out
+explains the access boundary; [networking](networking.md) specifies the current
+input checks and paths. Keep credentials and device-specific values out
 of public documentation and build artifacts.
 
 Source identities and build-time versions live in

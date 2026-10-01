@@ -14,6 +14,15 @@ preserved Stock and recovery material, protected factory identity, eMMC boot
 configuration, and offline validation recorded in the
 [reference-system recovery evidence](../research/docs/recovery-validation-plan.md).
 
+A complete return set must preserve raw user-area coverage (including GPT and
+pre-p1 loader), separate boot0/boot1 material and boot-configuration metadata,
+both system pairs, protected factory/identity data, readable persistent-data
+exports and matching vendor recovery material. Validate sizes, hashes and
+readability offline. Record uncaptured RPMB or physical MCU readback explicitly;
+distributed MCU binaries do not prove every byte currently flashed. Live raw
+ext4 captures are not clean snapshots. The reference-specific inventory and
+limitations remain in [backup evidence](../research/docs/backup-plan.md).
+
 ## Decide which state is still reachable
 
 | State | Next path | Established limit |

@@ -16,7 +16,7 @@ Stock X2000 userspace -> Mainline Klippy -> /dev/ttyS1 at 230400
 ```
 
 This applies only to the reference-style F005/GD32F303RET6 hardware described
-in [f005-pin-matrix.md](../../docs/f005-pin-matrix.md). Gate 1 / Point of Return is
+in [f005-pin-matrix.md](../../docs/f005.md#pin-matrix). Gate 1 / Point of Return is
 **SATISFIED** by the current evidence review. Only the separate full-device
 vendor / Ingenic / Cloner recovery path remains execution-unverified, not
 personally rehearsed, and not guaranteed.
@@ -256,7 +256,7 @@ Load the complete reference configuration, home with `G28`, and run a heated
 5x5 `BED_MESH_CALIBRATE`. The reference print used 55 C bed and 220 C hotend.
 It exercised heaters, fans, extrusion, motion, and the filament path. The
 complete-print details and reference PID/mesh values are in
-[f005-hardware-validation.md](../../docs/f005-hardware-validation.md).
+[f005-hardware-validation.md](f005-hardware-validation.md).
 
 The initial full-config finalization once produced `Timer too close`, leaving
 `is_config=1` and `is_shutdown=1`. There was no concrete host-overload proof.

@@ -93,7 +93,7 @@ are system state under `/opt`; only `printer_data` belongs in userdata.
 Existing persistent `printer.cfg` files do not receive later RootFS default
 sections automatically. The reference-system Host-MCU/ADXL qualification
 merged those sections manually; see
-[F005 hardware validation](f005-hardware-validation.md#2026-09-11-host-mcuadxl-source-integration).
+[F005 hardware validation](../research/docs/f005-hardware-validation.md#2026-09-11-host-mcuadxl-source-integration).
 Automatic configuration migration remains a separate product decision.
 
 ## Provisioning and administrative access

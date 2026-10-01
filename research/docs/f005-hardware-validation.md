@@ -1,3 +1,8 @@
+This is a historical documentation snapshot from `docs/f005-hardware-validation.md` at project
+commit `a3a3cb263ab845a5590136545911b02306ada35b`. Statements and status labels describe that
+recorded scope, not the current build or every hardware revision. The preserved
+text remains `AGPL-3.0-or-later`; see `REUSE.toml`.
+
 # F005/GD32F303 reference hardware validation
 
 This report records one controlled validation sequence on the investigated
@@ -287,7 +292,7 @@ now-qualified Host-MCU communication path.
 
 Exact external-source links and the inspected upstream startup semantics are
 recorded in
-[`x2000-hardware-contract.md`](x2000-hardware-contract.md#adxl345-and-host-mcu-contract).
+[`x2000-hardware-contract.md`](../../docs/x2000-hardware-contract.md#adxl345-and-host-mcu-contract).
 
 Gate 1 / Point of Return is **SATISFIED** by the current evidence review. The
 vendor recovery path is documented and the Boot-ROM entry is known, but
@@ -541,3 +546,96 @@ The full-power-cycle Stock recovery boundary therefore remains qualified. The
 software-only Fre3nder -> Stock warm-reboot handoff remains
 **REQUIRES QUALIFICATION**. The shutdown state is recorded without assigning an
 unproven cause.
+
+## Configuration reference snapshot
+
+This is a historical documentation snapshot from `docs/f005-mainline-config.md` at project
+commit `a3a3cb263ab845a5590136545911b02306ada35b`. Statements and status labels describe that
+recorded scope, not the current build or every hardware revision. The preserved
+text remains `AGPL-3.0-or-later`; see `REUSE.toml`.
+
+# F005 mainline configuration
+
+The current project-authored reference configuration is
+[`configs/klipper-f005/printer-f005-mainline.cfg`](../../configs/klipper-f005/printer-f005-mainline.cfg).
+It applies to the investigated F005/GD32F303RET6 board; other printers need
+board verification and independent calibration. The [F005 pin matrix](../../docs/f005.md#pin-matrix)
+is the current pin-reference summary, and the tracked configuration itself is
+the source for exact active Klipper values.
+
+The host uses passive `/dev/ttyS1` at 230400 baud. The primary MCU supports
+Cartesian motion, extruder, TMC2208 software UART, X/Y endstops, BLTouch and
+safe Z homing, bed mesh, heaters, thermistors, fans, and filament sensing.
+The secondary Linux-process MCU at `/tmp/klipper_host_mcu` exposes ADXL345
+through `/dev/spidev2.0`. The current reference `z_offset: 2.180`, PID,
+mesh, and input-shaping values were qualified on the investigated printer;
+they are not universal defaults. The earlier Phase-2 `z_offset: 1.900` is
+historical and was superseded for that reference device.
+
+The open first-print configuration intentionally omits Creality-only
+`prtouch_v2`, `z_compensate`, `bl24c16f`, `hx711s`, `dirzctl`, `filter`,
+`soft_homing`, `fan_feedback`, and dependent custom macros. The comparison
+basis and classification are in [Stock Klipper analysis](klipper-stock.md).
+The MCU port architecture is in [GD32F303 mainline port](gd32f303-mainline-port.md).
+
+The staged first-print, passive runtime, Host-MCU/ADXL, and calibration
+observations are preserved in
+[F005 hardware validation](f005-hardware-validation.md) and the
+[historical host/config milestone](f005-mainline-config-milestone.md).
+Historical no-action and staged configurations remain under
+[`research/configs/klipper-f005/`](../configs/klipper-f005).
+For changing the installed configuration, use the
+[configuration guide](../../docs/configuration.md).
+
+## Pin-matrix reference snapshot
+
+This is a historical documentation snapshot from `docs/f005-pin-matrix.md` at project
+commit `a3a3cb263ab845a5590136545911b02306ada35b`. Statements and status labels describe that
+recorded scope, not the current build or every hardware revision. The preserved
+text remains `AGPL-3.0-or-later`; see `REUSE.toml`.
+
+# F005 mainline pin matrix
+
+This matrix is a sanitized, project-authored summary for the investigated
+F005/GD32F303RET6 reference. It records configuration evidence and the staged
+hardware validation in [`f005-hardware-validation.md`](f005-hardware-validation.md).
+Statuses apply only to that reference board; they are not universal support
+claims.
+
+| Function | F005 pin | Mainline candidate | Evidence/source class | Hardware validation status |
+| --- | --- | --- | --- | --- |
+| X step | PC2 | PC2 | Reference F005 configuration | Validated in bounded motion on reference |
+| X dir | !PB9 | !PB9 | Reference F005 configuration | Validated in bounded motion on reference |
+| X enable | !PC3 | !PC3 | Reference F005 configuration | Validated; shared active-low enable |
+| X endstop | !PA5 | !PA5 | Reference F005 configuration | Validated on reference |
+| Y step | PB8 | PB8 | Reference F005 configuration | Validated in bounded motion on reference |
+| Y dir | PB7 | PB7 | Reference F005 configuration | Validated in bounded motion on reference |
+| Y enable | !PC3 | !PC3 | Reference F005 configuration | Validated; shared active-low enable |
+| Y endstop | !PA6 | !PA6 | Reference F005 configuration | Validated on reference |
+| Z step | PB6 | PB6 | Reference F005 configuration | Validated in bounded motion on reference |
+| Z dir | !PB5 | !PB5 | Reference F005 configuration | Validated; positive Z moved upward |
+| Z enable | !PC3 | !PC3 | Reference F005 configuration | Validated; shared active-low enable |
+| Z endstop/probe | `probe:z_virtual_endstop` | `probe:z_virtual_endstop` | Reference F005 configuration | BLTouch and XYZ homing validated on reference |
+| Extruder step | PB4 | PB4 | Reference F005 configuration | Validated by controlled extrusion on reference |
+| Extruder dir | PB3 | PB3 | Reference F005 configuration | Validated by controlled extrusion on reference |
+| Extruder enable | !PC3 | !PC3 | Reference F005 configuration | Validated; shared active-low enable |
+| TMC UART X | PB12 | PB12 | Reference F005 configuration; dictionary command surface | TMC2208 communication validated; IFCNT 6 |
+| TMC UART Y | PB13 | PB13 | Reference F005 configuration; dictionary command surface | TMC2208 communication validated; IFCNT 6 |
+| TMC UART Z | PB14 | PB14 | Reference F005 configuration; dictionary command surface | TMC2208 communication validated; IFCNT 6 |
+| Hotend heater | PA1 | PA1 | Reference F005 configuration | Heater path validated in bring-up and print |
+| Hotend thermistor | PC5 | PC5 | Reference F005 configuration; upstream EPCOS support | Passive reading and heated control validated |
+| Bed heater | PB2 | PB2 | Reference F005 configuration | Heater path validated in bring-up and print |
+| Bed thermistor | PC4 | PC4 | Reference F005 configuration; upstream EPCOS support | Passive reading and heated control validated |
+| BLTouch sensor | PC14 | PC14 | Reference F005 configuration; normal upstream probe | Deploy/retract/query/trigger validated on reference |
+| BLTouch control | PC13 | PC13 | Reference F005 configuration; normal upstream probe | Homing/probing validated; historical Phase-2 Z offset was 1.900 |
+| Filament sensor | !PC15 | !PC15 | Reference F005 configuration; upstream switch object | Filament detected during controlled extrusion/print |
+| Part cooling fan | PA0 | PA0 | Reference F005 configuration; upstream `[fan]` | Command path validated during print |
+| Hotend fan | PC1 | PC1 | Reference F005 configuration; upstream `[heater_fan]` | Temperature-controlled path validated |
+| Mainboard fan | !PB1 | !PB1 | Reference F005 configuration; upstream `[output_pin]` | Command path validated on reference |
+
+The public reference configuration now records `z_offset: 2.180`, **QUALIFIED
+ON DEVICE** by the 2026-08-29 cold paper test and successful Fre3nder-B repeat
+print. The historical controlled bring-up used 1.900, which is **WIDERLEGT as
+the current reference value**. The PID baselines remain historical reference
+values; independent calibration remains required. Mesh measurements,
+input-shaper values, private paths, and device identity are not included.

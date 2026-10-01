@@ -6,7 +6,9 @@ assignments are in `REUSE.toml`; complete license texts are in `LICENSES/`.
 - Project-authored Fre3nder system material is licensed under
   `AGPL-3.0-or-later`.
 - Project-authored material in `research/` is licensed under `MIT`, except
-  where a file is identified as third-party or derived material.
+  where a specific assignment preserves an existing product-documentation
+  license or identifies third-party/derived material. Preserved snapshots keep
+  `AGPL-3.0-or-later`; mixed records identify their MIT/AGPL section boundaries.
 - Third-party and derived material remains under its applicable license.
 
 Repository revisions through

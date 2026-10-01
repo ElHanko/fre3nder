@@ -147,15 +147,9 @@ The WLAN licensing boundary is now:
   prevents public redistribution on account of that NVRAM. Distributions must
   still carry and follow both applicable license notices.
 
-On 2026-09-14 the exact official linux-firmware `.bin` and `.clm_blob` and the
-vendored Radxa NVRAM were qualified together on the investigated reference
-system in Kernel SHA-256
-`93207a7b627442759bbc74716876c94592edfacb94cacd0ea52f1a9c09ab9d13` and
-RootFS SHA-256
-`f86ad04f6a63653ef79f0f8280a91d951838102cba8d509e019e78332404055b`.
-The runtime NVRAM matched its pinned SHA-256 and the resulting WLAN path passed
-boot, WPA association, DHCP, and gateway traffic. This hardware evidence does
-not alter either component's licensing terms and does not qualify Bluetooth.
+Reference WLAN qualification does not alter either component's license or
+qualify Bluetooth. Exact integration artifacts and results are preserved in
+[build history](../research/docs/x2000-build-history.md#buildroot-maintenance-and-wlan-qualification-snapshot).
 
 ## Moonraker RootFS baseline
 
@@ -218,14 +212,11 @@ layout, and flat single-printer configuration directly in source. Fre3nder
 does not execute or redistribute the removed GuppyScreen installers or
 Creality-specific binary payloads.
 
-The previous pin `baa4f6689ac7334d240107529f6d3c42a1297319` is the local-UI source
-covered by the recorded `2026.2.a` hardware qualification. Separately, source
-commit `14cd41599f1ee8dec659b282e54762fd61552c5a` in signed Development
-package `2026.1.14cd415-fre3nder.0.4796448` was hardware-qualified through the
-Factory-app path on the investigated reference system. The prepared `2026.2`
-source has the same application code, patches, and submodules; only `README.md`
-and `DEVELOPMENT.md` changed after `14cd415`. This is source-level continuity,
-not hardware qualification of the still unbuilt `2026.2` release binary.
+The prepared release source has application-code/submodule continuity with the
+recorded Development Factory-app source. That is source continuity, not hardware
+qualification of an unbuilt release binary. Exact predecessor/package identities
+and exercised behavior are preserved in
+[display qualification](../research/docs/display-qualification.md).
 
 ## Public Creality Klipper source
 
@@ -419,7 +410,11 @@ has a different applicable license.
 
 Project-authored material in `research/` is distributed under the MIT License.
 This exception applies only where the project owns the relevant rights; it does
-not classify all research files as MIT.
+not classify all research files as MIT. Product-documentation snapshots moved
+into research retain their previous `AGPL-3.0-or-later` grant through specific
+REUSE assignments. Existing MIT records with appended AGPL snapshots identify
+the section boundary and use `MIT AND AGPL-3.0-or-later` for the combined file;
+neither original grant is withdrawn by the reorganization.
 
 Third-party and derived material remains subject to its respective license.
 In particular:
@@ -450,7 +445,7 @@ are derived GPL-covered source and remain subject to Klipper's applicable GPLv3
 terms, including preservation of notices and the corresponding source/license
 obligations when redistributed. Their comparison basis is the recorded upstream
 commit in `patches/klipper/0001-gd32f303-f005-mainline.patch` and
-`docs/gd32f303-mainline-port.md`. `0002` is the narrow X2000 passive-UART
+`research/docs/gd32f303-mainline-port.md`. `0002` is the narrow X2000 passive-UART
 bring-up patch; `0003` is a test-only BLTouch no-auto-retry patch; and `0004`
 is the separate production opt-in passive-UART patch used by the Develop
 RootFS. The pinned upstream Klipper runtime source and `0004` remain GPLv3

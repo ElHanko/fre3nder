@@ -43,9 +43,9 @@ them. A guided first-installation flow remains [roadmap work](roadmap.md#user-fa
    `composition_provenance` to identify the project state that performed the
    final assembly. `artifact_mode` is `release` or `development`: it describes
    build/provenance checks, not RootFS contents or access features.
-   For `--compose-only` output, compare the Kernel and RootFS `artifact_mode`
-   entries inside `component_provenance` explicitly; composition does not
-   currently enforce their equality.
+   `--compose-only` enforces matching Kernel and RootFS `version` and
+   `artifact_mode`. Inspect both entries inside `component_provenance` to
+   establish which validated components were composed.
    The current manifest has no separate RootFS variant field. Use the recorded
    `rootfs.squashfs` hash, effective `buildroot.config`, and inspected RootFS
    contents to establish which system is being staged. Check the intended boot
@@ -202,6 +202,6 @@ cannot be combined with component selection or `--develop`.
 The historical 2026-08-30 RootFS-only and full p6/p8 installation results,
 including exact build IDs, byte counts, hashes, readback checks, and subsequent
 runtime observations, are preserved in
-[F005 reference hardware validation](f005-hardware-validation.md#2026-08-30-current-main-rootfs-installation-qualification).
+[F005 reference hardware validation](../research/docs/f005-hardware-validation.md#2026-08-30-current-main-rootfs-installation-qualification).
 Those results apply to the investigated reference system and historical
 artifacts. They do not qualify a new artifact or a complete Stock return.

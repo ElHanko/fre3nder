@@ -1,3 +1,8 @@
+This is a historical documentation snapshot from `docs/klipper-stock.md` at project
+commit `a3a3cb263ab845a5590136545911b02306ada35b`. Statements and status labels describe that
+recorded scope, not the current build or every hardware revision. The preserved
+text remains `AGPL-3.0-or-later`; see `REUSE.toml`.
+
 # Klipper, printer configuration, Moonraker, and web stack
 
 Unless stated otherwise, these observations come from the reference system running
@@ -203,10 +208,10 @@ patch, configuration, and offline Docker build recipe are documented in
 ## First mainline host/config result
 
 The investigated F005 reference has a current first-mainline configuration
-under [`../configs/klipper-f005/`](../configs/klipper-f005/) and historical
+under [`../configs/klipper-f005/`](../../configs/klipper-f005) and historical
 minimal offline/no-action candidates under
-[`../research/configs/klipper-f005/`](../research/configs/klipper-f005/).
-They are described in [`f005-mainline-config.md`](f005-mainline-config.md). Current
+[`../research/configs/klipper-f005/`](../configs/klipper-f005).
+They are described in [`f005-mainline-config.md`](../../docs/f005.md). Current
 upstream Klippy accepted both with the exact GD32 dictionary; the mainline
 target was then validated through the staged hardware sequence and one complete
 PLA Benchy. The exact historical Phase-2 `z_offset: 1.900`, current 2.180

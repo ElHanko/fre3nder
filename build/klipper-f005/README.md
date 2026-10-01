@@ -203,5 +203,5 @@ documented packaged candidate produced from this source was separately
 validated on the investigated reference F005 board by one controlled MCU flash,
 an identify-only protocol check, and a passive Klippy configuration/finalize
 test. The subsequent staged peripheral validation and complete-print result are
-documented in [`../../docs/f005-hardware-validation.md`](../../docs/f005-hardware-validation.md);
+documented in [F005 hardware evidence](../../research/docs/f005-hardware-validation.md);
 arbitrary rebuilds are not thereby hardware-validated.

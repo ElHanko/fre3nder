@@ -404,7 +404,7 @@ compatible and generic Klipper code supplies the GPIO, ADC, UART, watchdog,
 timer/software-PWM, and ARM startup paths; a new full `src/gd32/` backend is
 not required. The GD32 clock branch, conservative flash wait-state handling,
 first-256-KiB linker boundary, and F005 board-info reservation are documented in
-[`gd32f303-mainline-port.md`](../../docs/gd32f303-mainline-port.md).
+[`gd32f303-mainline-port.md`](gd32f303-mainline-port.md).
 
 The F005-compatible image profile is offline validated: the raw image reserves
 board-info offsets `+0x200..+0x21f`, and the packager writes version
@@ -443,7 +443,7 @@ the code gate allowed continuation.
 
 This passive test validated only communication/configuration. The subsequent
 staged reference-board bring-up and complete PLA Benchy are documented in
-[`f005-hardware-validation.md`](../../docs/f005-hardware-validation.md); they establish
+[`f005-hardware-validation.md`](f005-hardware-validation.md); they establish
 the required first-print surface without changing the Gate-1 recovery boundary.
 
 ### Completed Phase 2 host/config sub-milestone
@@ -451,14 +451,14 @@ the required first-print surface without changing the Gate-1 recovery boundary.
 Offline host/printer configuration integration is complete for the investigated
 F005/GD32F303RET6 reference. The two candidate configurations and sanitized pin
 matrix are published in [`../configs/klipper-f005/`](../../configs/klipper-f005/)
-and [`f005-pin-matrix.md`](../../docs/f005-pin-matrix.md). Klipper's own
+and [`f005-pin-matrix.md`](../../docs/f005.md#pin-matrix). Klipper's own
 `scripts/test_klippy.py` accepted both candidates with the exact 88-command
 GD32 dictionary (`gd32f303xe`, 120 MHz, PA3/PA2 at 230400 baud) in
 debugoutput/dictionary mode, without serial, USB, or hardware access.
 
 This proves offline parser and command-surface compatibility for the
 configuration candidates. The later staged hardware result and complete print
-are recorded in [`f005-hardware-validation.md`](../../docs/f005-hardware-validation.md).
+are recorded in [`f005-hardware-validation.md`](f005-hardware-validation.md).
 Host-MCU/ADXL support is deferred and is not required for first mainline
 bring-up. Creality-only
 PR-Touch, Z compensation, calibration, UI/cloud, and other removed surfaces
@@ -477,7 +477,7 @@ BLTouch/probe and XYZ homing, both heaters and thermistors, fans, filament
 sensing, 50 mm hot extrusion, and one complete heated 5x5-mesh PLA Benchy.
 The detailed evidence, PID/reference calibration scope, and the one controlled
 `Timer too close` retry are recorded in
-[`f005-hardware-validation.md`](../../docs/f005-hardware-validation.md).
+[`f005-hardware-validation.md`](f005-hardware-validation.md).
 
 The temporary PTY feeder used during the print was test scaffolding only and is
 not part of the proposed production architecture.

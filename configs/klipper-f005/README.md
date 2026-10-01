@@ -6,8 +6,8 @@ stock-derived TMC2208 software UARTs, extruder, heaters, thermistors, fans,
 filament switch, safe Z homing, and 5x5 bed mesh.
 
 The configuration's pin mapping and qualification scope are documented in
-[`docs/f005-pin-matrix.md`](../../docs/f005-pin-matrix.md) and
-[`docs/f005-hardware-validation.md`](../../docs/f005-hardware-validation.md).
+[F005 pin matrix](../../docs/f005.md#pin-matrix) and
+[F005 hardware evidence](../../research/docs/f005-hardware-validation.md).
 Its calibration values are reference-device values and must be independently
 verified on every other printer.
 

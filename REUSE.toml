@@ -12,6 +12,33 @@ precedence = "override"
 SPDX-FileCopyrightText = "2026 Fre3nder contributors"
 SPDX-License-Identifier = "MIT"
 
+# Product documentation moved here retains its existing license. These
+# exceptions do not change the license of other project-authored research.
+[[annotations]]
+path = [
+    "research/docs/f005-hardware-validation.md",
+    "research/docs/klipper-stock.md",
+    "research/docs/f005-mcu-switching-history.md",
+    "research/docs/display-qualification.md",
+    "research/docs/gd32f303-mainline-port.md",
+    "research/docs/storage-layout.md",
+    "research/docs/x2000-hardware-qualification.md",
+]
+precedence = "override"
+SPDX-FileCopyrightText = "2026 Fre3nder contributors"
+SPDX-License-Identifier = "AGPL-3.0-or-later"
+
+# Existing MIT records and appended AGPL product-documentation records retain
+# their respective grants; the documents identify the section boundary.
+[[annotations]]
+path = [
+    "research/docs/x2000-build-history.md",
+    "research/docs/apps-web-qualification.md",
+]
+precedence = "override"
+SPDX-FileCopyrightText = "2026 Fre3nder contributors"
+SPDX-License-Identifier = "MIT AND AGPL-3.0-or-later"
+
 # Derived material keeps file-level upstream notices. NOASSERTION is used only
 # when the file contains no copyright notice.
 [[annotations]]

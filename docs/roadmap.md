@@ -155,5 +155,5 @@ under `AGENTS.md`.
 
 Gate 2 uses the classifications `UPSTREAM`, `KEEP`, `REIMPLEMENT`, `DROP`, and
 `UNKNOWN`. Current classifications are documented in
-[`klipper-stock.md`](klipper-stock.md); historical gate evidence remains in
+[F005](f005.md#current-stock-and-gate-2-classification); historical gate evidence remains in
 [`research/docs/roadmap-history.md`](../research/docs/roadmap-history.md).

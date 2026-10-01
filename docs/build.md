@@ -247,38 +247,9 @@ authorized MCU update. A previous exact Qualified MCU is recognized as
 `fre3nder-qualified`; S60 reports `f005-update-required` and never upgrades it
 automatically. See [F005 switching](f005-mcu-switching.md#f005-build-and-transitional-deployment-interfaces).
 
-### Klipper upstream refresh (2026-09-28)
-
-The productive pin moves from `0499b30374315f2a9f49fc12808527fc7d0f5cfa`
-to upstream `master` commit `7bc4d09465d31cd30fc0822e8d0abe02cc8c547f`
-(44 commits). `serialhdl.py` is unchanged, so the passive X2000 UART patch
-applies unchanged. Upstream now embeds the minimal MCU Kconfig in identify data
-and exposes it in Klippy status, fixes generic command parsing and `trapq`, and
-adds N32G45x clock changes in `stm32f1.c`. The F005 patch was rebased around
-those clock changes and keeps the 64 KiB bootloader option hidden for GD32F303;
-the serial bootloader-request patch remains necessary. The new Python 3.12
-requirements are `greenlet 3.3.2` and `cffi 2.1.1`, supplied through the
-existing Buildroot package path. No new F005 candidate or RootFS artifact was
-built or qualified during this refresh.
-
-### Moonraker upstream refresh (2026-10-01)
-
-The productive Moonraker commit is defined only by
-`userspace.moonraker.commit` in `configs/x2000/sources.json`; build and test
-consumers read it with `scripts/source-value userspace.moonraker.commit`.
-The refresh advances three commits beyond the hardware-qualified `v0.11.0`
-baseline. GitHub release detection now prefers `tag_name`; Git checkout
-detection, dependencies, runtime arguments, and data/config paths are unchanged.
-
-Fre3nder 2026.4 explicitly accepts the upstream
-[authorization change](https://github.com/Arksine/moonraker/commit/fbfe3482c32c934b34cbe00d04c0a29f3abb0291):
-an already trusted connection retains its authorization after a failed
-credential attempt. With API-key authentication enabled, an invalid nonblank
-API key remains invalid, and an untrusted client gains no trusted authorization.
-The existing `trusted_clients` configuration remains the trust boundary. No
-Fre3nder configuration change was required; API-key authentication remains
-enabled by default and logins are not forced. This refresh has no new build or
-hardware qualification; the historical qualification record remains unchanged.
+The current Moonraker authorization and ownership contract is in
+[Moonraker](moonraker.md). Dated source-refresh audits and their exact
+comparison identities are in [build history](../research/docs/x2000-build-history.md#upstream-refresh-audits-from-the-20264-development-line).
 
 ### Kernel and Buildroot source identity
 

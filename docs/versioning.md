@@ -31,14 +31,10 @@ The current productive Kernel, Buildroot, and application source identities
 belong in [`configs/x2000/sources.json`](../configs/x2000/sources.json).
 
 An untagged build can retain the same `VERSION` as an earlier tag while using
-a later project commit. The 2026-08-30 RootFS-only and full Kernel/RootFS
-qualifications were examples: both embedded `2026.1` but were separate
-current-main artifacts, not additional public releases. Their exact commits,
-hashes, and results remain in
-[F005 hardware validation](f005-hardware-validation.md#2026-08-30-current-main-rootfs-installation-qualification).
-For the earlier functional milestone and reference-system bring-up, see
-[roadmap history](../research/docs/roadmap-history.md) and
-[X2000 A/B bring-up](../research/docs/x2000-ab-bringup-plan.md).
+a later project commit. Distinguish artifacts using exact provenance and hashes;
+a shared version string does not make them the same release or qualification.
+Historical examples are preserved in
+[F005 hardware evidence](../research/docs/f005-hardware-validation.md).
 
 Installable applications are versioned and signed as `.fre3app` packages
 independently of the platform build commit. The exact installed package is

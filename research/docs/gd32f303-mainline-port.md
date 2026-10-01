@@ -1,3 +1,8 @@
+This is a historical documentation snapshot from `docs/gd32f303-mainline-port.md` at project
+commit `a3a3cb263ab845a5590136545911b02306ada35b`. Statements and status labels describe that
+recorded scope, not the current build or every hardware revision. The preserved
+text remains `AGPL-3.0-or-later`; see `REUSE.toml`.
+
 # GD32F303/F005 mainline MCU port
 
 This case study documents the offline port for the investigated Ender-3 V3 KE
@@ -21,7 +26,7 @@ src/generic/armcm_link.lds.S
 The current product build also applies the separate serial-bootloader-request
 patch after this port. The first-port image and its tests below are historical
 candidates; the current build interface and candidate/qualified distinction
-are in [the build guide](build.md#f005-mcu-candidate).
+are in [the build guide](../../docs/build.md#f005-mcu-candidate).
 
 A complete `src/gd32/` backend is unnecessary for this F005 contract. The
 required GPIO, ADC, serial, watchdog, generic timer, software-PWM and ARM
@@ -130,7 +135,7 @@ The validated candidate starts at `0x08003000` and ends its Flash load data at
 
 The validated MCU return mechanism and requirements for a future controlled
 Stock <-> Fre3nder switch are documented in
-[`f005-mcu-switching.md`](f005-mcu-switching.md). In particular, future
+[`f005-mcu-switching.md`](../../docs/f005-mcu-switching.md). In particular, future
 Fre3nder MCU builds must preserve the 12 KiB Creality bootloader and the normal
 Klipper command-reset path.
 
@@ -193,14 +198,14 @@ READY TO DESIGN CONTROLLED FIRST MCU FLASH
 ```
 
 Build instructions and the exact source patch are published separately in
-[`build/klipper-f005/README.md`](../build/klipper-f005/README.md) and
-[`patches/klipper/0001-gd32f303-f005-mainline.patch`](../patches/klipper/0001-gd32f303-f005-mainline.patch).
+[`build/klipper-f005/README.md`](../../build/klipper-f005/README.md) and
+[`patches/klipper/0001-gd32f303-f005-mainline.patch`](../../patches/klipper/0001-gd32f303-f005-mainline.patch).
 The current host configuration is published in
-[`../configs/klipper-f005/`](../configs/klipper-f005/); historical no-action
+[`../configs/klipper-f005/`](../../configs/klipper-f005); historical no-action
 candidates remain under
-[`../research/configs/klipper-f005/`](../research/configs/klipper-f005/).
-They are documented in [`f005-mainline-config.md`](f005-mainline-config.md)
-and the [historical milestone](../research/docs/f005-mainline-config-milestone.md).
+[`../research/configs/klipper-f005/`](../configs/klipper-f005).
+They are documented in [`f005-mainline-config.md`](../../docs/f005.md)
+and the [historical milestone](f005-mainline-config-milestone.md).
 The early offline tests exercised this MCU
 dictionary in Klippy's debugoutput mode only and do not validate printer
 peripherals or make further flashing safe.

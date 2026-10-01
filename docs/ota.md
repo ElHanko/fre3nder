@@ -305,6 +305,12 @@ The implemented operations are currently:
     write
     readback
     prepare-activation
+    reboot
+    postboot
+
+`reboot` is also exposed by the public CLI. `postboot` is an internal startup
+operation invoked by S89, not a public CLI command. See the
+[CLI reference](api/cli.md#ota).
 
 `verify` returns structured package identity and verification state.
 
@@ -586,10 +592,8 @@ project commits or development build-input fingerprints when an unchanged
 Kernel is intentionally reused. `component_provenance` records those two build
 origins separately. `composition_provenance` records the project state that
 created the final signed package. The components must agree on the Fre3nder
-version. Matching artifact mode remains the intended composition contract,
-but the current `--compose-only` implementation checks only the version;
-the fixture expects mode mismatch rejection. Until code and fixture agree,
-check the two component modes explicitly before composition. See the
+version and artifact mode. The current `--compose-only` implementation rejects
+a mismatch in either field, as covered by the composition fixture. See the
 [build guide](build.md#partial-builds-and-reuse).
 
 `SHA256SUMS` contains SHA-256 digests for `manifest.json`, `kernel.uImage`, and

@@ -503,10 +503,8 @@ grep -Fq 'SPDX-License-Identifier = "BSD-3-Clause"' "$reuse"
 [ -f "$root/LICENSES/BSD-3-Clause.txt" ]
 grep -Fq '7.45.98.118' "$root/docs/buildroot-maintenance.md"
 grep -Fq '01-32059766' "$root/docs/buildroot-maintenance.md"
-grep -Fq '7.45.98.125' "$root/docs/buildroot-maintenance.md"
-grep -Fq '01-f420b81d' "$root/docs/buildroot-maintenance.md"
-grep -Fq '84f625bd0984a9eb8511eec27af7d35e55f5c9202f3f572c8da74df55ed81d33' \
-	"$root/docs/buildroot-maintenance.md"
+grep -Fq 'regular Buildroot/linux-firmware path' "$root/docs/buildroot-maintenance.md"
+grep -Fq 'board NVRAM is independently pinned' "$root/docs/buildroot-maintenance.md"
 grep -Fq 'QUALIFIED ON DEVICE (WLAN ONLY)' \
 	"$root/docs/x2000-hardware-contract.md"
 grep -Fq 'Bluetooth was not tested or qualified' \

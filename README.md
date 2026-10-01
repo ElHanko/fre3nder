@@ -51,11 +51,13 @@ revision, or recovery behavior as universal.
 
 ## Start here
 
+Start with [the current documentation index](docs/README.md) for usage,
+operations, development, API reference and troubleshooting.
+
 - [Build Fre3nder](docs/build.md)
 - [Configure Fre3nder](docs/configuration.md)
 - [Back up HOME and SYS](docs/backup.md)
-- [Integrated display and touch hardware](docs/x2000-display-touch.md)
-- [Fre3nderScreen local Core-UI](docs/fre3nderscreen.md)
+- [Display, touch and Fre3nderScreen](docs/display.md)
 - [Install or update Fre3nder](docs/installation.md)
 - [Recovery and return to Stock](docs/recovery.md)
 - [Development and tests](docs/development.md)
@@ -98,6 +100,7 @@ secrets in the repository.
 
 Project-authored Fre3nder system material is licensed under
 `AGPL-3.0-or-later`. Project-authored material in [`research/`](research/) is
-licensed under MIT unless a file is third-party or derived material. See
+licensed under MIT unless a specific assignment preserves another license or
+the file is third-party/derived material. See
 [`docs/licensing-and-provenance.md`](docs/licensing-and-provenance.md) for the
 path-specific licensing and provenance policy.

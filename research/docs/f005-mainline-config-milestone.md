@@ -1,6 +1,6 @@
 # Historical F005 mainline host/config milestone
 
-This preserves the dated milestone and qualification detail. The current configuration reference is [docs/f005-mainline-config.md](../../docs/f005-mainline-config.md).
+This preserves the dated milestone and qualification detail. The current configuration reference is [docs/f005-mainline-config.md](../../docs/f005.md).
 
 **HOST/CONFIG AND FIRST-PRINT VALIDATION COMPLETE**
 **PRIMARY MCU PASSIVE RUNTIME CONFIG/FINALIZE: PASS**
@@ -10,7 +10,7 @@ This document describes the investigated F005/GD32F303RET6 reference only. It
 does not claim support for every Ender-3 V3 KE revision. The fixed upstream
 basis is Klipper commit
 `0499b30374315f2a9f49fc12808527fc7d0f5cfa`, together with the small GD32F303
-port documented in [`gd32f303-mainline-port.md`](../../docs/gd32f303-mainline-port.md).
+port documented in [`gd32f303-mainline-port.md`](gd32f303-mainline-port.md).
 
 ## Offline and hardware result
 
@@ -30,7 +30,7 @@ The offline run reported no unknown sections, options, or pins and no missing
 MCU commands. The complete mainline configuration was subsequently validated
 on the investigated reference through the staged bring-up and one complete
 PLA Benchy. The evidence and exact validation boundary are in
-[`f005-hardware-validation.md`](../../docs/f005-hardware-validation.md).
+[`f005-hardware-validation.md`](f005-hardware-validation.md).
 
 ## Passive MCU runtime result
 
@@ -58,7 +58,7 @@ X/Y/Z, the extruder, TMC2208 software UART, physical X/Y endstops, BLTouch and
 `probe:z_virtual_endstop`, `safe_z_home`, 5x5 `bed_mesh`, hotend and bed heaters
 with EPCOS 100K B57560G104F thermistors, part/hotend/mainboard fans, and the
 filament switch. The pin mapping is listed in
-[`f005-pin-matrix.md`](../../docs/f005-pin-matrix.md).
+[`f005-pin-matrix.md`](../../docs/f005.md#pin-matrix).
 
 The BLTouch uses sensor PC14, control PC13, and offsets X=0/Y=27. The tracked
 `z_offset: 2.180` is **QUALIFIED ON DEVICE** for this reference device by the
@@ -165,7 +165,7 @@ communication, X/Y endstops, X/Y/Z motion and direction, BLTouch deploy/retract
 and probing, XYZ homing, both heaters and thermistors, fans, filament sensing,
 50 mm hot extrusion, and a complete heated 5x5-mesh PLA Benchy. Exact scope,
 one recoverable Timer-too-close startup shutdown, and remaining calibration
-limits are recorded in [`f005-hardware-validation.md`](../../docs/f005-hardware-validation.md).
+limits are recorded in [`f005-hardware-validation.md`](f005-hardware-validation.md).
 
 This milestone alone does not establish Gate 1 and does not make persistent
 recovery or flashing safe. Gate 1 is separately satisfied by the current

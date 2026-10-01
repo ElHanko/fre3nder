@@ -25,8 +25,8 @@ The comparison basis is the investigated F005/GD32F303RET6 reference system
 documented in:
 
 - [`docs/f005-mcu-switching.md`](../../docs/f005-mcu-switching.md);
-- [`docs/klipper-stock.md`](../../docs/klipper-stock.md);
-- [`docs/gd32f303-mainline-port.md`](../../docs/gd32f303-mainline-port.md);
+- [`docs/klipper-stock.md`](klipper-stock.md);
+- [`docs/gd32f303-mainline-port.md`](gd32f303-mainline-port.md);
 - [`research/docs/f005-first-print-reproduction.md`](f005-first-print-reproduction.md).
 
 That evidence establishes `/dev/ttyS1`, application baud 230400, the retained

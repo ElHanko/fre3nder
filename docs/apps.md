@@ -1,10 +1,12 @@
 # Installable applications and frontends
 
-Status: the signed `.fre3app` package core is implemented in the platform
-repository. Fluidd's earlier Legacy-app and web integration was qualified on
-the investigated reference system; the `.fre3app` migration has not yet been
-built or qualified on hardware. The earlier observations remain in
-[managed-app and web qualification](../research/docs/apps-web-qualification.md).
+The signed `.fre3app` package core is implemented in the platform. The recorded
+Development Fre3nderScreen Factory-app path is qualified on the investigated
+reference system; that does not qualify another package or release binary.
+Fluidd's signed-package migration has no hardware qualification from its earlier
+Legacy-app/web result. Exact scopes remain in [display](display.md#configuration-and-qualification-boundary)
+and [web qualification](../research/docs/apps-web-qualification.md).
+Use the [CLI reference](api/cli.md) for complete syntax, rights and output limits.
 
 ## Package lifecycle
 
