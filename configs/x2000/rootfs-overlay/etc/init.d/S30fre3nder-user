@@ -2,6 +2,7 @@
 set -e
 
 root_state=${FRE3NDER_ROOT_STATE:-/run/fre3nder-root}
+state=${FRE3NDER_STATE:-/run/fre3nder}
 home=${FRE3NDER_HOME_DIR:-/home/fre3nder}
 
 group_gid() {
@@ -65,6 +66,12 @@ ensure_account() {
 	done
 }
 
+prepare_runtime() {
+	[ -d "$state" ] && [ ! -L "$state" ] || return 1
+	chown root:fre3nder "$state"
+	chmod 0710 "$state"
+}
+
 prepare_home() {
 	[ -d "${home%/*}" ] && [ ! -L "${home%/*}" ] || return 1
 	ensure_directory "$home" 0700
@@ -91,6 +98,7 @@ start)
 	[ -f "$root_state/status" ] && [ ! -L "$root_state/status" ] &&
 		[ "$(cat "$root_state/status")" = active ] || exit 0
 	ensure_account
+	prepare_runtime
 	prepare_home
 	;;
 stop) ;;
