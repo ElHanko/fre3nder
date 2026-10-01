@@ -1,7 +1,6 @@
 # Fre3nder X2000 kernel configuration additions.
 CONFIG_PREEMPT=y
 # CONFIG_PREEMPT_RT is not set
-CONFIG_LOCALVERSION="-fre3nder"
 # CONFIG_LOCALVERSION_AUTO is not set
 CONFIG_FILE_LOCKING=y
 CONFIG_BLK_DEV_INITRD=y

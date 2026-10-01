@@ -18,7 +18,10 @@ Development builds can reuse the fingerprint-matched Buildroot output. A
 markerless legacy output is adopted only after its Buildroot version,
 effective toolchain configuration, compiler contract, sysroot, and completion
 stamps match; ambiguous output is removed. Release builds never adopt old
-output. On the reference build environment, adoption reported `ADOPTED` once
+output. `buildroot.legacy_adoption_commit` in `sources.json` records the
+historically qualified markerless-adoption commit independently of the current
+pin; a later source update does not extend that qualification. On the reference
+build environment, adoption reported `ADOPTED` once
 and the next RootFS-only build reported `HIT`; the repeated build also
 validated replacement of stale Moonraker Git metadata by the idempotent
 post-build hook. These are historical build-environment results, not a
@@ -48,8 +51,8 @@ applies to the exact `2025.02.18` pin; a later Buildroot patch release requires
 fresh qualification.
 
 The productive CYW43430 firmware follows the `linux-firmware` version selected
-by this Buildroot pin rather than a separate project download. Buildroot
-2025.02.18 selects linux-firmware `20250211`. Any later Buildroot update must
+by this Buildroot pin rather than a separate project download. The pinned
+Buildroot selects linux-firmware `20250211`. Any later Buildroot update must
 therefore recheck the package version, archive and selected-file hashes,
 `WHENCE` aliases, `LICENCE.cypress`, and WLAN hardware behavior. The
 board-specific NVRAM is an independently pinned, hash-checked BSD-3-Clause
@@ -128,7 +131,7 @@ local MIPS target patch nor a Greenlet compiler-compatibility patch.
 
 The Klipper upstream pin in [`sources.json`](../configs/x2000/sources.json)
 requires `greenlet 3.3.2` and `cffi 2.1.1` on Python 3.12. The pinned Buildroot
-2025.02.18 recipes are updated by
+recipes are updated by
 [`0002-klipper-python-dependencies.patch`](../patches/buildroot/0002-klipper-python-dependencies.patch),
 without changing the Buildroot release. Its source URLs and archive hashes
 come from the [greenlet 3.3.2](https://pypi.org/pypi/greenlet/3.3.2/json) and
@@ -144,8 +147,8 @@ For every patch release update:
 2. Review `CHANGES` between the current and proposed patch release, with
    particular attention to `arch/mips`, internal toolchains, Python, BusyBox,
    Dropbear, wpa_supplicant, linux-firmware, libffi, and SquashFS.
-3. Update the Buildroot version and exact commit in the build logic and
-   `configs/x2000/sources.json`.
+3. Update only `buildroot.version` and `buildroot.commit` in
+   `configs/x2000/sources.json`; consumers read them with `scripts/source-value`.
 4. Confirm that the XBurst II patch applies and that its wrapper selects
    `-ffp-contract=off`.
 5. Regenerate the effective Buildroot configuration from clean output.

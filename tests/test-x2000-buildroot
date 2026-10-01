@@ -21,6 +21,18 @@ moonraker_wheel_cache=${MOONRAKER_WHEEL_CACHE:-$root/local/production/work/x2000
 klipper_source=${KLIPPER_SOURCE:-$root/local/production/work/x2000/klipper}
 klipper_commit=$("$root/scripts/source-value" userspace.klipper.commit)
 moonraker_commit=$("$root/scripts/source-value" userspace.moonraker.commit)
+kernel_url=$("$root/scripts/source-value" kernel.source.url)
+kernel_version=$("$root/scripts/source-value" kernel.kernel_version)
+kernel_commit=$("$root/scripts/source-value" kernel.source.commit)
+kernel_baseline_tree=$("$root/scripts/source-value" kernel.source.tree)
+kernel_fre3nder_tree=$("$root/scripts/source-value" kernel.patch_series.result_tree)
+kernel_localversion=$("$root/scripts/source-value" kernel.kernel_localversion)
+kernel_tag="v$kernel_version"
+kernel_release="${kernel_version}${kernel_localversion}"
+buildroot_url=$("$root/scripts/source-value" buildroot.url)
+buildroot_version=$("$root/scripts/source-value" buildroot.version)
+buildroot_commit=$("$root/scripts/source-value" buildroot.commit)
+buildroot_legacy_adoption_commit=$("$root/scripts/source-value" buildroot.legacy_adoption_commit)
 post_build="$root/configs/x2000/rootfs-post-build.sh"
 nvram="$root/configs/x2000/rootfs-overlay/lib/firmware/brcm/brcmfmac43430-sdio.txt"
 nvram_license="$root/configs/x2000/rootfs-overlay/usr/share/licenses/radxa-rkwifibt/LICENSE"
@@ -28,7 +40,9 @@ reuse="$root/REUSE.toml"
 kernel_wlan_patch=$root/patches/kernel/0004-ingenic-ender3-v3-ke-wlan-v6.6.157.patch
 kernel_integration_patch=$root/patches/kernel/0005-fre3nder-ender3-v3-ke-integration-v6.6.157.patch
 
-python3 - "$sources" "$klipper_commit" "$moonraker_commit" <<'PY'
+python3 - "$sources" "$klipper_commit" "$moonraker_commit" \
+	"$buildroot_url" "$buildroot_version" "$buildroot_commit" \
+	"$buildroot_legacy_adoption_commit" <<'PY'
 import json
 import pathlib
 import re
@@ -45,11 +59,15 @@ assert data["userspace"]["klipper"] == {
         "passive-UART patch"),
 }
 buildroot = data["buildroot"]
+assert re.fullmatch(r"[0-9]{4}\.(0[1-9]|1[0-2])\.[0-9]+", sys.argv[5])
+assert re.fullmatch(r"[0-9a-f]{40}", sys.argv[6])
+assert re.fullmatch(r"[0-9a-f]{40}", sys.argv[7])
 assert buildroot == {
-    "version": "2025.02.18",
-    "url": "https://gitlab.com/buildroot.org/buildroot.git",
-    "commit": "d030e36bbc9669230c015be971b14b6e062cfdde",
+    "version": sys.argv[5],
+    "url": sys.argv[4],
+    "commit": sys.argv[6],
     "source": "upstream Buildroot",
+    "legacy_adoption_commit": sys.argv[7],
 }
 greenlet = data["userspace"]["greenlet"]
 assert greenlet == {
@@ -219,9 +237,13 @@ assert data["userspace"]["moonraker"] == {
 assert re.fullmatch(r"[0-9a-f]{40}", sys.argv[3])
 PY
 
-python3 - "$sources" <<'PY'
+python3 - "$sources" "$kernel_url" "$kernel_version" "$kernel_commit" \
+	"$kernel_baseline_tree" "$kernel_fre3nder_tree" "$kernel_localversion" \
+	"$kernel_tag" "$kernel_release" <<'PY'
+import hashlib
 import json
 import pathlib
+import re
 import sys
 
 data = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
@@ -229,21 +251,24 @@ kernel = data["kernel"]
 
 assert kernel["source"] == {
     "role": "productive upstream Linux baseline",
-    "url": "https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git",
-    "tag": "v6.6.157",
-    "commit": "79643295eba17affbd16ca97f3ef04c90266b28c",
-    "tree": "e2963aecbdc92c10a52434a5ae11a82522dc38d5",
+    "url": sys.argv[2],
+    "commit": sys.argv[4],
+    "tree": sys.argv[5],
 }
+assert kernel["kernel_version"] == sys.argv[3]
+assert re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", sys.argv[3])
+for value in sys.argv[4:7]:
+    assert re.fullmatch(r"[0-9a-f]{40}", value)
+assert kernel["kernel_localversion"] == sys.argv[7]
+assert sys.argv[8] == f"v{sys.argv[3]}"
+assert sys.argv[9] == sys.argv[3] + sys.argv[7]
+assert "kernel_release" not in kernel
 
 series = kernel["patch_series"]
 
-assert series["baseline_commit"] == (
-    "79643295eba17affbd16ca97f3ef04c90266b28c"
-)
-
-assert series["result_tree"] == (
-    "fd3535dcfe9b4adca5c2e77f10b7672ae6a0a786"
-)
+assert series["baseline_ref"] == "kernel.source.commit"
+assert "baseline_commit" not in series
+assert series["result_tree"] == sys.argv[6]
 
 assert [
     (
@@ -279,6 +304,9 @@ assert [
         "3d06a959c58136ac747014396ff4f71d4a04d375814e7da83983303625461206",
     ),
 ]
+root = pathlib.Path(sys.argv[1]).resolve().parents[2]
+for item in series["patches"]:
+    assert hashlib.sha256((root / item["patch"]).read_bytes()).hexdigest() == item["patch_sha256"]
 PY
 
 for patch in \
@@ -288,13 +316,29 @@ for patch in \
     0004-ingenic-ender3-v3-ke-wlan-v6.6.157.patch \
     0005-fre3nder-ender3-v3-ke-integration-v6.6.157.patch
 do
-    grep -Fq "$patch" "$entrypoint"
+    grep -Fq "$patch" "$sources"
     [ -f "$root/patches/kernel/$patch" ]
 done
 
-grep -Fq \
-    'kernel_fre3nder_tree=fd3535dcfe9b4adca5c2e77f10b7672ae6a0a786' \
-    "$entrypoint"
+for record in \
+	'kernel_url:kernel.source.url' \
+	'kernel_version:kernel.kernel_version' \
+	'kernel_commit:kernel.source.commit' \
+	'kernel_baseline_tree:kernel.source.tree' \
+	'kernel_fre3nder_tree:kernel.patch_series.result_tree' \
+	'kernel_localversion:kernel.kernel_localversion' \
+	'buildroot_url:buildroot.url' \
+	'buildroot_version:buildroot.version' \
+	'buildroot_commit:buildroot.commit' \
+	'buildroot_legacy_adoption_commit:buildroot.legacy_adoption_commit'; do
+	variable=${record%%:*}
+	field=${record#*:}
+	grep -Fxq "$variable=\$(\"\$project/scripts/source-value\" $field)" "$entrypoint"
+done
+grep -Fxq 'kernel_tag="v$kernel_version"' "$entrypoint"
+grep -Fxq 'kernel_release="${kernel_version}${kernel_localversion}"' "$entrypoint"
+grep -Fq 'CONFIG_LOCALVERSION="$kernel_localversion"' "$entrypoint"
+! grep -q '^CONFIG_LOCALVERSION=' "$root/configs/x2000/kernel.fragment"
 
 ! grep -Fq \
     '0001-fre3nder-x2000-direct-delta-v6.6.157.patch' \
@@ -364,9 +408,6 @@ PY
 
 grep -Fxq 'buildroot="$work/buildroot"' "$entrypoint"
 grep -Fxq 'buildroot_dl="$work/buildroot-dl"' "$entrypoint"
-grep -Fxq 'buildroot_version=2025.02.18' "$entrypoint"
-grep -Fxq 'buildroot_commit=d030e36bbc9669230c015be971b14b6e062cfdde' \
-	"$entrypoint"
 grep -Fq '"refs/tags/$buildroot_version:refs/tags/$buildroot_version"' \
 	"$entrypoint"
 grep -Fq '"refs/tags/${buildroot_version}^{}"' "$entrypoint"
@@ -801,20 +842,19 @@ git -C "$release_source" tag -a -m 2025.02.17 2025.02.17
 printf '%s\n' current > "$release_source/release"
 git -C "$release_source" commit -q -am current
 release_commit=$(git -C "$release_source" rev-parse HEAD)
-git -C "$release_source" tag -a -m 2025.02.18 2025.02.18
+git -C "$release_source" tag -a -m "$buildroot_version" "$buildroot_version"
 
 buildroot=$tmp/buildroot-release-checkout
 buildroot_url=$release_source
-buildroot_version=2025.02.18
 buildroot_commit=$release_commit
 fetch_buildroot_release
-[ "$(git -C "$buildroot" cat-file -t refs/tags/2025.02.18)" = tag ]
-[ "$(git -C "$buildroot" rev-parse 'refs/tags/2025.02.18^{}')" = \
+[ "$(git -C "$buildroot" cat-file -t "refs/tags/$buildroot_version")" = tag ]
+[ "$(git -C "$buildroot" rev-parse "refs/tags/${buildroot_version}^{}")" = \
 	"$release_commit" ]
 ! git -C "$buildroot" show-ref --verify --quiet refs/tags/2025.02.17
 printf '%s\n' dirty >> "$buildroot/release"
 [ "$(git -C "$buildroot" describe --tags --always --dirty)" = \
-	2025.02.18-dirty ]
+	"${buildroot_version}-dirty" ]
 
 # A valid release tag that dereferences to another commit must fail closed.
 buildroot=$tmp/buildroot-release-mismatch
@@ -825,8 +865,8 @@ if fetch_buildroot_release 2>/dev/null; then
 fi
 
 # A lightweight tag on the pinned commit must also fail closed.
-git -C "$release_source" tag -d 2025.02.18 >/dev/null
-git -C "$release_source" tag 2025.02.18 "$release_commit"
+git -C "$release_source" tag -d "$buildroot_version" >/dev/null
+git -C "$release_source" tag "$buildroot_version" "$release_commit"
 buildroot=$tmp/buildroot-release-lightweight
 buildroot_commit=$release_commit
 if fetch_buildroot_release 2>/dev/null; then
@@ -934,8 +974,7 @@ done > "$tmp/buildroot-cache-functions.sh"
 . "$tmp/buildroot-cache-functions.sh"
 
 project=$cache_project
-buildroot_commit=d030e36bbc9669230c015be971b14b6e062cfdde
-buildroot_version=2025.02.18
+buildroot_commit=$("$root/scripts/source-value" buildroot.commit)
 buildroot_patch=$cache_project/patches/buildroot/0001-mips-add-ingenic-xburst2-target.patch
 buildroot_toolchain_marker=.fre3nder-toolchain-fingerprint
 
@@ -955,14 +994,14 @@ create_toolchain_fixture() {
 	chmod +x "$cache_output/host/bin/toolchain-wrapper"
 	ln -s toolchain-wrapper "${prefix}gcc"
 	ln -s toolchain-wrapper "${prefix}g++"
-	cat > "${prefix}gcc.br_real" <<'EOF'
+	cat > "${prefix}gcc.br_real" <<EOF
 #!/bin/sh
-case "$1" in
+case "\$1" in
 -dumpmachine) printf '%s\n' mipsel-buildroot-linux-gnu ;;
 -dumpfullversion) printf '%s\n' 13.4.0 ;;
 --version)
 	printf '%s\n' \
-		'mipsel-buildroot-linux-gnu-gcc.br_real (Buildroot 2025.02.18-dirty) 13.4.0'
+		'mipsel-buildroot-linux-gnu-gcc.br_real (Buildroot ${buildroot_version}-dirty) 13.4.0'
 	;;
 -Q)
 	printf '%s\n' \
@@ -995,8 +1034,8 @@ EOF
 		"$cache_output/build/host-binutils-2.43.1/.stamp_host_installed" \
 		"$cache_output/build/glibc-2.41-161-g5dd252cf1d113644b3679f5a158e9ef20217865e/.stamp_staging_installed" \
 		"$cache_output/build/linux-headers-6.6.156/.stamp_staging_installed"
-	cat > "$cache_output/.config" <<'EOF'
-# Buildroot 2025.02.18-dirty Configuration
+	cat > "$cache_output/.config" <<EOF
+# Buildroot ${buildroot_version}-dirty Configuration
 BR2_mipsel=y
 BR2_mips_xburst2=y
 BR2_MIPS_CPU_MIPS32R5=y
@@ -1028,7 +1067,7 @@ create_cached_toolchain() {
 # The exact release identity is accepted; the observed previous-tag fallback is not.
 create_toolchain_fixture
 buildroot_toolchain_contract_matches "$cache_output"
-sed -i 's/Buildroot 2025.02.18-dirty/Buildroot 2025.02.17-113-gd030e36bbc-dirty/' \
+sed -i "s/Buildroot ${buildroot_version}-dirty/Buildroot 2025.02.17-113-gd030e36bbc-dirty/" \
 	"$cache_output/host/bin/mipsel-buildroot-linux-gnu-gcc.br_real"
 if buildroot_toolchain_contract_matches "$cache_output"; then
 	echo 'Buildroot accepted the previous-tag compiler identity' >&2
@@ -1152,6 +1191,15 @@ cache_log=$(prepare_buildroot_output "$cache_output")
 [ "$(read_buildroot_toolchain_fingerprint "$cache_output")" = \
 	"$(buildroot_toolchain_fingerprint)" ]
 
+# A later productive pin does not inherit markerless-adoption qualification.
+qualified_buildroot_commit=$buildroot_commit
+buildroot_commit=0000000000000000000000000000000000000000
+if buildroot_legacy_toolchain_adoptable "$cache_output"; then
+	echo 'Buildroot accepted an unqualified markerless-adoption commit' >&2
+	exit 1
+fi
+buildroot_commit=$qualified_buildroot_commit
+
 # 13. A markerless output without its compiler is cleaned.
 rm -rf -- "$cache_output"
 create_toolchain_fixture
@@ -1207,7 +1255,7 @@ cache_log=$(prepare_buildroot_output "$cache_output")
 # The productive kernel no longer stages board or WLAN changes through an
 # Ingenic SDK checkout. Kernel patch ordering, provenance, hashes, and the
 # exact resulting source tree are validated above against the productive
-# upstream-v6.6.157 patch series.
+# pinned upstream kernel patch series.
 
 # The qualified F005 image is staged into the immutable RootFS overlay from the
 # release-manifest-validated local artifact.

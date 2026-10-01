@@ -251,6 +251,19 @@ Fre3nder configuration change was required; API-key authentication remains
 enabled by default and logins are not forced. This refresh has no new build or
 hardware qualification; the historical qualification record remains unchanged.
 
+### Kernel and Buildroot source identity
+
+Active Kernel and Buildroot source values are defined in
+`configs/x2000/sources.json` and read with `scripts/source-value`.
+Kernel tag and release are derived from `kernel.kernel_version` and
+`kernel.kernel_localversion`; `kernel.patch_series.baseline_ref` points to
+`kernel.source.commit`. The ordered patch paths and SHA256 digests come from
+`kernel.patch_series.patches`. Versioned patch filenames identify their
+maintained baseline and are preserved along with historical qualification.
+Buildroot's annotated release tag is derived from `buildroot.version` and
+must dereference to `buildroot.commit`. This centralization changes no source
+version, commit, patch content, or expected source tree.
+
 ## Common failures and next steps
 
 - Missing signing keys: generate the local pair before a complete build or

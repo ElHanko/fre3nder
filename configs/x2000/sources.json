@@ -11,18 +11,16 @@
     "source": {
       "role": "productive upstream Linux baseline",
       "url": "https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git",
-      "tag": "v6.6.157",
       "commit": "79643295eba17affbd16ca97f3ef04c90266b28c",
       "tree": "e2963aecbdc92c10a52434a5ae11a82522dc38d5"
     },
     "kernel_version": "6.6.157",
     "kernel_localversion": "-fre3nder",
-    "kernel_release": "6.6.157-fre3nder",
     "preemption_model": "PREEMPT",
     "preempt_rt_enabled": false,
     "patch_series": {
-      "role": "productive ordered Fre3nder X2000 kernel patch series on upstream Linux v6.6.157",
-      "baseline_commit": "79643295eba17affbd16ca97f3ef04c90266b28c",
+      "role": "productive ordered Fre3nder X2000 kernel patch series on the pinned upstream Linux baseline",
+      "baseline_ref": "kernel.source.commit",
       "result_tree": "fd3535dcfe9b4adca5c2e77f10b7672ae6a0a786",
       "patches": [
         {
@@ -125,7 +123,8 @@
     "version": "2025.02.18",
     "url": "https://gitlab.com/buildroot.org/buildroot.git",
     "commit": "d030e36bbc9669230c015be971b14b6e062cfdde",
-    "source": "upstream Buildroot"
+    "source": "upstream Buildroot",
+    "legacy_adoption_commit": "d030e36bbc9669230c015be971b14b6e062cfdde"
   },
   "userspace": {
     "klipper": {
@@ -173,29 +172,29 @@
     "wpa_supplicant": {
       "version": "2.12",
       "license": "BSD-3-Clause",
-      "source": "upstream Buildroot 2025.02.18 package"
+      "source": "upstream Buildroot package"
     },
     "dropbear": {
       "version": "2026.93",
       "license": "MIT, BSD-2-Clause, Public domain, Unlicense, WTFPL",
-      "source": "upstream Buildroot 2025.02.18 package"
+      "source": "upstream Buildroot package"
     },
     "mjpg_streamer": {
       "repository": "https://github.com/jacksonliam/mjpg-streamer.git",
       "commit": "5a6e0a2db163e6ae9461552b59079870d0959340",
       "license": "GPL-2.0-or-later",
-      "source": "upstream Buildroot 2025.02.18 package",
+      "source": "upstream Buildroot package",
       "role": "USB-UVC V4L2 to localhost MJPEG streamer"
     },
     "busybox": {
       "version": "1.37.0",
       "license": "GPL-2.0, bzip2-1.0.6",
-      "source": "upstream Buildroot 2025.02.18 package"
+      "source": "upstream Buildroot package"
     },
     "python": {
       "version": "3.12.14",
       "license": "Python-2.0, others",
-      "source": "upstream Buildroot 2025.02.18 package"
+      "source": "upstream Buildroot package"
     },
     "greenlet": {
       "version": "3.3.2",

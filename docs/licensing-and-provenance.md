@@ -37,18 +37,17 @@ Policy:
 
 ## Buildroot and X2000 kernel provenance
 
-The productive RootFS is built from the official upstream Buildroot 2025.02.18
-LTS source. Its exact release and commit are pinned in
+The productive RootFS is built from the official upstream Buildroot LTS
+source. Its exact release, URL, and commit are pinned under `buildroot` in
 `configs/x2000/sources.json`.
 
 The RootFS uses an XBurst II target patch against upstream Buildroot and an
 internal Buildroot toolchain. The patch records its exact Ingenic SDK and
 upstream Buildroot provenance; no Ingenic userspace toolchain is redistributed.
 
-The productive kernel source starts from the official stable Linux
-`v6.6.157` release at commit
-`79643295eba17affbd16ca97f3ef04c90266b28c`, tree
-`e2963aecbdc92c10a52434a5ae11a82522dc38d5`.
+The productive kernel source starts from official stable Linux, with its
+version defined by `kernel.kernel_version` and its upstream URL, commit, and
+baseline tree under `kernel.source` in `configs/x2000/sources.json`.
 
 Fre3nder applies an ordered five-patch hardware-support series from
 `patches/kernel/`:
@@ -73,8 +72,8 @@ repository at commit
 record their derivation from `coreflake1/NebulaOS-kernel` at commit
 `88a0e1ecc6ace7c9e4ad99d6fa49e272180fd5a9`.
 
-Applied in order, the current five patches produce source tree
-`fd3535dcfe9b4adca5c2e77f10b7672ae6a0a786`.
+Applied in order, the current five patches must produce the source tree
+recorded by `kernel.patch_series.result_tree` in `configs/x2000/sources.json`.
 
 The original provenance split produced
 `40d8b5cee4341505c12373e9bb1386e80241f0d6`, matching the source tree that had
@@ -102,7 +101,7 @@ GD32F303 bare-metal MCU.
 
 ### CYW43430 WLAN firmware
 
-Buildroot 2025.02.18 selects its regular `linux-firmware` package at release
+The pinned Buildroot selects its regular `linux-firmware` package at release
 `20250211` for the WLAN firmware. The upstream tag resolves to commit
 `5bc5868b7ee5a243abdd73cfcd3bbf7166f4f42f`; Buildroot verifies the release
 archive with SHA-256

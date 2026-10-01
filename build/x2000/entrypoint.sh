@@ -43,21 +43,28 @@ artifact_root="$local_root/artifacts/x2000"
 full_out="$artifact_root/full"
 kernel_out="$artifact_root/kernel-only"
 rootfs_out="$artifact_root/rootfs-only"
-kernel_url=https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git
-kernel_tag=v6.6.157
-kernel_commit=79643295eba17affbd16ca97f3ef04c90266b28c
-kernel_baseline_tree=e2963aecbdc92c10a52434a5ae11a82522dc38d5
-kernel_fre3nder_tree=fd3535dcfe9b4adca5c2e77f10b7672ae6a0a786
-kernel_fre3nder_patch_dir="$project/patches/kernel"
-kernel_fre3nder_patch_series='0001-ingenic-x2000-platform-v6.6.157.patch:df0ab5b4f8041faf8aa715500dd9f3c4aa4c6e34360bdf03836c4a1487da072e
-0002-ender3-v3-ke-display-v6.6.157.patch:50e4ff298bea856a91183482ef8ed4d6578c6860e50833986601d9072f9c6516
-0003-ns2009-touch-v6.6.157.patch:121c9ed5f0123864c21077a7dfb207d9b1f366bb783df8dd18916eff0fa04ac5
-0004-ingenic-ender3-v3-ke-wlan-v6.6.157.patch:01a8a472de7235f06630e599ade5645aed9c803c0a2e7c516a97362eb2578085
-0005-fre3nder-ender3-v3-ke-integration-v6.6.157.patch:3d06a959c58136ac747014396ff4f71d4a04d375814e7da83983303625461206'
-kernel_release=6.6.157-fre3nder
-buildroot_url=https://gitlab.com/buildroot.org/buildroot.git
-buildroot_version=2025.02.18
-buildroot_commit=d030e36bbc9669230c015be971b14b6e062cfdde
+kernel_url=$("$project/scripts/source-value" kernel.source.url)
+kernel_version=$("$project/scripts/source-value" kernel.kernel_version)
+kernel_commit=$("$project/scripts/source-value" kernel.source.commit)
+kernel_baseline_tree=$("$project/scripts/source-value" kernel.source.tree)
+kernel_fre3nder_tree=$("$project/scripts/source-value" kernel.patch_series.result_tree)
+kernel_localversion=$("$project/scripts/source-value" kernel.kernel_localversion)
+kernel_tag="v$kernel_version"
+kernel_release="${kernel_version}${kernel_localversion}"
+kernel_fre3nder_patch_series=$(python3 - "$project/configs/x2000/sources.json" <<'PY'
+import json
+import pathlib
+import sys
+
+sources = json.loads(pathlib.Path(sys.argv[1]).read_text())
+for patch in sources["kernel"]["patch_series"]["patches"]:
+    print(f'{patch["patch"]}:{patch["patch_sha256"]}')
+PY
+)
+buildroot_url=$("$project/scripts/source-value" buildroot.url)
+buildroot_version=$("$project/scripts/source-value" buildroot.version)
+buildroot_commit=$("$project/scripts/source-value" buildroot.commit)
+buildroot_legacy_adoption_commit=$("$project/scripts/source-value" buildroot.legacy_adoption_commit)
 buildroot_patch="$project/patches/buildroot/0001-mips-add-ingenic-xburst2-target.patch"
 buildroot_python_patch="$project/patches/buildroot/0002-klipper-python-dependencies.patch"
 buildroot_toolchain_marker=.fre3nder-toolchain-fingerprint
@@ -333,9 +340,9 @@ buildroot_toolchain_contract_matches() {
 buildroot_legacy_toolchain_adoptable() {
 	buildroot_output=$1
 	config="$buildroot_output/.config"
-	# Markerless adoption is intentionally limited to the currently pinned
-	# upstream 2025.02.18 tag; a later pin must start clean.
-	[ "$buildroot_commit" = d030e36bbc9669230c015be971b14b6e062cfdde ] ||
+	# The qualified markerless-adoption commit is historical; changing the
+	# productive pin alone must not authorize adoption for another release.
+	[ "$buildroot_commit" = "$buildroot_legacy_adoption_commit" ] ||
 		return 1
 	[ -f "$config" ] && [ ! -L "$config" ] || return 1
 	grep -Fxq "# Buildroot ${buildroot_version}-dirty Configuration" "$config" ||
@@ -1169,7 +1176,7 @@ prepare_kernel() {
 	for patch_record in $kernel_fre3nder_patch_series; do
 		patch_name=${patch_record%%:*}
 		expected_patch_sha256=${patch_record#*:}
-		patch_path="$kernel_fre3nder_patch_dir/$patch_name"
+		patch_path="$project/$patch_name"
 		actual_patch_sha256=$(sha256sum "$patch_path" | awk '{print $1}')
 		[ "$actual_patch_sha256" = "$expected_patch_sha256" ] || {
 			echo "Fre3nder kernel patch SHA256 mismatch: $patch_name" >&2
@@ -1184,7 +1191,7 @@ prepare_kernel() {
 
 	for patch_record in $kernel_fre3nder_patch_series; do
 		patch_name=${patch_record%%:*}
-		patch_path="$kernel_fre3nder_patch_dir/$patch_name"
+		patch_path="$project/$patch_name"
 		GIT_INDEX_FILE="$fre3nder_index" git -C "$k" apply \
 			--cached --whitespace=nowarn --check "$patch_path"
 		GIT_INDEX_FILE="$fre3nder_index" git -C "$k" apply \
@@ -1204,7 +1211,7 @@ prepare_kernel() {
 
 	for patch_record in $kernel_fre3nder_patch_series; do
 		patch_name=${patch_record%%:*}
-		patch_path="$kernel_fre3nder_patch_dir/$patch_name"
+		patch_path="$project/$patch_name"
 		git -C "$k" apply --whitespace=nowarn --check "$patch_path"
 		git -C "$k" apply --whitespace=nowarn "$patch_path"
 		git -C "$k" apply --reverse --check "$patch_path"
@@ -1213,6 +1220,7 @@ prepare_kernel() {
 	cp "$project/configs/x2000/kernel-fre3nder.defconfig" "$k/.config"
 	cat "$project/configs/x2000/kernel.fragment" >> "$k/.config"
 	cat >> "$k/.config" <<EOF
+CONFIG_LOCALVERSION="$kernel_localversion"
 CONFIG_DT_ENDER3_V3_KE=y
 CONFIG_EXTRA_FIRMWARE="$firmware_names"
 CONFIG_EXTRA_FIRMWARE_DIR="$kernel_firmware_dir"

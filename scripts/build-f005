@@ -5,6 +5,7 @@ root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 
 upstream_url=https://github.com/Klipper3d/klipper.git
 upstream_commit=$("$root/scripts/source-value" userspace.klipper.commit)
+buildroot_version=$("$root/scripts/source-value" buildroot.version)
 
 patch1="$root/patches/klipper/0001-gd32f303-f005-mainline.patch"
 patch2="$root/patches/klipper/0002-f005-serial-bootloader-request.patch"
@@ -272,7 +273,7 @@ verify_mips_toolchain() {
 		die "shared Buildroot MIPS toolchain has an unexpected target"
 
 	"$mips_cc_host" --version | head -n 1 |
-		grep -Fxq 'mipsel-buildroot-linux-gnu-gcc.br_real (Buildroot 2025.02.18-dirty) 13.4.0' ||
+		grep -Fxq "mipsel-buildroot-linux-gnu-gcc.br_real (Buildroot ${buildroot_version}-dirty) 13.4.0" ||
 		die "shared Buildroot MIPS compiler version mismatch"
 
 	"$mips_ld_host" --version | head -n 1 |
