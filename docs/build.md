@@ -232,6 +232,25 @@ requirements are `greenlet 3.3.2` and `cffi 2.1.1`, supplied through the
 existing Buildroot package path. No new F005 candidate or RootFS artifact was
 built or qualified during this refresh.
 
+### Moonraker upstream refresh (2026-10-01)
+
+The productive Moonraker commit is defined only by
+`userspace.moonraker.commit` in `configs/x2000/sources.json`; build and test
+consumers read it with `scripts/source-value userspace.moonraker.commit`.
+The refresh advances three commits beyond the hardware-qualified `v0.11.0`
+baseline. GitHub release detection now prefers `tag_name`; Git checkout
+detection, dependencies, runtime arguments, and data/config paths are unchanged.
+
+Fre3nder 2026.4 explicitly accepts the upstream
+[authorization change](https://github.com/Arksine/moonraker/commit/fbfe3482c32c934b34cbe00d04c0a29f3abb0291):
+an already trusted connection retains its authorization after a failed
+credential attempt. With API-key authentication enabled, an invalid nonblank
+API key remains invalid, and an untrusted client gains no trusted authorization.
+The existing `trusted_clients` configuration remains the trust boundary. No
+Fre3nder configuration change was required; API-key authentication remains
+enabled by default and logins are not forced. This refresh has no new build or
+hardware qualification; the historical qualification record remains unchanged.
+
 ## Common failures and next steps
 
 - Missing signing keys: generate the local pair before a complete build or

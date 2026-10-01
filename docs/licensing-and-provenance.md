@@ -160,9 +160,9 @@ not alter either component's licensing terms and does not qualify Bluetooth.
 
 ## Moonraker RootFS baseline
 
-Moonraker is consumed from `https://github.com/Arksine/moonraker.git` at
-`985c1d0bbeb90bc057d34a232c9dc3b05e0c6c8d`, recorded in
-`configs/x2000/sources.json` as GPL-3.0-only. The RootFS stages that public
+Moonraker is consumed from `https://github.com/Arksine/moonraker.git` at the
+commit pinned by `userspace.moonraker.commit` in
+`configs/x2000/sources.json`, under GPL-3.0-only. The RootFS stages that public
 source as a pinned Git checkout, including its license and upstream identity,
 rather than embedding an untracked vendor binary.
 

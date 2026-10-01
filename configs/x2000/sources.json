@@ -136,7 +136,7 @@
     },
     "moonraker": {
       "repository": "https://github.com/Arksine/moonraker.git",
-      "commit": "985c1d0bbeb90bc057d34a232c9dc3b05e0c6c8d",
+      "commit": "9e676eba6b02661a4dfa3ec6e7ac3f3504498e6d",
       "license": "GPL-3.0-only",
       "role": "qualified RootFS application baseline"
     },

@@ -20,6 +20,7 @@ moonraker_source=${MOONRAKER_SOURCE:-$root/local/production/work/x2000/moonraker
 moonraker_wheel_cache=${MOONRAKER_WHEEL_CACHE:-$root/local/production/work/x2000/moonraker-python-wheels}
 klipper_source=${KLIPPER_SOURCE:-$root/local/production/work/x2000/klipper}
 klipper_commit=$("$root/scripts/source-value" userspace.klipper.commit)
+moonraker_commit=$("$root/scripts/source-value" userspace.moonraker.commit)
 post_build="$root/configs/x2000/rootfs-post-build.sh"
 nvram="$root/configs/x2000/rootfs-overlay/lib/firmware/brcm/brcmfmac43430-sdio.txt"
 nvram_license="$root/configs/x2000/rootfs-overlay/usr/share/licenses/radxa-rkwifibt/LICENSE"
@@ -27,7 +28,7 @@ reuse="$root/REUSE.toml"
 kernel_wlan_patch=$root/patches/kernel/0004-ingenic-ender3-v3-ke-wlan-v6.6.157.patch
 kernel_integration_patch=$root/patches/kernel/0005-fre3nder-ender3-v3-ke-integration-v6.6.157.patch
 
-python3 - "$sources" "$klipper_commit" <<'PY'
+python3 - "$sources" "$klipper_commit" "$moonraker_commit" <<'PY'
 import json
 import pathlib
 import re
@@ -211,10 +212,11 @@ for provenance in (
 
 assert data["userspace"]["moonraker"] == {
     "repository": "https://github.com/Arksine/moonraker.git",
-    "commit": "985c1d0bbeb90bc057d34a232c9dc3b05e0c6c8d",
+    "commit": sys.argv[3],
     "license": "GPL-3.0-only",
     "role": "qualified RootFS application baseline",
 }
+assert re.fullmatch(r"[0-9a-f]{40}", sys.argv[3])
 PY
 
 python3 - "$sources" <<'PY'
@@ -657,7 +659,7 @@ grep -Fq 'write_build_manifest "$out" buildroot.config rootfs.squashfs' \
 	"$entrypoint"
 grep -Fq '"$target/usr/share/fre3nder/DEVELOPMENT"' "$entrypoint"
 grep -Fq '[ ! -e "$target/usr/share/fre3nder/DEVELOPMENT" ]' "$entrypoint"
-grep -Fq 'moonraker_commit=985c1d0bbeb90bc057d34a232c9dc3b05e0c6c8d' \
+grep -Fq 'moonraker_commit=$("$project/scripts/source-value" userspace.moonraker.commit)' \
 	"$entrypoint"
 grep -Fq 'prepare_moonraker_overlay()' "$entrypoint"
 [ "$(grep -Fc 'prepare_moonraker_overlay' "$entrypoint")" -eq 2 ]
@@ -695,6 +697,20 @@ grep -Fxq 'enable_system_updates: False' "$moonraker_default"
 grep -Fxq '[authorization]' "$moonraker_default"
 grep -Fxq 'trusted_clients:' "$moonraker_default"
 grep -Fxq '  127.0.0.1' "$moonraker_default"
+python3 - "$moonraker_default" <<'PY'
+import configparser
+import sys
+
+config = configparser.ConfigParser(interpolation=None)
+config.read(sys.argv[1])
+authorization = config["authorization"]
+assert authorization.getboolean("enable_api_key", fallback=True)
+assert not authorization.getboolean("force_logins", fallback=False)
+assert authorization["trusted_clients"].split() == [
+    "127.0.0.1", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16",
+    "::1", "fc00::/7", "fe80::/10",
+]
+PY
 ! grep -Fxq 'enabled: True' "$moonraker_default"
 grep -Fq 'moonraker_root=${FRE3NDER_MOONRAKER_ROOT:-/opt/fre3nder/moonraker}' \
 	"$moonraker_service"
@@ -1241,13 +1257,12 @@ moonraker=$tmp/moonraker-source
 moonraker_overlay=$tmp/moonraker-overlay
 moonraker_wheel_manifest=$moonraker_wheels
 moonraker_url=https://github.com/Arksine/moonraker.git
-moonraker_commit=985c1d0bbeb90bc057d34a232c9dc3b05e0c6c8d
 sed -n '/^prepare_moonraker_overlay() {$/,/^}$/p' "$entrypoint" \
 	> "$tmp/prepare-moonraker-overlay.sh"
 . "$tmp/prepare-moonraker-overlay.sh"
 prepare_moonraker_source() {
 	[ "$(git -C "$moonraker" rev-parse HEAD)" = \
-		985c1d0bbeb90bc057d34a232c9dc3b05e0c6c8d ]
+		"$moonraker_commit" ]
 }
 prepare_moonraker_overlay
 moonraker_root="$moonraker_overlay/opt/fre3nder/moonraker"
@@ -1257,7 +1272,7 @@ moonraker_root="$moonraker_overlay/opt/fre3nder/moonraker"
 [ -d "$moonraker_root/.fre3nder-git" ]
 [ ! -e "$moonraker_root/.git" ]
 [ "$(git --git-dir="$moonraker_root/.fre3nder-git" rev-parse HEAD)" = \
-	985c1d0bbeb90bc057d34a232c9dc3b05e0c6c8d ]
+	"$moonraker_commit" ]
 [ "$(git --git-dir="$moonraker_root/.fre3nder-git" remote get-url origin)" = \
 	https://github.com/Arksine/moonraker.git ]
 
@@ -1331,7 +1346,7 @@ moonraker_root="$target/opt/fre3nder/moonraker"
 [ -d "$moonraker_root/.git" ]
 [ ! -e "$moonraker_root/.fre3nder-git" ]
 [ "$(git -C "$moonraker_root" rev-parse HEAD)" = \
-	985c1d0bbeb90bc057d34a232c9dc3b05e0c6c8d ]
+	"$moonraker_commit" ]
 [ "$(git -C "$moonraker_root" remote get-url origin)" = \
 	https://github.com/Arksine/moonraker.git ]
 
