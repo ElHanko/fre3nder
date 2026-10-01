@@ -1,106 +1,176 @@
 # Fre3nder
 
-*An open software platform for the Ender-3 V3 KE.*
+**Your printer. Your stack.**
 
-Fre3nder is an independent open-source project and is not affiliated with or
-endorsed by Creality. Ender and Ender-3 are trademarks of their respective
-owner.
+Fre3nder started with a simple question:
 
-## Current status
+> **Can we update the firmware of an Ender-3 V3 KE?**
 
-Current released version: [`2026.3`](CHANGELOG.md)
+Once that door was open, a much bigger question followed:
 
-**`2026.3 RELEASED`** on the investigated reference system.
-Fre3nder provides an open X2000 host, upstream Klipper integration for the
-F005 MCU, a persistent usable-system stack, Moonraker, managed web applications,
-and a documented path back to Stock. The released `2026.3` line retains the
-previously qualified GuppyScreen local-UI evidence. The current Development
-line integrates Fre3nderScreen as a signed Factory `.fre3app`; this path was
-hardware-qualified on the investigated reference system with package
-`2026.1.14cd415-fre3nder.0.4796448`. The prepared Fre3nderScreen release source
-pin is `2026.2`, commit `63e7ecb9fff980b53f4987ef9994675aecf9e0a2`.
-Only documentation changed after the qualified `14cd415` source; the
-`2026.2` release binary has not yet been built or hardware-qualified.
+> **Why stop at updating what Creality shipped?**
 
-The `2026.3` **Independent Kernel Stack** release completes the transition away
-from the vendor kernel. Its host kernel is official Linux stable `v6.6.157`
-plus an ordered five-patch Fre3nder X2000 hardware-support series with explicit
-provenance and no RT23 dependency. The released series reproduces the source
-tree exercised on the investigated reference system. The checkout may already
-contain a later development version; its current source identity is defined by
-[`VERSION`](VERSION) and [`configs/x2000/sources.json`](configs/x2000/sources.json).
+Replace the Linux system?\
+The build environment?\
+Take control of Klipper and Moonraker?\
+The touchscreen software?\
+The update mechanism?\
+Even the firmware on the printer's own MCU?
 
-The `2026.3` kernel qualification covers the exercised host boot, network, and
-SSH path. Previously qualified display/touch, camera, ADXL/Input Shaper,
-GuppyScreen, and complete-print flows remain documented qualification evidence
-but were not automatically re-run on `6.6.157-fre3nder`. See the
-[changelog](CHANGELOG.md) for release history.
+Piece by piece, the answer became **yes**.
 
-The important boundaries remain:
+And somewhere along the way, Fre3nder stopped being an experiment about updating a printer and became something much more interesting:
 
-- software-only Fre3nder -> Stock: **REQUIRES QUALIFICATION**;
-- power-cycle Stock recovery: **QUALIFIED ON DEVICE (2/2)**;
-- physical PC22 backlight effect: **QUALIFIED ON DEVICE**;
-- integrated display/backlight/touch hardware path: **QUALIFIED ON DEVICE**;
-- the complete `2026.2` persistence, Moonraker, Fluidd, and GuppyScreen
-  usable-system path: **HARDWARE QUALIFIED ON DEVICE**.
+> **What would this printer look like if we could build its software the way we wanted from the start?**
 
-Observations marked as qualified apply to the investigated reference system
-unless explicitly stated otherwise. Do not treat its calibration, hardware
-revision, or recovery behavior as universal.
+Fre3nder is that answer.
 
-## Start here
+An open, maintainable software platform for the Ender-3 V3 KE — built to be understood, changed, rebuilt and extended by the people who actually own the machine.
 
-Start with [the current documentation index](docs/README.md) for usage,
-operations, development, API reference and troubleshooting.
+## What the heck is a Fre3nder?
 
-- [Build Fre3nder](docs/build.md)
-- [Configure Fre3nder](docs/configuration.md)
-- [Back up HOME and SYS](docs/backup.md)
-- [Display, touch and Fre3nderScreen](docs/display.md)
-- [Install or update Fre3nder](docs/installation.md)
-- [Recovery and return to Stock](docs/recovery.md)
-- [Development and tests](docs/development.md)
-- [Current roadmap](docs/roadmap.md)
-- [Release history](CHANGELOG.md)
-- [Licensing and provenance](docs/licensing-and-provenance.md)
-- [Acknowledgements](ACKNOWLEDGEMENTS.md)
+It's an **Ender-3 with a little more freedom.**
 
-The current implementation is organized as follows:
+**Free + Ender-3 = Fre3nder.**
+
+The name started as a play on words, but it ended up describing the project surprisingly well: take a printer built around closed vendor software and keep opening it up until the machine becomes something you can understand, rebuild and make your own.
+
+That's Fre3nder.
+
+## Why Fre3nder?
+
+### 🔓 Own more than the settings
+
+Changing a config file is useful. Owning the stack is better.
+
+Fre3nder reaches from the Linux system underneath Klipper all the way to apps, the touchscreen, updates, persistent data and the F005 controller firmware.
+
+The goal is not to replace things just because we can.
+
+The goal is to make every layer we *do* replace understandable and maintainable.
+
+### 🚀 Keep the printer moving forward
+
+Vendor firmware eventually freezes in time. Fre3nder does not have to.
+
+The host is built from pinned, maintained upstream Linux, Buildroot, Klipper and Moonraker sources, with the hardware-specific pieces kept explicit instead of buried inside an old vendor SDK.
+
+That means a future update can be an engineering problem — not an archaeological expedition.
+
+### 🔄 Updates you can reason about
+
+A firmware update should not be an act of faith.
+
+Fre3nder writes host updates to the inactive A/B slot, reads them back, verifies them and only then prepares activation.
+
+It does not hide the remaining failure modes behind promises of magic rollback. The safety boundaries are part of the design — and part of the documentation.
+
+### 🧩 Extend the printer without rebuilding the world
+
+Fre3nder has its own signed `.fre3app` application format.
+
+Apps can add web interfaces, background services or native touchscreen frontends while running as unprivileged services and without turning every extension into another permanent modification of the base system.
+
+### 🖥️ The touchscreen is part of the platform
+
+Fre3nderScreen gives the printer a native local interface without putting a browser between you and the machine.
+
+And the screen is not hard-wired to one application: Fre3nder treats framebuffer, touch, backlight and beeper access as platform resources that signed display apps can use.
+
+### ⚙️ We didn't stop at Linux
+
+The X2000 host was only half the printer.
+
+Fre3nder also opens a path for the F005 controller firmware, with explicit firmware identities and separate **qualified**, **candidate** and runtime states.
+
+The host and MCU keep separate update lifecycles because owning more of the machine should not mean throwing away safety boundaries.
+
+### 💾 Recovery is a feature
+
+Backups, persistent data and recovery are not afterthoughts.
+
+Fre3nder verifies HOME and system-state backups and documents what is — and is not — required to recover the machine or move back toward its original software.
+
+### 🔬 Want to know how we know?
+
+Nothing important has to be folklore.
+
+[`docs/`](docs/README.md) describes **how Fre3nder works today**.
+
+[`research/`](research/README.md) preserves **how we got there** — reverse engineering, hardware investigation, failed approaches, measurements and exact qualification records.
+
+The result is not just an open codebase.
+
+It is an open trail of evidence.
+
+## Architecture
 
 ```text
-build/       reproducible current build recipes
-configs/     current Fre3nder host and F005 configurations
-patches/     patches required by current builds
-scripts/     current build, deployment, recovery, and test tools
-tests/       current product tests, where present
-docs/        current product documentation
-research/    active research, bring-up, analysis, and history
+Ender-3 V3 KE
+│
+├── X2000 host
+│   ├── Linux / Buildroot
+│   ├── Klipper + Moonraker
+│   └── Fre3nder
+│       ├── Apps
+│       ├── Display
+│       ├── OTA updates
+│       └── Backup / recovery
+│
+└── F005 MCU
+    └── Fre3nder-managed Klipper firmware lifecycle
 ```
 
-## Research and bring-up history
+The currently supported scope is the investigated Ender-3 V3 KE / F005 reference platform. Other hardware and firmware revisions require their own verification.
 
-[`research/`](research/) is an active project layer, not a dead archive. It
-contains reverse engineering, hardware discovery, prototypes, experiments,
-historical qualification records, and rejected alternatives. New work on the
-display, touch, camera, sensors, MCU protocols, or bootloader starts there.
+## Explore the repository
 
-Qualified findings may be adopted into the productive tree, but productive
-code, builds, configurations, and runtime must never depend on `research/`.
+```text
+build/       Build environments and component recipes
+configs/     Product configuration and RootFS integration
+patches/     Maintained upstream hardware and package deltas
+scripts/     Build, signing, deployment and recovery tooling
+tests/       Offline architecture and regression tests
+docs/        Current product, API and developer documentation
+research/    Hardware research, qualification and project history
+```
 
-## Safety and local information
+## Get started
 
-Read [`AGENTS.md`](AGENTS.md) before any hardware-related work. Offline builds
-do not authorize deployment or persistent printer changes. Keep device-specific
-information in the ignored `docs/local-device.md`, created from
-[`docs/local-device.example.md`](docs/local-device.example.md), and never store
-secrets in the repository.
+Want to run Fre3nder?
+
+→ [Installation](docs/installation.md)
+
+Want to see what Fre3nder can do and how to configure it?
+
+→ [Documentation](docs/README.md)
+
+Want to integrate with Fre3nder?
+
+→ [API reference](docs/api/README.md)
+
+Want to work on Fre3nder itself?
+
+→ [Development](docs/development.md)\
+→ [Build guide](docs/build.md)\
+→ [Repository rules](AGENTS.md)
+
+Want to understand how the hardware was reverse engineered and qualified?
+
+→ [Research and qualification](research/README.md)
+
+## Changelog
+
+The README describes **Fre3nder**, not individual releases.
+
+For released versions and what changed between them, see [`CHANGELOG.md`](CHANGELOG.md).
 
 ## License
 
-Project-authored Fre3nder system material is licensed under
-`AGPL-3.0-or-later`. Project-authored material in [`research/`](research/) is
-licensed under MIT unless a specific assignment preserves another license or
-the file is third-party/derived material. See
-[`docs/licensing-and-provenance.md`](docs/licensing-and-provenance.md) for the
-path-specific licensing and provenance policy.
+Project-authored Fre3nder system material is licensed under `AGPL-3.0-or-later`.
+
+Research exceptions, third-party material and provenance are documented in the [licensing and provenance policy](docs/licensing-and-provenance.md), with path-specific assignments in `REUSE.toml`.
+
+See also the [acknowledgements](ACKNOWLEDGEMENTS.md).
+
+Fre3nder is an independent project and is not affiliated with or endorsed by Creality. Ender and Ender-3 are trademarks of their respective owner.
