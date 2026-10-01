@@ -77,7 +77,10 @@ prepare_source() {
 	[ "$(git -C "$source_dir" remote get-url origin)" = "$repository" ]
 	if [ "$artifact_mode" = development ]; then
 		commit=$(git -C "$source_dir" rev-parse HEAD)
-		release="${release%.*}.$(git -C "$source_dir" rev-parse --short=7 HEAD)"
+		case "$release" in
+		*.*.*) release=${release%.*} ;;
+		esac
+		release="$release.$(git -C "$source_dir" rev-parse --short=7 HEAD)"
 	else
 		commit=$pinned_commit
 	fi

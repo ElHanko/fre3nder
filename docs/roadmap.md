@@ -24,12 +24,16 @@ technology prematurely.
 ### Fre3nderScreen project boundary
 
 Fre3nderScreen is maintained outside the Fre3nder platform repository. Release
-`2026.1` establishes its independent release boundary; Fre3nder retains the
-`2026.1.1` release source pin. The source repository is named `fre3nderscreen`
+`2026.1` establishes its independent release boundary; Fre3nder now prepares
+the `2026.2` release source pin at
+`63e7ecb9fff980b53f4987ef9994675aecf9e0a2`. The source repository is named `fre3nderscreen`
 while retaining the original project history and upstream provenance. The
 Factory `.fre3app` integration was hardware-qualified on the investigated
 reference system with a separate Development package built from source commit
 `14cd41599f1ee8dec659b282e54762fd61552c5a`.
+Only documentation changed between that qualified source and the prepared
+`2026.2` source. The `2026.2` release binary has not yet been built or
+hardware-qualified.
 
 ### Local UI product experience
 

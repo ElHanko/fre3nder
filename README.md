@@ -17,8 +17,10 @@ and a documented path back to Stock. The released `2026.3` line retains the
 previously qualified GuppyScreen local-UI evidence. The current Development
 line integrates Fre3nderScreen as a signed Factory `.fre3app`; this path was
 hardware-qualified on the investigated reference system with package
-`2026.1.14cd415-fre3nder.0.4796448`. The separate release source pin remains
-`2026.1.1`.
+`2026.1.14cd415-fre3nder.0.4796448`. The prepared Fre3nderScreen release source
+pin is `2026.2`, commit `63e7ecb9fff980b53f4987ef9994675aecf9e0a2`.
+Only documentation changed after the qualified `14cd415` source; the
+`2026.2` release binary has not yet been built or hardware-qualified.
 
 The `2026.3` **Independent Kernel Stack** release completes the transition away
 from the vendor kernel. Its host kernel is official Linux stable `v6.6.157`

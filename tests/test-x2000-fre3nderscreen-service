@@ -210,6 +210,7 @@ FIXTURE_DISCOVER_INPUT=yes run_service start
 python3 - "$root" <<'PY'
 import json
 import pathlib
+import subprocess
 import sys
 
 root = pathlib.Path(sys.argv[1])
@@ -260,11 +261,38 @@ assert '"$target/etc/init.d/S64fre3nderscreen"' in post_build
 assert "fre3nderscreen" not in user
 
 assert source["repository"] == "https://github.com/ElHanko/fre3nderscreen.git"
-assert source["release"] == "2026.1.1"
-assert source["commit"] == "4c6de8a8773da06ea6bca2cf48b0be540aa3ba0a"
+assert source["release"] == "2026.2"
+assert source["commit"] == "63e7ecb9fff980b53f4987ef9994675aecf9e0a2"
 assert source["license"] == "GPL-3.0-only"
 assert '"$tmp/app/bin/fre3nderscreen"' in component
 assert 'rootfs-overlay.tar' not in component
+
+# Execute the builder's actual development branch with only Git queries mocked.
+development = component.split("prepare_source() {", 1)[1].split(
+    'if [ "$artifact_mode" = development ]; then\n', 1
+)[1].split("\n\telse\n", 1)[0]
+fixture = '''
+set -eu
+git() {
+    case "$*" in
+    "-C fixture rev-parse HEAD") printf '%s\\n' abcdef1000000000000000000000000000000000000 ;;
+    "-C fixture rev-parse --short=7 HEAD") printf '%s\\n' abcdef1 ;;
+    *) return 1 ;;
+    esac
+}
+source_dir=fixture
+release=$1
+'''
+for release, expected in (
+    ("2026.1.1", "2026.1.abcdef1"),
+    ("2026.2", "2026.2.abcdef1"),
+):
+    actual = subprocess.check_output(
+        ["sh", "-c", fixture + development + '\nprintf "%s\\n" "$release"\n',
+         "version-fixture", release], text=True,
+    ).strip()
+    assert actual == expected, (release, actual, expected)
+print("Fre3nderScreen development version checks: PASS (2 cases)")
 
 for source_name, output_name in (
     ("DEJAVU-FONTS-LICENSE.txt", "DEJAVU-FONTS-LICENSE"),

@@ -22,10 +22,17 @@ The release-mode source pin in the Fre3nder-maintained fork
 [`ElHanko/fre3nderscreen`](https://github.com/ElHanko/fre3nderscreen) is:
 
 ```text
-release:      2026.1.1
-commit:       4c6de8a8773da06ea6bca2cf48b0be540aa3ba0a
+release:      2026.2
+commit:       63e7ecb9fff980b53f4987ef9994675aecf9e0a2
 license:      GPL-3.0-only
 ```
+
+This prepares release `2026.2`; no release tag or binary has been produced yet.
+Its application code, patches, and submodules match the hardware-qualified
+`14cd41599f1ee8dec659b282e54762fd61552c5a` source. The only subsequent commit
+changes `README.md` and `DEVELOPMENT.md`. The planned package is
+`2026.2-fre3nder.2`, with `release_serial = 2`; its release binary has not
+been hardware-qualified.
 
 The repository retains the original GuppyScreen Git history and upstream provenance.
 The application at this release pin identifies as **Fre3nderScreen** and is specialized
@@ -111,7 +118,8 @@ Moonraker, or Fluidd.
 ## Factory-app Development qualification
 
 The Factory-app path was validated on the investigated reference printer with
-this Development identity, separate from the `2026.1.1` release pin above:
+this historical Development identity, separate from the prepared `2026.2`
+release pin above:
 
 | Input | Qualified identity |
 | --- | --- |
@@ -129,8 +137,8 @@ The legacy configuration and calibration were functionally carried into the
 new app data path. Physical display output, touch, calibration, Moonraker
 connectivity, and beeper output through `/run/fre3nder-display/beeper` passed.
 These results qualify the listed Development package and Factory-app path;
-they do not qualify the separate `2026.1.1` release pin or a complete print
-with this package.
+they do not establish hardware qualification of the unbuilt `2026.2` release
+binary or a complete print with this package.
 
 ## Qualification boundary
 

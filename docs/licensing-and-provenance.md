@@ -189,7 +189,7 @@ license provenance remains explicit in the source and wheel manifests.
 
 The release-mode Fre3nderScreen source is pinned in the Fre3nder-maintained fork
 `https://github.com/ElHanko/fre3nderscreen.git` at commit
-`4c6de8a8773da06ea6bca2cf48b0be540aa3ba0a` (release `2026.1.1`), under
+`63e7ecb9fff980b53f4987ef9994675aecf9e0a2` (prepared release `2026.2`), under
 `GPL-3.0-only`. The repository retains the original GuppyScreen Git history and upstream provenance;
 the application at this pin identifies as Fre3nderScreen.
 
@@ -208,7 +208,7 @@ text into the neutral app artifact and then into the signed package payload.
 The inherited `assets/dejavusans_mono_14.c` font has the DejaVu Fonts License
 (Bitstream Vera derived terms); its exact font version is not established from
 the source. The inherited Material Design Icons assets use Apache-2.0.
-Fre3nderScreen release `2026.1.1` carries both asset license texts in `licenses/`;
+The pinned Fre3nderScreen source carries both asset license texts in `licenses/`;
 the artifact builder records them as `DEJAVU-FONTS-LICENSE` and
 `MATERIAL-DESIGN-ICONS-LICENSE` for unchanged package import.
 
@@ -223,8 +223,10 @@ The previous pin `baa4f6689ac7334d240107529f6d3c42a1297319` is the local-UI sour
 covered by the recorded `2026.2.a` hardware qualification. Separately, source
 commit `14cd41599f1ee8dec659b282e54762fd61552c5a` in signed Development
 package `2026.1.14cd415-fre3nder.0.4796448` was hardware-qualified through the
-Factory-app path on the investigated reference system. That Development result
-does not qualify the release-mode pin `2026.1.1`.
+Factory-app path on the investigated reference system. The prepared `2026.2`
+source has the same application code, patches, and submodules; only `README.md`
+and `DEVELOPMENT.md` changed after `14cd415`. This is source-level continuity,
+not hardware qualification of the still unbuilt `2026.2` release binary.
 
 ## Public Creality Klipper source
 
