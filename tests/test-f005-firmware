@@ -1,0 +1,367 @@
+#!/usr/bin/env python3
+"""Offline F005 validation and mocked RootFS wiring fixtures; no builders run."""
+
+import ast
+import copy
+import json
+import os
+from pathlib import Path
+import re
+import shutil
+import subprocess
+import sys
+import tempfile
+import unittest
+
+sys.dont_write_bytecode = True
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "build/x2000"))
+from f005_firmware import CANDIDATE_INPUTS, FIRMWARE_NAME, TARGET_PATH, runtime_target, sha256, validate
+sys.path.insert(0, str(ROOT / "configs/x2000/rootfs-overlay/usr/libexec/fre3nder"))
+import f005_mcu
+from f005_bootloader import FlasherError, load_validated_image
+sys.path.insert(0, str(ROOT / "tests"))
+from test_f005_bootloader import make_image
+
+
+class FirmwareFixtures(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.directory = Path(self.tmp.name)
+        self.firmware = self.directory / FIRMWARE_NAME
+        self.firmware.write_bytes(b"fixture firmware")
+        self.sidecar = self.directory / "build-manifest.json"
+        self.qualified_root = self.directory / "qualified-project"
+        config = self.qualified_root / "configs/x2000"
+        config.mkdir(parents=True)
+        self.release_path = config / "f005-mcu-release.json"
+        self.release = json.loads((ROOT / "configs/x2000/f005-mcu-release.json").read_text())
+        self.release["fre3nder_release"]["version"] = "qualified-fixture"
+        self.release["fre3nder_release"]["firmware"].update(
+            size=self.firmware.stat().st_size, sha256=sha256(self.firmware))
+        self.release_path.write_text(json.dumps(self.release))
+        sources = json.loads((ROOT / "configs/x2000/sources.json").read_text())
+        self.candidate = {
+            "schema": 1, "classification": "candidate", "qualified_release_match": False,
+            "runtime_version": "fre3nder-f005-fixture-0-g1234567",
+            "project_commit": subprocess.check_output(
+                ["git", "-C", str(ROOT), "rev-parse", "HEAD"], text=True
+            ).strip(),
+            "upstream": {"commit": sources["userspace"]["klipper"]["commit"],
+                         "prepared_source_commit": "1" * 40},
+            "inputs": {relative: sha256(ROOT / relative) for relative in CANDIDATE_INPUTS},
+            "artifacts": {FIRMWARE_NAME: {"size": self.firmware.stat().st_size,
+                                         "sha256": sha256(self.firmware)}},
+        }
+
+    def write_candidate(self, candidate=None):
+        self.sidecar.write_text(json.dumps(candidate or self.candidate))
+
+    def candidate_identity(self, artifact_mode="development"):
+        return validate(ROOT, self.firmware, "candidate", artifact_mode)
+
+    def test_qualified_release_and_development(self):
+        for mode in ("release", "development"):
+            with self.subTest(mode=mode):
+                identity = validate(self.qualified_root, self.firmware, "qualified", mode)
+                self.assertEqual(identity, {
+                    "classification": "qualified", "runtime_version": "qualified-fixture",
+                    "size": self.firmware.stat().st_size, "sha256": sha256(self.firmware),
+                })
+
+    def test_candidate_development_and_provenance(self):
+        for release_match in (False, True):
+            with self.subTest(qualified_release_match=release_match):
+                self.candidate["qualified_release_match"] = release_match
+                self.write_candidate()
+                self.assertEqual(self.candidate_identity(), {
+                    "classification": "candidate", "runtime_version": self.candidate["runtime_version"],
+                    "size": self.firmware.stat().st_size, "sha256": sha256(self.firmware),
+                    "upstream_commit": self.candidate["upstream"]["commit"],
+                    "prepared_source_commit": "1" * 40,
+                })
+
+    def test_candidate_release_rejected(self):
+        self.write_candidate()
+        with self.assertRaisesRegex(ValueError, "development RootFS"):
+            self.candidate_identity("release")
+        with self.assertRaisesRegex(ValueError, "development RootFS"):
+            runtime_target(ROOT, self.firmware, "candidate", "release")
+
+    def test_qualified_runtime_target_matches_release(self):
+        for artifact_mode in ("release", "development"):
+            with self.subTest(artifact_mode=artifact_mode):
+                target = runtime_target(self.qualified_root, self.firmware, "qualified", artifact_mode)
+                self.assertEqual(target.pop("firmware_target"), {
+                    "classification": "qualified", "artifact_mode": artifact_mode,
+                    "hardware_qualified": True,
+                })
+                self.assertEqual(target, self.release)
+
+    def test_candidate_runtime_target_preserves_board_contract(self):
+        self.write_candidate()
+        target = runtime_target(ROOT, self.firmware, "candidate", "development")
+        qualified = json.loads((ROOT / "configs/x2000/f005-mcu-release.json").read_text())
+        self.assertEqual(target["firmware_target"], {
+            "classification": "candidate", "artifact_mode": "development",
+            "hardware_qualified": False,
+        })
+        self.assertEqual(target["fre3nder_release"]["version"], self.candidate["runtime_version"])
+        self.assertEqual(target["fre3nder_release"]["name"], "f005-development-candidate")
+        self.assertIn("qualification pending", target["fre3nder_release"]["evidence"])
+        for key in ("schema", "uart", "stock_identity"):
+            self.assertEqual(target[key], qualified[key])
+        self.assertEqual(target["fre3nder_release"]["constants"],
+                         qualified["fre3nder_release"]["constants"])
+        expected_firmware = copy.deepcopy(qualified["fre3nder_release"]["firmware"])
+        expected_firmware.update(size=self.firmware.stat().st_size, sha256=sha256(self.firmware))
+        self.assertEqual(target["fre3nder_release"]["firmware"], expected_firmware)
+        self.assertEqual(expected_firmware["bootloader_identity"], "mcu0_001_G32-mcu0_004_000")
+
+    def test_candidate_runtime_preflight_and_identity(self):
+        self.firmware.write_bytes(make_image())
+        self.candidate["artifacts"][FIRMWARE_NAME].update(
+            size=self.firmware.stat().st_size, sha256=sha256(self.firmware))
+        self.write_candidate()
+        target = runtime_target(ROOT, self.firmware, "candidate", "development")
+        target["fre3nder_release"]["firmware"]["path"] = str(self.firmware)
+        target_path = self.directory / "f005-runtime-target.json"
+        target_path.write_text(json.dumps(target))
+        loaded = f005_mcu.load_release_manifest(target_path)
+        image, policy, _info = load_validated_image(loaded)
+        self.assertEqual(image, self.firmware.read_bytes())
+        from test_x2000_klipper import transition_module
+        status = self.directory / "root-status"
+        status.write_text("active\n")
+        preflight_manifest, preflight_image, _policy = transition_module.preflight(target_path, status)
+        self.assertEqual(preflight_manifest, loaded)
+        self.assertEqual(preflight_image, image)
+        self.assertEqual(policy.expected_version, "mcu0_004_000")
+        self.assertEqual(policy.allowed_hardware_ids, ("mcu0_001_G32",))
+        observed = {"version": self.candidate["runtime_version"],
+                    "constants": loaded["fre3nder_release"]["constants"]}
+        self.assertEqual(f005_mcu.classify_identity(observed, loaded), "fre3nder")
+        qualified = json.loads((ROOT / "configs/x2000/f005-mcu-release.json").read_text())
+        self.assertEqual(f005_mcu.classify_identity(observed, qualified), "unknown")
+        self.firmware.write_bytes(self.firmware.read_bytes()[:-1])
+        with self.assertRaises(FlasherError):
+            load_validated_image(loaded)
+
+    def test_runtime_helpers_default_to_effective_target(self):
+        from unittest.mock import mock_open, patch
+        from test_x2000_klipper import transition_module
+        self.assertEqual(f005_mcu.RUNTIME_TARGET_MANIFEST,
+                         "/usr/share/fre3nder/f005-runtime-target.json")
+        with patch("builtins.open", mock_open(read_data=json.dumps(self.release))) as opened:
+            f005_mcu.load_release_manifest()
+        opened.assert_called_once_with(f005_mcu.RUNTIME_TARGET_MANIFEST, "r", encoding="utf-8")
+        with patch.object(transition_module, "preflight", return_value=(self.release, b"", None)) as preflight:
+            result = transition_module.transition(probe=lambda *a, **k: {
+                "state": "stock", "reset_supported": True})
+        self.assertEqual(result, "dry-run-ready")
+        self.assertEqual(preflight.call_args.args[0], f005_mcu.RUNTIME_TARGET_MANIFEST)
+
+    def test_deploy_guard_remains_qualified(self):
+        script = (ROOT / "scripts/deploy-f005").read_text()
+        guard = re.search(r'python3 - "\$manifest" "\$runtime_target" <<\x27PY\x27\n(.*?)^PY$',
+                          script, re.M | re.S)[1]
+        self.assertIn('manifest=${F005_DEPLOY_MANIFEST:-"$root/configs/x2000/f005-mcu-release.json"}', script)
+        qualified_target = runtime_target(self.qualified_root, self.firmware, "qualified", "development")
+        path = self.directory / "deployment-runtime-target.json"
+        path.write_text(json.dumps(qualified_target))
+        command = [sys.executable, "-", str(self.release_path), str(path)]
+        result = subprocess.run(command, input=guard, text=True, capture_output=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), "RUNTIME_TARGET=QUALIFIED")
+        self.write_candidate()
+        candidate_target = runtime_target(ROOT, self.firmware, "candidate", "development")
+        for target in (candidate_target,
+                       dict(candidate_target, firmware_target=qualified_target["firmware_target"])):
+            with self.subTest(metadata=target["firmware_target"]):
+                path.write_text(json.dumps(target))
+                result = subprocess.run(command, input=guard, text=True, capture_output=True)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("qualified Runtime target", result.stderr)
+
+    def test_modified_binary_hash_rejected(self):
+        self.write_candidate()
+        self.firmware.write_bytes(b"Fixture firmware")  # Same length, different hash.
+        with self.assertRaisesRegex(ValueError, "SHA256"):
+            self.candidate_identity()
+
+    def test_invalid_candidate_metadata_rejected(self):
+        mutations = (
+            ("size", lambda m: m["artifacts"][FIRMWARE_NAME].update(size=999), "size"),
+            ("upstream", lambda m: m["upstream"].update(commit="0" * 40), "upstream commit"),
+            ("classification", lambda m: m.update(classification="release"), "classification"),
+            ("schema", lambda m: m.update(schema=2), "schema"),
+            ("boolean schema", lambda m: m.update(schema=True), "schema"),
+            ("boolean", lambda m: m.update(qualified_release_match="false"), "boolean"),
+            ("project", lambda m: m.update(project_commit="0" * 40), "project commit"),
+            ("stale input", lambda m: m["inputs"].update(VERSION="0" * 64), "stale"),
+            ("missing input", lambda m: m["inputs"].pop("VERSION"), "inventory"),
+            ("missing artifact", lambda m: m["artifacts"].clear(), FIRMWARE_NAME),
+        )
+        for name, mutate, message in mutations:
+            with self.subTest(case=name):
+                candidate = copy.deepcopy(self.candidate)
+                mutate(candidate)
+                self.write_candidate(candidate)
+                with self.assertRaisesRegex((ValueError, KeyError), message):
+                    self.candidate_identity()
+
+    def test_missing_or_symlinked_manifest_rejected(self):
+        with self.assertRaisesRegex(ValueError, "candidate manifest"):
+            self.candidate_identity()
+        self.sidecar.symlink_to(self.release_path)
+        with self.assertRaisesRegex(ValueError, "symlink"):
+            self.candidate_identity()
+
+    def test_missing_or_symlinked_firmware_rejected(self):
+        self.write_candidate()
+        self.firmware.unlink()
+        for mode in ("qualified", "candidate"):
+            with self.subTest(mode=mode):
+                with self.assertRaisesRegex(ValueError, "F005 firmware"):
+                    validate(ROOT, self.firmware, mode, "development")
+        self.firmware.symlink_to(self.release_path)
+        with self.assertRaisesRegex(ValueError, "symlink"):
+            self.candidate_identity()
+
+    def test_qualified_rejects_unqualified_sidecar_and_wrong_bytes(self):
+        self.write_candidate()
+        with self.assertRaisesRegex(ValueError, "qualified release"):
+            validate(self.qualified_root, self.firmware, "qualified", "release")
+        self.sidecar.unlink()
+        self.firmware.write_bytes(b"Fixture firmware")
+        with self.assertRaisesRegex(ValueError, "SHA256"):
+            validate(self.qualified_root, self.firmware, "qualified", "development")
+        self.firmware.write_bytes(b"short")
+        with self.assertRaisesRegex(ValueError, "size"):
+            validate(self.qualified_root, self.firmware, "qualified", "release")
+
+    def test_qualified_runtime_path_rejected(self):
+        self.release["fre3nder_release"]["firmware"]["path"] = "/unexpected"
+        self.release_path.write_text(json.dumps(self.release))
+        with self.assertRaisesRegex(ValueError, "unexpected firmware path"):
+            validate(self.qualified_root, self.firmware, "qualified", "release")
+
+    def test_candidate_staged_binary_and_rootfs_manifest(self):
+        self.write_candidate()
+        entrypoint = (ROOT / "build/x2000/entrypoint.sh").read_text()
+        functions = "\n".join(re.search(
+            rf"^{name}\(\) \{{\n.*?^\}}", entrypoint, re.M | re.S
+        )[0] for name in ("validate_f005_firmware", "record_rootfs_components"))
+        staged_root = self.directory / "buildroot/target"
+        staged = staged_root / TARGET_PATH.lstrip("/")
+        staged.parent.mkdir(parents=True)
+        shutil.copyfile(self.firmware, staged)
+        staged.chmod(0o644)  # Match the overlay's install -m 0644.
+        share = staged_root / "usr/share/fre3nder"
+        share.mkdir(parents=True)
+        shutil.copyfile(ROOT / "configs/x2000/f005-mcu-release.json", share / "f005-mcu-release.json")
+        runtime_path = share / "f005-runtime-target.json"
+        check_start = entrypoint.index('\t[ -f "$target/usr/share/fre3nder/f005-mcu-release.json" ]')
+        check_end = entrypoint.index('\tcmp -s "$version_file"', check_start)
+        target_checks = entrypoint[check_start:check_end]
+        output = self.directory / "rootfs-output"
+        output.mkdir()
+        (output / "build-manifest.json").write_text('{"artifact_mode":"development"}')
+        component = self.directory / "moonraker"
+        component.mkdir()
+        (component / "component-manifest.json").write_text(json.dumps({
+            "component": "moonraker", "source": {}, "build_input_sha256": "fixture",
+            "artifact": {"sha256": "fixture"},
+        }))
+        command = functions + '\nvalidate_f005_firmware "$f005_firmware" --runtime-target > '
+        command += '"$target/usr/share/fre3nder/f005-runtime-target.json"\n'
+        command += target_checks + '\nrecord_rootfs_components "$output"\n'
+        env = dict(os.environ, project=str(ROOT), f005_firmware=str(self.firmware),
+                   f005_target_path=TARGET_PATH, f005_firmware_mode="candidate",
+                   artifact_mode="development", brout=str(staged_root.parent),
+                   target=str(staged_root), output=str(output), moonraker_component=str(component))
+        result = subprocess.run(["sh", "-eu"], input=command, text=True, env=env,
+                                capture_output=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        manifest = json.loads((output / "build-manifest.json").read_text())
+        self.assertEqual(manifest["f005_firmware"], self.candidate_identity())
+        target = json.loads(runtime_path.read_text())
+        self.assertEqual(target, runtime_target(ROOT, self.firmware, "candidate", "development"))
+        target["fre3nder_release"]["version"] = "wrong-runtime"
+        runtime_path.write_text(json.dumps(target))
+        result = subprocess.run(["sh", "-eu"], input=functions + "\n" + target_checks,
+                                text=True, env=env, capture_output=True)
+        self.assertNotEqual(result.returncode, 0)
+        staged.write_bytes(b"Fixture firmware")
+        result = subprocess.run(["sh", "-eu"], input=command, text=True, env=env,
+                                capture_output=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("SHA256", result.stderr)
+
+    def test_host_candidate_mount_and_mode(self):
+        self.write_candidate()
+        wrapper = (ROOT / "scripts/build-x2000-buildroot").read_text()
+        command = wrapper[wrapper.index('python3 "$root/build/x2000/f005_firmware.py"'):]
+        docker = self.directory / "docker-fixture"
+        docker.write_text('#!/bin/sh\nprintf "%s\\n" "$*" >> "$docker_log"\n')
+        docker.chmod(0o755)
+        log = self.directory / "docker.log"
+        env = dict(os.environ, root=str(ROOT), f005_firmware=str(self.firmware),
+                   f005_firmware_mode="candidate", artifact_mode="development",
+                   docker_cmd=str(docker), docker_log=str(log), runtime_user="fixture",
+                   work_root=str(self.directory), image="fixture", ota_public_key="fixture",
+                   factory_seed="fixture")
+        result = subprocess.run(["sh", "-eu"], input=command, text=True, env=env,
+                                capture_output=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        calls = log.read_text()
+        self.assertIn(f"{self.directory}:/f005-candidate:ro", calls)
+        self.assertIn("FRE3NDER_F005_FIRMWARE=/f005-candidate/" + FIRMWARE_NAME, calls)
+        self.assertIn("FRE3NDER_F005_FIRMWARE_MODE=candidate", calls)
+        self.assertIn("--network none", calls)
+
+    def test_orchestrator_modes_with_mocked_builders(self):
+        project = self.directory / "orchestrator-project"
+        scripts = project / "scripts"
+        scripts.mkdir(parents=True)
+        (project / "configs/x2000/rootfs-overlay").mkdir(parents=True)
+        shutil.copyfile(ROOT / "scripts/build-x2000", scripts / "build-x2000")
+        (scripts / "build-x2000").chmod(0o755)
+        for name in ("build-f005", "build-x2000-moonraker", "build-x2000-buildroot"):
+            path = scripts / name
+            path.write_text('#!/bin/sh\nprintf "%s %s %s\\n" "$(basename "$0")" '
+                            '"$*" "${FRE3NDER_F005_FIRMWARE_MODE:-unset}" >> "$fixture_log"\n'
+                            'if [ "$(basename "$0")" = build-f005 ]; then '
+                            'exit "${f005_result:-0}"; fi\n')
+            path.chmod(0o755)
+        log = self.directory / "builders.log"
+        env = dict(os.environ, fixture_log=str(log), FRE3NDER_F005_FIRMWARE_MODE="candidate")
+        for args, expected_mode in (([], "qualified"), (["--develop"], "qualified"),
+                                    (["--develop", "--f005-build"], "candidate")):
+            with self.subTest(args=args):
+                log.write_text("")
+                result = subprocess.run([str(scripts / "build-x2000"), "--rootfs-only", *args],
+                                        env=env, capture_output=True, text=True)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                assembly = [line for line in log.read_text().splitlines() if "--assemble" in line]
+                self.assertEqual(len(assembly), 1)
+                self.assertTrue(assembly[0].endswith(" " + expected_mode))
+        for args, extra_env in ((["--f005-build"], {}),
+                                (["--develop", "--f005-build"], {"f005_result": "1"})):
+            with self.subTest(rejected=args, env=extra_env):
+                log.write_text("")
+                result = subprocess.run([str(scripts / "build-x2000"), "--rootfs-only", *args],
+                                        env=dict(env, **extra_env), capture_output=True, text=True)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertNotIn("build-x2000-buildroot", log.read_text())
+
+    def test_input_inventory_matches_unchanged_builder(self):
+        builder = (ROOT / "scripts/build-f005").read_text()
+        inventory = re.search(r"^input_paths = \[.*?^\]", builder, re.M | re.S)[0]
+        self.assertEqual(tuple(ast.literal_eval(inventory.split("=", 1)[1].strip())),
+                         CANDIDATE_INPUTS)
+
+
+if __name__ == "__main__":
+    unittest.main(verbosity=2)

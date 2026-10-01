@@ -8,7 +8,7 @@ import sys
 import time
 
 from f005_bootloader import FlasherError, flash_image, load_validated_image
-from f005_mcu import SafetyError, load_release_manifest, probe_mcu
+from f005_mcu import RUNTIME_TARGET_MANIFEST, SafetyError, load_release_manifest, probe_mcu
 
 
 ROOT_STATUS = "/run/fre3nder-root/status"
@@ -46,7 +46,7 @@ def transition(write=False, manifest_path=None,
                root_status=ROOT_STATUS, probe=probe_mcu,
                flash=flash_image, sleep=time.sleep):
     manifest, image, policy = preflight(
-        manifest_path or "/usr/share/fre3nder/f005-mcu-release.json",
+        manifest_path or RUNTIME_TARGET_MANIFEST,
         root_status)
 
     observed = probe(manifest, send_reset=write)

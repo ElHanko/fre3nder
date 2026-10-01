@@ -128,6 +128,10 @@ if [ "$fre3nderscreen_app" = true ]; then
 	[ "$build_scope" = full ] || [ "$build_scope" = rootfs ] || usage
 fi
 
+if [ "$f005_build" = true ] && [ "$develop" != true ]; then
+	fail '--f005-build requires --develop; release uses qualified F005 firmware'
+fi
+
 clean_rootfs_python_cache() {
 	overlay="$root/configs/x2000/rootfs-overlay"
 
@@ -228,9 +232,11 @@ fi
 
 if [ "$build_scope" = full ] || [ "$build_scope" = rootfs ]; then
 	f005_firmware=
+	export FRE3NDER_F005_FIRMWARE_MODE=qualified
 	if [ "$f005_build" = true ]; then
 		"$f005_builder"
 		f005_firmware="$root/local/production/artifacts/f005/candidate/klipper-f005-mainline.bin"
+		export FRE3NDER_F005_FIRMWARE_MODE=candidate
 	fi
 
 	"$moonraker_builder" $component_args

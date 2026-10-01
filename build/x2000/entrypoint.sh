@@ -36,9 +36,9 @@ moonraker="$work/moonraker-source"
 moonraker_wheel_manifest="$project/configs/x2000/moonraker-python-wheels.json"
 moonraker_wheel_cache="$work/moonraker-python-wheels"
 local_root="$project/local/production"
-f005_release_manifest="$project/configs/x2000/f005-mcu-release.json"
 f005_target_path=/var/lib/fre3nder/firmware/f005/klipper-f005-mainline.bin
 f005_firmware=${FRE3NDER_F005_FIRMWARE:-"$local_root/artifacts/x2000/f005/klipper-f005-mainline.bin"}
+f005_firmware_mode=${FRE3NDER_F005_FIRMWARE_MODE:-qualified}
 artifact_root="$local_root/artifacts/x2000"
 full_out="$artifact_root/full"
 kernel_out="$artifact_root/kernel-only"
@@ -214,36 +214,15 @@ prepare_buildroot() {
 
 validate_f005_firmware() {
 	firmware=$1
+	shift
+	if [ "${f005_firmware_mode:-qualified}" = candidate ]; then
+		# The staged binary is checked against the original Candidate manifest.
+		set -- "$@" --candidate-manifest "$(dirname -- "$f005_firmware")/build-manifest.json"
+	fi
 
-	python3 - "$f005_release_manifest" "$f005_target_path" "$firmware" <<'PY'
-import hashlib
-import json
-import pathlib
-import sys
-
-manifest_path, target_path, firmware_path = map(pathlib.Path, sys.argv[1:])
-manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-release = manifest["fre3nder_release"]["firmware"]
-
-if release["path"] != str(target_path):
-    raise SystemExit("F005 release manifest has an unexpected firmware path")
-
-if firmware_path.is_symlink() or not firmware_path.is_file():
-    raise SystemExit("F005 firmware is missing, non-regular, or a symlink")
-
-if firmware_path.stat().st_size != release["size"]:
-    raise SystemExit("F005 firmware size does not match the release manifest")
-
-if hashlib.sha256(firmware_path.read_bytes()).hexdigest() != release["sha256"]:
-    raise SystemExit("F005 firmware SHA256 does not match the release manifest")
-
-candidate_manifest = firmware_path.parent / "build-manifest.json"
-if candidate_manifest.exists():
-    candidate = json.loads(candidate_manifest.read_text(encoding="utf-8"))
-    if ("qualified_release_match" in candidate
-            and candidate["qualified_release_match"] is not True):
-        raise SystemExit("F005 candidate does not match the qualified release")
-PY
+	python3 "$project/build/x2000/f005_firmware.py" --root "$project" \
+		--firmware "$firmware" --mode "${f005_firmware_mode:-qualified}" \
+		--artifact-mode "$artifact_mode" "$@"
 }
 
 buildroot_toolchain_fingerprint() {
@@ -827,7 +806,8 @@ PY
 
 record_rootfs_components() {
 	manifest=$1/build-manifest.json
-	python3 - "$manifest" \
+	f005_identity=$(validate_f005_firmware "$brout/target$f005_target_path")
+	python3 - "$manifest" "$f005_identity" \
 		"$moonraker_component/component-manifest.json" <<'PY'
 import json
 import pathlib
@@ -835,8 +815,9 @@ import sys
 
 output = pathlib.Path(sys.argv[1])
 manifest = json.loads(output.read_text())
+manifest["f005_firmware"] = json.loads(sys.argv[2])
 components = {}
-for path_text in sys.argv[2:]:
+for path_text in sys.argv[3:]:
     component = json.loads(pathlib.Path(path_text).read_text())
     components[component["component"]] = {
         "source": component["source"],
@@ -887,7 +868,9 @@ prepare_klipper_overlay() {
 		"$klipper_overlay/usr/share/fre3nder/defaults/printer.cfg"
 	install -m 0644 "$project/configs/x2000/f005-mcu-release.json" \
 		"$klipper_overlay/usr/share/fre3nder/f005-mcu-release.json"
-	validate_f005_firmware "$f005_firmware"
+	validate_f005_firmware "$f005_firmware" --runtime-target > \
+		"$klipper_overlay/usr/share/fre3nder/f005-runtime-target.json"
+	chmod 0644 "$klipper_overlay/usr/share/fre3nder/f005-runtime-target.json"
 	install -m 0644 "$f005_firmware" \
 		"$klipper_overlay$f005_target_path"
 	install -m 0644 "$version_file" \
@@ -1576,7 +1559,13 @@ check_rootfs() {
 	[ -f "$target/usr/share/klipper/klippy/chelper/c_helper.so" ]
 	[ -x "$target/usr/bin/klipper_mcu" ]
 	[ -f "$target/usr/share/fre3nder/f005-mcu-release.json" ]
-	validate_f005_firmware "$target$f005_target_path"
+	cmp -s "$project/configs/x2000/f005-mcu-release.json" \
+		"$target/usr/share/fre3nder/f005-mcu-release.json"
+	[ -f "$target/usr/share/fre3nder/f005-runtime-target.json" ]
+	[ ! -L "$target/usr/share/fre3nder/f005-runtime-target.json" ]
+	expected_f005_runtime_target=$(validate_f005_firmware "$target$f005_target_path" --runtime-target)
+	printf '%s\n' "$expected_f005_runtime_target" | \
+		cmp -s - "$target/usr/share/fre3nder/f005-runtime-target.json"
 	[ "$(stat -c '%a' "$target$f005_target_path")" = 644 ]
 	cmp -s "$version_file" "$target/usr/share/fre3nder/VERSION"
 	if [ "$artifact_mode" = development ]; then

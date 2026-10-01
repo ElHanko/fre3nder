@@ -3,6 +3,8 @@ set -eu
 
 root=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
 entrypoint="$root/build/x2000/entrypoint.sh"
+python3 "$root/tests/test-f005-firmware"
+grep -Fq 'f005-runtime-target.json' "$entrypoint"
 base="$root/configs/x2000/buildroot.defconfig"
 fragment="$root/configs/x2000/buildroot.fragment"
 sources="$root/configs/x2000/sources.json"
@@ -685,7 +687,8 @@ grep -Fq 'fetch-rootfs' "$rootfs_build_script"
 ! grep -Eq '"\$image" fetch($|[[:space:]])' "$rootfs_build_script"
 grep -Fq 'build-rootfs-only' "$rootfs_build_script"
 grep -Fq 'FRE3NDER_F005_FIRMWARE' "$rootfs_build_script"
-grep -Fq '$f005_firmware:/f005-firmware:ro' "$rootfs_build_script"
+grep -Fq 'container_f005_firmware=/f005-firmware' "$rootfs_build_script"
+grep -Fq '$f005_firmware:$container_f005_firmware:ro' "$rootfs_build_script"
 ! grep -Fq -- '--moonraker-app-only' "$build_script"
 grep -Fq 'FRE3NDER_ARTIFACT_MODE=$artifact_mode' "$rootfs_build_script"
 sed -n '/^fetch_rootfs_inputs() {$/,/^}$/p' "$entrypoint" |

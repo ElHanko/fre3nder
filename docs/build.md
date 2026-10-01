@@ -134,8 +134,8 @@ without building a Kernel. The app flag is invalid with `--kernel-only` or
 `--compose-only`, and can be combined with `--f005-build` in full or RootFS scopes.
 Add `--f005-build` to a full or RootFS-only build only when a new F005 candidate
 must be built before RootFS assembly; it invokes the separate F005 builder,
-which requires a clean project worktree. `--f005-build` is invalid with
-`--kernel-only` and `--compose-only`.
+which requires a clean project worktree. `--f005-build` requires `--develop`
+and is invalid with `--kernel-only` and `--compose-only`.
 
 The F005 builder requires an already prepared X2000 Buildroot `host/` toolchain.
 In a full build, the preceding Kernel step prepares it. With
@@ -217,6 +217,31 @@ raw firmware, ELF, dictionary, resolved configuration, packaged updater image,
 X2000 `c_helper.so`, report, manifest, and checksums. It neither flashes nor
 promotes that candidate to the hardware-qualified release image. The detailed
 recipe is in [`build/klipper-f005/README.md`](../build/klipper-f005/README.md).
+
+RootFS assembly defaults to `FRE3NDER_F005_FIRMWARE_MODE=qualified`, including
+Development builds without `--f005-build`. It verifies the exact size and SHA256
+in `configs/x2000/f005-mcu-release.json`; that hardware-qualified manifest stays
+unchanged. Only a successful `--develop --f005-build` selects `candidate` in the
+orchestrator. The assembler rejects Candidate mode in Release builds.
+
+Candidate validation uses the adjacent schema-1 `build-manifest.json`: regular
+files without symlinks, Candidate classification, a boolean
+`qualified_release_match`, exact binary size/SHA256, the current canonical Klipper
+pin, the current project commit, and all recorded F005 recipe input hashes.
+Stale Candidates require a new separately authorized build. The RootFS build
+manifest records `f005_firmware` with classification, runtime version, size and
+SHA256, plus Candidate upstream and prepared-source commits. Embedding a Candidate
+does not qualify, promote, deploy, or flash it.
+
+The immutable `f005-mcu-release.json` remains the hardware-qualified release
+record. The generated `/usr/share/fre3nder/f005-runtime-target.json` describes
+the embedded firmware and is used by the Runtime transition and MCU identity
+probe. Qualified targets preserve the release model. Candidate targets carry
+their actual runtime version, size and SHA256, with explicit Development and
+unqualified metadata; UART, Stock identity, MCU constants and the stable
+`mcu0_001_G32-mcu0_004_000` bootloader identity remain unchanged.
+`scripts/deploy-f005` continues to use the qualified record and rejects a
+different effective Runtime target before staging firmware or invoking a transition.
 
 ### Klipper upstream refresh (2026-09-28)
 

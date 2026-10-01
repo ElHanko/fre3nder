@@ -192,6 +192,7 @@ case "$command" in
 
 	printf '%s\n' \
 		"MANIFEST_SHA256=$manifest_sha" \
+		"RUNTIME_TARGET=${F005_TEST_RUNTIME_TARGET:-QUALIFIED}" \
 		"TRANSITION_SHA256=$F005_TEST_TRANSITION_SHA" \
 		"STATE_SHA256=$F005_TEST_STATE_SHA" \
 		"MCU_HELPER_SHA256=$F005_TEST_MCU_SHA" \
@@ -288,6 +289,7 @@ reset_case() {
 		F005_TEST_MANIFEST_SHA_OVERRIDE \
 		F005_TEST_ROOT_STATUS \
 		F005_TEST_REMOTE_SURFACE_FAIL \
+		F005_TEST_RUNTIME_TARGET \
 		F005_TEST_DRY_RUN_FAIL \
 		F005_TEST_FLASH_FAIL \
 		F005_TEST_SERVICE_FAIL \
@@ -405,6 +407,15 @@ assert_not_called stage
 assert_not_called flash
 
 unset F005_TEST_MANIFEST_SHA_OVERRIDE
+
+# Candidate Runtime targets cannot enter the qualified deployment workflow.
+reset_case
+export F005_TEST_RUNTIME_TARGET=CANDIDATE
+must_fail run_deploy --write
+assert_not_called stage
+assert_not_called dry-run
+assert_not_called flash
+unset F005_TEST_RUNTIME_TARGET
 
 
 # Degraded root state blocks staging and every MCU action.

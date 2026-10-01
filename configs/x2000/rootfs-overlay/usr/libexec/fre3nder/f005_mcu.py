@@ -9,7 +9,7 @@ import sys
 UART_PATH = "/dev/ttyS1"
 UART_BAUD = 230400
 KLIPPY_DIR = "/usr/share/klipper/klippy"
-RELEASE_MANIFEST = "/usr/share/fre3nder/f005-mcu-release.json"
+RUNTIME_TARGET_MANIFEST = "/usr/share/fre3nder/f005-runtime-target.json"
 RESET_QUEUE_DEADLINE = 0.050
 BYTES_WRITE_RE = re.compile(r"(?:^|\s)bytes_write=([0-9]+)(?:\s|$)")
 REQUIRED_CONSTANTS = ("MCU", "CLOCK_FREQ", "SERIAL_BAUD")
@@ -19,7 +19,8 @@ class SafetyError(Exception):
     pass
 
 
-def load_release_manifest(path=RELEASE_MANIFEST):
+def load_release_manifest(path=RUNTIME_TARGET_MANIFEST):
+    """Load a schema-1 qualified record or the effective RootFS firmware target."""
     with open(path, "r", encoding="utf-8") as stream:
         manifest = json.load(stream)
     if manifest.get("schema") != 1:

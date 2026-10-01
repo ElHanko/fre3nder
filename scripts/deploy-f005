@@ -194,6 +194,7 @@ fail() {
 }
 
 manifest=/usr/share/fre3nder/f005-mcu-release.json
+runtime_target=/usr/share/fre3nder/f005-runtime-target.json
 transition=/usr/libexec/fre3nder/f005-stock-to-fre3nder
 state_helper=/usr/libexec/fre3nder/f005-mcu-state
 mcu_helper=/usr/libexec/fre3nder/f005_mcu.py
@@ -203,6 +204,7 @@ firmware=/var/lib/fre3nder/firmware/f005/klipper-f005-mainline.bin
 
 for file in \
 	"$manifest" \
+	"$runtime_target" \
 	"$transition" \
 	"$state_helper" \
 	"$mcu_helper" \
@@ -212,6 +214,25 @@ do
 	[ -f "$file" ] && [ ! -L "$file" ] ||
 		fail "required F005 product file is missing or linked: $file"
 done
+
+# This deployment workflow remains restricted to the hardware-qualified target.
+python3 - "$manifest" "$runtime_target" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as stream:
+    qualified = json.load(stream)
+with open(sys.argv[2], encoding="utf-8") as stream:
+    target = json.load(stream)
+metadata = target.get("firmware_target", {})
+if (target.get("schema") != 1
+        or metadata.get("classification") != "qualified"
+        or metadata.get("hardware_qualified") is not True
+        or any(target.get(key) != qualified.get(key)
+               for key in ("uart", "stock_identity", "fre3nder_release"))):
+    raise SystemExit("qualified F005 deployment requires the qualified Runtime target")
+print("RUNTIME_TARGET=QUALIFIED")
+PY
 
 [ -x "$transition" ] ||
 	fail "F005 transition helper is not executable"
@@ -274,6 +295,9 @@ verify_remote_surface() {
 
 	[ "$(printf '%s\n' "$output" | field MANIFEST_SHA256)" = "$manifest_sha" ] ||
 		die "remote F005 release manifest differs from local product manifest"
+
+	[ "$(printf '%s\n' "$output" | field RUNTIME_TARGET)" = QUALIFIED ] ||
+		die "F005 deployment requires the qualified Runtime target"
 
 	[ "$(printf '%s\n' "$output" | field TRANSITION_SHA256)" = "$transition_sha" ] ||
 		die "remote Stock-to-Fre3nder helper differs from local product source"

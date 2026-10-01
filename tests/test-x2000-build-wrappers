@@ -352,23 +352,32 @@ printf '%s\n' \
 	'buildroot --toolchain --develop default' \
 	'buildroot --assemble --develop default' | cmp -s - "$tmp/wrapper.log"
 
-# F005 is an additional RootFS input and does not define build scope.
-run_orchestrator --f005-build
+# F005 candidates are an explicit Development input in either RootFS scope.
+run_orchestrator --develop --f005-build
 printf '%s\n' \
-	'kernel ' \
+	'kernel --develop' \
 	'f005' \
-	'moonraker ' \
-	'buildroot --toolchain default' \
-	"buildroot --assemble $fixture/local/production/artifacts/f005/candidate/klipper-f005-mainline.bin" | \
+	'moonraker --develop' \
+	'buildroot --toolchain --develop default' \
+	"buildroot --assemble --develop $fixture/local/production/artifacts/f005/candidate/klipper-f005-mainline.bin" | \
 	cmp -s - "$tmp/wrapper.log"
 
-run_orchestrator --rootfs-only --f005-build
+run_orchestrator --rootfs-only --develop --f005-build
 printf '%s\n' \
 	'f005' \
-	'moonraker ' \
-	'buildroot --toolchain default' \
-	"buildroot --assemble $fixture/local/production/artifacts/f005/candidate/klipper-f005-mainline.bin" | \
+	'moonraker --develop' \
+	'buildroot --toolchain --develop default' \
+	"buildroot --assemble --develop $fixture/local/production/artifacts/f005/candidate/klipper-f005-mainline.bin" | \
 	cmp -s - "$tmp/wrapper.log"
+
+# Release refuses the Candidate workflow before invoking any builder.
+: > "$tmp/wrapper.log"
+if X2000_WRAPPER_LOG="$tmp/wrapper.log" \
+	"$fixture/scripts/build-x2000" --f005-build >/dev/null 2>&1; then
+	echo 'orchestrator accepted an F005 candidate in Release mode' >&2
+	exit 1
+fi
+[ ! -s "$tmp/wrapper.log" ]
 
 # Removed and contradictory scope combinations fail closed.
 for invalid in \

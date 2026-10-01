@@ -7,8 +7,8 @@ image="ender3-v3-ke-fre3nder-x2000:$version"
 runtime_user=$(id -u):$(id -g)
 local_root="$root/local/production"
 work_root="$local_root/work/x2000"
-release_manifest="$root/configs/x2000/f005-mcu-release.json"
 f005_firmware=${FRE3NDER_F005_FIRMWARE:-"$local_root/artifacts/x2000/f005/klipper-f005-mainline.bin"}
+f005_firmware_mode=${FRE3NDER_F005_FIRMWARE_MODE:-qualified}
 ota_public_key=${FRE3NDER_OTA_PUBLIC_KEY:-"$local_root/keys/ota/public.pem"}
 factory_seed=${FRE3NDER_FACTORY_FRE3NDERSCREEN_APP:-"$local_root/factory-apps/fre3nderscreen.fre3app"}
 factory_mode=${FRE3NDER_FACTORY_FRE3NDERSCREEN_MODE-release}
@@ -36,6 +36,17 @@ while [ "$#" -gt 0 ]; do
 	shift
 done
 [ -n "$phase" ] || usage
+
+case "$f005_firmware_mode" in
+qualified) ;;
+candidate)
+	[ "$artifact_mode" = development ] || {
+		echo 'F005 candidate requires a development RootFS' >&2
+		exit 1
+	}
+	;;
+*) echo 'invalid FRE3NDER_F005_FIRMWARE_MODE' >&2; exit 1 ;;
+esac
 
 case "$factory_mode" in
 release) ;;
@@ -127,28 +138,16 @@ openssl pkey -pubin -in "$ota_public_key" -text -noout 2>/dev/null |
 	exit 1
 }
 
-python3 - "$release_manifest" "$f005_firmware" <<'PY'
-import hashlib
-import json
-import pathlib
-import sys
+python3 "$root/build/x2000/f005_firmware.py" --root "$root" \
+	--firmware "$f005_firmware" --mode "$f005_firmware_mode" \
+	--artifact-mode "$artifact_mode" >/dev/null
 
-manifest_path, firmware_path = map(pathlib.Path, sys.argv[1:])
-release = json.loads(manifest_path.read_text(encoding="utf-8"))["fre3nder_release"]["firmware"]
-if release["path"] != "/var/lib/fre3nder/firmware/f005/klipper-f005-mainline.bin":
-    raise SystemExit("F005 release manifest has an unexpected firmware path")
-if firmware_path.is_symlink() or not firmware_path.is_file():
-    raise SystemExit("F005 firmware is missing, non-regular, or a symlink")
-if firmware_path.stat().st_size != release["size"]:
-    raise SystemExit("F005 firmware size does not match the release manifest")
-if hashlib.sha256(firmware_path.read_bytes()).hexdigest() != release["sha256"]:
-    raise SystemExit("F005 firmware SHA256 does not match the release manifest")
-candidate_manifest = firmware_path.parent / "build-manifest.json"
-if candidate_manifest.exists():
-    candidate = json.loads(candidate_manifest.read_text(encoding="utf-8"))
-    if candidate.get("qualified_release_match") is False:
-        raise SystemExit("F005 candidate does not match the qualified release")
-PY
+container_f005_firmware=/f005-firmware
+set -- -v "$f005_firmware:$container_f005_firmware:ro"
+if [ "$f005_firmware_mode" = candidate ]; then
+	container_f005_firmware=/f005-candidate/klipper-f005-mainline.bin
+	set -- -v "$(dirname -- "$f005_firmware"):/f005-candidate:ro"
+fi
 
 "$docker_cmd" run --rm --user "$runtime_user" \
 	-v "$root:/project" \
@@ -157,10 +156,11 @@ PY
 "$docker_cmd" run --rm --network none --user "$runtime_user" \
 	-e "FRE3NDER_ARTIFACT_MODE=$artifact_mode" \
 	-e FRE3NDER_REUSE_PREPARED_TOOLCHAIN=1 \
-	-e FRE3NDER_F005_FIRMWARE=/f005-firmware \
+	-e "FRE3NDER_F005_FIRMWARE=$container_f005_firmware" \
+	-e "FRE3NDER_F005_FIRMWARE_MODE=$f005_firmware_mode" \
 	-e FRE3NDER_OTA_PUBLIC_KEY=/ota-public-key \
 	-e FRE3NDER_FACTORY_FRE3NDERSCREEN_APP=/factory-fre3nderscreen-app \
-	-v "$f005_firmware:/f005-firmware:ro" \
+	"$@" \
 	-v "$ota_public_key:/ota-public-key:ro" \
 	-v "$factory_seed:/factory-fre3nderscreen-app:ro" \
 	-v "$root:/project" \
