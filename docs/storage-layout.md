@@ -13,7 +13,7 @@ firmware or hardware revision.
 
 ## Fre3nder persistence roles
 
-The current Fre3nder `2026.2` implementation does not use internal p9 or p10.
+The current Fre3nder implementation does not use internal p9 or p10.
 Its external Development backend consists of two independently provisioned ext4
 filesystems:
 
@@ -24,14 +24,18 @@ filesystems:
 
 The immutable SquashFS remains the OverlayFS lower and is visible at `/rom`
 after the early root switch. `/run` and `/tmp` are tmpfs. The normal data
-payload of `FRE3NDERSYS` consists of `upper` and `work`. The currently defined
-additional boot-control object is the optional `.fre3nder-reset` marker whose exact
+payload of `FRE3NDERSYS` consists of `upper` and `work`. Additional boot-control
+metadata includes the optional legacy `.fre3nder-reset` marker whose exact
 `RESET_ON_NEXT_BOOT` content authorizes recreation of those two directories
 after the filesystem has been uniquely identified and mounted successfully.
-The implementation resolves the current backends by exact label and ext4 type
-and has no dependency on USB device names or future partition numbers. This
-external path is hardware-qualified on the investigated reference system:
-normal persistence, marker-authorized reset of the system overlay with retained
+The targeted `.fre3nder-reset-target` marker is consumed only by its intended
+A/B root. OTA also stores activation and known-good records alongside `upper`
+and `work`; their lifecycle is described in
+[OTA](ota.md#persistent-activation-handoff).
+Backend discovery uses exact labels and the expected ext4 type, independently
+of USB device names or future partition numbers. The external persistence path
+was hardware-qualified on the investigated reference system:
+normal persistence, legacy-marker reset of the system overlay with retained
 `/home`, and fail-closed behavior for missing or invalid system and userdata
 backends are demonstrated. These degraded cases retained the immutable p8
 RootFS without an OverlayFS, `/home`, or p9/p10 fallback and kept diagnostic SSH

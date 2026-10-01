@@ -1,7 +1,7 @@
 # Developing Fre3nder
 
 Work from a repository checkout. Productive inputs are in `build/`,
-`configs/`, `patches/`, `scripts/`, `apps/`, and `tests/`; hardware analysis,
+`configs/`, `patches/`, `scripts/`, and `tests/`; hardware analysis,
 bring-up, rejected approaches, and dated qualification records belong in
 [`research/`](../research/). Productive builds and runtime must have no
 functional dependency on `research/`. The exact pinned dependencies are in
@@ -18,7 +18,7 @@ functional dependency on `research/`. The exact pinned dependencies are in
    fixture checks. For example, use `sh -n` for a changed shell script and
    select the matching fixture under `tests/`: `tests/test-x2000-storage`,
    `tests/test-x2000-backup`, `tests/test-deploy-x2000`,
-   `tests/test-x2000-compose-only`, `tests/test-fre3nder-apps`, or the
+   `tests/test-x2000-compose-only`, `tests/test_fre3nder_package_core.py`, or the
    relevant service test. These fixtures do not establish hardware
    qualification. Check a test's scope before running it.
 3. When the change needs a target artifact, select the smallest build scope

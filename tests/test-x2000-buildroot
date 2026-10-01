@@ -712,7 +712,7 @@ grep -Fq 'extra_overlay="$klipper_overlay $moonraker_overlay"' \
 ! grep -Fq 'wifi_overlay' "$entrypoint"
 grep -Fq 'prepare_rootfs_component moonraker' "$entrypoint"
 ! grep -Fq 'prepare_rootfs_component fre3nderscreen' "$entrypoint"
-grep -Fq 'input_name=ns2009_ts' "$entrypoint"
+grep -Fq 'input_name=${FRE3NDER_DISPLAY_INPUT_NAME:-ns2009_ts}' "$entrypoint"
 ! grep -Fq 'FRE3NDER_FRE3NDERSCREEN_' "$entrypoint"
 grep -Fq 'moonraker_root="$moonraker_overlay/opt/fre3nder/moonraker"' \
 	"$entrypoint"
@@ -1348,6 +1348,8 @@ cp "$root/configs/x2000/rootfs-overlay/usr/bin/fre3nder" "$target/usr/bin/"
 cp "$root/configs/x2000/rootfs-overlay/usr/libexec/fre3nder/package-core" \
 	"$target/usr/libexec/fre3nder/"
 cp "$root/configs/x2000/rootfs-overlay/usr/libexec/fre3nder/ota-core" \
+	"$target/usr/libexec/fre3nder/"
+cp "$root/configs/x2000/rootfs-overlay/usr/libexec/fre3nder/usb" \
 	"$target/usr/libexec/fre3nder/"
 touch "$target/etc/init.d/fre3nder-root" \
 	"$target/etc/init.d/S20fre3nder-provision" \
