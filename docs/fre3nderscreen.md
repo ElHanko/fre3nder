@@ -105,6 +105,25 @@ finished package through `FRE3NDER_FACTORY_FRE3NDERSCREEN_APP`, verifies it with
 the package core and official publisher key, and embeds it unchanged at
 `/usr/share/fre3nder/factory-apps/fre3nderscreen.fre3app`.
 
+Platform and app release modes are independent. Both `scripts/build-x2000` and
+`scripts/build-x2000 --develop` use the prepared release Factory seed without
+rebuilding Screen. Only `scripts/build-x2000 --develop --fre3nderscreen-app`
+(also with `--rootfs-only`, optionally `--f005-build`) builds current remote
+Screen `main` through the existing cross-builder's `--develop` path. The sibling
+`fre3nder-apps/scripts/build-fre3nderscreen-development` imports and signs it as
+`<artifact.source.release>-fre3nder.0.<apps-commit>`, using the apps commit's short
+Git identity and `release_serial = 0`. Tracked apps changes block this path;
+generated untracked/ignored files do not.
+
+The returned package is supplied through `FRE3NDER_FACTORY_FRE3NDERSCREEN_APP`
+only for that RootFS build, with `FRE3NDER_FACTORY_FRE3NDERSCREEN_MODE=development`.
+The canonical release seed is not copied, replaced, or deleted. Without the app
+flag the expected mode is `release` (`release_serial >= 1`), including for a
+development platform. The app flag requires `--develop` and a full or RootFS
+scope; a release platform cannot contain a development Factory app. Errors stop
+the requested app path without falling back to the release seed. Building and
+signing require separate explicit authorization; no deployment is performed.
+
 On a fresh persistent system, `S63fre3nder-factory-app` installs this seed
 through the package core and explicitly selects it. The persistent
 `/home/.fre3nder/factory-apps/fre3nderscreen` marker records `pending` or

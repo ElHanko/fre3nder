@@ -41,13 +41,36 @@ The default command builds Kernel, Moonraker, the Buildroot toolchain, and
 RootFS, then composes a signed OTA package. RootFS assembly requires an already
 signed Fre3nderScreen factory `.fre3app` at
 `local/production/factory-apps/fre3nderscreen.fre3app`, or an explicit
-`FRE3NDER_FACTORY_FRE3NDERSCREEN_APP` path. The package must match the selected
-release or development build mode. For a development artifact from the current
-worktree, use:
+`FRE3NDER_FACTORY_FRE3NDERSCREEN_APP` path. By default this is a release app
+(`release_serial >= 1`), independently of the platform's artifact mode.
+For a development artifact from the current worktree, use:
 
 ```sh
 scripts/build-x2000 --develop
 ```
+
+| Command | Fre3nder platform | Fre3nderScreen Factory app |
+| --- | --- | --- |
+| `scripts/build-x2000` | Release | Prepared release seed; no Screen build or packaging |
+| `scripts/build-x2000 --develop` | Development | Prepared release seed; no Screen build or packaging |
+| `scripts/build-x2000 --develop --fre3nderscreen-app` | Development | Current remote Screen `main`, built and signed as a development app |
+| `scripts/build-x2000 --fre3nderscreen-app` | Invalid | Requires `--develop` |
+
+The optional app path first runs `scripts/build-x2000-fre3nderscreen --develop`,
+then `../fre3nder-apps/scripts/build-fre3nderscreen-development` with the neutral
+artifact and the existing `local/production/keys/apps/private.pem`. The sibling
+apps repository must have no tracked staged or unstaged changes; untracked and
+ignored generated files do not block it. Import and signing remain owned by
+`fre3nder-apps`. Any failure stops the pipeline without falling back to a release
+seed. The returned absolute regular, non-symlink package is passed to RootFS
+assembly only for this invocation; the canonical release seed is never changed.
+
+`FRE3NDER_FACTORY_FRE3NDERSCREEN_MODE` explicitly controls the Buildroot wrapper's
+expected app mode: `release` (default) requires `release_serial >= 1`, and
+`development` requires `release_serial = 0`. Other values are rejected before
+building. The top-level orchestrator selects `development` only with the app
+flag and otherwise selects `release`. A release platform cannot use a development
+Factory app. These commands still require explicit build/signing authorization.
 
 The orchestrator runs the Kernel builder, then Moonraker, Buildroot
 `--toolchain`, and Buildroot `--assemble`. It uses the pinned
@@ -105,8 +128,11 @@ trust-anchor relationship are specified in [OTA architecture](ota.md).
 | `scripts/build-x2000 --rootfs-only` | Moonraker and Buildroot toolchain/RootFS | Kernel, Fre3nderScreen cross-build, or OTA package | Moonraker component and `rootfs-only/` |
 | `scripts/build-x2000 --compose-only` | No component | Kernel and RootFS | Validated `full/` and signed OTA package |
 
-Add `--develop` to a Kernel-only or RootFS-only development build. Add
-`--f005-build` to a full or RootFS-only build only when a new F005 candidate
+Add `--develop` to a Kernel-only or RootFS-only development build.
+`--rootfs-only --develop --fre3nderscreen-app` also uses the optional app path,
+without building a Kernel. The app flag is invalid with `--kernel-only` or
+`--compose-only`, and can be combined with `--f005-build` in full or RootFS scopes.
+Add `--f005-build` to a full or RootFS-only build only when a new F005 candidate
 must be built before RootFS assembly; it invokes the separate F005 builder,
 which requires a clean project worktree. `--f005-build` is invalid with
 `--kernel-only` and `--compose-only`.

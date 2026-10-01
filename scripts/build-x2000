@@ -15,6 +15,14 @@ scope_seen=false
 f005_build=false
 compose_only=false
 develop=false
+fre3nderscreen_app=false
+factory_seed=${FRE3NDER_FACTORY_FRE3NDERSCREEN_APP:-"$root/local/production/factory-apps/fre3nderscreen.fre3app"}
+factory_mode=release
+
+fail() {
+	printf 'build-x2000: %s\n' "$*" >&2
+	exit 1
+}
 
 compose_exit_report() {
 	rc=$?
@@ -44,6 +52,7 @@ Build mode:
 
 Additional components:
   --f005-build       Rebuild the F005 firmware candidate before RootFS assembly
+  --fre3nderscreen-app  Build a development Screen app (requires --develop and RootFS)
 
 General:
   -h, --help         Show this help
@@ -90,6 +99,10 @@ while [ "$#" -gt 0 ]; do
 		[ "$f005_build" = false ] || usage
 		f005_build=true
 		;;
+	--fre3nderscreen-app)
+		[ "$fre3nderscreen_app" = false ] || usage
+		fre3nderscreen_app=true
+		;;
 	-h|--help)
 		show_help
 		exit 0
@@ -109,6 +122,11 @@ kernel)
 	[ "$f005_build" = false ] || usage
 	;;
 esac
+
+if [ "$fre3nderscreen_app" = true ]; then
+	[ "$develop" = true ] || usage
+	[ "$build_scope" = full ] || [ "$build_scope" = rootfs ] || usage
+fi
 
 clean_rootfs_python_cache() {
 	overlay="$root/configs/x2000/rootfs-overlay"
@@ -174,6 +192,36 @@ if [ "$build_scope" = full ] || [ "$build_scope" = compose ]; then
 
 fi
 
+if [ "$fre3nderscreen_app" = true ]; then
+	apps_repo="$root/../fre3nder-apps"
+	[ -d "$apps_repo" ] || fail 'missing fre3nder-apps repository'
+	apps_repo=$(CDPATH='' cd -- "$apps_repo" && pwd -P)
+	package_builder="$apps_repo/scripts/build-fre3nderscreen-development"
+	[ -x "$package_builder" ] || fail 'missing Fre3nderScreen development package wrapper'
+	git -C "$apps_repo" diff --quiet -- && git -C "$apps_repo" diff --cached --quiet -- \
+		|| fail 'fre3nder-apps has tracked worktree changes'
+	"$root/scripts/build-x2000-fre3nderscreen" --develop
+	artifact="$artifact_root/fre3nderscreen/app"
+	package_output=$("$package_builder" --artifact "$artifact" \
+		--key "$root/local/production/keys/apps/private.pem")
+	factory_seed=$(printf '%s\n' "$package_output" | awk '
+		$0 == "=== Fre3nderScreen development package: PASS ===" { passes++; in_pass = 1; next }
+		/^Package:/ {
+			packages++
+			if (!in_pass || index($0, "Package:  ") != 1) invalid = 1
+			package = substr($0, 11)
+		}
+		END {
+			if (passes != 1 || packages != 1 || invalid || package == "") exit 1
+			print package
+		}
+	') || fail 'invalid development package receipt'
+	case "$factory_seed" in /*) ;; *) fail 'development package path must be absolute' ;; esac
+	[ -f "$factory_seed" ] && [ ! -L "$factory_seed" ] \
+		|| fail 'development package is not a regular non-symlink file'
+	factory_mode=development
+fi
+
 if [ "$build_scope" = full ] || [ "$build_scope" = kernel ]; then
 	"$kernel_builder" $component_args
 fi
@@ -186,6 +234,8 @@ if [ "$build_scope" = full ] || [ "$build_scope" = rootfs ]; then
 	fi
 
 	"$moonraker_builder" $component_args
+	export FRE3NDER_FACTORY_FRE3NDERSCREEN_APP="$factory_seed"
+	export FRE3NDER_FACTORY_FRE3NDERSCREEN_MODE="$factory_mode"
 	"$buildroot_builder" --toolchain $component_args
 	if [ -n "$f005_firmware" ]; then
 		FRE3NDER_F005_FIRMWARE="$f005_firmware" \

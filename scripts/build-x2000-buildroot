@@ -11,6 +11,7 @@ release_manifest="$root/configs/x2000/f005-mcu-release.json"
 f005_firmware=${FRE3NDER_F005_FIRMWARE:-"$local_root/artifacts/x2000/f005/klipper-f005-mainline.bin"}
 ota_public_key=${FRE3NDER_OTA_PUBLIC_KEY:-"$local_root/keys/ota/public.pem"}
 factory_seed=${FRE3NDER_FACTORY_FRE3NDERSCREEN_APP:-"$local_root/factory-apps/fre3nderscreen.fre3app"}
+factory_mode=${FRE3NDER_FACTORY_FRE3NDERSCREEN_MODE-release}
 docker_cmd=${X2000_BUILD_DOCKER:-docker}
 artifact_mode=release
 phase=
@@ -35,6 +36,17 @@ while [ "$#" -gt 0 ]; do
 	shift
 done
 [ -n "$phase" ] || usage
+
+case "$factory_mode" in
+release) ;;
+development)
+	[ "$artifact_mode" = development ] || {
+		echo 'a release platform cannot use a development factory app' >&2
+		exit 1
+	}
+	;;
+*) echo "invalid Fre3nderScreen factory app mode: $factory_mode" >&2; exit 1 ;;
+esac
 
 clean_rootfs_python_cache() {
 	overlay="$root/configs/x2000/rootfs-overlay"
@@ -71,7 +83,7 @@ fi
 	echo "missing regular Fre3nderScreen factory app: $factory_seed" >&2
 	exit 1
 }
-PYTHONDONTWRITEBYTECODE=1 python3 - "$root" "$factory_seed" "$artifact_mode" <<'PY'
+PYTHONDONTWRITEBYTECODE=1 python3 - "$root" "$factory_seed" "$factory_mode" <<'PY'
 import importlib.machinery
 import importlib.util
 from pathlib import Path
@@ -94,7 +106,7 @@ if (package["name"] != "fre3nderscreen"
     raise SystemExit("factory app identity or display contract is invalid")
 serial = package["release_serial"]
 if (mode == "development" and serial != 0) or (mode == "release" and serial < 1):
-    raise SystemExit("factory app release serial does not match build mode")
+    raise SystemExit("factory app release serial does not match expected app mode")
 PY
 
 command -v openssl >/dev/null 2>&1 || {
