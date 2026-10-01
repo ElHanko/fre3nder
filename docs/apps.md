@@ -8,8 +8,8 @@ built or qualified on hardware. The earlier observations remain in
 
 ## Package lifecycle
 
-`fre3nder-package-core` verifies Ed25519 signatures and file hashes before
-installing a package. The `fre3nder` CLI exposes:
+`/usr/libexec/fre3nder/package-core` verifies Ed25519 signatures and file hashes
+before installing a package. The `fre3nder` CLI exposes:
 
 ```text
 fre3nder app verify <package.fre3app>

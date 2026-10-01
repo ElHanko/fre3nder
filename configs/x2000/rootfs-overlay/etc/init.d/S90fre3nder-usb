@@ -2,7 +2,7 @@
 
 state=${FRE3NDER_USB_STATE:-/run/fre3nder/usb-runtime}
 mount_dir=${FRE3NDER_USB_MOUNT:-/run/fre3nder/usb}
-helper=${FRE3NDER_USB_HELPER:-/usr/libexec/fre3nder-usb}
+helper=${FRE3NDER_USB_HELPER:-/usr/libexec/fre3nder/usb}
 
 start() {
 	mkdir -p "$state" "$mount_dir"

@@ -226,7 +226,7 @@ class FactoryModeTests(unittest.TestCase):
         executable(self.wrapper, source.split("\nPY\n", 1)[0] + "\nPY\nexit 0\n")
         (self.root / "VERSION").write_text("fixture")
         (self.root / "configs/x2000/rootfs-overlay").mkdir(parents=True)
-        core = self.root / "configs/x2000/rootfs-overlay/usr/libexec/fre3nder-package-core"
+        core = self.root / "configs/x2000/rootfs-overlay/usr/libexec/fre3nder/package-core"
         core.parent.mkdir(parents=True)
         core.write_text('import json\ndef verify_package(seed):\n    return json.loads(seed.read_text())\n')
         self.seed = self.root / "seed.fixture"

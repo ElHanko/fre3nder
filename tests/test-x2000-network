@@ -3,7 +3,7 @@ set -eu
 
 root=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
 network="$root/configs/x2000/rootfs-overlay/etc/init.d/S40fre3nder-network"
-hook="$root/configs/x2000/rootfs-overlay/usr/libexec/fre3nder-udhcpc"
+hook="$root/configs/x2000/rootfs-overlay/usr/libexec/fre3nder/udhcpc"
 tmp=$(mktemp -d)
 trap 'rm -rf -- "$tmp"' EXIT HUP INT TERM
 

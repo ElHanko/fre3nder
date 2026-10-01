@@ -2,7 +2,7 @@
 set -eu
 
 root=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
-helper="$root/configs/x2000/rootfs-overlay/usr/libexec/fre3nder-usb"
+helper="$root/configs/x2000/rootfs-overlay/usr/libexec/fre3nder/usb"
 service="$root/configs/x2000/rootfs-overlay/etc/init.d/S90fre3nder-usb"
 post_build="$root/configs/x2000/rootfs-post-build.sh"
 tmp=$(mktemp -d)
@@ -170,11 +170,11 @@ device_is() {
 # The Buildroot post-build hook installs the runtime USB mdev rules as
 # fall-through matches before the generic MODALIAS rule.
 grep -Fq \
-    "disk_rule='-sd[a-z] 0:0 0660 */usr/libexec/fre3nder-usb hotplug'" \
+    "disk_rule='-sd[a-z] 0:0 0660 */usr/libexec/fre3nder/usb hotplug'" \
     "$post_build"
 
 grep -Fq \
-    "partition_rule='-sd[a-z][0-9][0-9]* 0:0 0660 */usr/libexec/fre3nder-usb hotplug'" \
+    "partition_rule='-sd[a-z][0-9][0-9]* 0:0 0660 */usr/libexec/fre3nder/usb hotplug'" \
     "$post_build"
 
 grep -Fq \

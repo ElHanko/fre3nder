@@ -1,6 +1,6 @@
 #!/bin/sh
 
-core=/usr/libexec/fre3nder-ota-core
+core=/usr/libexec/fre3nder/ota-core
 record=/run/fre3nder-root/system/.fre3nder-ota-activation.json
 
 case "${1:-}" in

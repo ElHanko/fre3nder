@@ -53,7 +53,7 @@ BACKUP_CORE = pathlib.Path(
     os.environ.get(
         "FRE3NDER_BACKUP_CORE",
         pathlib.Path(__file__).resolve().with_name(
-            "fre3nder-backup-core"
+            "backup-core"
         ),
     )
 )
@@ -4119,7 +4119,7 @@ def main():
             json.dumps(
                 error_response(
                     None,
-                    "usage: fre3nder-ota-core "
+                    "usage: /usr/libexec/fre3nder/ota-core "
                     "{verify|preflight|backup-plan|backup|confirm|write|readback|prepare-activation} "
                     "<package.ota> [options]",
                 ),

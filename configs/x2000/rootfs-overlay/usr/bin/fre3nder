@@ -10,9 +10,9 @@ import sys
 
 API_VERSION = 1
 
-DEFAULT_PACKAGE_CORE = pathlib.Path("/usr/libexec/fre3nder-package-core")
-DEFAULT_OTA_CORE = pathlib.Path("/usr/libexec/fre3nder-ota-core")
-DEFAULT_BACKUP_CORE = pathlib.Path("/usr/libexec/fre3nder-backup-core")
+DEFAULT_PACKAGE_CORE = pathlib.Path("/usr/libexec/fre3nder/package-core")
+DEFAULT_OTA_CORE = pathlib.Path("/usr/libexec/fre3nder/ota-core")
+DEFAULT_BACKUP_CORE = pathlib.Path("/usr/libexec/fre3nder/backup-core")
 
 OTA_ACTIONS = (
     "verify",

@@ -1,6 +1,6 @@
 #!/bin/sh
 
-package_core=${FRE3NDER_PACKAGE_CORE:-/usr/libexec/fre3nder-package-core}
+package_core=${FRE3NDER_PACKAGE_CORE:-/usr/libexec/fre3nder/package-core}
 
 case "${1:-}" in
 start)

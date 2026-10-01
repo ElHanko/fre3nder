@@ -17,7 +17,7 @@ sys.dont_write_bytecode = True
 
 
 ROOT = Path(__file__).resolve().parent.parent
-CORE = ROOT / "configs/x2000/rootfs-overlay/usr/libexec/fre3nder-ota-core"
+CORE = ROOT / "configs/x2000/rootfs-overlay/usr/libexec/fre3nder/ota-core"
 CLI = ROOT / "configs/x2000/rootfs-overlay/usr/bin/fre3nder"
 BUILDROOT_FRAGMENT = ROOT / "configs/x2000/buildroot.fragment"
 

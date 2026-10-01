@@ -46,7 +46,7 @@ USB_HELPER = pathlib.Path(
     os.environ.get(
         "FRE3NDER_BACKUP_USB_HELPER",
         pathlib.Path(__file__).resolve().with_name(
-            "fre3nder-usb"
+            "usb"
         ),
     )
 )
@@ -1163,7 +1163,7 @@ def main():
                 error_response(
                     "unknown",
                     ValueError(
-                        "usage: fre3nder-backup-core "
+                        "usage: /usr/libexec/fre3nder/backup-core "
                         "{offer|plan|execute|archive|verify} ..."
                     ),
                 ),

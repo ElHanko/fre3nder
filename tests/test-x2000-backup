@@ -19,8 +19,8 @@ ROOT = Path(__file__).resolve().parent.parent
 
 CORE = (
     ROOT
-    / "configs/x2000/rootfs-overlay/usr/libexec"
-    / "fre3nder-backup-core"
+    / "configs/x2000/rootfs-overlay/usr/libexec/fre3nder"
+    / "backup-core"
 )
 
 

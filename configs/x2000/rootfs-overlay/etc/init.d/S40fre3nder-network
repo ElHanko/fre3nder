@@ -12,7 +12,7 @@ proc_root=${FRE3NDER_PROC_ROOT:-/proc}
 ifconfig=${FRE3NDER_IFCONFIG:-/sbin/ifconfig}
 wpa_supplicant=${FRE3NDER_WPA_SUPPLICANT:-/usr/sbin/wpa_supplicant}
 udhcpc=${FRE3NDER_UDHCPC:-/sbin/udhcpc}
-udhcpc_hook=${FRE3NDER_UDHCPC_HOOK:-/usr/libexec/fre3nder-udhcpc}
+udhcpc_hook=${FRE3NDER_UDHCPC_HOOK:-/usr/libexec/fre3nder/udhcpc}
 carrier_timeout=${FRE3NDER_CARRIER_TIMEOUT:-5}
 dhcp_lease_timeout=${FRE3NDER_DHCP_LEASE_TIMEOUT:-15}
 

@@ -255,7 +255,7 @@ platform logic.
 
 The first implementation separates OTA behavior from its CLI presentation:
 
-    /usr/libexec/fre3nder-ota-core
+    /usr/libexec/fre3nder/ota-core
         OTA verification, discovery, validation, and planning
 
     /usr/bin/fre3nder

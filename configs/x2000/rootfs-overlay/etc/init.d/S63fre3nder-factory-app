@@ -11,7 +11,7 @@ import tempfile
 
 
 APP_NAME = "fre3nderscreen"
-PACKAGE_CORE = Path(os.environ.get("FRE3NDER_PACKAGE_CORE", "/usr/libexec/fre3nder-package-core"))
+PACKAGE_CORE = Path(os.environ.get("FRE3NDER_PACKAGE_CORE", "/usr/libexec/fre3nder/package-core"))
 SEED = Path(os.environ.get(
     "FRE3NDER_FACTORY_FRE3NDERSCREEN_APP",
     "/usr/share/fre3nder/factory-apps/fre3nderscreen.fre3app",

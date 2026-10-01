@@ -1345,10 +1345,10 @@ install -D -m 0644 "$nvram" \
 install -D -m 0644 "$nvram_license" \
 	"$target/usr/share/licenses/radxa-rkwifibt/LICENSE"
 cp "$root/configs/x2000/rootfs-overlay/usr/bin/fre3nder" "$target/usr/bin/"
-cp "$root/configs/x2000/rootfs-overlay/usr/libexec/fre3nder-package-core" \
-	"$target/usr/libexec/"
-cp "$root/configs/x2000/rootfs-overlay/usr/libexec/fre3nder-ota-core" \
-	"$target/usr/libexec/"
+cp "$root/configs/x2000/rootfs-overlay/usr/libexec/fre3nder/package-core" \
+	"$target/usr/libexec/fre3nder/"
+cp "$root/configs/x2000/rootfs-overlay/usr/libexec/fre3nder/ota-core" \
+	"$target/usr/libexec/fre3nder/"
 touch "$target/etc/init.d/fre3nder-root" \
 	"$target/etc/init.d/S20fre3nder-provision" \
 	"$target/etc/init.d/S30fre3nder-user" \
@@ -1367,7 +1367,7 @@ touch "$target/etc/init.d/fre3nder-root" \
 	"$target/etc/init.d/S50lighttpd" \
 	"$target/usr/libexec/fre3nder/f005-mcu-state" \
 	"$target/usr/libexec/fre3nder/f005-stock-to-fre3nder" \
-	"$target/usr/libexec/fre3nder-udhcpc"
+	"$target/usr/libexec/fre3nder/udhcpc"
 cp -a "$moonraker_overlay/." "$target/"
 "$post_build" "$target"
 cmp "$ota_public_key" "$target/ota/keys/public.pem"
@@ -1377,8 +1377,8 @@ cmp "$nvram" "$target/lib/firmware/brcm/brcmfmac43430-sdio.txt"
 cmp "$nvram_license" \
 	"$target/usr/share/licenses/radxa-rkwifibt/LICENSE"
 [ -x "$target/usr/bin/fre3nder" ]
-[ -x "$target/usr/libexec/fre3nder-package-core" ]
-[ -x "$target/usr/libexec/fre3nder-ota-core" ]
+[ -x "$target/usr/libexec/fre3nder/package-core" ]
+[ -x "$target/usr/libexec/fre3nder/ota-core" ]
 [ -x "$target/etc/init.d/S59fre3nder-klipper-mcu" ]
 [ -x "$target/etc/init.d/S62fre3nder-web" ]
 [ -x "$target/etc/init.d/S63fre3nder-camera" ]

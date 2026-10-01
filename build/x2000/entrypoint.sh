@@ -1536,8 +1536,8 @@ check_rootfs() {
 	find "$numpy_dir/core" -type f -name '_multiarray_umath*.so' \
 		-print -quit | grep -q .
 	[ -x "$target/usr/bin/fre3nder" ]
-	[ -x "$target/usr/libexec/fre3nder-package-core" ]
-	[ -x "$target/usr/libexec/fre3nder-ota-core" ]
+	[ -x "$target/usr/libexec/fre3nder/package-core" ]
+	[ -x "$target/usr/libexec/fre3nder/ota-core" ]
 	[ -x "$target/etc/init.d/S58fre3nder-app-restore" ]
 	[ -x "$target/usr/sbin/lighttpd" ]
 	[ -f "$target/usr/lib/lighttpd/mod_proxy.so" ]
@@ -1761,7 +1761,7 @@ check_rootfs() {
 	grep -Fq 'lease_file=$runtime/lease' \
 		"$target/etc/init.d/S40fre3nder-network"
 	grep -Fq 'printf '\''%s\n'\'' "$interface" > "$lease_file"' \
-		"$target/usr/libexec/fre3nder-udhcpc"
+		"$target/usr/libexec/fre3nder/udhcpc"
 	grep -Fq '"$udhcpc" -f -i "$interface"' \
 		"$target/etc/init.d/S40fre3nder-network"
 	! grep -Eq 'udhcpc .*-[^ ]*b.*-[^ ]*q|udhcpc .*-[^ ]*q.*-[^ ]*b' \

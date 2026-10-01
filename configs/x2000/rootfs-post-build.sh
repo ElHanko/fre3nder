@@ -64,8 +64,8 @@ rm -f "$target/etc/wpa_supplicant.conf"
 mdev_conf="$target/etc/mdev.conf"
 touch "$mdev_conf"
 
-disk_rule='-sd[a-z] 0:0 0660 */usr/libexec/fre3nder-usb hotplug'
-partition_rule='-sd[a-z][0-9][0-9]* 0:0 0660 */usr/libexec/fre3nder-usb hotplug'
+disk_rule='-sd[a-z] 0:0 0660 */usr/libexec/fre3nder/usb hotplug'
+partition_rule='-sd[a-z][0-9][0-9]* 0:0 0660 */usr/libexec/fre3nder/usb hotplug'
 mdev_tmp="$mdev_conf.fre3nder"
 
 awk -v disk="$disk_rule" -v partition="$partition_rule" '
@@ -98,9 +98,9 @@ rm -f "$target/etc/init.d/S50lighttpd"
 
 chmod 0755 \
 	"$target/usr/bin/fre3nder" \
-	"$target/usr/libexec/fre3nder-package-core" \
-	"$target/usr/libexec/fre3nder-ota-core" \
-	"$target/usr/libexec/fre3nder-usb" \
+	"$target/usr/libexec/fre3nder/package-core" \
+	"$target/usr/libexec/fre3nder/ota-core" \
+	"$target/usr/libexec/fre3nder/usb" \
 	"$target/etc/init.d/fre3nder-root" \
 	"$target/etc/init.d/S20fre3nder-provision" \
 	"$target/etc/init.d/S30fre3nder-user" \
@@ -117,4 +117,4 @@ chmod 0755 \
 	"$target/etc/init.d/S65fre3nder-app-runtime" \
 	"$target/usr/libexec/fre3nder/f005-mcu-state" \
 	"$target/usr/libexec/fre3nder/f005-stock-to-fre3nder" \
-	"$target/usr/libexec/fre3nder-udhcpc"
+	"$target/usr/libexec/fre3nder/udhcpc"

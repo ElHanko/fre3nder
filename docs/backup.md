@@ -480,7 +480,7 @@ unless every selected backup completed and verified successfully.
 The implementation lives at:
 
 ```text
-/usr/libexec/fre3nder-backup-core
+/usr/libexec/fre3nder/backup-core
 ```
 
 Its internal API version is currently `1`.

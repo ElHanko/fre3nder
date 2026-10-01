@@ -18,7 +18,7 @@ from unittest import mock
 import zipfile
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-CORE = ROOT / "configs/x2000/rootfs-overlay/usr/libexec/fre3nder-package-core"
+CORE = ROOT / "configs/x2000/rootfs-overlay/usr/libexec/fre3nder/package-core"
 
 
 def load_core_module():
