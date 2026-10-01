@@ -187,7 +187,7 @@ license provenance remains explicit in the source and wheel manifests.
 
 ## Fre3nderScreen application artifact
 
-Fre3nderScreen is consumed from the Fre3nder-maintained fork
+The release-mode Fre3nderScreen source is pinned in the Fre3nder-maintained fork
 `https://github.com/ElHanko/fre3nderscreen.git` at commit
 `4c6de8a8773da06ea6bca2cf48b0be540aa3ba0a` (release `2026.1.1`), under
 `GPL-3.0-only`. The repository retains the original GuppyScreen Git history and upstream provenance;
@@ -220,9 +220,11 @@ does not execute or redistribute the removed GuppyScreen installers or
 Creality-specific binary payloads.
 
 The previous pin `baa4f6689ac7334d240107529f6d3c42a1297319` is the local-UI source
-covered by the recorded `2026.2.a` hardware qualification. The new
-Fre3nderScreen pin is a development integration candidate and is not described
-as hardware-qualified until a new build and hardware validation are recorded.
+covered by the recorded `2026.2.a` hardware qualification. Separately, source
+commit `14cd41599f1ee8dec659b282e54762fd61552c5a` in signed Development
+package `2026.1.14cd415-fre3nder.0.4796448` was hardware-qualified through the
+Factory-app path on the investigated reference system. That Development result
+does not qualify the release-mode pin `2026.1.1`.
 
 ## Public Creality Klipper source
 

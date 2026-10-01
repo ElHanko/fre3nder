@@ -24,11 +24,12 @@ technology prematurely.
 ### Fre3nderScreen project boundary
 
 Fre3nderScreen is maintained outside the Fre3nder platform repository. Release
-`2026.1` establishes its independent release boundary and is pinned by exact
-commit in Fre3nder. The source repository is named `fre3nderscreen` while
-retaining the original project history and upstream provenance. Qualify the new
-rootless Fre3nder integration on target hardware after a separately authorized
-build.
+`2026.1` establishes its independent release boundary; Fre3nder retains the
+`2026.1.1` release source pin. The source repository is named `fre3nderscreen`
+while retaining the original project history and upstream provenance. The
+Factory `.fre3app` integration was hardware-qualified on the investigated
+reference system with a separate Development package built from source commit
+`14cd41599f1ee8dec659b282e54762fd61552c5a`.
 
 ### Local UI product experience
 
@@ -36,7 +37,7 @@ Continue optimizing the Fre3nderScreen product experience for the fixed 272x480
 logical portrait display. Improve remaining quality-of-life workflows and local
 administration so normal printer use depends less on the web UI or SSH. Larger
 UX changes remain optional until a concrete scope is selected; this product
-work is separate from Fre3nderScreen integration qualification above.
+work is separate from the Factory-app integration qualification above.
 
 ### Managed applications
 

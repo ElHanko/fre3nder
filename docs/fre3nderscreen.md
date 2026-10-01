@@ -1,7 +1,7 @@
 # Fre3nderScreen local Core-UI
 
-Status: **Factory `.fre3app` integration implemented; new RootFS and boot path
-not yet build- or hardware-qualified**.
+Status: **Factory `.fre3app` integration hardware-qualified on the investigated
+reference system with the Development package identified below**.
 
 Fre3nderScreen is Fre3nder's dedicated native local Core-UI for the Ender-3 V3
 KE. It is cross-built from source into a neutral artifact, then packaged as a
@@ -18,8 +18,8 @@ first-boot download, or standalone screen installer is part of this design.
 
 ## Source identity and provenance
 
-The productive source is the Fre3nder-maintained fork
-[`ElHanko/fre3nderscreen`](https://github.com/ElHanko/fre3nderscreen), pinned to:
+The release-mode source pin in the Fre3nder-maintained fork
+[`ElHanko/fre3nderscreen`](https://github.com/ElHanko/fre3nderscreen) is:
 
 ```text
 release:      2026.1.1
@@ -28,7 +28,7 @@ license:      GPL-3.0-only
 ```
 
 The repository retains the original GuppyScreen Git history and upstream provenance.
-The application at this pin identifies as **Fre3nderScreen** and is specialized
+The application at this release pin identifies as **Fre3nderScreen** and is specialized
 for one Fre3nder / Ender-3 V3 KE target, one local Moonraker endpoint, and the
 272x480 portrait UI.
 
@@ -54,7 +54,7 @@ DejaVu font and Material Design Icons notices accompany the package payload.
 The inherited DejaVu font's exact version is not established.
 
 The artifact builder applies the three dependency patches shipped by the
-pinned source tree. It builds with the Fre3nder Buildroot GCC 13.4.0 /
+resolved source tree. It builds with the Fre3nder Buildroot GCC 13.4.0 /
 binutils 2.43.1 MIPS userspace toolchain. Because libhv embeds `__DATE__` and
 `__TIME__`, `SOURCE_DATE_EPOCH` is derived from the pinned source commit.
 
@@ -108,6 +108,30 @@ GuppyScreen schema is not imported. App logs and PID live under the app data
 directory. Missing local UI prerequisites do not gate Dropbear, Klipper,
 Moonraker, or Fluidd.
 
+## Factory-app Development qualification
+
+The Factory-app path was validated on the investigated reference printer with
+this Development identity, separate from the `2026.1.1` release pin above:
+
+| Input | Qualified identity |
+| --- | --- |
+| Fre3nder | `41df7e7029607908a7287c9492bf28df643aaf17` |
+| fre3nder-apps | `4796448` |
+| Fre3nderScreen source | `14cd41599f1ee8dec659b282e54762fd61552c5a` |
+| Signed package | `2026.1.14cd415-fre3nder.0.4796448`, `release_serial = 0` |
+
+The complete Kernel and RootFS A/B deployment from slot B to slot A passed,
+including Kernel p5 and RootFS p7 readback, reboot, and runtime checks. The
+Factory marker reached `complete`; the package core installed the `.fre3app`
+and selected Fre3nderScreen as the display frontend. Its process ran as
+`fre3nder:fre3nder`, and the old `/opt/fre3nder/fre3nderscreen` path was absent.
+The legacy configuration and calibration were functionally carried into the
+new app data path. Physical display output, touch, calibration, Moonraker
+connectivity, and beeper output through `/run/fre3nder-display/beeper` passed.
+These results qualify the listed Development package and Factory-app path;
+they do not qualify the separate `2026.1.1` release pin or a complete print
+with this package.
+
 ## Qualification boundary
 
 The previous integration pin
@@ -144,9 +168,8 @@ touch wake.
 
 The complete print-start path was already hardware-qualified on the older
 `baa4f66` pin. The qualification of `589275a` remains historical evidence; it
-does not qualify release 2026.1 in the new Fre3nder integration. A separately
-authorized target build and hardware test must validate the rootless service,
-its supplementary groups, device access, local UI, and print path.
+does not qualify release 2026.1 in the new Fre3nder integration or establish a
+complete print with the Development Factory-app package described above.
 
 Historical qualification evidence remains in `CHANGELOG.md` and the repository
 history.

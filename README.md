@@ -14,8 +14,11 @@ Current released version: [`2026.3`](CHANGELOG.md)
 Fre3nder provides an open X2000 host, upstream Klipper integration for the
 F005 MCU, a persistent usable-system stack, Moonraker, managed web applications,
 and a documented path back to Stock. The released `2026.3` line retains the
-previously qualified GuppyScreen local-UI evidence; current development migrates
-that local UI to the dedicated Fre3nderScreen source and integration contract.
+previously qualified GuppyScreen local-UI evidence. The current Development
+line integrates Fre3nderScreen as a signed Factory `.fre3app`; this path was
+hardware-qualified on the investigated reference system with package
+`2026.1.14cd415-fre3nder.0.4796448`. The separate release source pin remains
+`2026.1.1`.
 
 The `2026.3` **Independent Kernel Stack** release completes the transition away
 from the vendor kernel. Its host kernel is official Linux stable `v6.6.157`

@@ -139,8 +139,8 @@ that command. In each directory, inspect its own `build-manifest.json`:
 | Build scope | Fields to inspect in that manifest |
 | --- | --- |
 | `--kernel-only` | `version`, `artifact_mode`, `project_commit`, `project_worktree_status`, and `artifacts` hashes for `kernel.uImage`, DTB, and effective Kernel configuration |
-| `--rootfs-only` | The same identity fields, `artifacts` hashes for `rootfs.squashfs` and `buildroot.config`, plus `ota_public_key_sha256` and `rootfs_components` |
-| Full build or `--compose-only` | The same identity fields and `artifacts` hashes for Kernel and RootFS, `ota_public_key_sha256`, `rootfs_components`, plus `component_provenance` for each input and `composition_provenance` for the final assembly |
+| `--rootfs-only` | The same identity fields, `artifacts` hashes for `rootfs.squashfs` and `buildroot.config`, plus `ota_public_key_sha256`, `rootfs_components`, and `factory_apps.fre3nderscreen.sha256` for the signed seed embedded in the RootFS |
+| Full build or `--compose-only` | The same identity fields and `artifacts` hashes for Kernel and RootFS, `ota_public_key_sha256`, `rootfs_components`, `factory_apps.fre3nderscreen.sha256`, plus `component_provenance` for each input and `composition_provenance` for the final assembly |
 
 For `development` artifacts, also check `build_input_sha256`; release artifacts
 have no such field and require `project_worktree_status: clean`. The

@@ -387,8 +387,8 @@ The initial Stage-D image left `bl_power=4` after GuppyScreen startup. The S64
 service correction now enables the PC22 gpio-backlight after successful UI
 startup, and that behavior is physically qualified.
 
-The current GuppyScreen fork also controls physical standby through the same
-Linux backlight interface. On the investigated reference printer:
+The GuppyScreen fork used for Stage-D also controlled physical standby through
+the same Linux backlight interface. On the investigated reference printer:
 
 ~~~text
 automatic backlight startup     PASS

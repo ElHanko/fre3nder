@@ -32,8 +32,12 @@ them. A guided first-installation flow remains [roadmap work](roadmap.md#user-fa
    [building Fre3nder](build.md). In
    `local/production/artifacts/x2000/full/build-manifest.json`, check
    `version`, `artifact_mode`, the Kernel and RootFS entries in `artifacts`,
-   `component_provenance`, and `composition_provenance`. The combined manifest
-   inherits its top-level `project_commit`, `project_worktree_status`, and, for
+   `component_provenance`, `composition_provenance`, and
+   `factory_apps.fre3nderscreen.sha256`. Compare the last value with the signed
+   `.fre3app` supplied as the RootFS Factory seed; it identifies the package
+   embedded in that RootFS, independently of the static release source pin.
+   The combined manifest inherits its top-level `project_commit`,
+   `project_worktree_status`, and, for
    development artifacts, `build_input_sha256` from the RootFS component.
    Use `component_provenance` to identify the Kernel and RootFS inputs and
    `composition_provenance` to identify the project state that performed the
