@@ -1,0 +1,332 @@
+#!/usr/bin/python3
+"""Local privileged management API for Fre3nder."""
+
+import grp
+import http.server
+import json
+import os
+import pathlib
+import socket
+import socketserver
+import stat
+import struct
+import subprocess
+import sys
+import tempfile
+
+
+API_VERSION = 1
+SOCKET_PATH = pathlib.Path(
+    os.environ.get("FRE3NDER_MANAGEMENT_SOCKET", "/run/fre3nder-management/api.sock")
+)
+MANAGEMENT_GROUP = os.environ.get(
+    "FRE3NDER_MANAGEMENT_GROUP", "fre3nder-management"
+)
+MAINTENANCE_STATE = pathlib.Path(
+    os.environ.get(
+        "FRE3NDER_MAINTENANCE_STATE", "/home/.fre3nder/maintenance/enabled"
+    )
+)
+VERSION_FILE = pathlib.Path(
+    os.environ.get("FRE3NDER_VERSION_FILE", "/usr/share/fre3nder/VERSION")
+)
+ROOT_STATUS = pathlib.Path(
+    os.environ.get("FRE3NDER_ROOT_STATUS", "/run/fre3nder-root/status")
+)
+WEB_STATUS = pathlib.Path(
+    os.environ.get("FRE3NDER_WEB_STATUS", "/run/fre3nder-web/status")
+)
+WEB_SERVICE = pathlib.Path(
+    os.environ.get("FRE3NDER_WEB_SERVICE", "/etc/init.d/S62fre3nder-web")
+)
+
+# Host tests may override this after import. Production mutation authority is
+# always UID 0.
+ADMIN_UID_OVERRIDE = None
+
+
+class ManagementError(Exception):
+    def __init__(self, status, code, message):
+        super().__init__(message)
+        self.status = status
+        self.code = code
+        self.message = message
+
+
+def manager_uid():
+    return os.geteuid()
+
+
+def mutation_uids():
+    allowed = {0}
+    if ADMIN_UID_OVERRIDE is not None:
+        allowed.add(int(ADMIN_UID_OVERRIDE))
+    return allowed
+
+
+def check_dir(path, description, create=False):
+    try:
+        st = path.lstat()
+    except FileNotFoundError:
+        if not create:
+            raise ValueError(f"{description} is missing: {path}")
+        path.mkdir(mode=0o700)
+        st = path.lstat()
+    if path.is_symlink() or not stat.S_ISDIR(st.st_mode):
+        raise ValueError(f"{description} is not a directory: {path}")
+    if st.st_uid != manager_uid() or st.st_mode & 0o022:
+        raise ValueError(f"{description} has unsafe ownership or mode: {path}")
+
+
+def check_file(path, description, required=True):
+    try:
+        st = path.lstat()
+    except FileNotFoundError:
+        if required:
+            raise ValueError(f"{description} is missing: {path}")
+        return None
+    if path.is_symlink() or not stat.S_ISREG(st.st_mode):
+        raise ValueError(f"{description} is not a regular file: {path}")
+    return st
+
+
+def read_line(path, description, required=True):
+    if check_file(path, description, required) is None:
+        return None
+    value = path.read_text()
+    if not value.endswith("\n") or "\n" in value[:-1]:
+        raise ValueError(f"{description} must contain exactly one line")
+    return value[:-1]
+
+
+def maintenance_enabled():
+    st = check_file(MAINTENANCE_STATE, "maintenance state", required=False)
+    if st is None:
+        return False
+    if st.st_uid != manager_uid() or st.st_mode & 0o022:
+        raise ValueError("maintenance state has unsafe ownership or mode")
+    if MAINTENANCE_STATE.read_text() != "enabled\n":
+        raise ValueError("maintenance state is invalid")
+    return True
+
+
+def require_active_root():
+    value = read_line(ROOT_STATUS, "Fre3nder root status")
+    if value != "active":
+        raise ManagementError(
+            409,
+            "runtime-unavailable",
+            f"Fre3nder writable runtime is not active: {value}",
+        )
+
+
+def set_maintenance(enabled):
+    require_active_root()
+    current = maintenance_enabled()
+    if current == enabled:
+        return
+    if not enabled:
+        MAINTENANCE_STATE.unlink()
+        return
+
+    state_root = MAINTENANCE_STATE.parent.parent
+    check_dir(state_root.parent, "management state parent")
+    check_dir(state_root, "management state root", create=True)
+    check_dir(MAINTENANCE_STATE.parent, "maintenance state directory", create=True)
+
+    with tempfile.NamedTemporaryFile(
+        mode="w",
+        dir=MAINTENANCE_STATE.parent,
+        prefix=".enabled.",
+        delete=False,
+    ) as output:
+        staging = pathlib.Path(output.name)
+        try:
+            output.write("enabled\n")
+            output.flush()
+            os.fsync(output.fileno())
+            staging.chmod(0o644)
+            os.replace(staging, MAINTENANCE_STATE)
+        finally:
+            staging.unlink(missing_ok=True)
+
+
+def web_status():
+    try:
+        return read_line(WEB_STATUS, "web status", required=False) or "stopped"
+    except (OSError, ValueError):
+        return "unknown"
+
+
+def refresh_web():
+    try:
+        result = subprocess.run(
+            [str(WEB_SERVICE), "restart"],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        )
+    except OSError:
+        return "failed"
+    return "requested" if result.returncode == 0 else "failed"
+
+
+def response(operation, **fields):
+    value = {"api_version": API_VERSION, "ok": True, "operation": operation}
+    value.update(fields)
+    return value
+
+
+def error(code, message):
+    return {
+        "api_version": API_VERSION,
+        "ok": False,
+        "error": {"code": code, "message": message},
+    }
+
+
+class Handler(http.server.BaseHTTPRequestHandler):
+    server_version = "Fre3nderManagement/1"
+    sys_version = ""
+    protocol_version = "HTTP/1.0"
+
+    def address_string(self):
+        return "local"
+
+    def log_message(self, _format, *_args):
+        pass
+
+    def send_json(self, status, value):
+        body = json.dumps(value, sort_keys=True, separators=(",", ":")).encode() + b"\n"
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(body)
+
+    def peer_uid(self):
+        raw = self.connection.getsockopt(
+            socket.SOL_SOCKET, socket.SO_PEERCRED, struct.calcsize("3i")
+        )
+        return struct.unpack("3i", raw)[1]
+
+    def require_admin(self):
+        if self.peer_uid() not in mutation_uids():
+            raise ManagementError(
+                403,
+                "forbidden",
+                "operation is not permitted for this local client",
+            )
+
+    def fail(self, exc):
+        if isinstance(exc, ManagementError):
+            self.send_json(exc.status, error(exc.code, exc.message))
+            return
+        print(f"fre3nder management: {exc}", file=sys.stderr)
+        self.send_json(500, error("internal-error", "management operation failed"))
+
+    def do_GET(self):
+        try:
+            if self.path == "/fre3nder/api/v1/system":
+                system = {
+                    "version": read_line(VERSION_FILE, "Fre3nder version"),
+                    "root_status": read_line(
+                        ROOT_STATUS, "Fre3nder root status", required=False
+                    )
+                    or "unavailable",
+                }
+                self.send_json(200, response("system-status", system=system))
+                return
+            if self.path == "/fre3nder/api/v1/maintenance":
+                state = {
+                    "enabled": maintenance_enabled(),
+                    "web_status": web_status(),
+                }
+                self.send_json(200, response("maintenance-status", maintenance=state))
+                return
+            raise ManagementError(404, "not-found", "management endpoint does not exist")
+        except (ManagementError, OSError, ValueError, RuntimeError) as exc:
+            self.fail(exc)
+
+    def do_POST(self):
+        try:
+            length = self.headers.get("Content-Length")
+            if length is not None:
+                try:
+                    length = int(length)
+                except ValueError as exc:
+                    raise ManagementError(
+                        400, "invalid-request", "invalid Content-Length"
+                    ) from exc
+                if length != 0:
+                    raise ManagementError(
+                        400, "invalid-request", "request body is not supported"
+                    )
+            self.require_admin()
+            actions = {
+                "/fre3nder/api/v1/maintenance/enable": (True, "maintenance-enable"),
+                "/fre3nder/api/v1/maintenance/disable": (False, "maintenance-disable"),
+            }
+            if self.path not in actions:
+                raise ManagementError(404, "not-found", "management endpoint does not exist")
+            enabled, operation = actions[self.path]
+            set_maintenance(enabled)
+            refresh = refresh_web()
+            state = {"enabled": maintenance_enabled(), "web_status": web_status()}
+            self.send_json(
+                200,
+                response(operation, maintenance=state, web_refresh=refresh),
+            )
+        except (ManagementError, OSError, ValueError, RuntimeError) as exc:
+            self.fail(exc)
+
+    def do_PUT(self):
+        self.send_json(405, error("method-not-allowed", "HTTP method is not supported"))
+
+    do_DELETE = do_PUT
+    do_PATCH = do_PUT
+
+
+class Server(socketserver.UnixStreamServer):
+    allow_reuse_address = False
+
+
+def prepare_socket():
+    check_dir(SOCKET_PATH.parent, "management runtime directory")
+    try:
+        st = SOCKET_PATH.lstat()
+    except FileNotFoundError:
+        return
+    if SOCKET_PATH.is_symlink() or not stat.S_ISSOCK(st.st_mode):
+        raise ValueError(f"management socket path is unsafe: {SOCKET_PATH}")
+    if st.st_uid != manager_uid():
+        raise ValueError(f"management socket has unsafe ownership: {SOCKET_PATH}")
+    SOCKET_PATH.unlink()
+
+
+def serve():
+    if os.geteuid() != 0:
+        raise RuntimeError("management daemon must run as root")
+    prepare_socket()
+    try:
+        group = grp.getgrnam(MANAGEMENT_GROUP)
+    except KeyError as exc:
+        raise RuntimeError(f"management group is unavailable: {MANAGEMENT_GROUP}") from exc
+
+    server = Server(str(SOCKET_PATH), Handler)
+    try:
+        os.chown(SOCKET_PATH, 0, group.gr_gid)
+        os.chmod(SOCKET_PATH, 0o660)
+        server.serve_forever(poll_interval=0.5)
+    finally:
+        server.server_close()
+
+
+if __name__ == "__main__":
+    try:
+        serve()
+    except (OSError, ValueError, RuntimeError) as exc:
+        print(f"fre3nder management: {exc}", file=sys.stderr)
+        raise SystemExit(1)

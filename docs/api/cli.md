@@ -44,6 +44,23 @@ Publisher IDs use lowercase letters, digits, `_`, `.` and `-`, begin with a
 letter and have the same maximum length. Pass paths as shell-quoted arguments
 when necessary. A transaction ID is opaque: copy the returned value unchanged.
 
+## Maintenance Web
+
+The Maintenance Web feature is disabled by default. These commands use the
+local [Management API v1](management.md); they do not require Lighttpd to be
+running in order to work.
+
+| Syntax | Purpose / effects |
+| --- | --- |
+| `fre3nder maintenance status` | Report the persistent Maintenance opt-in and current S62 web-service status |
+| `fre3nder maintenance enable` | Persist the explicit Maintenance opt-in and ask S62 to reconcile Lighttpd |
+| `fre3nder maintenance disable` | Remove the Maintenance opt-in and ask S62 to reconcile Lighttpd; Lighttpd remains active if a selected web frontend still requires it |
+
+The normal SSH administrative/root context may use all three commands. The
+generic `fre3nder` application user is not granted management-socket access by
+this first slice. Fre3nderScreen will later use the same API through an explicit
+narrow capability rather than inheriting management authority for every app.
+
 ## App packages
 
 All commands follow the output/exit rules above. Verification/trust and lifecycle

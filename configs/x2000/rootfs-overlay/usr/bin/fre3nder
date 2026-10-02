@@ -1,18 +1,22 @@
 #!/usr/bin/python3
 """Common CLI frontend for Fre3nder platform operations."""
 
+import http.client
 import json
 import os
 import pathlib
+import socket
 import subprocess
 import sys
 
 
 API_VERSION = 1
+MANAGEMENT_API_VERSION = 1
 
 DEFAULT_PACKAGE_CORE = pathlib.Path("/usr/libexec/fre3nder/package-core")
 DEFAULT_OTA_CORE = pathlib.Path("/usr/libexec/fre3nder/ota-core")
 DEFAULT_BACKUP_CORE = pathlib.Path("/usr/libexec/fre3nder/backup-core")
+DEFAULT_MANAGEMENT_SOCKET = pathlib.Path("/run/fre3nder-management/api.sock")
 
 OTA_ACTIONS = (
     "verify",
@@ -49,6 +53,136 @@ def ota_core_path():
     if override:
         return pathlib.Path(override)
     return DEFAULT_OTA_CORE
+
+
+def management_socket_path():
+    override = os.environ.get("FRE3NDER_MANAGEMENT_SOCKET")
+    if override:
+        return pathlib.Path(override)
+    return DEFAULT_MANAGEMENT_SOCKET
+
+
+class UnixHTTPConnection(http.client.HTTPConnection):
+    def __init__(self, socket_path, timeout=10):
+        super().__init__("localhost", timeout=timeout)
+        self.socket_path = str(socket_path)
+
+    def connect(self):
+        self.sock = socket.socket(
+            socket.AF_UNIX,
+            socket.SOCK_STREAM,
+        )
+        self.sock.settimeout(self.timeout)
+        self.sock.connect(self.socket_path)
+
+
+def run_management_api(method, path, expected_operation):
+    socket_path = management_socket_path()
+    connection = UnixHTTPConnection(socket_path)
+
+    try:
+        connection.request(method, path)
+        result = connection.getresponse()
+        body = result.read()
+    except OSError as exc:
+        raise RuntimeError(
+            f"cannot connect to management service: {socket_path}"
+        ) from exc
+    finally:
+        connection.close()
+
+    try:
+        response = json.loads(body)
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise RuntimeError(
+            "management service returned invalid JSON"
+        ) from exc
+
+    if (
+        not isinstance(response, dict)
+        or response.get("api_version") != MANAGEMENT_API_VERSION
+    ):
+        raise RuntimeError(
+            "management service returned an invalid response"
+        )
+
+    if result.status >= 400 or response.get("ok") is not True:
+        error = response.get("error")
+        message = (
+            error.get("message")
+            if isinstance(error, dict)
+            else None
+        )
+        if not isinstance(message, str) or not message:
+            message = (
+                "management request failed with "
+                f"HTTP {result.status}"
+            )
+        raise ValueError(message)
+
+    if response.get("operation") != expected_operation:
+        raise RuntimeError(
+            "management service operation mismatch"
+        )
+
+    return response
+
+
+def format_maintenance(response):
+    maintenance = response.get("maintenance")
+    if not isinstance(maintenance, dict):
+        raise RuntimeError(
+            "management service returned invalid maintenance state"
+        )
+
+    enabled = maintenance.get("enabled")
+    web_status = maintenance.get("web_status")
+    if (
+        type(enabled) is not bool
+        or not isinstance(web_status, str)
+        or not web_status
+    ):
+        raise RuntimeError(
+            "management service returned invalid maintenance state"
+        )
+
+    return "\n".join(
+        (
+            "Maintenance: "
+            + ("enabled" if enabled else "disabled"),
+            f"Web:         {web_status}",
+        )
+    )
+
+
+def run_maintenance(action):
+    if action == "status":
+        method = "GET"
+        path = "/fre3nder/api/v1/maintenance"
+        operation = "maintenance-status"
+    elif action in ("enable", "disable"):
+        method = "POST"
+        path = f"/fre3nder/api/v1/maintenance/{action}"
+        operation = f"maintenance-{action}"
+    else:
+        return usage()
+
+    try:
+        response = run_management_api(
+            method,
+            path,
+            operation,
+        )
+        output = format_maintenance(response)
+    except (RuntimeError, ValueError) as exc:
+        print(
+            f"fre3nder maintenance: {exc}",
+            file=sys.stderr,
+        )
+        return 1
+
+    print(output)
+    return 0
 
 
 def usage():
@@ -126,6 +260,10 @@ def usage():
         "       fre3nder backup create "
         "[--home <usb|none>] "
         "[--sys <usb|home|none>]",
+        file=sys.stderr,
+    )
+    print(
+        "       fre3nder maintenance {status|enable|disable}",
         file=sys.stderr,
     )
     return 2
@@ -1187,6 +1325,15 @@ def main():
             raise RuntimeError("package core unexpectedly returned")
 
         return usage()
+
+    if namespace == "maintenance":
+        if (
+            len(sys.argv) != 3
+            or sys.argv[2] not in ("status", "enable", "disable")
+        ):
+            return usage()
+
+        return run_maintenance(sys.argv[2])
 
     if namespace == "backup":
         if (

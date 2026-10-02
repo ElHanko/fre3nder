@@ -65,8 +65,10 @@ read by the new platform code.
 After a successful interactive install or update of the selected frontend,
 or removal of that frontend, the privileged package core requests an S62 web
 restart. A restart failure produces a warning and does not roll back an already
-completed package transaction. S62 respects the persistent opt-out marker
-`/home/fre3nder/.fre3nder/web/disabled`. Package services do not start S62.
+completed package transaction. S62 respects
+`/home/fre3nder/.fre3nder/web/disabled` as an opt-out for the selected
+application frontend. The independently enabled core Maintenance UI can still
+require Lighttpd. Package services do not start S62.
 
 ## Local display frontend selection
 
@@ -132,12 +134,21 @@ persistent `/home`, so the new seed is never imported over a later user choice.
 
 ## Platform web service
 
-S62 uses the active name to serve
-`/opt/fre3nder/apps-v2/<app>/payload` through Lighttpd. It requires the active
-Fre3nder root, available userdata, a safe payload directory, and a regular
-nonempty `index.html`. An absent selection or payload leaves the service
-stopped with a status under `/run/fre3nder-web`. S62 neither installs packages
-nor downloads a frontend.
+S62 is the single platform Lighttpd reconciler. It runs Lighttpd exactly when at
+least one web feature needs it:
+
+```text
+maintenance_enabled OR selected_web_frontend_exists
+```
+
+For a selected application frontend, S62 uses the active name to serve
+`/opt/fre3nder/apps-v2/<app>/payload`. For explicitly enabled Maintenance it
+also serves the core `/maintenance/` route and the documented read-only
+Management API projection. A broken or absent application frontend does not
+prevent an explicitly enabled core Maintenance UI from being served safely.
+Conversely, unavailable Maintenance resources do not suppress an otherwise valid
+selected application frontend. S62 neither installs packages nor downloads a
+frontend.
 
 `/etc/lighttpd/fre3nder.conf` is frontend-neutral platform configuration:
 static files use the selected document root; `/websocket` and the Moonraker
@@ -149,7 +160,7 @@ handling remain platform services when Fluidd is absent. S62 is the only
 automatic Lighttpd start path; the RootFS post-build hook removes Buildroot's
 competing `S50lighttpd` script.
 
-The opt-out marker stays in user-owned `/home/fre3nder/.fre3nder/web/disabled`.
-An external webserver can instead serve the selected package payload and proxy
-the same API and camera routes. The package core's frontend selection is
-independent of which HTTP server is used.
+The application-frontend opt-out marker stays in user-owned
+`/home/fre3nder/.fre3nder/web/disabled`. Maintenance state is separate and
+root-managed under `/home/.fre3nder/maintenance/`. The package core's frontend
+selection remains independent of that Maintenance state.

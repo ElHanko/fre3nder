@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Fre3nder Maintenance</title>
+  <link rel="stylesheet" href="maintenance.css">
+</head>
+<body>
+  <main>
+    <header>
+      <p class="eyebrow">Fre3nder</p>
+      <h1>Maintenance</h1>
+      <p class="summary">Local platform administration.</p>
+    </header>
+
+    <section aria-labelledby="overview-title">
+      <h2 id="overview-title">Overview</h2>
+      <dl>
+        <div>
+          <dt>Fre3nder version</dt>
+          <dd id="system-version">Loading…</dd>
+        </div>
+        <div>
+          <dt>Runtime</dt>
+          <dd id="root-status">Loading…</dd>
+        </div>
+        <div>
+          <dt>Maintenance web</dt>
+          <dd id="maintenance-status">Loading…</dd>
+        </div>
+        <div>
+          <dt>HTTP service</dt>
+          <dd id="web-status">Loading…</dd>
+        </div>
+      </dl>
+      <p id="error" class="error" hidden></p>
+    </section>
+
+    <nav aria-label="Maintenance areas">
+      <span aria-current="page">Overview</span>
+      <span class="pending">System Updates</span>
+      <span class="pending">Apps</span>
+    </nav>
+  </main>
+  <script src="maintenance.js"></script>
+</body>
+</html>

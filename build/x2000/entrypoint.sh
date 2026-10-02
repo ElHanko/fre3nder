@@ -1562,12 +1562,17 @@ check_rootfs() {
 	find "$numpy_dir/core" -type f -name '_multiarray_umath*.so' \
 		-print -quit | grep -q .
 	[ -x "$target/usr/bin/fre3nder" ]
+	[ -x "$target/usr/libexec/fre3nder/managementd" ]
 	[ -x "$target/usr/libexec/fre3nder/package-core" ]
 	[ -x "$target/usr/libexec/fre3nder/ota-core" ]
+	[ -x "$target/etc/init.d/S57fre3nder-management" ]
 	[ -x "$target/etc/init.d/S58fre3nder-app-restore" ]
 	[ -x "$target/usr/sbin/lighttpd" ]
 	[ -f "$target/usr/lib/lighttpd/mod_proxy.so" ]
 	[ -x "$target/etc/init.d/S62fre3nder-web" ]
+	[ -s "$target/usr/share/fre3nder/web-root/maintenance/index.html" ]
+	[ -s "$target/usr/share/fre3nder/web-root/maintenance/maintenance.css" ]
+	[ -s "$target/usr/share/fre3nder/web-root/maintenance/maintenance.js" ]
 	[ -x "$target/etc/init.d/S65fre3nder-app-runtime" ]
 	[ -x "$target/usr/bin/mjpg_streamer" ]
 	[ -f "$target/usr/lib/mjpg-streamer/input_uvc.so" ]

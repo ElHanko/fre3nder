@@ -4,6 +4,7 @@
 import os
 from pathlib import Path
 import re
+import socket
 import subprocess
 import sys
 import tempfile
@@ -27,6 +28,9 @@ class WebServiceTests(unittest.TestCase):
         self.package_state = self.root / "home/.fre3nder"
         self.active = self.package_state / "frontend/active"
         self.disabled = self.home / ".fre3nder/web/disabled"
+        self.maintenance_state = self.package_state / "maintenance/enabled"
+        self.maintenance_root = self.root / "usr/share/fre3nder/web-root/maintenance"
+        self.management_socket = self.root / "run/management/api.sock"
         self.web = self.root / "opt/apps-v2"
         self.payload = self.web / "sample-ui/payload"
         self.daemon = self.root / "bin/lighttpd"
@@ -38,6 +42,9 @@ class WebServiceTests(unittest.TestCase):
             "FRE3NDER_HOME_DIR": str(self.home),
             "FRE3NDER_PACKAGE_STATE_ROOT": str(self.package_state),
             "FRE3NDER_PACKAGE_RUNTIME_ROOT": str(self.web),
+            "FRE3NDER_MAINTENANCE_STATE": str(self.maintenance_state),
+            "FRE3NDER_MAINTENANCE_ROOT": str(self.maintenance_root),
+            "FRE3NDER_MANAGEMENT_SOCKET": str(self.management_socket),
             "FRE3NDER_WEB_BASE_CONFIG": str(BASE_CONFIG),
             "FRE3NDER_LIGHTTPD": str(self.daemon),
             "FRE3NDER_PYTHON": sys.executable,
@@ -86,10 +93,124 @@ while True:
         self.write(self.active, "sample-ui\n")
         self.write(self.payload / "index.html", "fixture frontend")
 
+    def setup_maintenance(self):
+        self.write(self.root_state / "status", "active\n")
+        self.home.mkdir(parents=True, exist_ok=True)
+        self.write(self.maintenance_state, "enabled\n")
+        self.maintenance_state.chmod(0o644)
+        self.write(
+            self.maintenance_root / "index.html",
+            "fixture maintenance",
+        )
+        self.management_socket.parent.mkdir(parents=True, exist_ok=True)
+        listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        listener.bind(str(self.management_socket))
+        listener.listen(1)
+        self.addCleanup(listener.close)
+
     def test_no_persistent_root(self):
         self.run_service(expected="degraded-root")
         self.assertFalse(self.calls.exists())
         self.assertFalse(self.home.exists())
+
+    def test_maintenance_and_frontend_demand_matrix(self):
+        self.write(self.root_state / "status", "active\n")
+        self.home.mkdir(parents=True)
+        self.run_service(expected="no-frontend")
+        self.assertFalse((self.runtime / "lighttpd.pid").exists())
+
+        self.setup_maintenance()
+        self.run_service("restart", expected="active")
+        generated = (self.runtime / "lighttpd.conf").read_text()
+        self.assertIn(
+            f'server.document-root = "{self.maintenance_root.parent}"',
+            generated,
+        )
+        self.assertIn('alias.url = ( "/maintenance/"', generated)
+        self.assertIn(
+            '^/fre3nder/api/v1/(system|maintenance)$',
+            generated,
+        )
+
+        self.write(self.active, "sample-ui\n")
+        self.write(self.payload / "index.html", "fixture frontend")
+        self.run_service("restart", expected="active")
+        generated = (self.runtime / "lighttpd.conf").read_text()
+        self.assertIn(
+            f'server.document-root = "{self.payload}"',
+            generated,
+        )
+        self.assertIn('alias.url = ( "/maintenance/"', generated)
+
+        self.maintenance_state.unlink()
+        self.run_service("restart", expected="active")
+        generated = (self.runtime / "lighttpd.conf").read_text()
+        self.assertIn(
+            f'server.document-root = "{self.payload}"',
+            generated,
+        )
+        self.assertNotIn("alias.url", generated)
+        self.assertNotIn("/fre3nder/api/v1/", generated)
+
+    def test_frontend_opt_out_does_not_override_enabled_maintenance(self):
+        self.setup_frontend()
+        self.setup_maintenance()
+        self.write(self.disabled)
+        self.run_service(expected="active")
+        generated = (self.runtime / "lighttpd.conf").read_text()
+        self.assertIn(
+            f'server.document-root = "{self.maintenance_root.parent}"',
+            generated,
+        )
+        self.assertIn('alias.url = ( "/maintenance/"', generated)
+
+    def test_invalid_frontend_does_not_block_enabled_maintenance(self):
+        self.setup_maintenance()
+        self.write(self.active, "../escape")
+        self.run_service(expected="active")
+        generated = (self.runtime / "lighttpd.conf").read_text()
+        self.assertIn(
+            f'server.document-root = "{self.maintenance_root.parent}"',
+            generated,
+        )
+
+    def test_invalid_maintenance_state_does_not_block_frontend(self):
+        self.setup_frontend()
+        self.write(self.maintenance_state, "maybe\n")
+        self.maintenance_state.chmod(0o644)
+        self.run_service(expected="active")
+        generated = (self.runtime / "lighttpd.conf").read_text()
+        self.assertEqual(
+            generated,
+            f'server.document-root = "{self.payload}"\ninclude "{BASE_CONFIG}"\n',
+        )
+
+    def test_unavailable_management_does_not_block_frontend(self):
+        self.setup_frontend()
+        self.write(self.maintenance_state, "enabled\n")
+        self.maintenance_state.chmod(0o644)
+        self.write(
+            self.maintenance_root / "index.html",
+            "fixture maintenance",
+        )
+        self.run_service(expected="active")
+        generated = (self.runtime / "lighttpd.conf").read_text()
+        self.assertEqual(
+            generated,
+            f'server.document-root = "{self.payload}"\ninclude "{BASE_CONFIG}"\n',
+        )
+
+    def test_unavailable_management_stops_maintenance_only_web(self):
+        self.write(self.root_state / "status", "active\n")
+        self.home.mkdir(parents=True, exist_ok=True)
+        self.write(self.maintenance_state, "enabled\n")
+        self.maintenance_state.chmod(0o644)
+        self.write(
+            self.maintenance_root / "index.html",
+            "fixture maintenance",
+        )
+        self.run_service(expected="management-unavailable")
+        self.assertFalse((self.runtime / "lighttpd.pid").exists())
 
     def test_disabled_and_disabled_restart(self):
         self.setup_frontend()
@@ -198,9 +319,9 @@ class WebConfigurationTests(unittest.TestCase):
         self.assertNotIn('fluidd', config.lower())
         self.assertNotIn('server.document-root', config)
         self.assertIn('server.username = "nobody"', config)
-        self.assertIn('server.groupname = "nobody"', config)
+        self.assertIn('server.groupname = "fre3nder-management"', config)
         modules = re.search(r'server.modules = \( (.+) \)', config).group(1)
-        self.assertEqual(re.findall(r'"([^"]+)"', modules), ["mod_indexfile", "mod_setenv", "mod_proxy", "mod_staticfile"])
+        self.assertEqual(re.findall(r'"([^"]+)"', modules), ["mod_indexfile", "mod_setenv", "mod_proxy", "mod_alias", "mod_staticfile"])
         routes = re.findall(r'\$HTTP\["url"\] =~ "([^"]+)"', config)
         self.assertEqual(len(routes), 2)
         route, webcam_route = routes
@@ -232,7 +353,12 @@ snapshot_url: /webcam/?action=snapshot
         self.assertEqual(re.findall(r"^(BR2_PACKAGE_LIGHTTPD\w*)=y$", fragment, re.M), ["BR2_PACKAGE_LIGHTTPD", "BR2_PACKAGE_LIGHTTPD_PCRE"])
         hook = (ROOT / "configs/x2000/rootfs-post-build.sh").read_text()
         self.assertIn('rm -f "$target/etc/init.d/S50lighttpd"', hook)
+        self.assertIn('"$target/etc/init.d/S57fre3nder-management"', hook)
         self.assertIn('"$target/etc/init.d/S62fre3nder-web"', hook)
+        self.assertIn(
+            '"$target/usr/libexec/fre3nder/managementd"',
+            hook,
+        )
         self.assertFalse((OVERLAY / "etc/init.d/S50lighttpd").exists())
         entrypoint = (ROOT / "build/x2000/entrypoint.sh").read_text()
         self.assertIn('[ -f "$target/usr/lib/lighttpd/mod_proxy.so" ]', entrypoint)

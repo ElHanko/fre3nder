@@ -1,0 +1,145 @@
+#!/bin/sh
+
+runtime=${FRE3NDER_MANAGEMENT_RUNTIME:-/run/fre3nder-management}
+daemon=${FRE3NDER_MANAGEMENT_DAEMON:-/usr/libexec/fre3nder/managementd}
+python=${FRE3NDER_PYTHON:-/usr/bin/python3}
+group=${FRE3NDER_MANAGEMENT_GROUP:-fre3nder-management}
+pid_file=$runtime/managementd.pid
+socket_file=${FRE3NDER_MANAGEMENT_SOCKET:-$runtime/api.sock}
+log_file=$runtime/managementd.log
+
+log() {
+	echo "fre3nder management: $*"
+}
+
+safe_path() (
+	case "$1" in /*) ;; *) exit 1 ;; esac
+	case "/$1/" in */../*) exit 1 ;; esac
+	check_path=$1
+	while [ -n "$check_path" ]; do
+		[ ! -L "$check_path" ] || exit 1
+		check_path=${check_path%/*}
+	done
+)
+
+prepare_runtime() {
+	safe_path "$runtime" || return 1
+	if [ ! -e "$runtime" ]; then
+		mkdir -m 0750 "$runtime" || return 1
+	fi
+	[ -d "$runtime" ] && [ ! -L "$runtime" ] || return 1
+	chown root:"$group" "$runtime" || return 1
+	chmod 0750 "$runtime" || return 1
+	for file in "$pid_file" "$socket_file" "$log_file"; do
+		[ ! -L "$file" ] || return 1
+	done
+	[ ! -e "$socket_file" ] || [ -S "$socket_file" ] || return 1
+}
+
+pid_has_arg() {
+	[ -r "/proc/$1/cmdline" ] || return 1
+	tr '\000' '\n' < "/proc/$1/cmdline" | grep -F -x -q -- "$2"
+}
+
+pid_is_managementd() {
+	case "$1" in *[!0-9]*|'') return 1 ;; esac
+	[ "$1" -gt 1 ] || return 1
+	kill -0 "$1" 2>/dev/null || return 1
+	pid_has_arg "$1" "$python" && pid_has_arg "$1" "$daemon"
+}
+
+start() {
+	if [ -f "$pid_file" ]; then
+		pid=$(cat "$pid_file")
+		if pid_is_managementd "$pid" && [ -S "$socket_file" ]; then
+			log active
+			return 0
+		fi
+		case "$pid" in
+		*[!0-9]*|'') ;;
+		*)
+			if kill -0 "$pid" 2>/dev/null; then
+				log 'stale PID belongs to another process; refusing start'
+				return 1
+			fi
+			;;
+		esac
+		rm -f "$pid_file"
+	fi
+
+	[ -x "$python" ] || { log 'python unavailable'; return 1; }
+	[ -f "$daemon" ] && [ ! -L "$daemon" ] || {
+		log 'management daemon unavailable'
+		return 1
+	}
+
+	"$python" "$daemon" >> "$log_file" 2>&1 &
+	pid=$!
+	printf '%s\n' "$pid" > "$pid_file" || {
+		kill "$pid" 2>/dev/null || true
+		return 1
+	}
+
+	seconds=0
+	while [ "$seconds" -lt 5 ]; do
+		if pid_is_managementd "$pid" && [ -S "$socket_file" ]; then
+			log active
+			return 0
+		fi
+		if ! kill -0 "$pid" 2>/dev/null; then
+			break
+		fi
+		sleep 1
+		seconds=$((seconds + 1))
+	done
+
+	rm -f "$pid_file"
+	log startup-failed
+	return 1
+}
+
+stop() {
+	stopped_daemon=0
+	if [ -f "$pid_file" ]; then
+		pid=$(cat "$pid_file")
+		if pid_is_managementd "$pid"; then
+			kill "$pid" 2>/dev/null || true
+			seconds=0
+			while pid_is_managementd "$pid"; do
+				if [ "$seconds" -ge 10 ]; then
+					log stop-timeout
+					return 1
+				fi
+				sleep 1
+				seconds=$((seconds + 1))
+			done
+			stopped_daemon=1
+		else
+			log 'stale PID ignored; no unrelated process was stopped'
+		fi
+		rm -f "$pid_file"
+	fi
+	if [ "$stopped_daemon" -eq 1 ] && [ -S "$socket_file" ]; then
+		rm -f "$socket_file"
+	fi
+	log stopped
+}
+
+case "${1:-}" in
+start)
+	prepare_runtime || { log 'unsafe or unavailable runtime directory'; exit 1; }
+	start
+	;;
+stop)
+	prepare_runtime || { log 'unsafe or unavailable runtime directory'; exit 1; }
+	stop
+	;;
+restart)
+	prepare_runtime || { log 'unsafe or unavailable runtime directory'; exit 1; }
+	stop && start
+	;;
+*)
+	log 'usage: S57fre3nder-management {start|stop|restart}'
+	exit 2
+	;;
+esac

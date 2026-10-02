@@ -10,7 +10,8 @@ environment variable, visible file or test fixture does not create that promise.
 
 | Interface family | Status | Owner | Authoritative detail |
 | --- | --- | --- | --- |
-| Documented `fre3nder app`, `backup create`, `ota` commands | PUBLIC / SUPPORTED | Fre3nder platform | [CLI](cli.md) |
+| Documented `fre3nder app`, `backup create`, `ota`, `maintenance` commands | PUBLIC / SUPPORTED | Fre3nder platform | [CLI](cli.md) |
+| Management API v1 over the local UDS; documented read-only HTTP projection | PUBLIC / SUPPORTED | Fre3nder platform | [Management](management.md) |
 | `.fre3app` v1, publisher trust, service contract, Display API v1 | PUBLIC / SUPPORTED | Platform format; app implements its signed service | [Package contract](../fre3app.md), [runtime](runtime.md) |
 | Documented app data/runtime roles, SYS/HOME, VERSION, supported root indicator | PUBLIC / SUPPORTED in the stated scope | Fre3nder platform | [Runtime](runtime.md), [storage](../storage-layout.md), [versioning](../versioning.md) |
 | `.ota` container/signature and opaque transaction-ID workflow | PUBLIC / SUPPORTED | Fre3nder platform | [OTA](../ota.md), [updates](../updates.md) |
@@ -23,6 +24,7 @@ environment variable, visible file or test fixture does not create that promise.
 | Python functions, bootloader framing, locks/PIDs/temp files, test/device/mount overrides | IMPLEMENTATION DETAIL | Implementation/tests | Not an integration surface |
 | Complete App-CLI JSON schema, arbitrary service-status enums, Screen JSON keys, optional camera/timeout/discovery settings, complete build/source-manifest schema | UNCLEAR as a compatibility contract | Respective implementation | [CLI output limits](cli.md#output-and-exit-behavior), [runtime](runtime.md#environment-status) |
 
-No public `--json`, new REST endpoint or new compatibility commitment is introduced
-by this documentation. In particular, direct Core JSON v1 remains internal;
-Moonraker API ownership does not move to Fre3nder because the platform proxies it.
+No public CLI `--json` mode is implied by these interfaces. Direct Core JSON v1
+remains internal. The explicitly documented Management API v1 is the Fre3nder
+platform management interface; Moonraker API ownership does not move to
+Fre3nder because the platform proxies it.

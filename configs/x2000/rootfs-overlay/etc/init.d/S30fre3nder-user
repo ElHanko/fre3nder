@@ -36,6 +36,7 @@ ensure_account() {
 	ensure_group video 28
 	ensure_group input 1001
 	ensure_group beep 1002
+	ensure_group fre3nder-management 1003
 	[ "$(group_gid fre3nder)" = 1000 ] || return 1
 
 	if id -u fre3nder >/dev/null 2>&1; then

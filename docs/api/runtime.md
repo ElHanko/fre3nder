@@ -74,22 +74,26 @@ schema is not established by this repository; arbitrary app-specific keys are
 
 ## HTTP routing
 
-PUBLIC / SUPPORTED: the platform Lighttpd service listens on `0.0.0.0:80`,
-serves the selected signed frontend and provides the following current routes.
-The authoritative routing configuration is
+PUBLIC / SUPPORTED: when a selected web frontend or explicitly enabled
+Maintenance Web feature requires it, the platform Lighttpd service listens on
+`0.0.0.0:80` and provides the following current routes. The authoritative
+routing configuration is
 [fre3nder.conf](../../configs/x2000/rootfs-overlay/etc/lighttpd/fre3nder.conf).
 
 | External route | Backend / owner |
 | --- | --- |
+| `/maintenance/` | Core static Maintenance UI; routed only while Maintenance is enabled |
+| `/fre3nder/api/v1/system`, `/fre3nder/api/v1/maintenance` | Read-only projection of [Management API v1](management.md) over its local Unix socket; routed only while Maintenance is enabled |
 | `/websocket` | Moonraker `127.0.0.1:17126`, WebSocket upgrade enabled |
 | `/printer`, `/api`, `/access`, `/machine`, `/server` and their subpaths | Moonraker `127.0.0.1:17126` |
 | `/webcam/` | Camera HTTP `127.0.0.1:8080`, prefix stripped; stream/snapshot query URLs |
 
 Moonraker owns HTTP/JSON-RPC/WebSocket authorization and protocol semantics;
-Klipper owns its upstream protocol. These are not Fre3nder-native REST APIs.
-Fre3nder supplies routing and its documented defaults, not compatibility for
-every upstream endpoint. No implemented Fre3nder-specific HTTP API or app-update
-reporting extension is established here; the repository layer remains planned.
+Klipper owns its upstream protocol. Those upstream routes are not
+Fre3nder-native REST APIs. Fre3nder supplies routing and its documented defaults,
+not compatibility for every upstream endpoint. Management API v1 is separately
+platform-owned; no app-update or OTA repository API is established by this
+first management slice.
 
 Lighttpd clears client-supplied `X-Real-IP`, `X-Forwarded-For`,
 `X-Forwarded-Proto` and `X-Scheme`; mod_proxy supplies the actual connection
@@ -103,8 +107,14 @@ PUBLIC / SUPPORTED: FAT32-root `wpa_supplicant.conf`, `authorized_keys` and empt
 `enable_ssh`, copied to `/run/fre3nder/provisioning/` after the documented
 regular-file, size and unique-volume checks. See [networking](../networking.md#usb-provisioning).
 These are boot-local administrative inputs; HOME/SYS provisioning is a separate
-storage operation. Web opt-out is the documented
-`/home/fre3nder/.fre3nder/web/disabled` path.
+storage operation.
+
+Maintenance Web is disabled by default and is managed through
+`fre3nder maintenance {status|enable|disable}` or Management API v1. Its
+root-managed persistent marker is `/home/.fre3nder/maintenance/enabled`; do not
+edit it directly. The existing `/home/fre3nder/.fre3nder/web/disabled` marker
+continues to opt out of the selected application web frontend. An explicitly
+enabled Maintenance UI is independent of that frontend choice.
 
 PUBLIC / SUPPORTED, narrowly scoped: the regular non-symlink file
 `/home/fre3nder/f005-auto-transition.enabled` must contain exactly seven bytes
@@ -129,9 +139,12 @@ does not promote the corresponding environment variables.
 
 INTERNAL / UNSTABLE: direct Libexec Core calls/JSON API v1, package metadata,
 Factory markers, OTA `pending.json`, persistent activation/known-good records,
-F005 Runtime target/release parsing, service-state files and internal socket/PTY
-coupling. Read-only diagnostics may inspect these; third-party automation must
-not assume stable schemas or edit them to advance transitions.
+F005 Runtime target/release parsing, service-state files and undocumented
+socket/PTY coupling. Read-only diagnostics may inspect these; third-party
+automation must not assume stable schemas or edit them to advance transitions.
+
+`/run/fre3nder-management/api.sock` is the documented exception: its Management
+API v1 contract is PUBLIC / SUPPORTED as described in [management](management.md).
 
 Klippy `/run/fre3nder-klipper/klippy.sock`, Moonraker's local Unix socket and
 `/tmp/klipper_host_mcu` are platform/upstream service coupling, not new public
