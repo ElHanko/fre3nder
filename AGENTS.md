@@ -157,6 +157,44 @@ may establish that an implementation is ready for the next gate, but it must
 not be used as implicit authorization to perform the corresponding operation
 on the physical printer.
 
+## Reflection and cleanup before normal releases
+
+Before every normal Fre3nder release (a base release such as `2026.5`),
+conduct a deliberate, lightweight reflection and cleanup phase after feature
+freeze, open bug fixes, and relevant upstream updates:
+
+Feature development → Feature freeze → Resolve open bugs → Update relevant
+upstreams → Reflection/cleanup → Release → Next development phase.
+
+Reassess existing complexity under today's conditions. Consider:
+
+- Does documentation describe the current product? Which documents now only
+  record historical development, research, or qualification and belong in
+  `research/` rather than productive documentation?
+- Are development, release, safety, and operating processes still justified
+  under current conditions?
+- Do tests protect relevant current contracts and real behavior, or only
+  removed or obsolete implementation details?
+- Can special paths, helpers, guards, or compatibility layers be replaced by
+  existing general platform mechanisms?
+- Which architectural decisions have lost their original prerequisites, and
+  which complexity survives only for historical reasons? What should be
+  improved, simplified, or removed in the next development phase instead of
+  extending the existing approach?
+
+Existing complexity has no protected status. If its original justification
+has disappeared and it serves no concrete current or foreseeable future
+purpose, simplify, replace, or remove it. Reassess obsolete structures before
+adding special paths, guards, or compatibility layers around them. Historical
+findings may be preserved without remaining part of productive architecture.
+
+Resolve inconsistencies and unnecessary legacy complexity affecting the current
+release before release where practical. Carry larger conceptual changes that
+do not fit the frozen release into the early work of the next development
+phase. Keep the reflection proportional to the release and use existing
+documentation and planning; do not introduce a separate governance, review,
+approval process, or checklist infrastructure.
+
 ## Established operations, artifact invariants, and scope isolation
 
 Repeated operations that have already been established and validated must be
