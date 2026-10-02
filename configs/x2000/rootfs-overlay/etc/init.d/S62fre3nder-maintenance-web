@@ -1,11 +1,11 @@
 #!/bin/sh
 
-runtime=${FRE3NDER_WEB_RUNTIME:-/run/fre3nder-web}
+runtime=${FRE3NDER_MAINTENANCE_WEB_RUNTIME:-/run/fre3nder-maintenance-web}
 root_state=${FRE3NDER_ROOT_STATE:-/run/fre3nder-root}
-fre3nder_home=${FRE3NDER_HOME_DIR:-/home/fre3nder}
-package_state=${FRE3NDER_PACKAGE_STATE_ROOT:-/home/.fre3nder}
-package_runtime=${FRE3NDER_PACKAGE_RUNTIME_ROOT:-/opt/fre3nder/apps-v2}
-base_config=${FRE3NDER_WEB_BASE_CONFIG:-/etc/lighttpd/fre3nder.conf}
+maintenance_state=${FRE3NDER_MAINTENANCE_STATE:-/home/.fre3nder/maintenance/enabled}
+maintenance_root=${FRE3NDER_MAINTENANCE_ROOT:-/usr/share/fre3nder/web-root/maintenance}
+management_socket=${FRE3NDER_MANAGEMENT_SOCKET:-/run/fre3nder-management/api.sock}
+base_config=${FRE3NDER_MAINTENANCE_WEB_BASE_CONFIG:-/etc/lighttpd/fre3nder-maintenance.conf}
 daemon=${FRE3NDER_LIGHTTPD:-/usr/sbin/lighttpd}
 python=${FRE3NDER_PYTHON:-/usr/bin/python3}
 config=$runtime/lighttpd.conf
@@ -13,7 +13,7 @@ pid_file=$runtime/lighttpd.pid
 status=$runtime/status
 
 log() {
-	echo "fre3nder web: $*"
+	echo "fre3nder maintenance web: $*"
 }
 
 set_status() {
@@ -41,15 +41,16 @@ prepare_runtime() {
 }
 
 prepare_config() {
-	"$python" - "$runtime" "$root_state" "$fre3nder_home" "$package_state" "$package_runtime" "$base_config" <<'PY'
+	"$python" - "$runtime" "$root_state" "$maintenance_state" "$maintenance_root" "$management_socket" "$base_config" <<'PY_EMBED'
 import os
 from pathlib import Path
-import re
 import stat
 import sys
 import tempfile
 
-runtime, root_state, home, package_state, package_runtime, base = map(Path, sys.argv[1:])
+runtime, root_state, maintenance_state, maintenance_root, management_socket, base = map(
+    Path, sys.argv[1:]
+)
 
 
 def safe(path):
@@ -74,56 +75,55 @@ def stop(reason):
     sys.exit(1)
 
 
-def selected_frontend():
-    disabled = home / ".fre3nder/web/disabled"
-    if regular(disabled):
-        return None, "disabled"
-
-    active = package_state / "frontend/active"
-    if not regular(active):
-        return None, "no-frontend"
-
-    name = active.read_text().removesuffix("\n")
-    if not re.fullmatch(r"[a-z][a-z0-9_-]{0,63}", name):
-        return None, "frontend-invalid"
-
-    document_root = package_runtime / name / "payload"
-    safe(document_root)
-    if not document_root.is_dir():
-        return None, "payload-unavailable"
-
-    index = document_root / "index.html"
-    if not regular(index) or not index.stat().st_size:
-        return None, "payload-invalid"
-
-    return document_root, None
-
-
 try:
     root_status = root_state / "status"
     if not regular(root_status) or root_status.read_text().strip() != "active":
         stop("degraded-root")
 
-    safe(home)
-    if not home.is_dir():
-        stop("userdata-unavailable")
+    safe(maintenance_state)
+    if not maintenance_state.exists():
+        stop("disabled")
+    if not regular(maintenance_state):
+        stop("state-invalid")
+    state_stat = maintenance_state.stat()
+    if state_stat.st_uid != os.geteuid() or state_stat.st_mode & 0o022:
+        stop("state-invalid")
+    if maintenance_state.read_text() != "enabled\n":
+        stop("state-invalid")
 
-    document_root, frontend_reason = selected_frontend()
-    if document_root is None:
-        stop(frontend_reason)
+    safe(maintenance_root)
+    if not maintenance_root.is_dir():
+        stop("maintenance-unavailable")
+    index = maintenance_root / "index.html"
+    if not regular(index) or not index.stat().st_size:
+        stop("maintenance-invalid")
+
+    safe(management_socket)
+    try:
+        socket_stat = management_socket.lstat()
+    except FileNotFoundError:
+        stop("management-unavailable")
+    if not stat.S_ISSOCK(socket_stat.st_mode):
+        stop("management-unavailable")
 
     if not regular(base):
         stop("config-unavailable")
 
-    if document_root is None:
-        document_root = maintenance_root.parent
-        safe(document_root)
-        if not document_root.is_dir():
-            stop("maintenance-unavailable")
-
-    text = f'server.document-root = "{document_root}"\ninclude "{base}"\n'
+    lines = [
+        f'server.document-root = "{maintenance_root}"',
+        f'include "{base}"',
+        '$HTTP["url"] =~ "^/fre3nder/api/v1/(system|maintenance|auth/(session|unlock|lock))$" {',
+        f'    proxy.server = ( "" => (( "host" => "{management_socket}" )) )',
+        '}',
+    ]
+    text = "\n".join(lines) + "\n"
     safe(runtime / "lighttpd.conf")
-    with tempfile.NamedTemporaryFile(mode="w", dir=runtime, prefix=".config-", delete=False) as output:
+    with tempfile.NamedTemporaryFile(
+        mode="w",
+        dir=runtime,
+        prefix=".config-",
+        delete=False,
+    ) as output:
         staging = Path(output.name)
         try:
             output.write(text)
@@ -132,9 +132,9 @@ try:
         finally:
             staging.unlink(missing_ok=True)
 except (OSError, ValueError) as exc:
-    print(f"fre3nder web: {exc}", file=sys.stderr)
+    print(f"fre3nder maintenance web: {exc}", file=sys.stderr)
     stop("state-invalid")
-PY
+PY_EMBED
 }
 
 pid_has_arg() {
@@ -168,6 +168,7 @@ start() {
 		esac
 		rm -f "$pid_file"
 	fi
+
 	if reason=$(prepare_config); then
 		:
 	else
@@ -187,7 +188,6 @@ start() {
 		set_status pid-write-failed
 		return 0
 	}
-	# Lighttpd runs in the foreground; bind/config errors normally exit at once.
 	sleep 1
 	if pid_is_lighttpd "$pid"; then
 		set_status active
@@ -219,8 +219,8 @@ stop() {
 	set_status stopped
 }
 
-[ "$#" -eq 1 ] || { log 'usage: S62fre3nder-web {start|stop|restart}'; exit 1; }
-case "$1" in start|stop|restart) ;; *) log 'usage: S62fre3nder-web {start|stop|restart}'; exit 1 ;; esac
+[ "$#" -eq 1 ] || { log 'usage: S62fre3nder-maintenance-web {start|stop|restart}'; exit 1; }
+case "$1" in start|stop|restart) ;; *) log 'usage: S62fre3nder-maintenance-web {start|stop|restart}'; exit 1 ;; esac
 prepare_runtime || { log 'unsafe or unavailable runtime directory'; exit 1; }
 case "$1" in
 start) start ;;

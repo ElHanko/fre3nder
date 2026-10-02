@@ -5,6 +5,7 @@ import grp
 import http.client
 import importlib.machinery
 import importlib.util
+import json
 import os
 import pathlib
 import socket
@@ -91,6 +92,8 @@ class ManagementApiTests(unittest.TestCase):
             os.getegid()
         ).gr_name
         self.daemon.ADMIN_UID_OVERRIDE = str(os.getuid())
+        self.daemon.WEB_UID_OVERRIDE = str(os.getuid())
+        self.daemon.clear_web_auth()
 
         self.daemon.prepare_socket()
         self.server = self.daemon.Server(
@@ -112,13 +115,31 @@ class ManagementApiTests(unittest.TestCase):
         self.server.server_close()
         self.daemon.SOCKET_PATH.unlink(missing_ok=True)
 
-    def request(self, method, path):
+    def request_full(self, method, path, body=None, headers=None):
         connection = UnixHTTPConnection(self.daemon.SOCKET_PATH)
-        connection.request(method, path)
+        connection.request(
+            method,
+            path,
+            body=body,
+            headers=headers or {},
+        )
         response = connection.getresponse()
-        body = response.read().decode("utf-8")
+        response_body = response.read().decode("utf-8")
+        response_headers = dict(response.getheaders())
         connection.close()
-        return response.status, body
+        return response.status, response_body, response_headers
+
+    def request(self, method, path):
+        status, body, _headers = self.request_full(method, path)
+        return status, body
+
+    def browser_headers(self, extra=None):
+        headers = {
+            "Host": "printer.test:8081",
+            "Origin": "http://printer.test:8081",
+        }
+        headers.update(extra or {})
+        return headers
 
     def test_system_and_default_maintenance_status(self):
         status, body = self.request(
@@ -193,6 +214,250 @@ class ManagementApiTests(unittest.TestCase):
             handler.require_admin()
         self.assertEqual(raised.exception.status, 403)
         self.assertEqual(raised.exception.code, "forbidden")
+
+    def enable_maintenance_and_pair(self):
+        status, _body = self.request(
+            "POST",
+            "/fre3nder/api/v1/maintenance/enable",
+        )
+        self.assertEqual(status, 200)
+
+        status, body = self.request(
+            "POST",
+            "/fre3nder/api/v1/maintenance/unlock",
+        )
+        self.assertEqual(status, 200)
+        code = json.loads(body)["auth"]["pairing_code"]
+        self.assertRegex(code, r"^\d{6}$")
+
+        payload = json.dumps({"code": code}).encode("utf-8")
+        status, body, headers = self.request_full(
+            "POST",
+            "/fre3nder/api/v1/auth/unlock",
+            body=payload,
+            headers=self.browser_headers(
+                {"Content-Type": "application/json"}
+            ),
+        )
+        self.assertEqual(status, 200, body)
+        auth = json.loads(body)["auth"]
+        self.assertTrue(auth["authenticated"])
+        csrf = auth["csrf_token"]
+        self.assertIsInstance(csrf, str)
+        self.assertTrue(csrf)
+        cookie = headers["Set-Cookie"].split(";", 1)[0]
+        return cookie, csrf
+
+    def test_browser_pairing_session_and_browser_lock(self):
+        status, body, _headers = self.request_full(
+            "GET",
+            "/fre3nder/api/v1/auth/session",
+        )
+        self.assertEqual(status, 200)
+        self.assertIn('"authenticated":false', body)
+
+        cookie, csrf = self.enable_maintenance_and_pair()
+
+        status, body, _headers = self.request_full(
+            "GET",
+            "/fre3nder/api/v1/auth/session",
+            headers={"Cookie": cookie},
+        )
+        self.assertEqual(status, 200)
+        self.assertIn('"authenticated":true', body)
+
+        status, body, headers = self.request_full(
+            "POST",
+            "/fre3nder/api/v1/auth/lock",
+            headers=self.browser_headers({
+                "Cookie": cookie,
+                "X-Fre3nder-CSRF": csrf,
+            }),
+        )
+        self.assertEqual(status, 200)
+        self.assertIn('"authenticated":false', body)
+        self.assertIn("Max-Age=0", headers["Set-Cookie"])
+
+        status, body, _headers = self.request_full(
+            "GET",
+            "/fre3nder/api/v1/auth/session",
+            headers={"Cookie": cookie},
+        )
+        self.assertEqual(status, 200)
+        self.assertIn('"authenticated":false', body)
+
+    def test_pairing_is_one_time_and_has_bounded_attempts(self):
+        status, _body = self.request(
+            "POST",
+            "/fre3nder/api/v1/maintenance/enable",
+        )
+        self.assertEqual(status, 200)
+
+        status, body = self.request(
+            "POST",
+            "/fre3nder/api/v1/maintenance/unlock",
+        )
+        self.assertEqual(status, 200)
+        code = json.loads(body)["auth"]["pairing_code"]
+
+        wrong = b'{"code":"000000"}'
+        if code == "000000":
+            wrong = b'{"code":"999999"}'
+
+        for _ in range(self.daemon.PAIRING_MAX_ATTEMPTS):
+            status, _body, _headers = self.request_full(
+                "POST",
+                "/fre3nder/api/v1/auth/unlock",
+                body=wrong,
+                headers=self.browser_headers({"Content-Type": "application/json"}),
+            )
+            self.assertEqual(status, 401)
+
+        payload = json.dumps({"code": code}).encode("utf-8")
+        status, _body, _headers = self.request_full(
+            "POST",
+            "/fre3nder/api/v1/auth/unlock",
+            body=payload,
+            headers=self.browser_headers({"Content-Type": "application/json"}),
+        )
+        self.assertEqual(status, 401)
+
+    def test_root_lock_and_maintenance_disable_revoke_sessions(self):
+        cookie, csrf = self.enable_maintenance_and_pair()
+
+        status, _body = self.request(
+            "POST",
+            "/fre3nder/api/v1/maintenance/lock",
+        )
+        self.assertEqual(status, 200)
+
+        status, body, _headers = self.request_full(
+            "GET",
+            "/fre3nder/api/v1/auth/session",
+            headers={"Cookie": cookie},
+        )
+        self.assertEqual(status, 200)
+        self.assertIn('"authenticated":false', body)
+
+        cookie, csrf = self.enable_maintenance_and_pair()
+        status, _body = self.request(
+            "POST",
+            "/fre3nder/api/v1/maintenance/disable",
+        )
+        self.assertEqual(status, 200)
+
+        status, body, _headers = self.request_full(
+            "GET",
+            "/fre3nder/api/v1/auth/session",
+            headers={"Cookie": cookie},
+        )
+        self.assertEqual(status, 200)
+        self.assertIn('"authenticated":false', body)
+
+    def test_unlock_requires_enabled_maintenance(self):
+        status, body = self.request(
+            "POST",
+            "/fre3nder/api/v1/maintenance/unlock",
+        )
+        self.assertEqual(status, 409)
+        self.assertIn('"code":"maintenance-disabled"', body)
+
+    def test_browser_unlock_rejects_port80_origin(self):
+        status, _body = self.request(
+            "POST",
+            "/fre3nder/api/v1/maintenance/enable",
+        )
+        self.assertEqual(status, 200)
+        status, body = self.request(
+            "POST",
+            "/fre3nder/api/v1/maintenance/unlock",
+        )
+        self.assertEqual(status, 200)
+        code = json.loads(body)["auth"]["pairing_code"]
+        payload = json.dumps({"code": code}).encode("utf-8")
+
+        status, body, _headers = self.request_full(
+            "POST",
+            "/fre3nder/api/v1/auth/unlock",
+            body=payload,
+            headers={
+                "Host": "printer.test:8081",
+                "Origin": "http://printer.test",
+                "Content-Type": "application/json",
+            },
+        )
+        self.assertEqual(status, 403)
+        self.assertIn('"code":"origin-invalid"', body)
+
+    def test_browser_lock_requires_csrf(self):
+        cookie, csrf = self.enable_maintenance_and_pair()
+
+        status, body, _headers = self.request_full(
+            "POST",
+            "/fre3nder/api/v1/auth/lock",
+            headers=self.browser_headers({"Cookie": cookie}),
+        )
+        self.assertEqual(status, 403)
+        self.assertIn('"code":"csrf-invalid"', body)
+
+        status, body, _headers = self.request_full(
+            "POST",
+            "/fre3nder/api/v1/auth/lock",
+            headers=self.browser_headers({
+                "Cookie": cookie,
+                "X-Fre3nder-CSRF": csrf,
+            }),
+        )
+        self.assertEqual(status, 200)
+        self.assertIn('"authenticated":false', body)
+
+    def test_pairing_and_sessions_expire(self):
+        status, _body = self.request(
+            "POST",
+            "/fre3nder/api/v1/maintenance/enable",
+        )
+        self.assertEqual(status, 200)
+        status, body = self.request(
+            "POST",
+            "/fre3nder/api/v1/maintenance/unlock",
+        )
+        self.assertEqual(status, 200)
+        code = json.loads(body)["auth"]["pairing_code"]
+        self.daemon._pairing["expires"] = 0
+        payload = json.dumps({"code": code}).encode("utf-8")
+        status, _body, _headers = self.request_full(
+            "POST",
+            "/fre3nder/api/v1/auth/unlock",
+            body=payload,
+            headers=self.browser_headers({"Content-Type": "application/json"}),
+        )
+        self.assertEqual(status, 401)
+
+        cookie, _csrf = self.enable_maintenance_and_pair()
+        token = cookie.split("=", 1)[1]
+        self.daemon._sessions[token]["last_seen"] -= (
+            self.daemon.SESSION_IDLE_SECONDS + 1
+        )
+        status, body, _headers = self.request_full(
+            "GET",
+            "/fre3nder/api/v1/auth/session",
+            headers={"Cookie": cookie},
+        )
+        self.assertEqual(status, 200)
+        self.assertIn('"authenticated":false', body)
+
+        cookie, _csrf = self.enable_maintenance_and_pair()
+        token = cookie.split("=", 1)[1]
+        self.daemon._sessions[token]["created"] -= (
+            self.daemon.SESSION_MAX_SECONDS + 1
+        )
+        status, body, _headers = self.request_full(
+            "GET",
+            "/fre3nder/api/v1/auth/session",
+            headers={"Cookie": cookie},
+        )
+        self.assertEqual(status, 200)
+        self.assertIn('"authenticated":false', body)
 
     def test_unknown_endpoint_is_rejected(self):
         status, body = self.request(

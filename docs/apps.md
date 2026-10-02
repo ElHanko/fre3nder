@@ -132,33 +132,31 @@ contains either `pending` or `complete`:
 The seed path may change during an OTA. A `complete` marker remains in
 persistent `/home`, so the new seed is never imported over a later user choice.
 
-## Platform web service
+## Platform web services
 
-S62 is the single platform Lighttpd reconciler. It runs Lighttpd exactly when at
-least one web feature needs it:
+The selected application frontend and core Maintenance UI use independent
+Lighttpd service instances and separate browser origins.
 
-```text
-maintenance_enabled OR selected_web_frontend_exists
-```
+`S62fre3nder-web` owns the selected application frontend on port `80`. It uses
+the active frontend name to serve `/opt/fre3nder/apps-v2/<app>/payload`.
+`/etc/lighttpd/fre3nder.conf` remains frontend-neutral platform configuration:
+`/websocket` and the Moonraker `/printer`, `/api`, `/access`, `/machine`, and
+`/server` paths proxy to Moonraker at `127.0.0.1:17126`. `/webcam/` proxies to
+the local `mjpg_streamer` camera backend at `127.0.0.1:8080`. This listener runs
+as `nobody:nobody` and has no access to the Fre3nder Management socket.
 
-For a selected application frontend, S62 uses the active name to serve
-`/opt/fre3nder/apps-v2/<app>/payload`. For explicitly enabled Maintenance it
-also serves the core `/maintenance/` route and the documented read-only
-Management API projection. A broken or absent application frontend does not
-prevent an explicitly enabled core Maintenance UI from being served safely.
-Conversely, unavailable Maintenance resources do not suppress an otherwise valid
-selected application frontend. S62 neither installs packages nor downloads a
-frontend.
+`S62fre3nder-maintenance-web` independently owns the explicitly enabled core
+Maintenance listener on port `8081`. It serves the Maintenance UI at `/` and
+only the documented Management API status and browser-authentication routes.
+Its Lighttpd worker runs as `nobody:fre3nder-management` so it can reach the
+local Management Unix socket. A failure or opt-out of either web service does
+not suppress the other.
 
-`/etc/lighttpd/fre3nder.conf` is frontend-neutral platform configuration:
-static files use the selected document root; `/websocket` and the Moonraker
-`/printer`, `/api`, `/access`, `/machine`, and `/server` paths proxy to Moonraker
-at `127.0.0.1:17126`. `/webcam/` proxies to the local `mjpg_streamer` camera
-backend at `127.0.0.1:8080`. The platform-owned Moonraker camera fragment is
-seeded by S61. Camera capture, proxying, Moonraker authorization and WebSocket
-handling remain platform services when Fluidd is absent. S62 is the only
-automatic Lighttpd start path; the RootFS post-build hook removes Buildroot's
-competing `S50lighttpd` script.
+Neither service installs packages or downloads a frontend. Camera capture,
+Moonraker authorization and WebSocket handling remain platform services when a
+selected frontend is absent. The RootFS post-build hook removes Buildroot's
+competing `S50lighttpd` script, leaving the two Fre3nder-owned S62 services as
+the automatic Lighttpd start paths.
 
 The application-frontend opt-out marker stays in user-owned
 `/home/fre3nder/.fre3nder/web/disabled`. Maintenance state is separate and

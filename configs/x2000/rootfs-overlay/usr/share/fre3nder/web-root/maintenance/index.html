@@ -7,42 +7,108 @@
   <link rel="stylesheet" href="maintenance.css">
 </head>
 <body>
-  <main>
-    <header>
-      <p class="eyebrow">Fre3nder</p>
-      <h1>Maintenance</h1>
-      <p class="summary">Local platform administration.</p>
-    </header>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <header class="brand">
+        <strong>Fre3nder</strong>
+        <span>Maintenance</span>
+      </header>
 
-    <section aria-labelledby="overview-title">
-      <h2 id="overview-title">Overview</h2>
-      <dl>
-        <div>
-          <dt>Fre3nder version</dt>
-          <dd id="system-version">Loading…</dd>
-        </div>
-        <div>
-          <dt>Runtime</dt>
-          <dd id="root-status">Loading…</dd>
-        </div>
-        <div>
-          <dt>Maintenance web</dt>
-          <dd id="maintenance-status">Loading…</dd>
-        </div>
-        <div>
-          <dt>HTTP service</dt>
-          <dd id="web-status">Loading…</dd>
-        </div>
-      </dl>
-      <p id="error" class="error" hidden></p>
-    </section>
+      <nav aria-label="Maintenance areas">
+        <a class="nav-item active" href="#overview" aria-current="page">Overview</a>
+        <span class="nav-item disabled" aria-disabled="true">System Updates</span>
+        <span class="nav-item disabled" aria-disabled="true">Apps</span>
+        <span class="nav-item disabled" aria-disabled="true">System</span>
+      </nav>
 
-    <nav aria-label="Maintenance areas">
-      <span aria-current="page">Overview</span>
-      <span class="pending">System Updates</span>
-      <span class="pending">Apps</span>
-    </nav>
-  </main>
+      <div class="access-summary">
+        <span class="access-label">Admin access</span>
+        <span id="admin-status-sidebar" class="status status-loading">Checking…</span>
+      </div>
+    </aside>
+
+    <main class="content" id="overview">
+      <header class="page-header">
+        <p class="eyebrow">Overview</p>
+        <h1>System status</h1>
+        <p>Status of the local Fre3nder platform.</p>
+      </header>
+
+      <p id="error" class="error" role="alert" hidden>
+        Management status is currently unavailable.
+      </p>
+
+      <section class="status-section" aria-labelledby="system-title">
+        <h2 id="system-title">System</h2>
+        <dl class="status-list">
+          <div>
+            <dt>Fre3nder version</dt>
+            <dd id="system-version">Loading…</dd>
+          </div>
+          <div>
+            <dt>Persistent root</dt>
+            <dd><span id="root-status" class="status status-loading">Loading…</span></dd>
+          </div>
+          <div>
+            <dt>Maintenance web</dt>
+            <dd><span id="maintenance-status" class="status status-loading">Loading…</span></dd>
+          </div>
+          <div>
+            <dt>HTTP service</dt>
+            <dd><span id="web-status" class="status status-loading">Loading…</span></dd>
+          </div>
+        </dl>
+      </section>
+
+      <section class="status-section" aria-labelledby="management-title">
+        <h2 id="management-title">Management</h2>
+        <dl class="status-list">
+          <div>
+            <dt>Administrative access</dt>
+            <dd class="admin-control">
+              <span id="admin-status" class="status status-loading">Checking…</span>
+              <button id="admin-action" class="small-button" type="button" disabled>
+                Unlock
+              </button>
+            </dd>
+          </div>
+          <div>
+            <dt>Management API</dt>
+            <dd>v1</dd>
+          </div>
+        </dl>
+
+        <form id="unlock-form" class="unlock-panel" hidden>
+          <label for="pairing-code">Pairing code</label>
+          <div class="unlock-controls">
+            <input
+              id="pairing-code"
+              name="pairing-code"
+              type="text"
+              inputmode="numeric"
+              autocomplete="one-time-code"
+              maxlength="7"
+              placeholder="000 000"
+            >
+            <button type="submit">Unlock</button>
+            <button id="unlock-cancel" class="secondary-button" type="button">
+              Cancel
+            </button>
+          </div>
+          <p class="section-note">
+            Generate a one-time code locally with
+            <code>fre3nder maintenance unlock</code>.
+          </p>
+          <p id="auth-error" class="inline-error" role="alert" hidden></p>
+        </form>
+
+        <p id="admin-note" class="section-note">
+          Administrative actions require a temporary paired browser session.
+        </p>
+      </section>
+    </main>
+  </div>
+
   <script src="maintenance.js"></script>
 </body>
 </html>

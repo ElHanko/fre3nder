@@ -2,10 +2,14 @@
 """Local privileged management API for Fre3nder."""
 
 import grp
+import hmac
+import http.cookies
 import http.server
 import json
 import os
 import pathlib
+import pwd
+import secrets
 import socket
 import socketserver
 import stat
@@ -13,6 +17,8 @@ import struct
 import subprocess
 import sys
 import tempfile
+import time
+import urllib.parse
 
 
 API_VERSION = 1
@@ -34,15 +40,32 @@ ROOT_STATUS = pathlib.Path(
     os.environ.get("FRE3NDER_ROOT_STATUS", "/run/fre3nder-root/status")
 )
 WEB_STATUS = pathlib.Path(
-    os.environ.get("FRE3NDER_WEB_STATUS", "/run/fre3nder-web/status")
+    os.environ.get("FRE3NDER_WEB_STATUS", "/run/fre3nder-maintenance-web/status")
 )
 WEB_SERVICE = pathlib.Path(
-    os.environ.get("FRE3NDER_WEB_SERVICE", "/etc/init.d/S62fre3nder-web")
+    os.environ.get(
+        "FRE3NDER_WEB_SERVICE", "/etc/init.d/S62fre3nder-maintenance-web"
+    )
 )
+WEB_USER = os.environ.get("FRE3NDER_MANAGEMENT_WEB_USER", "nobody")
 
-# Host tests may override this after import. Production mutation authority is
-# always UID 0.
+PAIRING_TTL_SECONDS = 10 * 60
+PAIRING_MAX_ATTEMPTS = 5
+SESSION_IDLE_SECONDS = 30 * 60
+SESSION_MAX_SECONDS = 8 * 60 * 60
+SESSION_COOKIE_NAME = "fre3nder_admin"
+SESSION_COOKIE_PATH = "/fre3nder/api/v1/"
+MAINTENANCE_PORT = 8081
+CSRF_HEADER = "X-Fre3nder-CSRF"
+
+# Host tests may override these after import. Production mutation authority is
+# always UID 0, while browser-auth endpoints are accepted only from the
+# configured Lighttpd worker UID.
 ADMIN_UID_OVERRIDE = None
+WEB_UID_OVERRIDE = None
+
+_pairing = None
+_sessions = {}
 
 
 class ManagementError(Exception):
@@ -62,6 +85,95 @@ def mutation_uids():
     if ADMIN_UID_OVERRIDE is not None:
         allowed.add(int(ADMIN_UID_OVERRIDE))
     return allowed
+
+
+def web_uids():
+    allowed = set()
+    try:
+        allowed.add(pwd.getpwnam(WEB_USER).pw_uid)
+    except KeyError:
+        pass
+    if WEB_UID_OVERRIDE is not None:
+        allowed.add(int(WEB_UID_OVERRIDE))
+    return allowed
+
+
+def clear_web_auth():
+    global _pairing
+    _pairing = None
+    _sessions.clear()
+
+
+def prune_web_sessions(now=None):
+    if now is None:
+        now = time.monotonic()
+    expired = [
+        token
+        for token, session in _sessions.items()
+        if (
+            now - session["last_seen"] >= SESSION_IDLE_SECONDS
+            or now - session["created"] >= SESSION_MAX_SECONDS
+        )
+    ]
+    for token in expired:
+        _sessions.pop(token, None)
+
+
+def create_web_session():
+    now = time.monotonic()
+    prune_web_sessions(now)
+    token = secrets.token_urlsafe(32)
+    _sessions[token] = {
+        "created": now,
+        "last_seen": now,
+        "csrf": secrets.token_urlsafe(32),
+    }
+    return token
+
+
+def web_session_valid(token, touch=True):
+    if not token:
+        return False
+    now = time.monotonic()
+    prune_web_sessions(now)
+    session = _sessions.get(token)
+    if session is None:
+        return False
+    if touch:
+        session["last_seen"] = now
+    return True
+
+
+def revoke_web_session(token):
+    if token:
+        _sessions.pop(token, None)
+
+
+def session_token_from_headers(headers):
+    raw = headers.get("Cookie")
+    if not raw:
+        return None
+    cookies = http.cookies.SimpleCookie()
+    try:
+        cookies.load(raw)
+    except http.cookies.CookieError:
+        return None
+    morsel = cookies.get(SESSION_COOKIE_NAME)
+    return morsel.value if morsel is not None else None
+
+
+def session_cookie(token):
+    return (
+        f"{SESSION_COOKIE_NAME}={token}; "
+        f"Path={SESSION_COOKIE_PATH}; HttpOnly; SameSite=Strict"
+    )
+
+
+def expired_session_cookie():
+    return (
+        f"{SESSION_COOKIE_NAME}=; "
+        f"Path={SESSION_COOKIE_PATH}; HttpOnly; SameSite=Strict; Max-Age=0"
+    )
 
 
 def check_dir(path, description, create=False):
@@ -120,13 +232,70 @@ def require_active_root():
         )
 
 
+def create_pairing_code():
+    global _pairing
+    require_active_root()
+    if not maintenance_enabled():
+        raise ManagementError(
+            409,
+            "maintenance-disabled",
+            "Maintenance Web must be enabled before creating a pairing code",
+        )
+    code = f"{secrets.randbelow(1_000_000):06d}"
+    _pairing = {
+        "code": code,
+        "expires": time.monotonic() + PAIRING_TTL_SECONDS,
+        "attempts": 0,
+    }
+    return code
+
+
+def redeem_pairing_code(code):
+    global _pairing
+    require_active_root()
+    if not maintenance_enabled():
+        clear_web_auth()
+        raise ManagementError(
+            409,
+            "maintenance-disabled",
+            "Maintenance Web is disabled",
+        )
+
+    now = time.monotonic()
+    pairing = _pairing
+    if pairing is None or now >= pairing["expires"]:
+        _pairing = None
+        raise ManagementError(
+            401,
+            "pairing-invalid",
+            "pairing code is invalid or expired",
+        )
+
+    pairing["attempts"] += 1
+    valid_format = isinstance(code, str) and len(code) == 6 and code.isdigit()
+    valid = valid_format and hmac.compare_digest(code, pairing["code"])
+    if not valid:
+        if pairing["attempts"] >= PAIRING_MAX_ATTEMPTS:
+            _pairing = None
+        raise ManagementError(
+            401,
+            "pairing-invalid",
+            "pairing code is invalid or expired",
+        )
+
+    _pairing = None
+    return create_web_session()
+
+
 def set_maintenance(enabled):
     require_active_root()
     current = maintenance_enabled()
-    if current == enabled:
-        return
     if not enabled:
-        MAINTENANCE_STATE.unlink()
+        clear_web_auth()
+        if current:
+            MAINTENANCE_STATE.unlink()
+        return
+    if current:
         return
 
     state_root = MAINTENANCE_STATE.parent.parent
@@ -197,12 +366,14 @@ class Handler(http.server.BaseHTTPRequestHandler):
     def log_message(self, _format, *_args):
         pass
 
-    def send_json(self, status, value):
+    def send_json(self, status, value, extra_headers=()):
         body = json.dumps(value, sort_keys=True, separators=(",", ":")).encode() + b"\n"
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
+        for name, header_value in extra_headers:
+            self.send_header(name, header_value)
         self.end_headers()
         self.wfile.write(body)
 
@@ -219,6 +390,176 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 "forbidden",
                 "operation is not permitted for this local client",
             )
+
+    def require_web_peer(self):
+        if self.peer_uid() not in web_uids():
+            raise ManagementError(
+                403,
+                "forbidden",
+                "browser authentication is not permitted for this local client",
+            )
+
+    def request_length(self):
+        if self.headers.get("Transfer-Encoding") is not None:
+            raise ManagementError(
+                400,
+                "invalid-request",
+                "Transfer-Encoding is not supported",
+            )
+        value = self.headers.get("Content-Length")
+        if value is None:
+            return None
+        try:
+            length = int(value)
+        except ValueError as exc:
+            raise ManagementError(
+                400,
+                "invalid-request",
+                "invalid Content-Length",
+            ) from exc
+        if length < 0:
+            raise ManagementError(
+                400,
+                "invalid-request",
+                "invalid Content-Length",
+            )
+        return length
+
+    def require_empty_body(self):
+        length = self.request_length()
+        if length not in (None, 0):
+            raise ManagementError(
+                400,
+                "invalid-request",
+                "request body is not supported",
+            )
+
+    def read_json_body(self):
+        length = self.request_length()
+        if length is None:
+            raise ManagementError(
+                411,
+                "length-required",
+                "Content-Length is required",
+            )
+        if length == 0:
+            raise ManagementError(
+                400,
+                "invalid-request",
+                "JSON request body is required",
+            )
+        if length > 256:
+            raise ManagementError(
+                413,
+                "request-too-large",
+                "request body is too large",
+            )
+        if self.headers.get_content_type() != "application/json":
+            raise ManagementError(
+                415,
+                "unsupported-media-type",
+                "Content-Type must be application/json",
+            )
+        try:
+            payload = json.loads(self.rfile.read(length))
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise ManagementError(
+                400,
+                "invalid-request",
+                "request body is not valid JSON",
+            ) from exc
+        if not isinstance(payload, dict):
+            raise ManagementError(
+                400,
+                "invalid-request",
+                "request body must be a JSON object",
+            )
+        return payload
+
+    def current_web_session(self, touch=False):
+        if not maintenance_enabled():
+            clear_web_auth()
+            return None
+        token = session_token_from_headers(self.headers)
+        if not web_session_valid(token, touch=touch):
+            return None
+        return token
+
+    def require_maintenance_origin(self):
+        origin = self.headers.get("Origin")
+        host = self.headers.get("Host")
+        if not origin or not host:
+            raise ManagementError(
+                403,
+                "origin-invalid",
+                "browser request origin is not permitted",
+            )
+        try:
+            origin_url = urllib.parse.urlsplit(origin)
+            host_url = urllib.parse.urlsplit("//" + host)
+            origin_port = origin_url.port
+            host_port = host_url.port
+        except ValueError as exc:
+            raise ManagementError(
+                403,
+                "origin-invalid",
+                "browser request origin is not permitted",
+            ) from exc
+
+        if (
+            origin_url.scheme != "http"
+            or origin_url.path
+            or origin_url.query
+            or origin_url.fragment
+            or origin_url.username is not None
+            or origin_url.password is not None
+            or origin_url.hostname is None
+            or host_url.hostname is None
+            or origin_port != MAINTENANCE_PORT
+            or host_port != MAINTENANCE_PORT
+            or origin_url.hostname.lower() != host_url.hostname.lower()
+        ):
+            raise ManagementError(
+                403,
+                "origin-invalid",
+                "browser request origin is not permitted",
+            )
+
+    def require_web_admin(self):
+        self.require_web_peer()
+        self.require_maintenance_origin()
+        token = self.current_web_session(touch=False)
+        if token is None:
+            raise ManagementError(
+                401,
+                "authentication-required",
+                "browser administrative session is not authenticated",
+            )
+
+        supplied = self.headers.get(CSRF_HEADER)
+        expected = _sessions[token]["csrf"]
+        if (
+            not isinstance(supplied, str)
+            or not hmac.compare_digest(supplied, expected)
+        ):
+            raise ManagementError(
+                403,
+                "csrf-invalid",
+                "browser administrative request is not authorized",
+            )
+
+        _sessions[token]["last_seen"] = time.monotonic()
+        return token
+
+    def auth_state(self, token):
+        state = {
+            "authenticated": token is not None,
+            "idle_timeout_seconds": SESSION_IDLE_SECONDS,
+            "max_age_seconds": SESSION_MAX_SECONDS,
+        }
+        if token is not None:
+            state["csrf_token"] = _sessions[token]["csrf"]
+        return state
 
     def fail(self, exc):
         if isinstance(exc, ManagementError):
@@ -246,38 +587,114 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 }
                 self.send_json(200, response("maintenance-status", maintenance=state))
                 return
+            if self.path == "/fre3nder/api/v1/auth/session":
+                self.require_web_peer()
+                raw_token = session_token_from_headers(self.headers)
+                token = self.current_web_session()
+                headers = ()
+                if raw_token and token is None:
+                    headers = (("Set-Cookie", expired_session_cookie()),)
+                self.send_json(
+                    200,
+                    response(
+                        "auth-session",
+                        auth=self.auth_state(token),
+                    ),
+                    headers,
+                )
+                return
             raise ManagementError(404, "not-found", "management endpoint does not exist")
         except (ManagementError, OSError, ValueError, RuntimeError) as exc:
             self.fail(exc)
 
     def do_POST(self):
         try:
-            length = self.headers.get("Content-Length")
-            if length is not None:
-                try:
-                    length = int(length)
-                except ValueError as exc:
-                    raise ManagementError(
-                        400, "invalid-request", "invalid Content-Length"
-                    ) from exc
-                if length != 0:
-                    raise ManagementError(
-                        400, "invalid-request", "request body is not supported"
-                    )
-            self.require_admin()
             actions = {
                 "/fre3nder/api/v1/maintenance/enable": (True, "maintenance-enable"),
                 "/fre3nder/api/v1/maintenance/disable": (False, "maintenance-disable"),
             }
-            if self.path not in actions:
-                raise ManagementError(404, "not-found", "management endpoint does not exist")
-            enabled, operation = actions[self.path]
-            set_maintenance(enabled)
-            refresh = refresh_web()
-            state = {"enabled": maintenance_enabled(), "web_status": web_status()}
-            self.send_json(
-                200,
-                response(operation, maintenance=state, web_refresh=refresh),
+            if self.path in actions:
+                self.require_empty_body()
+                self.require_admin()
+                enabled, operation = actions[self.path]
+                set_maintenance(enabled)
+                refresh = refresh_web()
+                state = {
+                    "enabled": maintenance_enabled(),
+                    "web_status": web_status(),
+                }
+                self.send_json(
+                    200,
+                    response(
+                        operation,
+                        maintenance=state,
+                        web_refresh=refresh,
+                    ),
+                )
+                return
+
+            if self.path == "/fre3nder/api/v1/maintenance/unlock":
+                self.require_empty_body()
+                self.require_admin()
+                code = create_pairing_code()
+                self.send_json(
+                    200,
+                    response(
+                        "maintenance-unlock",
+                        auth={
+                            "pairing_code": code,
+                            "expires_in_seconds": PAIRING_TTL_SECONDS,
+                        },
+                    ),
+                )
+                return
+
+            if self.path == "/fre3nder/api/v1/maintenance/lock":
+                self.require_empty_body()
+                self.require_admin()
+                clear_web_auth()
+                self.send_json(
+                    200,
+                    response(
+                        "maintenance-lock",
+                        auth={"locked": True},
+                    ),
+                )
+                return
+
+            if self.path == "/fre3nder/api/v1/auth/unlock":
+                self.require_web_peer()
+                self.require_maintenance_origin()
+                payload = self.read_json_body()
+                token = redeem_pairing_code(payload.get("code"))
+                self.send_json(
+                    200,
+                    response(
+                        "auth-unlock",
+                        auth=self.auth_state(token),
+                    ),
+                    (("Set-Cookie", session_cookie(token)),),
+                )
+                return
+
+            if self.path == "/fre3nder/api/v1/auth/lock":
+                self.require_empty_body()
+                token = self.require_web_admin()
+                revoke_web_session(token)
+                self.send_json(
+                    200,
+                    response(
+                        "auth-lock",
+                        auth=self.auth_state(None),
+                    ),
+                    (("Set-Cookie", expired_session_cookie()),),
+                )
+                return
+
+            raise ManagementError(
+                404,
+                "not-found",
+                "management endpoint does not exist",
             )
         except (ManagementError, OSError, ValueError, RuntimeError) as exc:
             self.fail(exc)

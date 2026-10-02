@@ -112,6 +112,7 @@ chmod 0755 \
 	"$target/etc/init.d/S59fre3nder-klipper-mcu" \
 	"$target/etc/init.d/S60fre3nder-klipper" \
 	"$target/etc/init.d/S61fre3nder-moonraker" \
+	"$target/etc/init.d/S62fre3nder-maintenance-web" \
 	"$target/etc/init.d/S62fre3nder-web" \
 	"$target/etc/init.d/S63fre3nder-camera" \
 	"$target/etc/init.d/S63fre3nder-factory-app" \

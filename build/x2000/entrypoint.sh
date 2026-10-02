@@ -1569,6 +1569,8 @@ check_rootfs() {
 	[ -x "$target/etc/init.d/S58fre3nder-app-restore" ]
 	[ -x "$target/usr/sbin/lighttpd" ]
 	[ -f "$target/usr/lib/lighttpd/mod_proxy.so" ]
+	[ -x "$target/etc/init.d/S62fre3nder-maintenance-web" ]
+	[ -f "$target/etc/lighttpd/fre3nder-maintenance.conf" ]
 	[ -x "$target/etc/init.d/S62fre3nder-web" ]
 	[ -s "$target/usr/share/fre3nder/web-root/maintenance/index.html" ]
 	[ -s "$target/usr/share/fre3nder/web-root/maintenance/maintenance.css" ]
@@ -1581,6 +1583,8 @@ check_rootfs() {
 	[ ! -e "$target/etc/init.d/S50lighttpd" ]
 	cmp -s "$project/configs/x2000/rootfs-overlay/etc/lighttpd/fre3nder.conf" \
 		"$target/etc/lighttpd/fre3nder.conf"
+	cmp -s "$project/configs/x2000/rootfs-overlay/etc/lighttpd/fre3nder-maintenance.conf" \
+		"$target/etc/lighttpd/fre3nder-maintenance.conf"
 	[ -x "$target/usr/libexec/fre3nder/f005-mcu-state" ]
 	[ -x "$target/usr/libexec/fre3nder/f005-stock-to-fre3nder" ]
 	[ -x "$target/usr/bin/git" ]

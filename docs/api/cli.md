@@ -52,14 +52,18 @@ running in order to work.
 
 | Syntax | Purpose / effects |
 | --- | --- |
-| `fre3nder maintenance status` | Report the persistent Maintenance opt-in and current S62 web-service status |
-| `fre3nder maintenance enable` | Persist the explicit Maintenance opt-in and ask S62 to reconcile Lighttpd |
-| `fre3nder maintenance disable` | Remove the Maintenance opt-in and ask S62 to reconcile Lighttpd; Lighttpd remains active if a selected web frontend still requires it |
+| `fre3nder maintenance status` | Report the persistent Maintenance opt-in and current dedicated Maintenance listener status |
+| `fre3nder maintenance enable` | Persist the explicit Maintenance opt-in and reconcile the dedicated port-8081 Maintenance listener |
+| `fre3nder maintenance disable` | Remove the Maintenance opt-in, revoke browser admin sessions and stop the dedicated Maintenance listener; the selected frontend listener on port 80 is unaffected |
+| `fre3nder maintenance unlock` | Generate a one-time six-digit browser pairing code; Maintenance must already be enabled |
+| `fre3nder maintenance lock` | Revoke the pending pairing code and every browser admin session without disabling the read-only Maintenance Web |
 
-The normal SSH administrative/root context may use all three commands. The
-generic `fre3nder` application user is not granted management-socket access by
-this first slice. Fre3nderScreen will later use the same API through an explicit
-narrow capability rather than inheriting management authority for every app.
+The normal SSH administrative/root context may use all five commands. Pairing
+codes live only in the running management daemon, expire after ten minutes and
+are invalidated after five failed attempts or one successful redemption. The
+generic `fre3nder` application user is not granted management-socket access.
+Fre3nderScreen will later use the same API through an explicit narrow capability
+rather than inheriting management authority for every app.
 
 ## App packages
 

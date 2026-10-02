@@ -155,12 +155,40 @@ def format_maintenance(response):
     )
 
 
+def format_maintenance_unlock(response):
+    auth = response.get("auth")
+    if not isinstance(auth, dict):
+        raise RuntimeError(
+            "management service returned invalid pairing state"
+        )
+
+    code = auth.get("pairing_code")
+    expires = auth.get("expires_in_seconds")
+    if (
+        not isinstance(code, str)
+        or len(code) != 6
+        or not code.isdigit()
+        or type(expires) is not int
+        or expires <= 0
+    ):
+        raise RuntimeError(
+            "management service returned invalid pairing state"
+        )
+
+    return "\n".join(
+        (
+            f"Pairing code: {code[:3]} {code[3:]}",
+            f"Valid for:    {expires // 60} minutes",
+        )
+    )
+
+
 def run_maintenance(action):
     if action == "status":
         method = "GET"
         path = "/fre3nder/api/v1/maintenance"
         operation = "maintenance-status"
-    elif action in ("enable", "disable"):
+    elif action in ("enable", "disable", "unlock", "lock"):
         method = "POST"
         path = f"/fre3nder/api/v1/maintenance/{action}"
         operation = f"maintenance-{action}"
@@ -173,7 +201,12 @@ def run_maintenance(action):
             path,
             operation,
         )
-        output = format_maintenance(response)
+        if action == "unlock":
+            output = format_maintenance_unlock(response)
+        elif action == "lock":
+            output = "Administrative access: locked"
+        else:
+            output = format_maintenance(response)
     except (RuntimeError, ValueError) as exc:
         print(
             f"fre3nder maintenance: {exc}",
@@ -263,7 +296,7 @@ def usage():
         file=sys.stderr,
     )
     print(
-        "       fre3nder maintenance {status|enable|disable}",
+        "       fre3nder maintenance {status|enable|disable|unlock|lock}",
         file=sys.stderr,
     )
     return 2
@@ -1329,7 +1362,13 @@ def main():
     if namespace == "maintenance":
         if (
             len(sys.argv) != 3
-            or sys.argv[2] not in ("status", "enable", "disable")
+            or sys.argv[2] not in (
+                "status",
+                "enable",
+                "disable",
+                "unlock",
+                "lock",
+            )
         ):
             return usage()
 

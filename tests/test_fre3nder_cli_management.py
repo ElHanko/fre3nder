@@ -32,6 +32,31 @@ class Handler(socketserver.StreamRequestHandler):
         elif path == "/fre3nder/api/v1/maintenance/disable":
             operation = "maintenance-disable"
             enabled = False
+        elif path == "/fre3nder/api/v1/maintenance/unlock":
+            self.send(
+                200,
+                {
+                    "api_version": 1,
+                    "ok": True,
+                    "operation": "maintenance-unlock",
+                    "auth": {
+                        "pairing_code": "483921",
+                        "expires_in_seconds": 600,
+                    },
+                },
+            )
+            return
+        elif path == "/fre3nder/api/v1/maintenance/lock":
+            self.send(
+                200,
+                {
+                    "api_version": 1,
+                    "ok": True,
+                    "operation": "maintenance-lock",
+                    "auth": {"locked": True},
+                },
+            )
+            return
         else:
             payload = {
                 "api_version": 1,
@@ -133,11 +158,20 @@ class Fre3nderMaintenanceCliTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("Maintenance: disabled", result.stdout)
 
+        result = self.run_cli("maintenance", "unlock")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("Pairing code: 483 921", result.stdout)
+        self.assertIn("Valid for:    10 minutes", result.stdout)
+
+        result = self.run_cli("maintenance", "lock")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("Administrative access: locked", result.stdout)
+
     def test_invalid_action_is_rejected_without_api_call(self):
         result = self.run_cli("maintenance", "toggle")
         self.assertEqual(result.returncode, 2)
         self.assertIn(
-            "fre3nder maintenance {status|enable|disable}",
+            "fre3nder maintenance {status|enable|disable|unlock|lock}",
             result.stderr,
         )
 

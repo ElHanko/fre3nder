@@ -74,32 +74,22 @@ schema is not established by this repository; arbitrary app-specific keys are
 
 ## HTTP routing
 
-PUBLIC / SUPPORTED: when a selected web frontend or explicitly enabled
-Maintenance Web feature requires it, the platform Lighttpd service listens on
-`0.0.0.0:80` and provides the following current routes. The authoritative
-routing configuration is
-[fre3nder.conf](../../configs/x2000/rootfs-overlay/etc/lighttpd/fre3nder.conf).
+PUBLIC / SUPPORTED: the selected application frontend and Maintenance Web use
+separate Lighttpd listeners and separate browser origins.
 
-| External route | Backend / owner |
-| --- | --- |
-| `/maintenance/` | Core static Maintenance UI; routed only while Maintenance is enabled |
-| `/fre3nder/api/v1/system`, `/fre3nder/api/v1/maintenance` | Read-only projection of [Management API v1](management.md) over its local Unix socket; routed only while Maintenance is enabled |
-| `/websocket` | Moonraker `127.0.0.1:17126`, WebSocket upgrade enabled |
-| `/printer`, `/api`, `/access`, `/machine`, `/server` and their subpaths | Moonraker `127.0.0.1:17126` |
-| `/webcam/` | Camera HTTP `127.0.0.1:8080`, prefix stripped; stream/snapshot query URLs |
+Port `80` belongs to the selected signed application frontend. Moonraker routes
+(`/websocket`, `/printer`, `/api`, `/access`, `/machine`, `/server`) and
+`/webcam/` remain there. It exposes no Fre3nder Management API route and runs as
+`nobody:nobody`, without management-socket access.
 
-Moonraker owns HTTP/JSON-RPC/WebSocket authorization and protocol semantics;
-Klipper owns its upstream protocol. Those upstream routes are not
-Fre3nder-native REST APIs. Fre3nder supplies routing and its documented defaults,
-not compatibility for every upstream endpoint. Management API v1 is separately
-platform-owned; no app-update or OTA repository API is established by this
-first management slice.
+Port `8081` exists only while Maintenance is explicitly enabled. It serves the
+core Maintenance UI at `/` and the documented `/fre3nder/api/v1/...` status and
+browser-authentication routes. Browser-admin mutations additionally require a
+paired session, session CSRF token and matching port-8081 `Origin`/`Host`.
 
-Lighttpd clears client-supplied `X-Real-IP`, `X-Forwarded-For`,
-`X-Forwarded-Proto` and `X-Scheme`; mod_proxy supplies the actual connection
-address. Existing Moonraker `trusted_clients` remain the trust boundary.
-See the [accepted authorization contract](../moonraker.md#authorization-and-http-access).
-No general claim about arbitrary LAN-client safety or TLS is implied.
+Neither listener currently supplies TLS. Moonraker continues to own
+HTTP/JSON-RPC/WebSocket authorization for its upstream routes; Management API v1
+is separately platform-owned.
 
 ## Supported provisioning and opt-ins
 
@@ -110,7 +100,7 @@ These are boot-local administrative inputs; HOME/SYS provisioning is a separate
 storage operation.
 
 Maintenance Web is disabled by default and is managed through
-`fre3nder maintenance {status|enable|disable}` or Management API v1. Its
+`fre3nder maintenance {status|enable|disable|unlock|lock}` or Management API v1. Its
 root-managed persistent marker is `/home/.fre3nder/maintenance/enabled`; do not
 edit it directly. The existing `/home/fre3nder/.fre3nder/web/disabled` marker
 continues to opt out of the selected application web frontend. An explicitly

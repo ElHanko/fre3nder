@@ -70,23 +70,22 @@ writes have different authorization boundaries in [AGENTS.md](../AGENTS.md).
 
 ## Web, Moonraker and camera access
 
-The optional frontend-neutral Lighttpd service listens on port 80 only when a
-selected signed web frontend or explicitly enabled Maintenance Web feature
-requires it. Moonraker remains on `127.0.0.1:17126`; HTTP/WebSocket,
-`/webcam/`, `/maintenance/` and the read-only Management API projection are
-routed as specified in [runtime integration](api/runtime.md#http-routing).
+The selected signed application frontend uses Lighttpd on port `80`. Moonraker
+and `/webcam/` remain routed there as specified in
+[runtime integration](api/runtime.md#http-routing). This frontend has no
+Fre3nder Management API route and no access to the management Unix socket.
 
-Moonraker owns authorization for its upstream routes. Existing `trusted_clients`
-remain the relevant trust boundary there; the accepted 2026.4 credential-failure
-semantics do not grant untrusted clients trusted authorization. See
-[Moonraker](moonraker.md#authorization-and-http-access). Current port-80 routing
-does not supply HTTPS/TLS. The read-only Fre3nder Management status projection
-is not protected by Moonraker authorization and is LAN-visible only while
-Maintenance is enabled. The `/home/fre3nder/.fre3nder/web/disabled` opt-out
-disables the selected application frontend. Maintenance is separately disabled
-by default and requires an explicit local opt-in. With neither feature selected,
-S62 leaves Lighttpd stopped and no HTTP listener is created. Frontend selection
-and opt-out do not transfer platform update ownership to apps.
+Maintenance is a separate core Lighttpd listener on port `8081`, disabled by
+default and started only after explicit local opt-in. Its UI is:
+
+```text
+http://<printer-host>:8081/
+```
+
+Temporary browser administration uses pairing, an in-memory session, a CSRF
+token and port-8081 origin validation. Current HTTP access does not supply TLS.
+The `/home/fre3nder/.fre3nder/web/disabled` opt-out affects only the selected
+application frontend; Maintenance has its own independent enable state.
 
 For failures, start with [troubleshooting](troubleshooting.md) and current service
 logs/status. The status files are diagnostic implementation state unless a
