@@ -1,11 +1,17 @@
 # Public release versioning
 
-Fre3nder uses `YEAR.RELEASE[.STAGE]`, not SemVer. `YEAR` is a four-digit
-calendar-year line; `RELEASE` is a positive numeric public counter that
-restarts at 1 each year. Both omit leading zeroes. The optional stage is
-exactly `a` (alpha), `b` (beta), or `rc` (release candidate); no suffix means
-final. Extra components such as `a1`, `rc2`, or patch-level versions are not
-part of the scheme.
+Fre3nder uses `YEAR.RELEASE[.PATCH][.STAGE]`, not SemVer. `YEAR` is a
+four-digit calendar-year line; `RELEASE` is a positive numeric public counter
+that restarts at 1 each year. `PATCH` is an optional positive numeric
+maintenance-release counter. An omitted patch is represented as patch `0` in
+build metadata; `.0` is not a valid version suffix, so `2026.4` remains the
+canonical base release and `2026.4.1` is its first maintenance release. Numeric
+components omit leading zeroes.
+
+The optional stage is exactly `a` (alpha), `b` (beta), or `rc` (release
+candidate); no stage suffix means final. A stage may qualify either the base
+release (`2026.5.a`) or a maintenance release (`2026.4.1.rc`). Numbered stage
+suffixes such as `a1` or `rc2` are not part of the scheme.
 
 The repository-root [`VERSION`](../VERSION) is the canonical project version
 for a checkout and its artifacts. A release tag uses exactly that string,
@@ -14,12 +20,12 @@ GitHub release. The checkout's staged development version can be ahead of
 its latest published final release; use [CHANGELOG](../CHANGELOG.md) and tags
 to identify released content.
 
-Build manifests record `version`, numeric `release_year` and `release_number`,
-normalized `release_stage` (`alpha`, `beta`, `rc`, or `final`), and
-`release_scope`. Built RootFS images expose the project version at
-`/usr/share/fre3nder/VERSION`. Order versions by numeric year/release and by
-stage alpha, beta, release candidate, then final; do not compare the strings
-lexicographically.
+Build manifests record `version`, numeric `release_year`, `release_number`,
+and `release_patch`, normalized `release_stage` (`alpha`, `beta`, `rc`, or
+`final`), and `release_scope`. Built RootFS images expose the project version
+at `/usr/share/fre3nder/VERSION`. Order versions by numeric year, release, and
+patch, then by stage alpha, beta, release candidate, and final; do not compare
+the strings lexicographically.
 
 A final release means its named scope is complete. It does not imply that the
 whole roadmap is complete or that a build, fixture test, or release tag
@@ -48,6 +54,9 @@ the usable-system and independent-kernel-stack releases by adding the managed
 platform lifecycles for signed updates, applications, display frontends,
 backup/recovery, and separately controlled host and MCU firmware.
 
-The current development line uses `2026.5.a`. Exact released changes, source
-identities, qualification limits, and the final release commit belong in
-[`CHANGELOG.md`](../CHANGELOG.md).
+Exact released changes, source identities, qualification limits, and the
+final release commit belong in [`CHANGELOG.md`](../CHANGELOG.md).
+
+## Current development line
+
+The current development line uses `2026.5.a`.

@@ -8,23 +8,48 @@ version_file="$project/VERSION"
 	echo 'VERSION is missing' >&2
 	exit 1
 }
+parse_release_version() {
+	candidate=$1
+
+	printf '%s\n' "$candidate" |
+		grep -Eq '^[1-9][0-9]{3}\.[1-9][0-9]*(\.[1-9][0-9]*)?(\.(a|b|rc))?$' ||
+		return 1
+
+	release_year=${candidate%%.*}
+	version_tail=${candidate#*.}
+	release_number=${version_tail%%.*}
+	release_patch=0
+	release_stage=final
+
+	version_tail=${version_tail#"$release_number"}
+	version_tail=${version_tail#.}
+
+	case "$version_tail" in
+	'') ;;
+	a) release_stage=alpha ;;
+	b) release_stage=beta ;;
+	rc) release_stage=rc ;;
+	*.*)
+		release_patch=${version_tail%%.*}
+
+		case "${version_tail#*.}" in
+		a) release_stage=alpha ;;
+		b) release_stage=beta ;;
+		rc) release_stage=rc ;;
+		esac
+		;;
+	*) release_patch=$version_tail ;;
+	esac
+}
+
 version=$(cat "$version_file")
 if [ "$(wc -l < "$version_file")" -ne 1 ] ||
 	! printf '%s\n' "$version" | cmp -s - "$version_file" ||
-	! printf '%s\n' "$version" |
-		grep -Eq '^[1-9][0-9]{3}\.[1-9][0-9]*(\.(a|b|rc))?$'; then
-	echo 'VERSION must use YEAR.RELEASE[.a|.b|.rc] with a final newline' >&2
+	! parse_release_version "$version"; then
+	echo 'VERSION must use YEAR.RELEASE[.PATCH][.a|.b|.rc] with a final newline' >&2
 	exit 1
 fi
-release_year=${version%%.*}
-version_tail=${version#*.}
-release_number=${version_tail%%.*}
-case "$version_tail" in
-*.a) release_stage=alpha ;;
-*.b) release_stage=beta ;;
-*.rc) release_stage=rc ;;
-*) release_stage=final ;;
-esac
+
 release_scope=managed-platform
 kernel="$work/kernel"
 buildroot="$work/buildroot"
@@ -119,7 +144,7 @@ write_build_manifest() {
 
 	export ARTIFACT_OUTPUT="$out"
 	export artifact_mode project_commit project_worktree_status build_input_sha256
-	export version release_year release_number release_stage release_scope
+	export version release_year release_number release_patch release_stage release_scope
 	python3 - "$@" <<'PY'
 import hashlib
 import json
@@ -134,6 +159,7 @@ manifest.update({
     "version": os.environ["version"],
     "release_year": int(os.environ["release_year"]),
     "release_number": int(os.environ["release_number"]),
+    "release_patch": int(os.environ["release_patch"]),
     "release_stage": os.environ["release_stage"],
     "release_scope": os.environ["release_scope"],
     "artifact_mode": os.environ["artifact_mode"],

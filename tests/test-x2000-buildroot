@@ -3,6 +3,49 @@ set -eu
 
 root=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
 entrypoint="$root/build/x2000/entrypoint.sh"
+
+version_parser=$(
+	sed -n '/^parse_release_version() {$/,/^}$/p' "$entrypoint"
+)
+[ -n "$version_parser" ]
+eval "$version_parser"
+
+check_release_version() {
+	candidate=$1
+	expected_year=$2
+	expected_release=$3
+	expected_patch=$4
+	expected_stage=$5
+
+	parse_release_version "$candidate"
+
+	[ "$release_year" = "$expected_year" ]
+	[ "$release_number" = "$expected_release" ]
+	[ "$release_patch" = "$expected_patch" ]
+	[ "$release_stage" = "$expected_stage" ]
+}
+
+check_release_version 2026.4 2026 4 0 final
+check_release_version 2026.5.a 2026 5 0 alpha
+check_release_version 2026.4.1 2026 4 1 final
+check_release_version 2026.4.1.a 2026 4 1 alpha
+check_release_version 2026.4.1.b 2026 4 1 beta
+check_release_version 2026.4.1.rc 2026 4 1 rc
+
+for invalid_version in \
+	2026.4.0 \
+	2026.04 \
+	2026.4.01 \
+	2026.4.a1 \
+	2026.4.rc2 \
+	2026.4.1.rc1
+do
+	if parse_release_version "$invalid_version"; then
+		echo "accepted invalid Fre3nder version: $invalid_version" >&2
+		false
+	fi
+done
+
 python3 "$root/tests/test-f005-firmware"
 grep -Fq 'f005-runtime-target.json' "$entrypoint"
 base="$root/configs/x2000/buildroot.defconfig"
