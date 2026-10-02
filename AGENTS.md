@@ -334,7 +334,7 @@ reference:
 Keep that tree unchanged as historical migration/reference material.
 
 The productive Fre3nder kernel baseline is defined by
-`configs/x2000/sources.json`. For the current `2026.4.a` development line it is:
+`configs/x2000/sources.json`. For the current `2026.5.a` development line it is:
 
 - Linux stable `v6.6.157`
 - Commit: `79643295eba17affbd16ca97f3ef04c90266b28c`

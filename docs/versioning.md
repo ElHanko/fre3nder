@@ -48,6 +48,6 @@ the usable-system and independent-kernel-stack releases by adding the managed
 platform lifecycles for signed updates, applications, display frontends,
 backup/recovery, and separately controlled host and MCU firmware.
 
-The current development line uses `2026.4.a`. Exact released changes, source
+The current development line uses `2026.5.a`. Exact released changes, source
 identities, qualification limits, and the final release commit belong in
 [`CHANGELOG.md`](../CHANGELOG.md).
