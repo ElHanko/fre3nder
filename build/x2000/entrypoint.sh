@@ -25,7 +25,7 @@ case "$version_tail" in
 *.rc) release_stage=rc ;;
 *) release_stage=final ;;
 esac
-release_scope=independent-kernel-stack
+release_scope=managed-platform
 kernel="$work/kernel"
 buildroot="$work/buildroot"
 buildroot_dl="$work/buildroot-dl"

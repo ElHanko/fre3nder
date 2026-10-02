@@ -41,11 +41,13 @@ independently of the platform build commit. The exact installed package is
 cached under `/home/.fre3nder/packages/` for offline recovery; see the
 [application contract](fre3app.md).
 
-## Open development-line scope assignment
+## 2026.4 managed-platform line
 
-At this documentation audit, [`VERSION`](../VERSION) contains `2026.4.a`,
-while [`build/x2000/entrypoint.sh`](../build/x2000/entrypoint.sh) still sets
-`release_scope=independent-kernel-stack`, the `2026.3` scope. No `2026.4`
-release scope is established by the changelog or roadmap. This discrepancy
-needs a release decision before a `2026.4` artifact is presented as a public
-release; documentation changes alone do not change emitted build metadata.
+`2026.4`, scope ID `managed-platform`, titled **Managed Platform**, builds on
+the usable-system and independent-kernel-stack releases by adding the managed
+platform lifecycles for signed updates, applications, display frontends,
+backup/recovery, and separately controlled host and MCU firmware.
+
+The current development line uses `2026.4.a`. Exact released changes, source
+identities, qualification limits, and the final release commit belong in
+[`CHANGELOG.md`](../CHANGELOG.md).

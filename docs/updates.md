@@ -20,8 +20,7 @@ Development artifacts are not releases or hardware qualifications. Release
 builds require clean, committed inputs; development mode carries a fingerprint.
 Check `artifact_mode`, component provenance and hashes. A reused Kernel and new
 RootFS must agree on version and artifact mode; composition enforces both.
-The separate [release-scope finding](versioning.md#open-development-line-scope-assignment)
-remains unresolved.
+The 2026.4 release scope is **Managed Platform** (`managed-platform`).
 
 ## Update sequence
 

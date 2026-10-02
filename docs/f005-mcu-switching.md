@@ -225,16 +225,31 @@ When Runtime target and Qualified identity coincide, the current MCU is
 
 ### Fre3nder-side safety contract
 
-Before Fre3nder initiates an MCU write, it must verify all of the following:
+Before Fre3nder initiates an MCU write, it must verify all machine-observable
+transition invariants:
 
 1. the current MCU/application identity is known and matches an expected
    Fre3nder or supported Stock source identity;
 2. the exact target image matches the effective Runtime target, including its
    expected identity, size, and SHA-256;
-3. no print is active and heaters are not intentionally active;
-4. `/dev/ttyS1` is controlled and free of unexpected owners before the
+3. `/dev/ttyS1` is controlled and free of unexpected owners before the
    bootloader or flash tool takes it over; and
-5. the qualified host-recovery path remains available.
+4. the qualified host-recovery path remains available.
+
+For manual MCU transitions, and before any startup or reboot that may trigger
+the persistent Stock auto-transition opt-in, the operator must ensure that no
+print is in progress and no heater is intentionally active. The current
+transition architecture cannot truthfully infer those intentions: for `stock`
+and `fre3nder-qualified`, normal Klippy is deliberately not running, and the
+passive source-MCU probe exposes identity and reset capability rather than
+printer-level print or heater targets.
+
+Before the first bootloader firmware write, the helper resets the exact known
+source MCU, closes its UART connection and waits for the bootloader handoff.
+The automatic Stock transition is likewise performed during the S60 startup
+gate before normal Fre3nder Klippy starts. These properties are machine-enforced;
+they do not replace the operator prerequisite that applies before either
+transition path.
 
 An unknown source identity fails closed: Fre3nder must not guess, flash, or
 start normal printer operation. After a failed updater invocation, Fre3nder must
