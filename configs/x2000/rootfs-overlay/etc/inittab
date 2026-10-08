@@ -7,5 +7,4 @@
 ::sysinit:/bin/mount -t devpts devpts /dev/pts
 ::sysinit:/etc/init.d/fre3nder-root start
 ::sysinit:/etc/init.d/rcS
-::respawn:-/bin/sh
 ::ctrlaltdel:/sbin/reboot
