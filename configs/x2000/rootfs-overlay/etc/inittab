@@ -8,3 +8,6 @@
 ::sysinit:/etc/init.d/fre3nder-root start
 ::sysinit:/etc/init.d/rcS
 ::ctrlaltdel:/sbin/reboot
+::shutdown:/etc/init.d/rcK
+::shutdown:/sbin/swapoff -a
+::shutdown:/bin/umount -a -r

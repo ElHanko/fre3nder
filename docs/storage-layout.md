@@ -31,6 +31,30 @@ artifacts, including diagnostic operation when a backend is absent or invalid.
 No internal p9/p10 fallback is implemented. Detailed degraded-runtime results
 remain in [storage evidence](../research/docs/storage-layout.md#fre3nder-persistence-roles).
 
+## Regular software shutdown
+
+Fre3nder's [inittab](../configs/x2000/rootfs-overlay/etc/inittab) replaces the
+Buildroot file during RootFS overlay assembly. BusyBox 1.37.0 reads its
+`shutdown` actions in file order and waits for each command; it does not add
+default actions when an `inittab` exists (`init/init.c`, `parse_inittab` and
+`run_actions`). Fre3nder retains the
+[Buildroot 2025.02.18 shutdown sequence](https://gitlab.com/buildroot.org/buildroot/-/blob/d030e36bbc9669230c015be971b14b6e062cfdde/package/busybox/inittab):
+`/etc/init.d/rcK`, `/sbin/swapoff -a`, then `/bin/umount -a -r`.
+Buildroot's existing `rcK` calls `S??*` scripts with `stop` in reverse name
+order, including Moonraker before Klipper and the host MCU, and network and
+logging afterward. BusyBox Init then signals remaining processes and syncs
+before the final reboot, halt or poweroff.
+
+The administrative deployment and OTA reboot paths use `reboot` without `-f`,
+so they request this Init sequence. The early `fre3nder-root` bootstrap stays
+outside `rcK`; filesystem teardown uses the existing BusyBox `umount`, whose
+`-r` option attempts a read-only remount when unmounting reports a busy mount.
+Successful teardown of `/home`, the OverlayFS root and its SYS backing mount
+still requires qualification with a separately authorized controlled reboot.
+Routine removal of power does not run this sequence; ext4 journal recovery and
+Moonraker's unsafe-shutdown counter after power loss are not by themselves
+evidence that regular software shutdown failed.
+
 ## Current A/B mapping
 
 | Logical slot | Kernel | RootFS |
