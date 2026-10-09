@@ -1,6 +1,8 @@
 #!/bin/sh
 set -eu
 
+unset GIT_CONFIG_COUNT GIT_CONFIG_KEY_0 GIT_CONFIG_VALUE_0
+
 root=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
 service=$root/configs/x2000/rootfs-overlay/etc/init.d/S61fre3nder-moonraker
 tmp=$(mktemp -d)
@@ -37,6 +39,7 @@ start_calls=$tmp/start-calls
 mkdir -p "$mockbin"
 cat > "$mockbin/chown" <<'EOF'
 #!/bin/sh
+[ "${GIT_CONFIG_COUNT+x}${GIT_CONFIG_KEY_0+x}${GIT_CONFIG_VALUE_0+x}" = '' ] || exit 1
 printf 'chown %s %s\n' "$1" "$2" >> "$FIXTURE_PERMISSIONS"
 EOF
 cat > "$mockbin/start-stop-daemon" <<'EOF'
@@ -61,6 +64,7 @@ chmod 0755 "$mockbin"/*
 
 mkdir -p "$state_dir" "$klipper_runtime" "$home_root" \
 	"$moonraker_root/.git" "$(dirname "$moonraker")" "$(dirname "$python")"
+git init -q "$moonraker_root"
 printf '%s\n' active > "$state_dir/status"
 printf '%s\n' active > "$klipper_runtime/status"
 printf '%s\n' '[server]' '[include fre3nder/*.conf]' > "$default_config"
@@ -87,8 +91,25 @@ cat > "$moonraker" <<'PY'
 import os
 import pathlib
 import socket
+import subprocess
 import sys
 import time
+
+repo = str(pathlib.Path(__file__).parent.parent)
+assert os.environ["GIT_CONFIG_COUNT"] == "1"
+assert os.environ["GIT_CONFIG_KEY_0"] == "safe.directory"
+assert os.environ["GIT_CONFIG_VALUE_0"] == repo
+git_env = dict(os.environ, GIT_OPTIONAL_LOCKS="0",
+               GIT_TEST_ASSUME_DIFFERENT_OWNER="1",
+               GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL=os.devnull)
+assert subprocess.check_output(
+    ["git", "-C", repo, "config", "--show-scope", "--get", "safe.directory"],
+    env=git_env, text=True,
+).strip() == "command\t" + repo
+assert subprocess.check_output(
+    ["git", "-C", repo, "rev-parse", "--show-toplevel"],
+    env=git_env, text=True,
+).strip() == repo
 
 pathlib.Path(os.environ["FIXTURE_PYTHON_CALLED"]).write_text(
     os.environ.get("PIP_ONLY_BINARY", "") + "\n" + "\n".join(sys.argv[1:]) + "\n",

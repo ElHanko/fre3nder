@@ -230,6 +230,8 @@ start() {
 	set_status starting
 
 	if ! HOME="$fre3nder_home" PIP_ONLY_BINARY=:all: \
+		GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=safe.directory \
+		GIT_CONFIG_VALUE_0="$moonraker_root" \
 		start-stop-daemon -S -q -b -m -p "$pid_file" \
 		-c fre3nder:fre3nder -x "$python" -- "$moonraker" \
 		-d "$printer_data" \

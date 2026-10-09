@@ -73,6 +73,12 @@ The PID and exact command identity gate stop/restart operations. If the fixed
 RootFS baseline or environment is absent, S61 reports `baseline-invalid` and
 does not attempt installation or repair.
 
+S61 starts Moonraker with `GIT_CONFIG_COUNT=1`,
+`GIT_CONFIG_KEY_0=safe.directory` and `GIT_CONFIG_VALUE_0` set to its exact
+source checkout (`/opt/fre3nder/moonraker` by default). Moonraker and its Git
+subprocesses inherit this runtime trust exception for the root-owned checkout;
+other services receive no exception and no Git configuration file is changed.
+
 ## Update ownership and current updater limit
 
 The default uses `provider: none`, `[update_manager] channel: stable` and
@@ -81,6 +87,12 @@ only; Kernel, RootFS, base Klipper, A/B state, F005 and system packages remain
 Fre3nder-owned. A Git checkout/environment does not establish a qualified
 self-update lifecycle. Dependency transitions and BusyBox/S61 restart handling
 still need explicit implementation/qualification within that ownership boundary.
+
+The Git trust exception grants no filesystem write permissions or self-update
+qualification. Updater endpoints remain exposed; restored Git detection allows
+status refreshes to proceed to fetch, which can still fail on the root-owned
+baseline's write permissions. Successful Git detection alone does not establish
+update support.
 
 The default includes `[include fre3nder/*.conf]`. S61 provides the fragment
 directory and app-neutral `00-base.conf`. Existing user configuration is retained
