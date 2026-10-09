@@ -204,9 +204,14 @@ rcs_line=$(
 
 [ "$root_setup_line" -lt "$rcs_line" ]
 
-# Stop services before disabling swap and unmounting/remounting filesystems.
+# Stop services and swap, sync, then remount the overlay before its backing
+# filesystem. Keep direct commands so remount errors are not suppressed or
+# converted to success; the existing general unmount remains the final action.
 [ "$(awk -F: '$3 == "shutdown" { print $4 }' "$inittab")" = '/etc/init.d/rcK
 /sbin/swapoff -a
+/bin/sync
+/bin/mount -o remount,ro /
+/bin/mount -o remount,ro /run/fre3nder-root/system
 /bin/umount -a -r' ]
 
 # Both exact ext4 roles produce the complete overlay and /home setup.

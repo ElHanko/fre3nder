@@ -10,4 +10,7 @@
 ::ctrlaltdel:/sbin/reboot
 ::shutdown:/etc/init.d/rcK
 ::shutdown:/sbin/swapoff -a
+::shutdown:/bin/sync
+::shutdown:/bin/mount -o remount,ro /
+::shutdown:/bin/mount -o remount,ro /run/fre3nder-root/system
 ::shutdown:/bin/umount -a -r

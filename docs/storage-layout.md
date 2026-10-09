@@ -37,20 +37,52 @@ Fre3nder's [inittab](../configs/x2000/rootfs-overlay/etc/inittab) replaces the
 Buildroot file during RootFS overlay assembly. BusyBox 1.37.0 reads its
 `shutdown` actions in file order and waits for each command; it does not add
 default actions when an `inittab` exists (`init/init.c`, `parse_inittab` and
-`run_actions`). Fre3nder retains the
-[Buildroot 2025.02.18 shutdown sequence](https://gitlab.com/buildroot.org/buildroot/-/blob/d030e36bbc9669230c015be971b14b6e062cfdde/package/busybox/inittab):
-`/etc/init.d/rcK`, `/sbin/swapoff -a`, then `/bin/umount -a -r`.
+`run_actions`). Fre3nder extends the
+[Buildroot 2025.02.18 shutdown sequence](https://gitlab.com/buildroot.org/buildroot/-/blob/d030e36bbc9669230c015be971b14b6e062cfdde/package/busybox/inittab)
+with an explicit sync and read-only remounts of the OverlayFS root and then its
+SYS backing mount, retaining the existing Init structure:
+
+```sh
+/etc/init.d/rcK
+/sbin/swapoff -a
+/bin/sync
+/bin/mount -o remount,ro /
+/bin/mount -o remount,ro /run/fre3nder-root/system
+/bin/umount -a -r
+```
+
 Buildroot's existing `rcK` calls `S??*` scripts with `stop` in reverse name
 order, including Moonraker before Klipper and the host MCU, and network and
-logging afterward. BusyBox Init then signals remaining processes and syncs
-before the final reboot, halt or poweroff.
+logging afterward. `swapoff -a` remains before the remounts so swap users are
+removed before filesystem teardown; the current Fre3nder kernel configuration
+disables swap. The explicit `sync` flushes buffered writes after service stops
+and swap removal, before the remounts. BusyBox Init's own syncs occur after all
+shutdown actions and the signals to remaining processes, before the final
+reboot, halt or poweroff. A sync alone does not establish a clean ext4 shutdown.
 
 The administrative deployment and OTA reboot paths use `reboot` without `-f`,
 so they request this Init sequence. The early `fre3nder-root` bootstrap stays
 outside `rcK`; filesystem teardown uses the existing BusyBox `umount`, whose
 `-r` option attempts a read-only remount when unmounting reports a busy mount.
-Successful teardown of `/home`, the OverlayFS root and its SYS backing mount
-still requires qualification with a separately authorized controlled reboot.
+The explicit remounts prevent the general unmount pass from being the only
+attempt to make the OverlayFS root and its SYS backing filesystem read-only.
+`/home` remains covered by that general unmount pass.
+
+On the reference Fre3nder system running Linux 6.6.157, the operator confirmed
+that `sync`, remounting `/` read-only, and then remounting
+`/run/fre3nder-root/system` read-only all succeeded. Both mounts could afterward
+be returned to read-write, with Klipper and Moonraker remaining active. With
+the preceding regular software reboot sequence, SYS required ext4 journal
+recovery while HOME did not; both ext4 error counters were zero. This supports
+the remount sequence but does not qualify the modified shutdown end to end.
+
+The remount commands retain their error output and failure exit status, without
+success messages or error masking. BusyBox Init waits for each action but does
+not check its exit status (`waitfor` uses `wait(NULL)`); later shutdown actions,
+including `umount -a -r`, still run after a remount failure. A completed reboot
+therefore does not prove a clean shutdown. Successful teardown of `/home`, the
+OverlayFS root and its SYS backing mount, and absence of SYS journal recovery,
+still require qualification with a separately authorized controlled reboot.
 Routine removal of power does not run this sequence; ext4 journal recovery and
 Moonraker's unsafe-shutdown counter after power loss are not by themselves
 evidence that regular software shutdown failed.
