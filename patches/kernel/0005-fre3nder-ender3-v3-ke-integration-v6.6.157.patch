@@ -107,10 +107,10 @@ index 69822206d0d4a10f027d667ba8dab05e38e4c4e3..c9a46433b45add3aa58608007c5ec07c
  static int ingenic_gpio_to_irq(struct gpio_chip *chip,
 diff --git a/module_drivers/dts/x2000/ender3-v3-ke.dts b/module_drivers/dts/x2000/ender3-v3-ke.dts
 new file mode 100644
-index 0000000000000000000000000000000000000000..e57a81972a763f70bcd6779772b82e7c1095ff5a
+index 0000000000000000000000000000000000000000..39f7bd3287371d0d747a7ebf2f8eaa8f3df05abe
 --- /dev/null
 +++ b/module_drivers/dts/x2000/ender3-v3-ke.dts
-@@ -0,0 +1,169 @@
+@@ -0,0 +1,170 @@
 +/dts-v1/;
 +
 +#include <dt-bindings/gpio/gpio.h>
@@ -122,6 +122,7 @@ index 0000000000000000000000000000000000000000..e57a81972a763f70bcd6779772b82e7c
 +	backlight {
 +		compatible = "gpio-backlight";
 +		gpios = <&gpc 22 GPIO_ACTIVE_HIGH INGENIC_GPIO_NOBIAS>;
++		default-on;
 +	};
 +
 +	/*

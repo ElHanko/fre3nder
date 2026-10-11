@@ -147,6 +147,15 @@ bounded wait for deferred takeover. Rotation applies only to text output;
 
 ### Boot output
 
+The board Device Tree sets `default-on` for the PC22 `gpio-backlight` so the
+Linux driver enables the backlight during kernel initialization. This makes
+tty1 visible during the later boot sequence independently of Fre3nderScreen
+startup. Fre3nderScreen retains runtime backlight control, including standby
+and wakeup; S64's existing enable after successful app startup is unchanged.
+The operator confirmed a successful build and visible boot screen and tty1
+console on the investigated reference system; see
+[backlight qualification](../research/docs/display-qualification.md#kernel-backlight-boot-default-2026-10-11).
+
 After the persistent-root switch, `console boot` initializes tty1 and replays
 available `dmesg` output without clearing the kernel ring buffer. The
 `console services` action runs rcS, captures output in `/run/fre3nder-boot.log`,

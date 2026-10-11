@@ -611,8 +611,9 @@ deployed. End-to-end physical testing confirmed correct calibrated left/right
 and up/down pointer mapping.
 
 The initial Stage-D image left `bl_power=4` after GuppyScreen startup. The S64
-service correction now enables the PC22 gpio-backlight after successful UI
-startup, and that behavior is physically qualified.
+service correction enabled the PC22 gpio-backlight after successful UI
+startup, and that behavior was physically qualified. This remains evidence
+of the earlier development state, before the kernel boot-default change below.
 
 The GuppyScreen fork used for Stage-D also controlled physical standby through
 the same Linux backlight interface. On the investigated reference printer:
@@ -636,6 +637,27 @@ investigated reference system. Later normal printer control and a complete
 print through GuppyScreen were qualified separately; see
 [Fre3nderScreen qualification boundary](display-qualification.md#qualification-boundary).
 Neither result establishes support across other hardware revisions.
+
+### Kernel backlight boot default (2026-10-11)
+
+The current board DTS adds `default-on` to the PC22 `gpio-backlight` node.
+In Linux stable `v6.6.157`,
+[`gpio_backlight_probe()`](https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git/tree/drivers/video/backlight/gpio_backlight.c?h=v6.6.157)
+reads this boolean, selects `FB_BLANK_UNBLANK` for a node without a phandle,
+and drives the GPIO with initial brightness 1. Our backlight node has no label,
+reference or explicit phandle, so this path applies. With a phandle, the driver
+instead derives initial power from the existing GPIO value. `default-on` is
+defined by the standard
+[`gpio-backlight` binding](https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git/tree/Documentation/devicetree/bindings/leds/backlight/gpio-backlight.yaml?h=v6.6.157).
+
+This enables the backlight during kernel initialization and makes tty1
+visible during the later boot sequence independently of Fre3nderScreen startup.
+S64's existing startup enable and Fre3nderScreen's runtime control, including
+standby/wakeup, remain unchanged. **Offline checked and hardware-validated on
+the investigated reference system.** The operator reported that the changed
+kernel built successfully and that the boot screen and tty1 console are now
+visible. This validates the new boot initial state; it does not establish a
+new standby/wakeup qualification or support across other hardware revisions.
 
 ## 2026-10-11 Linux VT integration qualification
 
