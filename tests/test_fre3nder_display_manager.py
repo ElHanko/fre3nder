@@ -313,10 +313,121 @@ class LocalConsoleTests(unittest.TestCase):
 
     def test_console_init_follows_pivot_and_does_not_gate_printer_services(self):
         inittab = (ROOT / "configs/x2000/rootfs-overlay/etc/inittab").read_text()
-        self.assertLess(inittab.index("fre3nder-root start"), inittab.index("console boot"))
-        self.assertLess(inittab.index("console boot"), inittab.index("console services"))
+        self.assertLess(inittab.index("fre3nder-root start"), inittab.index("console services"))
+        self.assertNotIn("console boot", inittab)
         self.assertIn("tty1::askfirst:/usr/libexec/fre3nder/console shell", inittab)
         self.assertFalse((ROOT / "configs/x2000/rootfs-overlay/etc/fre3nder/console.enabled").exists())
+
+    def test_prepare_only_changes_tty7_and_is_repeatable(self):
+        with (mock.patch.object(sys, 'argv', ['console', 'prepare']),
+              mock.patch.object(self.console.os, 'geteuid', return_value=0),
+              mock.patch.object(self.console.pwd, 'getpwnam', return_value=types.SimpleNamespace(pw_uid=1000, pw_gid=1000)),
+              mock.patch.object(self.console, 'open_vt', return_value=123) as open_vt,
+              mock.patch.object(self.console, 'text_console') as text,
+              mock.patch.object(self.console.fcntl, 'ioctl') as ioctl,
+              mock.patch.object(self.console.os, 'fchown') as owner,
+              mock.patch.object(self.console.os, 'fchmod'),
+              mock.patch.object(self.console.os, 'close'),
+              mock.patch.object(self.console.os, 'write') as write):
+            for _ in range(2):
+                self.assertEqual(self.console.main(), 0)
+            self.assertEqual(open_vt.call_args_list, [mock.call(self.console.TTY7)] * 2)
+            self.assertEqual(owner.call_args_list, [mock.call(123, 1000, 1000)] * 2)
+            self.assertEqual([call.args[1] for call in ioctl.call_args_list],
+                             [self.console.VT_SETMODE, self.console.KDSETMODE] * 2)
+            text.assert_not_called()
+            write.assert_not_called()
+
+    def test_background_binds_before_rotation_without_output_or_vt_switch(self):
+        events = []
+        with (mock.patch.object(self.console, 'check_display', side_effect=lambda: events.append('check')),
+              mock.patch.object(self.console.os, 'open', return_value=123),
+              mock.patch.object(self.console.os, 'fstat', return_value=types.SimpleNamespace(
+                  st_mode=stat.S_IFCHR, st_rdev=os.makedev(29, 0))),
+              mock.patch.object(self.console.fcntl, 'ioctl', side_effect=lambda fd, op, arg: events.append((op, arg))),
+              mock.patch.object(pathlib.Path, 'write_text', side_effect=lambda value: events.append(value)),
+              mock.patch.object(self.console.os, 'close'),
+              mock.patch.object(self.console, 'open_vt') as open_vt,
+              mock.patch.object(self.console.os, 'write') as write):
+            for _ in range(2):
+                self.console.background_console()
+        self.assertEqual(events, ['check', (self.console.FBIOPUT_CON2FBMAP,
+                                           self.console.struct.pack('@II', 1, 0)), '3\n'] * 2)
+        open_vt.assert_not_called()
+        write.assert_not_called()
+
+    def test_background_rejects_missing_graphics_ownership_before_framebuffer_access(self):
+        with (mock.patch.object(self.console, 'check_display', side_effect=ValueError('not ready')),
+              mock.patch.object(self.console.os, 'open') as open_fb):
+            with self.assertRaisesRegex(ValueError, 'not ready'):
+                self.console.background_console()
+        open_fb.assert_not_called()
+
+    def test_services_preserve_serial_and_logs_then_prepare_diagnostics(self):
+        for state in ('active', 'startup-failed', 'stop-failed', None):
+            with self.subTest(state=state), tempfile.TemporaryDirectory() as directory:
+                console = self.console
+                console.BOOT_LOG = pathlib.Path(directory) / 'boot.log'
+                console.DISPLAY_STATUS = pathlib.Path(directory) / 'status'
+                if state:
+                    console.DISPLAY_STATUS.write_text(state)
+                serial = types.SimpleNamespace(buffer=io.BytesIO())
+                events = []
+                def run(command, *, stdout, stderr, check):
+                    self.assertEqual(command, ['/etc/init.d/rcS'])
+                    self.assertIs(stdout, stderr)
+                    self.assertEqual(events, [])  # No early console access.
+                    stdout.write(b'network ready\nprinter ready\n')
+                    return types.SimpleNamespace(returncode=0)
+                with (mock.patch.object(sys, 'argv', ['console', 'services']),
+                      mock.patch.object(sys, 'stdout', serial),
+                      mock.patch.object(console.os, 'geteuid', return_value=0),
+                      mock.patch.object(console.subprocess, 'run', side_effect=run),
+                      mock.patch.object(console, 'background_console', side_effect=lambda: events.append('background')),
+                      mock.patch.object(console, 'text_console', side_effect=lambda: events.append('text')),
+                      mock.patch.object(console, 'diagnostics', side_effect=lambda: events.append('logs')),
+                      mock.patch.object(console, 'open_vt', return_value=123),
+                      mock.patch.object(console.fcntl, 'ioctl', side_effect=lambda *args: events.append('activate')),
+                      mock.patch.object(console.os, 'close'),
+                      contextlib.redirect_stderr(io.StringIO()) as errors):
+                    self.assertEqual(console.main(), 0)
+                self.assertEqual(serial.buffer.getvalue(), console.BOOT_LOG.read_bytes())
+                if state == 'stop-failed':
+                    self.assertEqual(events, [])
+                    self.assertIn('retaining VT ownership', errors.getvalue())
+                else:
+                    self.assertEqual(events, ['background', 'logs'] if state == 'active'
+                                     else ['text', 'activate', 'logs'])
+
+    def test_console_failure_after_services_does_not_change_rcs_exit_status(self):
+        with tempfile.TemporaryDirectory() as directory:
+            self.console.BOOT_LOG = pathlib.Path(directory) / 'boot.log'
+            self.console.DISPLAY_STATUS = pathlib.Path(directory) / 'missing'
+            with (mock.patch.object(sys, 'argv', ['console', 'services']),
+                  mock.patch.object(sys, 'stdout', types.SimpleNamespace(buffer=io.BytesIO())),
+                  mock.patch.object(self.console.os, 'geteuid', return_value=0),
+                  mock.patch.object(self.console.subprocess, 'run', return_value=types.SimpleNamespace(returncode=0)),
+                  mock.patch.object(self.console, 'text_console', side_effect=OSError('missing tty1')),
+                  contextlib.redirect_stderr(io.StringIO()) as errors):
+                self.assertEqual(self.console.main(), 0)
+            self.assertIn('missing tty1', errors.getvalue())
+
+    def test_diagnostics_replay_kernel_and_boot_log_with_failure_state(self):
+        with tempfile.TemporaryDirectory() as directory:
+            console = self.console
+            console.BOOT_LOG = pathlib.Path(directory) / 'boot.log'
+            console.BOOT_LOG.write_bytes(b'frontend startup timed out\n')
+            console.DISPLAY_STATUS = pathlib.Path(directory) / 'status'
+            console.DISPLAY_STATUS.write_text('startup-failed\n')
+            display = pathlib.Path(directory) / 'tty1'
+            def dmesg(command, *, stdout, stderr, check):
+                self.assertEqual(command, ['dmesg'])
+                stdout.write(b'kernel ring buffer\n')
+            with (mock.patch.object(console, 'open_vt', side_effect=lambda path: os.open(display, os.O_CREAT | os.O_WRONLY, 0o600)),
+                  mock.patch.object(console.subprocess, 'run', side_effect=dmesg)):
+                console.diagnostics()
+            self.assertEqual(display.read_bytes(), b'kernel ring buffer\nfrontend startup timed out\n'
+                             b'\r\nFre3nder display: startup-failed\r\n')
 
     def test_rotation_waits_for_deferred_takeover_and_missing_fbcon_fails(self):
         console = self.console

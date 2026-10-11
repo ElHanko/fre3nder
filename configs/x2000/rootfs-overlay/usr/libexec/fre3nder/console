@@ -18,8 +18,12 @@ VT_GETSTATE = 0x5603
 VT_ACTIVATE = 0x5606
 KDGETMODE = 0x4B3B
 KDSETMODE = 0x4B3A
+FBIOPUT_CON2FBMAP = 0x4610
 TTY1 = pathlib.Path('/dev/tty1')
 TTY7 = pathlib.Path('/dev/tty7')
+FRAMEBUFFER = pathlib.Path('/dev/fb0')
+BOOT_LOG = pathlib.Path('/run/fre3nder-boot.log')
+DISPLAY_STATUS = pathlib.Path('/run/fre3nder-display/status')
 ROTATION = pathlib.Path('/sys/class/graphics/fbcon/rotate_all')
 VTCONSOLES = pathlib.Path('/sys/class/vtconsole')
 ENABLE = pathlib.Path('/etc/fre3nder/console.enabled')
@@ -74,6 +78,55 @@ def text_console():
     raise ValueError('framebuffer console is not bound')
 
 
+def check_display():
+    fd = open_vt(TTY7)
+    try:
+        mode, graphics = bytearray(8), bytearray(4)
+        fcntl.ioctl(fd, VT_GETMODE, mode, True)
+        fcntl.ioctl(fd, KDGETMODE, graphics, True)
+        if mode[0] != 1 or struct.unpack('@i', graphics)[0] != 1:
+            raise ValueError('display frontend has not acquired tty7 in VT_PROCESS / KD_GRAPHICS')
+    finally:
+        os.close(fd)
+
+
+def background_console():
+    check_display()
+    fd = os.open(FRAMEBUFFER, os.O_RDWR | os.O_NOFOLLOW | os.O_CLOEXEC)
+    try:
+        info = os.fstat(fd)
+        if not stat.S_ISCHR(info.st_mode) or info.st_rdev != os.makedev(29, 0):
+            raise ValueError('unexpected framebuffer device')
+        # Linux 6.6 binds fbcon synchronously through this ioctl. KD_GRAPHICS
+        # protects the foreground UI; no VT switch or text output is needed.
+        fcntl.ioctl(fd, FBIOPUT_CON2FBMAP, struct.pack('@II', 1, 0))
+        ROTATION.write_text('3\n')
+    finally:
+        os.close(fd)
+
+
+def diagnostics():
+    fd = open_vt(TTY1)
+    with os.fdopen(fd, 'wb') as output:
+        # Replay without clearing the ring buffer or following daemon output.
+        subprocess.run(['dmesg'], stdout=output, stderr=output, check=False)
+        if BOOT_LOG.is_file():
+            with BOOT_LOG.open('rb') as boot_log:
+                shutil.copyfileobj(boot_log, output)
+        state = DISPLAY_STATUS.read_text().strip() if DISPLAY_STATUS.is_file() else 'unavailable'
+        output.write(f'\r\nFre3nder display: {state}\r\n'.encode())
+
+
+def boot_console():
+    text_console()
+    fd = open_vt(TTY1)
+    try:
+        fcntl.ioctl(fd, VT_ACTIVATE, 1)
+    finally:
+        os.close(fd)
+    diagnostics()
+
+
 def main():
     if os.geteuid() != 0:
         raise ValueError('root is required')
@@ -86,33 +139,30 @@ def main():
         os.chdir('/root')
         os.execv('/bin/sh', ['-sh'])
     elif action == 'boot':
-        text_console()
-        fd = open_vt(TTY1)
-        try:
-            fcntl.ioctl(fd, VT_ACTIVATE, 1)
-            # Replay the available ring buffer, without clearing it or following it.
-            subprocess.run(['dmesg'], stdout=fd, stderr=fd, check=False)
-        finally:
-            os.close(fd)
+        boot_console()
+    elif action == 'background':
+        background_console()
     elif action == 'services':
         # A pipe/tee around rcS would wait forever on inherited daemon stdout
         # (notably ntpd). Use a volatile log and replay after rcS returns.
-        with open('/run/fre3nder-boot.log', 'w+b') as output:
+        with BOOT_LOG.open('w+b') as output:
             result = subprocess.run(['/etc/init.d/rcS'], stdout=output, stderr=output, check=False)
             output.seek(0)
             shutil.copyfileobj(output, sys.stdout.buffer)
             sys.stdout.buffer.flush()
             try:
-                fd = open_vt(TTY1)
+                if DISPLAY_STATUS.is_file() and DISPLAY_STATUS.read_text().strip() == 'active':
+                    background_console()
+                    diagnostics()
+                else:
+                    # Also cover a missing display init script; rcS still finishes.
+                    if DISPLAY_STATUS.is_file() and DISPLAY_STATUS.read_text().strip() == 'stop-failed':
+                        raise ValueError('display stop failed; retaining VT ownership')
+                    boot_console()
             except (OSError, ValueError) as exc:
                 print(f'fre3nder console: {exc}', file=sys.stderr)
-            else:
-                with os.fdopen(fd, 'wb') as console:
-                    output.seek(0)
-                    shutil.copyfileobj(output, console)
             return result.returncode
     elif action == 'prepare':
-        text_console()
         account = pwd.getpwnam('fre3nder')
         fd = open_vt(TTY7)
         try:
@@ -123,15 +173,7 @@ def main():
         finally:
             os.close(fd)
     elif action == 'check':
-        fd = open_vt(TTY7)
-        try:
-            mode, graphics = bytearray(8), bytearray(4)
-            fcntl.ioctl(fd, VT_GETMODE, mode, True)
-            fcntl.ioctl(fd, KDGETMODE, graphics, True)
-            if mode[0] != 1 or struct.unpack('@i', graphics)[0] != 1:
-                raise ValueError('display frontend has not acquired tty7 in VT_PROCESS / KD_GRAPHICS')
-        finally:
-            os.close(fd)
+        check_display()
     elif action == 'release':
         fd = open_vt(TTY7)
         try:
@@ -146,7 +188,7 @@ def main():
         finally:
             os.close(fd)
     else:
-        raise ValueError('usage: console {boot|services|shell|prepare|check|release}')
+        raise ValueError('usage: console {boot|services|shell|prepare|check|release|background}')
     return 0
 
 

@@ -21,6 +21,7 @@ log() {
 }
 
 set_status() {
+	display_status=$1
 	mkdir -p "$runtime" 2>/dev/null || return 0
 	printf '%s\n' "$1" > "$status" 2>/dev/null || true
 }
@@ -176,7 +177,7 @@ prepare_optional_paths() {
 	fi
 }
 
-start() {
+start_frontend() {
 	mkdir -m 0700 -p "$runtime" || {
 		log 'runtime setup failed'
 		return 0
@@ -270,7 +271,11 @@ start() {
 
 	set_status starting
 	if ! result=$(run_display_service start 2>&1); then
-		run_display_service stop >/dev/null 2>&1 || true
+		if ! run_display_service stop; then
+			set_status stop-failed
+			log "frontend start failed and stop failed; retaining VT ownership: $result"
+			return 0
+		fi
 		rm -f "$input_link" "$beeper_link"
 		"$console" release || true
 		set_status startup-failed
@@ -279,7 +284,11 @@ start() {
 	fi
 
 	if ! wait_display_ready; then
-		run_display_service stop >/dev/null 2>&1 || true
+		if ! run_display_service stop; then
+			set_status stop-failed
+			log "frontend readiness and stop failed; retaining VT ownership: $readiness_error"
+			return 0
+		fi
 		rm -f "$input_link" "$beeper_link"
 		set_status startup-failed
 		"$console" release || true
@@ -292,6 +301,22 @@ start() {
 	fi
 	set_status active
 	log 'selected display frontend started'
+	return 0
+}
+
+start() {
+	display_status=
+	start_frontend
+	if [ "$display_status" = active ]; then
+		# The app service has confirmed its first frame and tty7 graphics ownership.
+		"$console" background || log 'background diagnostic console is unavailable'
+	elif [ "$display_status" = stop-failed ]; then
+		log 'diagnostic console fallback requires the frontend to stop'
+	else
+		log "diagnostic console fallback: ${display_status:-runtime setup failed}"
+		"$console" boot || log 'diagnostic console is unavailable'
+	fi
+	# Display failures must not stop rcS or unrelated services.
 	return 0
 }
 

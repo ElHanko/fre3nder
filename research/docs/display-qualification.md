@@ -729,7 +729,7 @@ controller. Fre3nder's console and app handoff use Linux fbcon, VT, HID, evdev
 and TTY ownership. Existing display/touch driver derivation remains documented
 in the [hardware provenance](#provenance) above and the source manifest.
 
-Two implementation details explain the current boot-output path. Deferred
+Two implementation details explain the earlier boot-output path. Deferred
 fbcon takeover is scheduled asynchronously: writing `rotate_all` before binding
 can have no effect, so the helper waits for actual attachment. Capturing rcS
 through a pipe/tee could wait on stdout inherited by long-lived services;
@@ -760,3 +760,78 @@ a fixed GID. The correction passed 14 Console/Displaymanager tests and the
 Display-Service fixtures offline. The hardware results above describe the
 preceding implementation; the new GID check has not been deployed to or tested
 on the physical printer.
+
+### Logo retention and demand-driven console
+
+The subsequent RootFS change targets F3 -> Fre3nderScreen on a successful boot
+and F3 -> tty1 diagnostics when the frontend is unavailable. It was initially
+validated offline. The operator subsequently reported a successful build,
+combined Kernel/RootFS deployment and physical tests of the normal boot path
+on the investigated Ender-3 V3 KE reference system. The artifacts and results
+below record that later qualification; the earlier identities above remain
+historical evidence for their own tested scope.
+
+Source inspection of the pinned Linux 6.6.157 found that `dummycon_putc()` /
+`dummycon_putcs()` notify fbcon on the first nonblank console output. The old
+inittab `console boot` and `console prepare` wrote the console banner, and
+`console services` replayed rcS to tty1. BusyBox 1.37.0 `init/init.c` also prints
+the `askfirst` prompt itself, after completing `SYSINIT`, before executing the
+guarded shell helper. The early `console boot` entry is now removed and
+`prepare` only prepares tty7.
+
+In Linux `drivers/video/fbdev/core/fbcon.c`,
+`fbcon_set_con2fb_map_ioctl()` -> `set_con2fb_map()` -> `do_fbcon_takeover(0)`
+provides synchronous binding even while deferred takeover is pending. The
+console helper uses `FBIOPUT_CON2FBMAP` to map tty1 to fb0 only after existing
+app readiness and tty7 graphics ownership checks. `fbcon_is_inactive()` and the
+VT redraw path in `drivers/tty/vt/vt.c` prevent text drawing onto a foreground
+`KD_GRAPHICS` VT; `rotate_all=3` then prepares text VTs for manual switching.
+The existing Screen fbdev initialization does not clear framebuffer memory;
+its loop activates tty7, refreshes the UI, then writes the readiness marker.
+No kernel, app renderer, backlight or fixed-delay change is required.
+
+S64's handled error paths explicitly activate the diagnostic console after
+stopping any partially started frontend. A failed stop retains VT ownership
+and logs the failure instead of forcing concurrent framebuffer access. Missing
+selection, degraded root and missing prerequisites also select diagnostics.
+The helper retains the kernel ring buffer, rcS log and serial replay, populates
+background tty1 after successful startup and handles a missing display init
+script after rcS. The existing `askfirst` shell opt-in is unchanged.
+
+Console/Displaymanager unit tests and display-service fixtures check startup
+ordering, repeated preparation, binding before rotation, log/serial retention,
+fallbacks, failed-stop ownership, and the existing shell and VT contracts.
+These offline results are distinct from the operator-reported hardware
+observations below.
+
+The combined deployment reported:
+
+| Field | Tested value |
+| --- | --- |
+| Version | `2026.5.a` |
+| Kernel SHA256 | `f8284d20ef799d58d9aa7d95617844482cbf7215ad745cc22a0a5d718cad2ea3` |
+| RootFS SHA256 | `f75d615f9220cdfa9f143c30924ee3a83691a5676d7c02d7175a911470f7eca7` |
+| Active target slot | A |
+| Kernel partition | `/dev/mmcblk0p5` |
+| RootFS partition | `/dev/mmcblk0p7` |
+| Deployment | `DEPLOY_X2000=PASS` |
+| Persistent RootFS | `HOST_RUNTIME=PASS` |
+
+The operator then confirmed on the physical reference system:
+
+- The F3 logo remained visible throughout the visible boot until Fre3nderScreen
+  took over the display.
+- Fre3nderScreen started successfully and acquired the display.
+- Manual VT switching continued to work.
+- The previous boot messages remained visible on tty1.
+
+These observations validate the normal boot path, delayed console takeover and
+manual diagnostics for this reference system and artifact pair. They do not
+establish support across other hardware revisions. No new hardware access or
+test was performed while documenting the supplied results.
+
+Automatic tty1 fallback after a failed display start, missing display selection,
+degraded persistent RootFS, forced frontend crashes and failed stop operations
+remain unvalidated on hardware. Normal stop was not reported as part of this
+test. Extensive repeat-boot, timing and long-term reliability qualification is
+not claimed; fixture results for these error paths remain offline evidence.

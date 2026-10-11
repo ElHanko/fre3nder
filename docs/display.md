@@ -141,9 +141,11 @@ and back to the UI with Ctrl+Alt+F7. The application keeps running during the
 switch; returning to tty7 redraws the UI and restores touch input.
 
 The kernel enables VT, fbcon, console rotation, deferred takeover and USB HID.
-The platform console helper sets `rotate_all=3` after fbcon binds, with a
-bounded wait for deferred takeover. Rotation applies only to text output;
-`/dev/fb0` remains 480x272 and Fre3nderScreen retains LVGL software rotation.
+The platform console helper sets `rotate_all=3` after fbcon binds. On successful
+UI startup it binds through `FBIOPUT_CON2FBMAP` while tty7 is in `KD_GRAPHICS`;
+the fallback waits briefly for the actual deferred takeover. Rotation applies
+only to text output; `/dev/fb0` remains 480x272 and Fre3nderScreen retains LVGL
+software rotation.
 
 ### Boot output
 
@@ -153,24 +155,47 @@ replaces the embedded PNG with an opaque 480x272 image, prepared with a
 90-degree counterclockwise rotation for the portrait-mounted display. The
 configured logo background is black. `scripts/pic2logo`, `pan_init_logo()` and
 `show_logo()` remain the existing build and display path. The intended sequence
-is F3 logo -> tty1 boot messages -> Fre3nderScreen on tty7; no extra service or
-display delay is added. This logo replacement has only been checked offline;
-its orientation and handoff still require hardware qualification.
+is F3 logo -> Fre3nderScreen on tty7. With no selected frontend or a handled
+startup failure, it is F3 logo -> tty1 diagnostics. No extra service or display
+delay is added. The operator confirmed logo retention through the visible boot
+and successful UI handoff on the investigated reference system. Automatic
+console fallbacks remain offline tested only.
 
 The board Device Tree sets `default-on` for the PC22 `gpio-backlight` so the
-Linux driver enables the backlight during kernel initialization. This makes
-tty1 visible during the later boot sequence independently of Fre3nderScreen
+Linux driver enables the backlight during kernel initialization. This illuminates
+the early logo and the diagnostic console independently of Fre3nderScreen
 startup. Fre3nderScreen retains runtime backlight control, including standby
 and wakeup; S64's existing enable after successful app startup is unchanged.
 The operator confirmed a successful build and visible boot screen and tty1
 console on the investigated reference system; see
 [backlight qualification](../research/docs/display-qualification.md#kernel-backlight-boot-default-2026-10-11).
 
-After the persistent-root switch, `console boot` initializes tty1 and replays
-available `dmesg` output without clearing the kernel ring buffer. The
-`console services` action runs rcS, captures output in `/run/fre3nder-boot.log`,
-and replays it to tty1 and the inherited serial console when rcS returns.
-These helper actions exit after their work; there is no permanent log follower.
+After the persistent-root switch, `console services` runs rcS and captures output
+in `/run/fre3nder-boot.log`. Neither inittab nor `console prepare` writes to tty1
+before the frontend starts. The existing deferred takeover therefore leaves the
+kernel logo in place until Fre3nderScreen draws its first frame. After the app
+service confirms that frame and S64 confirms VT ownership, `console background`
+binds fbcon and sets text rotation without switching away from the UI.
+
+Missing selection, degraded persistent root, invalid selection, missing required
+devices and handled startup/readiness failures make S64 call `console boot`.
+It activates tty1 and replays available `dmesg`, the boot log so far and the
+display status. The log includes the startup error or fallback reason. Other
+services continue. When rcS returns, `console services` replays its complete log
+to the inherited serial console, and fills tty1 with kernel and service
+diagnostics in the background if the UI is active. Otherwise it activates tty1,
+also covering a missing display init script, except when a failed frontend stop
+requires retaining VT ownership as described below. There is no permanent log
+follower.
+
+BusyBox prints its own `askfirst` prompt before invoking the shell helper.
+It starts this action after `sysinit` finishes, when fbcon is already rotated;
+on successful startup the prompt stays on background tty1. Ctrl+Alt+F1 exposes
+the diagnostics and prompt, and Ctrl+Alt+F7 returns to the running UI. Shell
+authorization remains unchanged. The operator confirmed the normal boot handoff,
+manual VT switching and retained tty1 boot messages on the investigated reference
+system; failure/degraded-root paths and repeated-boot reliability remain
+unqualified on hardware. See [qualification results and boundaries](../research/docs/display-qualification.md#logo-retention-and-demand-driven-console).
 
 Early kernel output still uses the existing serial console
 (`console=ttyS4,115200n8`). tty1 shows a later replay, not continuous kernel
@@ -254,7 +279,10 @@ readiness succeeds; there is no fixed boot delay. Check execution adds to the
 ten-second app and five-second manager sleep budgets. A failed start or timeout
 makes S64 request app stop, remove runtime device links, release tty7 and report
 `startup-failed`. Diagnostics distinguish a missing app process from missing
-VT readiness. A missing framebuffer console reports `console-unavailable`.
+VT readiness. Failed tty7 preparation reports `console-unavailable`. If stopping
+a partially started frontend fails, S64 retains VT ownership and reports
+`stop-failed` rather than drawing console output over a potentially live UI;
+the boot log and serial diagnostics remain available and rcS continues.
 
 Normal shutdown and handled failures restore `VT_AUTO` / `KD_TEXT`, returning
 to tty1 if tty7 was foreground. S64 stop also returns tty7 to `root:root`, mode
