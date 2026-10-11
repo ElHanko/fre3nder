@@ -36,6 +36,13 @@ if [ "$artifact_mode" = development ]; then
 fi
 
 fetch() {
+	if [ -n "${FRE3NDER_SCREEN_LOCAL_SOURCE:-}" ]; then
+		[ "$artifact_mode" = development ] || return 1
+		python3 "$project/build/x2000/snapshot-fre3nderscreen.py" \
+			"$FRE3NDER_SCREEN_LOCAL_SOURCE" "$source_dir"
+		return
+	fi
+	rm -f -- "$source_dir.snapshot.json"
 	# Fetch and build run in separate containers. The build container has
 	# --network none, so the source checkout must not remain a promisor clone
 	# with lazily fetched blobs.
@@ -84,11 +91,13 @@ prepare_source() {
 	else
 		commit=$pinned_commit
 	fi
-	git -C "$source_dir" reset --hard "$commit"
-	git -C "$source_dir" clean -fdx
-	git -C "$source_dir" submodule update --init --recursive
-	git -C "$source_dir" submodule foreach --recursive 'git reset --hard && git clean -fdx'
-	git -C "$source_dir" checkout --detach "$commit"
+	if [ -z "${FRE3NDER_SCREEN_LOCAL_SOURCE:-}" ]; then
+		git -C "$source_dir" reset --hard "$commit"
+		git -C "$source_dir" clean -fdx
+		git -C "$source_dir" submodule update --init --recursive
+		git -C "$source_dir" submodule foreach --recursive 'git reset --hard && git clean -fdx'
+		git -C "$source_dir" checkout --detach "$commit"
+	fi
 	[ "$(git -C "$source_dir" rev-parse HEAD)" = "$commit" ]
 
 	python3 - "$source_dir" "$artifact_mode" <<'PY'
@@ -232,6 +241,8 @@ for line in subprocess.check_output(
             if key not in ("commit", "license")
         })
     submodules[name] = record
+snapshot_path = source_dir.with_suffix(".snapshot.json")
+snapshot = json.loads(snapshot_path.read_text()) if os.environ["artifact_mode"] == "development" and snapshot_path.exists() else {}
 files = {
     path.relative_to(app).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest()
     for path in app.rglob("*") if path.is_file()
@@ -245,6 +256,7 @@ app_manifest = {
         "release": os.environ["release"],
         "commit": os.environ["commit"],
         "license": "GPL-3.0-only",
+        **snapshot,
     },
     "submodules": submodules,
     "abi": {

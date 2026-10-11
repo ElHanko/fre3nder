@@ -202,8 +202,6 @@ if [ "$fre3nderscreen_app" = true ]; then
 	apps_repo=$(CDPATH='' cd -- "$apps_repo" && pwd -P)
 	package_builder="$apps_repo/scripts/build-fre3nderscreen-development"
 	[ -x "$package_builder" ] || fail 'missing Fre3nderScreen development package wrapper'
-	git -C "$apps_repo" diff --quiet -- && git -C "$apps_repo" diff --cached --quiet -- \
-		|| fail 'fre3nder-apps has tracked worktree changes'
 	"$root/scripts/build-x2000-fre3nderscreen" --develop
 	artifact="$artifact_root/fre3nderscreen/app"
 	package_output=$("$package_builder" --artifact "$artifact" \

@@ -20,6 +20,26 @@ case "${1:-}" in
 *) usage ;;
 esac
 
+[ "$#" -le 1 ] || usage
+local_source=${FRE3NDER_FRE3NDERSCREEN_SOURCE:-}
+if [ -n "$local_source" ]; then
+	[ "$artifact_mode" = development ] || {
+		echo 'local Fre3nderScreen source requires --develop' >&2; exit 2;
+	}
+	local_source=$(CDPATH='' cd -- "$local_source" && pwd -P)
+	git -C "$local_source" rev-parse --show-toplevel >/dev/null
+elif [ "$artifact_mode" = development ] && [ -d "$root/../fre3nderscreen/.git" ] &&
+	[ -n "$(git -C "$root/../fre3nderscreen" status --porcelain=v1)" ]; then
+	echo 'local Screen changes exist: set FRE3NDER_FRE3NDERSCREEN_SOURCE to build them instead of remote main' >&2
+	exit 1
+fi
+
+# An explicit read-only source mount; all preparation happens in /work.
+set --
+if [ -n "$local_source" ]; then
+	set -- -v "$local_source:/screen-local:ro" -e FRE3NDER_SCREEN_LOCAL_SOURCE=/screen-local
+fi
+
 git -C "$root" check-ignore -q local/production
 "$docker_cmd" build -t "$image" "$root/build/x2000"
 mkdir -p "$work_root"
@@ -27,12 +47,12 @@ mkdir -p "$work_root"
 	-e "FRE3NDER_ARTIFACT_MODE=$artifact_mode" \
 	-v "$root:/project" \
 	-v "$work_root:/work" \
-	"$image" fetch-fre3nderscreen
+	"$@" "$image" fetch-fre3nderscreen
 "$docker_cmd" run --rm --network none --user "$runtime_user" \
 	-e "FRE3NDER_ARTIFACT_MODE=$artifact_mode" \
 	-v "$root:/project" \
 	-v "$work_root:/work" \
-	"$image" build-fre3nderscreen-app
+	"$@" "$image" build-fre3nderscreen-app
 
 artifact_dir="$root/local/production/artifacts/x2000/fre3nderscreen"
 for member in app/bin/fre3nderscreen app/artifact-manifest.json app/SHA256SUMS; do

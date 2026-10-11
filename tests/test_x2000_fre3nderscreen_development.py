@@ -3,6 +3,7 @@
 
 import json
 import os
+import runpy
 from pathlib import Path
 import shutil
 import subprocess
@@ -205,13 +206,10 @@ else:
         self.assertNotEqual(result.returncode, 0)
         self.assertEqual(self.calls(), [])
 
-    def test_tracked_dirty_stops_before_cross_build(self):
-        for state in ("staged", "unstaged"):
-            with self.subTest(state=state):
-                result = self.run_wrapper(["--rootfs-only", "--develop", "--fre3nderscreen-app"], FIXTURE_DIRTY=state)
-                self.assertNotEqual(result.returncode, 0)
-                self.assertIn("tracked worktree changes", result.stderr)
-                self.assertEqual(self.calls(), [])
+    def test_pending_apps_recipe_can_reach_development_wrapper(self):
+        result = self.run_wrapper(["--rootfs-only", "--develop", "--fre3nderscreen-app"], FIXTURE_DIRTY="unstaged")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.calls()[0]["command"], "build-x2000-fre3nderscreen")
 
 
 class FactoryModeTests(unittest.TestCase):
@@ -264,6 +262,63 @@ class FactoryModeTests(unittest.TestCase):
                 result = self.run_gate(0, mode, develop)
                 self.assertNotEqual(result.returncode, 0)
                 self.assertFalse(self.log.exists())
+
+
+class LocalScreenSourceTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        self.source = self.root / "fre3nderscreen"
+        self.source.mkdir()
+        self.git("init", "-q")
+        self.git("config", "user.name", "Fixture")
+        self.git("config", "user.email", "fixture@example.invalid")
+        self.git("remote", "add", "origin", "https://example.invalid/screen.git")
+        (self.source / "main.cpp").write_text("old source")
+        (self.source / "deleted.cpp").write_text("remove me")
+        self.git("add", ".")
+        self.git("commit", "-qm", "fixture baseline")
+        (self.source / "main.cpp").write_text("pending source")
+        (self.source / "new.cpp").write_text("new VT source")
+        (self.source / "deleted.cpp").unlink()
+        self.git("add", "deleted.cpp")
+
+    def git(self, *args):
+        return subprocess.check_output(["git", "-C", str(self.source), *args], stderr=subprocess.DEVNULL)
+
+    def test_snapshot_preserves_pending_sources_and_leaves_checkout_untouched(self):
+        snapshot = runpy.run_path(str(ROOT / "build/x2000/snapshot-fre3nderscreen.py"))["snapshot"]
+        before = self.git("status", "--porcelain=v1")
+        destination = self.root / "work/source"
+        snapshot(self.source, destination)
+        self.assertEqual((destination / "main.cpp").read_text(), "pending source")
+        self.assertEqual((destination / "new.cpp").read_text(), "new VT source")
+        self.assertFalse((destination / "deleted.cpp").exists())
+        self.assertEqual(self.git("status", "--porcelain=v1"), before)
+        record = json.loads(destination.with_suffix(".snapshot.json").read_text())
+        self.assertEqual(record["origin"], "local-worktree")
+        self.assertEqual(record["worktree_status"], "dirty")
+        (self.source / "new.cpp").write_text("different VT source")
+        snapshot(self.source, destination)
+        changed = json.loads(destination.with_suffix(".snapshot.json").read_text())
+        self.assertNotEqual(record["worktree_sha256"], changed["worktree_sha256"])
+
+    def test_cross_builder_refuses_remote_main_when_local_sources_would_be_lost(self):
+        repo = self.root / "fre3nder"
+        wrapper = repo / "scripts/build-x2000-fre3nderscreen"
+        source = (ROOT / "scripts/build-x2000-fre3nderscreen").read_text()
+        executable(wrapper, source.split('"$docker_cmd" build', 1)[0] + '\nprintf "%s\\n" "$@"\n')
+        (repo / "VERSION").write_text("fixture")
+        env = dict(os.environ)
+        env.pop("FRE3NDER_FRE3NDERSCREEN_SOURCE", None)
+        result = subprocess.run([str(wrapper), "--develop"], env=env, text=True, capture_output=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("local Screen changes exist", result.stderr)
+        env["FRE3NDER_FRE3NDERSCREEN_SOURCE"] = str(self.source)
+        result = subprocess.run([str(wrapper)], env=env, text=True, capture_output=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("requires --develop", result.stderr)
 
 
 if __name__ == "__main__":
