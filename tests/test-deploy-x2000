@@ -88,14 +88,16 @@ python3 - \
 	"$head_commit" \
 	"$fingerprint" \
 	"$kernel_sha" \
-	"$rootfs_sha" <<'PY'
+	"$rootfs_sha" \
+	"$(cat "$repo/VERSION")" <<'PY'
 import json
 import pathlib
 import sys
 
-path, commit, fingerprint, kernel_sha, rootfs_sha = sys.argv[1:]
+path, commit, fingerprint, kernel_sha, rootfs_sha, version = sys.argv[1:]
 
 manifest = {
+    "version": version,
     "artifact_mode": "development",
     "project_commit": commit,
     "project_worktree_status": "dirty",
@@ -556,6 +558,14 @@ must_fail() {
 	fi
 }
 
+must_refuse() {
+	if "$@" > "$tmp/refused.out" 2>&1; then
+		echo "unexpected success: $*" >&2
+		return 1
+	fi
+	grep -Fq 'REFUSED:' "$tmp/refused.out"
+}
+
 assert_called() {
 	grep -Fxq "$1" "$log"
 }
@@ -655,6 +665,107 @@ assert_not_called select-b
 assert_not_called reboot
 
 
+echo '=== KERNEL-ONLY DEVELOPMENT PREFLIGHT ==='
+reset_case A
+cp "$artifact_dir/build-manifest.json" "$tmp/plain-manifest.good"
+python3 - "$artifact_dir/build-manifest.json" <<'PY'
+import json
+import pathlib
+import sys
+
+path = pathlib.Path(sys.argv[1])
+manifest = json.loads(path.read_text())
+del manifest["artifacts"]["rootfs.squashfs"]
+path.write_text(json.dumps(manifest) + "\n")
+PY
+mv "$artifact_dir/rootfs.squashfs" "$tmp/rootfs.saved"
+run_deploy --kernel > "$tmp/kernel-preflight.out"
+grep -Fxq 'LOCAL_ARTIFACT_GATE=PASS' "$tmp/kernel-preflight.out"
+assert_not_called write-p6
+assert_not_called select-b
+assert_not_called reboot
+mv "$tmp/rootfs.saved" "$artifact_dir/rootfs.squashfs"
+cp "$tmp/plain-manifest.good" "$artifact_dir/build-manifest.json"
+
+
+echo '=== COMPOSED DEVELOPMENT PROVENANCE ==='
+python3 - "$tmp/plain-manifest.good" "$tmp" <<'PY'
+import copy
+import json
+import pathlib
+import sys
+
+manifest = json.loads(pathlib.Path(sys.argv[1]).read_text())
+directory = pathlib.Path(sys.argv[2])
+fields = ("version", "artifact_mode", "project_commit",
+          "project_worktree_status", "build_input_sha256")
+kernel = {field: manifest[field] for field in fields}
+manifest["build_input_sha256"] = "0" * 64
+manifest["component_provenance"] = {
+    "kernel": kernel,
+    "rootfs": {field: manifest[field] for field in fields},
+}
+manifest["composition_provenance"] = {
+    "project_commit": kernel["project_commit"],
+    "project_worktree_status": "clean",
+    "build_input_sha256": kernel["build_input_sha256"],
+}
+directory.joinpath("composed-manifest.good").write_text(json.dumps(manifest) + "\n")
+
+invalid = {
+    "composition-mismatch": ("composition_provenance", "build_input_sha256", "1" * 64),
+    "composition-missing": (None, "composition_provenance", None),
+    "composition-empty": (None, "composition_provenance", {}),
+    "composition-not-object": (None, "composition_provenance", []),
+    "composition-fingerprint-missing": ("composition_provenance", "build_input_sha256", None),
+    "composition-fingerprint-invalid": ("composition_provenance", "build_input_sha256", 123),
+    "composition-commit-invalid": ("composition_provenance", "project_commit", "invalid"),
+    "composition-commit-unavailable": ("composition_provenance", "project_commit", "f" * 40),
+    "composition-status-missing": ("composition_provenance", "project_worktree_status", None),
+    "composition-status-invalid": ("composition_provenance", "project_worktree_status", "unknown"),
+    "components-missing": (None, "component_provenance", None),
+    "kernel-provenance-missing": ("component_provenance", "kernel", None),
+    "kernel-mode-conflict": ("kernel", "artifact_mode", "release"),
+    "kernel-version-conflict": ("kernel", "version", "other"),
+    "rootfs-fingerprint-conflict": ("rootfs", "build_input_sha256", "2" * 64),
+}
+for name, (section, field, value) in invalid.items():
+    data = copy.deepcopy(manifest)
+    if section in ("kernel", "rootfs"):
+        target = data["component_provenance"][section]
+    else:
+        target = data[section] if section else data
+    if value is None:
+        del target[field]
+    else:
+        target[field] = value
+    directory.joinpath(name + ".json").write_text(json.dumps(data) + "\n")
+PY
+
+reset_case A
+cp "$tmp/composed-manifest.good" "$artifact_dir/build-manifest.json"
+run_deploy > "$tmp/composed-preflight.out"
+grep -Fxq 'LOCAL_ARTIFACT_GATE=PASS' "$tmp/composed-preflight.out"
+grep -Fq 'inactive-slot staging preflight: PASS' "$tmp/composed-preflight.out"
+grep -Fxq "build-input SHA256: $fingerprint" "$tmp/composed-preflight.out"
+assert_not_called write-p6
+assert_not_called write-p8
+assert_not_called select-b
+assert_not_called reboot
+
+for invalid in "$tmp"/composition-*.json "$tmp"/components-missing.json \
+	"$tmp"/kernel-*.json "$tmp"/rootfs-fingerprint-conflict.json; do
+	reset_case A
+	cp "$invalid" "$artifact_dir/build-manifest.json"
+	must_refuse run_deploy
+	assert_not_called write-p6
+	assert_not_called write-p8
+	assert_not_called select-b
+	assert_not_called reboot
+done
+cp "$tmp/plain-manifest.good" "$artifact_dir/build-manifest.json"
+
+
 echo '=== INVALID COMPONENT CLI ==='
 reset_case A
 
@@ -683,7 +794,8 @@ data["build_input_sha256"] = "0" * 64
 path.write_text(json.dumps(data, indent=2) + "\n")
 ' "$artifact_dir/build-manifest.json"
 
-must_fail run_deploy
+must_refuse run_deploy
+grep -Fq 'current X2000 build inputs differ from development artifact' "$tmp/refused.out"
 
 cp "$tmp/build-manifest.good" \
 	"$artifact_dir/build-manifest.json"

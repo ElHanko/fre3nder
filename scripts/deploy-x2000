@@ -162,6 +162,7 @@ verify_local_artifacts() {
 	local -a manifest_output
 	local -a build_inputs
 	local current_build_input_sha256
+	local source_commit
 
 	require_regular_file "$sums"
 	require_regular_file "$manifest"
@@ -268,25 +269,67 @@ if use_rootfs == "true":
     if artifacts.get("rootfs.squashfs") != rootfs_sha:
         raise SystemExit("RootFS differs from build manifest")
 
+source_commits = [commit]
+if artifact_mode == "development" and (
+    "component_provenance" in manifest or "composition_provenance" in manifest
+):
+    components = manifest.get("component_provenance")
+    composition = manifest.get("composition_provenance")
+    if not isinstance(components, dict) or not isinstance(composition, dict):
+        raise SystemExit("missing or invalid composition/component provenance")
+    if not isinstance(manifest.get("version"), str) or not manifest["version"]:
+        raise SystemExit("invalid composed artifact version")
+
+    for name, provenance in (
+        ("kernel", components.get("kernel")),
+        ("rootfs", components.get("rootfs")),
+        ("composition", composition),
+    ):
+        if not isinstance(provenance, dict):
+            raise SystemExit(f"missing or invalid {name} provenance")
+        for field, pattern in (
+            ("project_commit", r"[0-9a-f]{40}"),
+            ("build_input_sha256", r"[0-9a-f]{64}"),
+        ):
+            value = provenance.get(field)
+            if not isinstance(value, str) or re.fullmatch(pattern, value) is None:
+                raise SystemExit(f"invalid {name} provenance {field}")
+        if provenance.get("project_worktree_status") not in ("clean", "dirty"):
+            raise SystemExit(f"invalid {name} provenance worktree status")
+        if name != "composition":
+            for field in ("version", "artifact_mode"):
+                if provenance.get(field) != manifest[field]:
+                    raise SystemExit(f"{name} provenance disagrees on {field}")
+        source_commits.append(provenance["project_commit"])
+
+    # The composer inherits top-level build identity from the RootFS component.
+    for field in ("project_commit", "project_worktree_status", "build_input_sha256"):
+        if components["rootfs"][field] != manifest[field]:
+            raise SystemExit(f"RootFS provenance disagrees on {field}")
+    build_input_sha256 = composition["build_input_sha256"]
+
 print(commit)
 print(artifact_mode)
 print(build_input_sha256)
+print(" ".join(source_commits))
 PY
 	) || die "build manifest verification failed"
 
-	[ "${#manifest_output[@]}" -eq 3 ] ||
+	[ "${#manifest_output[@]}" -eq 4 ] ||
 		die "invalid build manifest verification output"
 
 	manifest_commit=${manifest_output[0]}
 	manifest_artifact_mode=${manifest_output[1]}
 	manifest_build_input_sha256=${manifest_output[2]}
 
-	git -C "$root" cat-file -e "${manifest_commit}^{commit}" 2>/dev/null ||
-		die "artifact source commit is unavailable"
+	for source_commit in ${manifest_output[3]}; do
+		git -C "$root" cat-file -e "${source_commit}^{commit}" 2>/dev/null ||
+			die "artifact source commit is unavailable"
 
-	git -C "$root" merge-base --is-ancestor \
-		"$manifest_commit" HEAD 2>/dev/null ||
-		die "artifact source commit is not an ancestor of HEAD"
+		git -C "$root" merge-base --is-ancestor \
+			"$source_commit" HEAD 2>/dev/null ||
+			die "artifact source commit is not an ancestor of HEAD"
+	done
 
 	if [ "$manifest_artifact_mode" = development ]; then
 		current_build_input_sha256=$(
