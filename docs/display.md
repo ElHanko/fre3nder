@@ -147,6 +147,16 @@ bounded wait for deferred takeover. Rotation applies only to text output;
 
 ### Boot output
 
+The kernel's existing Ingenic `fb_stage` logo path now carries the F3 artwork
+from [the versioned bootlogo source](../assets/bootlogo/README.md). Patch 0005
+replaces the embedded PNG with an opaque 480x272 image, prepared with a
+90-degree counterclockwise rotation for the portrait-mounted display. The
+configured logo background is black. `scripts/pic2logo`, `pan_init_logo()` and
+`show_logo()` remain the existing build and display path. The intended sequence
+is F3 logo -> tty1 boot messages -> Fre3nderScreen on tty7; no extra service or
+display delay is added. This logo replacement has only been checked offline;
+its orientation and handoff still require hardware qualification.
+
 The board Device Tree sets `default-on` for the PC22 `gpio-backlight` so the
 Linux driver enables the backlight during kernel initialization. This makes
 tty1 visible during the later boot sequence independently of Fre3nderScreen

@@ -311,6 +311,17 @@ Buildroot's annotated release tag is derived from `buildroot.version` and
 must dereference to `buildroot.commit`. This centralization changes no source
 version, commit, patch content, or expected source tree.
 
+The F3 kernel bootlogo uses the existing Ingenic `CONFIG_TRUE_COLOR_LOGO_FILE`
+path and `scripts/pic2logo`. Patch 0005 replaces
+`module_drivers/drivers/video/logo-ingenic/logo.png` with the prepared 480x272
+RGB image; `kernel-fre3nder.defconfig` selects a black logo background. The
+binary replacement is covered by the ordered patch checksum and result-tree
+checks. The original portrait artwork, preparation command and asset hashes
+are retained in [assets/bootlogo](../assets/bootlogo/README.md). FFmpeg is used
+only when regenerating the patch-carried asset, not during normal builds.
+The replacement has passed offline checks; no new kernel build or hardware
+qualification has been performed for it.
+
 ## Common failures and next steps
 
 - Missing signing keys: generate the local pair before a complete build or

@@ -104,6 +104,13 @@ precedence = "closest"
 SPDX-FileCopyrightText = "NOASSERTION"
 SPDX-License-Identifier = "GPL-2.0-only"
 
+# Operator-supplied F3 artwork and its kernel-carried derivative.
+[[annotations]]
+path = "assets/bootlogo/*.png"
+precedence = "override"
+SPDX-FileCopyrightText = "2026 Fre3nder contributors"
+SPDX-License-Identifier = "GPL-2.0-only"
+
 [[annotations]]
 path = "research/x2000-kernel/vendor-baseline-port/history/**"
 precedence = "closest"
