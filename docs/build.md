@@ -53,17 +53,61 @@ scripts/build-x2000 --develop
 | --- | --- | --- |
 | `scripts/build-x2000` | Release | Prepared release seed; no Screen build or packaging |
 | `scripts/build-x2000 --develop` | Development | Prepared release seed; no Screen build or packaging |
-| `scripts/build-x2000 --develop --fre3nderscreen-app` | Development | Current remote Screen `main`, built and signed as a development app |
+| `scripts/build-x2000 --develop --fre3nderscreen-app` | Development | Screen development sources (remote `main` or explicit local worktree), built and signed as a development app |
 | `scripts/build-x2000 --fre3nderscreen-app` | Invalid | Requires `--develop` |
 
 The optional app path first runs `scripts/build-x2000-fre3nderscreen --develop`,
 then `../fre3nder-apps/scripts/build-fre3nderscreen-development` with the neutral
 artifact and the existing `local/production/keys/apps/private.pem`. The sibling
-apps repository must have no tracked staged or unstaged changes; untracked and
-ignored generated files do not block it. Import and signing remain owned by
-`fre3nder-apps`. Any failure stops the pipeline without falling back to a release
+apps development wrapper uses the current recipe, including pending tracked
+changes, and reports `Recipe worktree: dirty` when applicable. The release
+Factory-seed pipeline rejects tracked apps changes. Import and signing remain
+owned by `fre3nder-apps`. Any failure stops the pipeline without falling back to a release
 seed. The returned absolute regular, non-symlink package is passed to RootFS
 assembly only for this invocation; the canonical release seed is never changed.
+
+To include local Screen changes, explicitly select the sibling worktree:
+
+```sh
+FRE3NDER_FRE3NDERSCREEN_SOURCE=../fre3nderscreen \
+  scripts/build-x2000 --develop --fre3nderscreen-app
+```
+
+This requires the already prepared Buildroot host toolchain used by the Screen
+cross-builder. The variable is accepted only in development mode. The checkout
+is mounted read-only; its tracked and non-ignored new files, edits, and deletions
+are copied into the isolated build source. Initialized, clean submodules must
+match the local recorded Git links; existing source patches are applied to their
+copies. The artifact's `source` records `origin: local-worktree`, the baseline
+commit, `worktree_status`, and `worktree_sha256`. The current local repository is
+never reset or cleaned. Without the variable, development keeps the remote
+`main` path but refuses to proceed if the conventional sibling Screen repository
+has pending changes, so those changes cannot silently disappear from a build.
+The default release pin is unchanged. This command requires separate explicit
+build/signing authorization.
+
+For a RootFS-only iteration using local Screen sources and an existing Kernel:
+
+```sh
+FRE3NDER_FRE3NDERSCREEN_SOURCE=../fre3nderscreen \
+  scripts/build-x2000 --rootfs-only --develop --fre3nderscreen-app
+scripts/build-x2000 --compose-only
+```
+
+The first command builds the app and RootFS stack without rebuilding the Kernel;
+the second composes existing components. A full invocation without
+`--rootfs-only` also builds the Kernel. Check its effective VT/fbcon/USB-HID
+configuration before reusing a Kernel for the [display contract](display.md#linux-virtual-terminals).
+
+Development packages use
+`<artifact.source.release>-fre3nder.0.<apps-commit>` and `release_serial = 0`.
+The source release includes the resolved Screen commit's short ID; the final
+suffix identifies the apps recipe commit. These version strings do not identify
+pending worktree changes. Inspect `source.worktree_sha256` for local Screen
+content, the signed service and package SHA256 for recipe content, and
+`factory_apps.fre3nderscreen.sha256` for the embedded seed. Rebuilding dirty
+sources at the same commits can produce different bytes with the same version;
+the package manager rejects an update to the same development version.
 
 `FRE3NDER_FACTORY_FRE3NDERSCREEN_MODE` explicitly controls the Buildroot wrapper's
 expected app mode: `release` (default) requires `release_serial >= 1`, and
@@ -98,6 +142,9 @@ including `--develop`; the release pipeline accepts no `--develop`. RootFS assem
 validates the finished package using the same package core as runtime install
 and embeds it without unpacking. Its SHA256 is recorded under `factory_apps` in
 the RootFS build manifest; the seed is not part of the Fre3nder build-input hash.
+An embedded seed does not replace an installed app after Factory bootstrap has
+completed. Deployment and [updating that app](installation.md#update-the-installed-display-app)
+are separate steps.
 
 The component scripts are
 [`scripts/build-x2000-kernel`](../scripts/build-x2000-kernel),

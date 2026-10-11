@@ -51,6 +51,12 @@ permission failure identifies a missing prerequisite. Inspect `/sys/class/graphi
 `/proc/bus/input/devices` and the selected app's data/log directory; do not
 hardcode an observed `eventN` or directly drive arbitrary GPIOs.
 Missing UI does not authorize a Factory-marker reset or block the other services.
+`console-unavailable` identifies missing tty7/fbcon prerequisites.
+For `startup-failed`, inspect `/run/fre3nder-boot.log`: readiness diagnostics
+distinguish failed app process status from missing VT_PROCESS / KD_GRAPHICS.
+The VT check can succeed while tty1 is foreground; use
+`/sys/class/tty/tty0/active` to determine which VT is visible. A newer embedded
+Factory seed requires an [explicit installed-app update](installation.md#update-the-installed-display-app).
 See [display](display.md) and [app CLI](api/cli.md#display-selection).
 
 ## Camera is missing

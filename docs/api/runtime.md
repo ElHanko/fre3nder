@@ -35,13 +35,16 @@ S64 supplies its `start`, `stop`, `status` actions with the required paths.
 | Platform-supplied value | Contract |
 | --- | --- |
 | `FRE3NDER_DISPLAY_API` | `1` |
+| `FRE3NDER_DISPLAY_VT` | `/dev/tty7`, the selected frontend's controlling graphics terminal |
 | `FRE3NDER_DISPLAY_FRAMEBUFFER` | Required framebuffer path |
 | `FRE3NDER_DISPLAY_INPUT` | Required discovered touch/input path |
 | `FRE3NDER_DISPLAY_BACKLIGHT_POWER` | Optional Linux backlight power path; empty if absent |
 | `FRE3NDER_DISPLAY_BEEPER` | Optional Linux input beeper path; empty if absent |
 
-Paths/groups grant only the existing framebuffer, input, backlight and beeper
-access. Do not assume a particular `eventN`, arbitrary GPIO access or `/dev/mem`.
+Paths/groups grant framebuffer, input, backlight and beeper access; the platform
+also grants the selected user ownership of tty7, mode `0600`. The frontend must
+handle VT release/acquire and suspend framebuffer writes and touch actions while
+inactive. Do not assume a particular `eventN`, arbitrary GPIO access or `/dev/mem`.
 See [display](../display.md) and the [format contract](../fre3app.md#display-frontend-api-v1).
 
 ## Filesystem, version and supported status

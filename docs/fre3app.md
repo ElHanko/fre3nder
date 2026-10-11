@@ -133,22 +133,37 @@ manager, not by the generic application autostart path. The manager retains
 privileged ownership of hardware discovery and permission setup and invokes the
 selected package service as the unprivileged `fre3nder` user.
 
-For `service start`, a selected display frontend receives these additional
-environment variables:
+For `service start`, `stop`, and `status`, a selected display frontend receives
+these additional environment variables:
 
 ```text
 FRE3NDER_DISPLAY_API=1
+FRE3NDER_DISPLAY_VT=/dev/tty7
 FRE3NDER_DISPLAY_FRAMEBUFFER=<framebuffer device>
 FRE3NDER_DISPLAY_INPUT=<touch input path>
 FRE3NDER_DISPLAY_BACKLIGHT_POWER=<backlight power path or empty>
 FRE3NDER_DISPLAY_BEEPER=<beeper input path or empty>
 ```
 
+`FRE3NDER_DISPLAY_VT` supplies tty7 for the graphics-terminal handoff.
 `FRE3NDER_DISPLAY_FRAMEBUFFER` and `FRE3NDER_DISPLAY_INPUT` are required for
 display-managed `start`, `stop`, and `status` actions. Backlight and beeper are
 optional and are represented by empty values when unavailable. Applications
 must consume the supplied paths and must not depend on platform-specific input
 names, `eventX` numbering, or privileged device setup.
+
+The selected frontend must use the supplied tty7
+as its controlling graphics terminal, handle VT_PROCESS release/acquire, and
+suspend fbdev writes while inactive. This adds the VT path to API 1 without
+changing package format or generic app privileges. After service start, S64
+checks process status and VT_PROCESS / KD_GRAPHICS immediately and retries
+every 100 ms with at most 50 retry sleeps. Success ends the wait immediately;
+a failed start or timeout triggers stop and VT release. The checks confirm
+graphics ownership, not foreground VT selection. Existing frontends without VT
+support require an app update. Fre3nderScreen's app service additionally waits
+for its own first-frame readiness marker; that marker is not a generic package
+format requirement. The [display contract](display.md#graphics-ownership-and-terminal-handoff)
+describes session ownership and startup readiness.
 
 `S64fre3nder-display` implements this platform contract. Ordinary `.fre3app`
 service actions run without supplementary groups. For the selected display

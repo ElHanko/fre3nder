@@ -130,6 +130,44 @@ staging or post-boot validation fails, keep the failure output and use the
 [recovery decision path](recovery.md); do not assume a failed command left the
 selector or partially written target in a usable state.
 
+## Update the installed display app
+
+A new RootFS Factory seed does not replace an already installed Fre3nderScreen
+app. Completed Factory bootstrap and the verified package cache live in HOME;
+after a SYS reset, recovery reconstructs that cached package. Do not reset the
+Factory marker to force an update.
+
+When the new seed contains the intended app update, first verify it on the
+active Fre3nder runtime:
+
+```sh
+ssh -o BatchMode=yes <printer-host> \
+  'fre3nder app verify /usr/share/fre3nder/factory-apps/fre3nderscreen.fre3app'
+```
+
+Inspect the reported version and publisher before updating; the package must
+match the intended seed SHA256 from the build manifest. Development-to-development
+updates require different version strings. Moving from a published release to
+a development package requires an intentional `--allow-downgrade`; do not add
+that option merely to bypass a refused update. See [package version ordering](fre3app.md#manifest).
+
+Then perform the intended update:
+
+```sh
+ssh -o BatchMode=yes <printer-host> \
+  'fre3nder app update /usr/share/fre3nder/factory-apps/fre3nderscreen.fre3app'
+```
+
+Updating the selected frontend uses the display manager to stop and restart it.
+Check `fre3nder app status fre3nderscreen`, `/run/fre3nder-display/status`,
+`/sys/class/tty/tty0/active` and `/usr/libexec/fre3nder/console check`.
+When qualifying automatic startup after an authorized regular reboot, make
+those checks before any manual display-manager start. Physically check the UI,
+VT switching, touch and standby/wakeup, and check Klipper, Moonraker and SSH
+separately. [Display diagnosis](display.md#diagnosis) explains the status/log
+semantics; [local-console setup](display.md#optional-passwordless-local-root-shell)
+is an independent opt-in and must be repeated after a SYS reset if needed.
+
 ## F005 MCU firmware is separate
 
 `deploy-x2000` does not itself install or update the F005; the persistent

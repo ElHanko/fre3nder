@@ -17,6 +17,7 @@ and input shaping, require independent calibration on another printer.
 | Fre3nderScreen settings and touch calibration | `/home/fre3nder/.local/share/fre3nderscreen/fre3nderscreen.json` | App data; initialized once from the old regular Fre3nderScreen config if present, otherwise from the signed package default |
 | Web frontend selection and installed packages | `/home/.fre3nder/frontend/active` and `/home/.fre3nder/packages/` | Root-managed persistent package state; managed through `fre3nder app` |
 | SSH host identity | `/home/fre3nder/.fre3nder/ssh/` | Persistent host identity when persistent root is active |
+| Optional local root shell | `/etc/fre3nder/console.enabled` | Root-controlled SYS opt-in; survives ordinary reboots, removed by SYS reset; independent of SSH |
 | WLAN and SSH boot provisioning | FAT32 USB root: `wpa_supplicant.conf`, `authorized_keys`, `enable_ssh` | Boot-local inputs copied to volatile `/run`; not baked into a build |
 | System code and application payloads | `/opt`, `/usr`, and the writable SYS overlay | Reconstructible system state; reset exposes the immutable RootFS baseline |
 
@@ -67,6 +68,9 @@ and the current updater limit.
 Fre3nderScreen uses its own persistent JSON settings, while framebuffer, NS2009
 input discovery, and backlight are platform hardware paths. See
 [display integration](display.md) for runtime behavior and physical interfaces.
+The [local root console](display.md#optional-passwordless-local-root-shell) is
+disabled until explicitly enabled. Its setup creates `/etc/fre3nder/` when
+missing and establishes the required ownership and permissions.
 
 The boot-local FAT32 provisioning path can provide WLAN configuration and
 public-key SSH access without storing credentials in the repository. The

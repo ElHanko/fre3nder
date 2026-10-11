@@ -3,6 +3,11 @@ commit `a3a3cb263ab845a5590136545911b02306ada35b`. Statements and status labels 
 recorded scope, not the current build or every hardware revision. The preserved
 text remains `AGPL-3.0-or-later`; see `REUSE.toml`.
 
+The snapshots below retain their historical build and qualification status.
+The later [2026-10-11 Linux VT qualification](#2026-10-11-linux-vt-integration-qualification)
+records the tested VT integration; current operation is documented in
+[the display guide](../../docs/display.md).
+
 # Fre3nderScreen local Core-UI
 
 Status: **Factory `.fre3app` integration hardware-qualified on the investigated
@@ -631,3 +636,105 @@ investigated reference system. Later normal printer control and a complete
 print through GuppyScreen were qualified separately; see
 [Fre3nderScreen qualification boundary](display-qualification.md#qualification-boundary).
 Neither result establishes support across other hardware revisions.
+
+## 2026-10-11 Linux VT integration qualification
+
+This section records the operator-reported hardware results supplied for the
+documentation review on 2026-10-11. They apply to the investigated Ender-3 V3 KE
+reference system and the Development artifacts below. No hardware operation or
+new build was performed as part of this documentation review.
+
+| Component | Tested identity |
+| --- | --- |
+| Fre3nder | `2026.5.a` |
+| Kernel SHA256 | `01986371514bdb1aba27f7166f9fe58083b252017e0d02fed1d39ef478384efa` |
+| RootFS SHA256 | `a05efd5d284e51ae4269d3d88dff7c0756d0f57dd7dd8157df823a9f386ccaf5` |
+| Build-input SHA256 | `d2b923a30d0105f2284bbdb70155599f24416ecd8908419ad00bb5a185984bb7` |
+| Signed Fre3nderScreen app | `2026.2.b13627b-fre3nder.0.20e072f`, development serial `0` |
+
+Read-only local artifact inspection during this review confirmed that the
+Kernel and RootFS bytes and their manifests match the supplied hashes and
+build-input identity. The local signed package has the supplied version,
+contains the corrected app service, and matches the Factory-seed SHA256 in the
+RootFS manifest. This corroborates artifact identity; the physical observations
+below remain the operator's hardware evidence.
+
+### Exercised hardware behavior
+
+| Check | Reported result |
+| --- | --- |
+| Complete X2000 Development build, including MIPS compilation | PASS |
+| Kernel and RootFS deployment | PASS |
+| Automatic Screen start after a regular reboot, without manual display-manager start | PASS; display manager `active` |
+| Screen execution and VT ownership | Unprivileged `fre3nder` on tty7; `console check` confirmed `VT_PROCESS` and `KD_GRAPHICS` |
+| Linux framebuffer text console on tty1 | Usable |
+| USB keyboard Ctrl+Alt+F1/F7 and return to graphics | PASS; UI restored correctly |
+| Touchscreen and standby/wakeup | PASS |
+| Local root shell without the opt-in | Access refused |
+| Local root shell with a regular `root:root`, `0600` opt-in file | Access granted |
+| Local root shell after removing the opt-in | New access refused |
+| Klipper after reboot | `active` |
+
+First activation exposed a documentation defect: `/etc/fre3nder/` was absent on
+the fresh installation, so creating only `console.enabled` failed. The current
+[activation instructions](../../docs/display.md#optional-passwordless-local-root-shell)
+create the directory with `root:root`, mode `0755`, before the single-link
+regular opt-in file with mode `0600`.
+
+### Startup investigation and offline evidence
+
+The local app-service investigation reproduced a premature failure when child
+`exec` was delayed by 200 ms. The old `while running` condition treated the
+launching shell's temporary `/proc` identity as a failed app, removed its PID
+marker and could leave a subsequently started process untracked. The corrected
+service keeps waiting while the launched child is alive; readiness still
+requires the validated app identity and first-frame marker. S64 separately
+polls service status and tty7's VT/graphics modes instead of checking them once.
+
+Existing host tests cover delayed process identity, delayed readiness, immediate
+success, missing-process and missing-VT timeouts, partial-start cleanup, and
+console mode/ownership restoration. These are fixture/mock results, distinct
+from the successful physical boot and interactive checks above. In particular,
+they do not qualify every forced crash, timeout or recovery path on hardware.
+
+### Historical implementation references
+
+The earlier VT configuration review cited
+[NebulaOS-kernel commit 4ade16b5139ca6706137f94466397e2d801ad051](https://github.com/coreflake1/NebulaOS-kernel/commit/4ade16b5139ca6706137f94466397e2d801ad051)
+as an fbcon configuration comparison. That citation remains provenance for the
+configuration investigation, not a runtime dependency or an imported VT
+controller. Fre3nder's console and app handoff use Linux fbcon, VT, HID, evdev
+and TTY ownership. Existing display/touch driver derivation remains documented
+in the [hardware provenance](#provenance) above and the source manifest.
+
+Two implementation details explain the current boot-output path. Deferred
+fbcon takeover is scheduled asynchronously: writing `rotate_all` before binding
+can have no effect, so the helper waits for actual attachment. Capturing rcS
+through a pipe/tee could wait on stdout inherited by long-lived services;
+the helper instead captures to a volatile file and replays it after rcS exits.
+
+### Remaining boundaries and implementation finding
+
+Forced SIGKILL/crash, hung live VT-controller recovery and timeout/failure
+cleanup were not comprehensively exercised on hardware. The reported boot
+does not establish a repeated-boot reliability count, a complete print with
+this VT app package, or support across other hardware revisions. It also does
+not qualify an independently built release artifact at the prepared release
+pin. Automatic recovery from a still-live hung VT controller is not implemented.
+
+The initial source review found a difference from the requested `root:root` opt-in
+policy: `root_owned()` in the [console helper](../../configs/x2000/rootfs-overlay/usr/libexec/fre3nder/console)
+checked `st_uid == 0`, but not `st_gid == 0`. A file or parent directory with
+UID 0 and a different GID could therefore pass when its other checks passed.
+Mode `0600` still denied group access to the file; the finding was a
+policy-enforcement gap, not evidence of an authentication bypass.
+
+**Resolved in source; offline validated, not deployed.** The subsequent
+correction requires UID 0 and GID 0 for `/etc`, `/etc/fre3nder` and
+`/etc/fre3nder/console.enabled`. All existing file-type, permission, symlink and
+hardlink checks remain, including exact mode `0600` and one hard link for the
+opt-in. `/run/fre3nder-root/status` retains its UID-0 ownership contract without
+a fixed GID. The correction passed 14 Console/Displaymanager tests and the
+Display-Service fixtures offline. The hardware results above describe the
+preceding implementation; the new GID check has not been deployed to or tested
+on the physical printer.
