@@ -8,6 +8,7 @@ import json
 import os
 import pathlib
 import subprocess
+import stat
 import sys
 import tempfile
 import types
@@ -86,6 +87,7 @@ class Fre3nderDisplayManagerCoreTests(unittest.TestCase):
         self.install_state()
         environment = {
             "FRE3NDER_DISPLAY_API": "1",
+            "FRE3NDER_DISPLAY_VT": "/dev/tty7",
             "FRE3NDER_DISPLAY_FRAMEBUFFER": "/dev/fb0",
             "FRE3NDER_DISPLAY_INPUT": "/run/fre3nder-display/input",
             "FRE3NDER_DISPLAY_BACKLIGHT_POWER": "",
@@ -237,6 +239,153 @@ class Fre3nderDisplayManagerCoreTests(unittest.TestCase):
             self.assertEqual(self.core.stop_installed(), 0)
 
         action.assert_not_called()
+
+
+class LocalConsoleTests(unittest.TestCase):
+    def setUp(self):
+        loader = importlib.machinery.SourceFileLoader("local_console_test", str(CORE.with_name("console")))
+        spec = importlib.util.spec_from_loader(loader.name, loader)
+        self.console = importlib.util.module_from_spec(spec)
+        loader.exec_module(self.console)
+
+    def authorization(self, *, enabled=True, mode=0o600, uid=0, gid=0, kind=stat.S_IFREG,
+                      status="active", links=1, parent_mode=0o755, parent_uid=0,
+                      parent_gid=0, etc_gid=0, parent_kind=stat.S_IFDIR,
+                      status_uid=0, status_gid=0, status_mode=0o644,
+                      status_kind=stat.S_IFREG):
+        console = self.console
+        def info(path):
+            if path == console.ROOT_STATUS:
+                return types.SimpleNamespace(
+                    st_uid=status_uid, st_gid=status_gid,
+                    st_mode=status_kind | status_mode, st_nlink=1,
+                )
+            is_parent = path in (pathlib.Path('/etc'), console.ENABLE.parent)
+            return types.SimpleNamespace(
+                st_uid=parent_uid if is_parent else uid,
+                st_gid=etc_gid if path == pathlib.Path('/etc') else (parent_gid if is_parent else gid),
+                st_mode=(parent_kind | parent_mode) if is_parent else (kind | mode),
+                st_nlink=links,
+            )
+        def lstat(path):
+            if path == console.ENABLE and not enabled:
+                raise FileNotFoundError(path)
+            return info(path)
+        with (mock.patch.object(pathlib.Path, "lstat", lstat),
+              mock.patch.object(pathlib.Path, "read_text", return_value=status)):
+            return console.shell_enabled()
+
+    def test_local_root_shell_requires_explicit_rootfs_authorization(self):
+        self.assertTrue(self.authorization())
+        for invalid in ({"enabled": False}, {"mode": 0o644}, {"mode": 0o666},
+                        {"uid": 1000}, {"kind": stat.S_IFLNK}, {"kind": stat.S_IFDIR},
+                        {"kind": stat.S_IFIFO}, {"links": 2}, {"status": "degraded"},
+                        {"status": ""}, {"parent_mode": 0o777}, {"parent_uid": 1000},
+                        {"parent_mode": 0o775}, {"parent_mode": 0o757},
+                        {"parent_kind": stat.S_IFLNK}, {"parent_kind": stat.S_IFREG}):
+            with self.subTest(invalid=invalid):
+                self.assertFalse(self.authorization(**invalid))
+
+    def test_console_opt_in_and_parents_require_root_group(self):
+        self.assertTrue(self.authorization(gid=0, etc_gid=0, parent_gid=0))
+        for invalid in ({"etc_gid": 1000}, {"parent_gid": 1000}, {"gid": 1000}):
+            with self.subTest(invalid=invalid):
+                self.assertFalse(self.authorization(**invalid))
+
+    def test_root_status_keeps_uid_only_ownership_contract(self):
+        for mode in (0o644, 0o640):
+            with self.subTest(mode=mode):
+                self.assertTrue(self.authorization(status_gid=1000, status_mode=mode))
+        for invalid in ({"status_uid": 1000}, {"status_mode": 0o664},
+                        {"status_mode": 0o646}, {"status_kind": stat.S_IFLNK},
+                        {"status_kind": stat.S_IFDIR}):
+            with self.subTest(invalid=invalid):
+                self.assertFalse(self.authorization(**invalid))
+
+    def test_disabled_console_never_executes_a_shell(self):
+        with (mock.patch.object(sys, "argv", ["console", "shell"]),
+              mock.patch.object(self.console.os, "geteuid", return_value=0),
+              mock.patch.object(self.console, "shell_enabled", return_value=False),
+              mock.patch.object(self.console.os, "execv") as execute,
+              contextlib.redirect_stdout(io.StringIO())):
+            self.assertEqual(self.console.main(), 1)
+        execute.assert_not_called()
+
+    def test_console_init_follows_pivot_and_does_not_gate_printer_services(self):
+        inittab = (ROOT / "configs/x2000/rootfs-overlay/etc/inittab").read_text()
+        self.assertLess(inittab.index("fre3nder-root start"), inittab.index("console boot"))
+        self.assertLess(inittab.index("console boot"), inittab.index("console services"))
+        self.assertIn("tty1::askfirst:/usr/libexec/fre3nder/console shell", inittab)
+        self.assertFalse((ROOT / "configs/x2000/rootfs-overlay/etc/fre3nder/console.enabled").exists())
+
+    def test_rotation_waits_for_deferred_takeover_and_missing_fbcon_fails(self):
+        console = self.console
+        entry = pathlib.Path('/sys/class/vtconsole/vtcon1')
+        for bindings, success in ((['0', '1'], True), (['0'] * 20, False)):
+            reads = iter(bindings)
+            def read(path):
+                return '(M) frame buffer device' if path.name == 'name' else next(reads)
+            with (mock.patch.object(console, 'open_vt', return_value=123),
+                  mock.patch.object(console.fcntl, 'ioctl'),
+                  mock.patch.object(console.os, 'write'),
+                  mock.patch.object(console.os, 'close'),
+                  mock.patch.object(pathlib.Path, 'glob', return_value=[entry]),
+                  mock.patch.object(pathlib.Path, 'read_text', read),
+                  mock.patch.object(pathlib.Path, 'write_text') as rotate,
+                  mock.patch.object(console.time, 'sleep') as sleep):
+                if success:
+                    console.text_console()
+                    rotate.assert_called_once_with('3\n')
+                    sleep.assert_called_once_with(0.05)
+                else:
+                    with self.assertRaisesRegex(ValueError, 'not bound'):
+                        console.text_console()
+                    rotate.assert_not_called()
+
+    def test_release_restores_text_and_does_not_switch_away_from_another_vt(self):
+        for current in (1, 7):
+            calls = []
+            def ioctl(_fd, operation, arg, *extra):
+                calls.append((operation, arg))
+                if operation == self.console.VT_GETSTATE:
+                    arg[:] = self.console.struct.pack('@HHH', current, 0, 0)
+            with (mock.patch.object(sys, "argv", ["console", "release"]),
+                  mock.patch.object(self.console.os, "geteuid", return_value=0),
+                  mock.patch.object(self.console, "open_vt", return_value=123),
+                  mock.patch.object(self.console.fcntl, "ioctl", side_effect=ioctl),
+                  mock.patch.object(self.console.os, "fchown") as owner,
+                  mock.patch.object(self.console.os, "fchmod") as permissions,
+                  mock.patch.object(self.console.os, "close")):
+                self.assertEqual(self.console.main(), 0)
+            self.assertIn((self.console.KDSETMODE, 0), calls)
+            self.assertIn((self.console.VT_SETMODE, self.console.struct.pack('@BBhhh', 0, 0, 0, 0, 0)), calls)
+            self.assertEqual((self.console.VT_ACTIVATE, 1) in calls, current == 7)
+            owner.assert_called_once_with(123, 0, 0)
+            permissions.assert_called_once_with(123, 0o600)
+
+    def test_check_requires_both_vt_process_and_graphics_without_mutating_vt(self):
+        for vt_mode, graphics in ((0, 0), (1, 0), (0, 1), (1, 1)):
+            with self.subTest(vt_mode=vt_mode, graphics=graphics):
+                calls = []
+                def ioctl(_fd, operation, arg, *extra):
+                    calls.append(operation)
+                    if operation == self.console.VT_GETMODE:
+                        arg[:] = self.console.struct.pack('@BBhhh', vt_mode, 0, 0, 0, 0)
+                    elif operation == self.console.KDGETMODE:
+                        arg[:] = self.console.struct.pack('@i', graphics)
+                with (mock.patch.object(sys, 'argv', ['console', 'check']),
+                      mock.patch.object(self.console.os, 'geteuid', return_value=0),
+                      mock.patch.object(self.console, 'open_vt', return_value=123) as open_vt,
+                      mock.patch.object(self.console.fcntl, 'ioctl', side_effect=ioctl),
+                      mock.patch.object(self.console.os, 'close') as close):
+                    if (vt_mode, graphics) == (1, 1):
+                        self.assertEqual(self.console.main(), 0)
+                    else:
+                        with self.assertRaisesRegex(ValueError, 'has not acquired tty7'):
+                            self.console.main()
+                open_vt.assert_called_once_with(self.console.TTY7)
+                close.assert_called_once_with(123)
+                self.assertEqual(calls, [self.console.VT_GETMODE, self.console.KDGETMODE])
 
 
 if __name__ == "__main__":

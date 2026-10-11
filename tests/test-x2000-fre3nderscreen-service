@@ -15,6 +15,7 @@ active_display=$tmp/home/.fre3nder/display/active
 input_sys=$tmp/sys/class/input
 input_dev=$tmp/dev/input
 backlight_power=$tmp/sys/class/backlight/backlight/bl_power
+mock_console=$tmp/console
 mock_core=$tmp/package-core
 running=$tmp/running
 called=$tmp/called
@@ -44,11 +45,17 @@ cat > "$mock_core" <<'EOF'
 #!/bin/sh
 case "$1" in
 display-service-status)
-	[ -f "$FIXTURE_RUNNING" ]
+	[ -f "$FIXTURE_RUNNING" ] || exit 1
+	checks=$(cat "$FIXTURE_ROOT/process-checks")
+	checks=$((checks + 1))
+	printf '%s\n' "$checks" > "$FIXTURE_ROOT/process-checks"
+	[ "${FIXTURE_PROCESS_MISSING:-}" != yes ] || exit 1
+	[ "$checks" -ge "${FIXTURE_PROCESS_DELAY:-0}" ]
 	;;
 display-service-start)
 	{
 		printf 'action=start\n'
+		printf 'vt=%s\n' "${FRE3NDER_DISPLAY_VT:-}"
 		printf 'api=%s\n' "${FRE3NDER_DISPLAY_API:-}"
 		printf 'framebuffer=%s\n' "${FRE3NDER_DISPLAY_FRAMEBUFFER:-}"
 		printf 'input=%s\n' "${FRE3NDER_DISPLAY_INPUT:-}"
@@ -56,6 +63,12 @@ display-service-start)
 		printf 'beeper=%s\n' "${FRE3NDER_DISPLAY_BEEPER:-}"
 	} >> "$FIXTURE_CALLED"
 	: > "$FIXTURE_RUNNING"
+	printf '%s\n' 0 > "$FIXTURE_ROOT/process-checks"
+	printf '%s\n' 0 > "$FIXTURE_ROOT/vt-checks"
+	if [ "${FIXTURE_START_FAIL:-}" = yes ]; then
+		echo 'fixture: definitive start failure' >&2
+		exit 23
+	fi
 	;;
 display-service-stop)
 	[ "${FIXTURE_STOP_FAIL:-}" != yes ] || exit 23
@@ -75,6 +88,22 @@ display-service-stop)
 esac
 EOF
 chmod 0755 "$mock_core"
+cat > "$mock_console" <<'EOF'
+#!/bin/sh
+printf '%s\n' "$1" >> "$FIXTURE_ROOT/console-calls"
+[ "${FIXTURE_CONSOLE_FAIL:-}" != yes ] || exit 1
+if [ "$1" = check ] && [ "${FIXTURE_LEGACY_DISPLAY:-}" = yes ]; then
+    echo 'fixture: tty7 is not in graphics mode' >&2
+    exit 1
+fi
+if [ "$1" = check ] && [ -f "$FIXTURE_RUNNING" ]; then
+    checks=$(cat "$FIXTURE_ROOT/vt-checks")
+    checks=$((checks + 1))
+    printf '%s\n' "$checks" > "$FIXTURE_ROOT/vt-checks"
+    [ "$checks" -ge "${FIXTURE_VT_DELAY:-0}" ] || exit 1
+fi
+EOF
+chmod 0755 "$mock_console"
 
 cat > "$mockbin/id" <<'EOF'
 #!/bin/sh
@@ -106,6 +135,11 @@ case "$2" in
 *) exit 1 ;;
 esac
 EOF
+cat > "$mockbin/sleep" <<'EOF'
+#!/bin/sh
+[ "$1" = 0.1 ] || exit 1
+printf '%s\n' "$1" >> "$FIXTURE_ROOT/sleep-calls"
+EOF
 chmod 0755 "$mockbin"/*
 
 run_service() (
@@ -116,10 +150,15 @@ run_service() (
 	export FIXTURE_CALLED=$called
 	export FIXTURE_STOP_FAIL=${FIXTURE_STOP_FAIL:-}
 	export FIXTURE_GROUPS=${FIXTURE_GROUPS:-}
+	export FIXTURE_PROCESS_DELAY="${FIXTURE_PROCESS_DELAY:-0}"
+	export FIXTURE_VT_DELAY="${FIXTURE_VT_DELAY:-0}"
+	export FIXTURE_PROCESS_MISSING="${FIXTURE_PROCESS_MISSING:-}"
+	export FIXTURE_START_FAIL="${FIXTURE_START_FAIL:-}"
 	export FRE3NDER_DISPLAY_RUNTIME=$runtime
 	export FRE3NDER_ROOT_STATE=$root_state
 	export FRE3NDER_DISPLAY_ACTIVE=$active_display
 	export FRE3NDER_PACKAGE_CORE=$mock_core
+	export FRE3NDER_DISPLAY_CONSOLE=$mock_console
 	export FRE3NDER_DISPLAY_GROUP_FILE=$group_file
 	export FRE3NDER_DISPLAY_FRAMEBUFFER_DEVICE=/dev/null
 	export FRE3NDER_DISPLAY_BACKLIGHT_POWER_DEVICE=$backlight_power
@@ -158,6 +197,12 @@ FIXTURE_GROUPS='1000 28' run_service start
 [ "$(cat "$runtime/status")" = user-invalid ]
 [ ! -e "$called" ]
 
+# A missing fbcon stops only the UI; no package service is started.
+export FIXTURE_CONSOLE_FAIL=yes
+run_service start
+[ "$(cat "$runtime/status")" = console-unavailable ]
+[ ! -e "$called" ]
+unset FIXTURE_CONSOLE_FAIL
 run_service start
 [ "$(cat "$runtime/status")" = active ]
 [ "$(cat "$backlight_power")" = 0 ]
@@ -165,17 +210,20 @@ run_service start
 [ "$(readlink "$runtime/beeper")" = /dev/null ]
 [ -f "$running" ]
 grep -Fxq 'action=start' "$called"
+grep -Fxq 'vt=/dev/tty7' "$called"
 grep -Fxq 'api=1' "$called"
 grep -Fxq 'framebuffer=/dev/null' "$called"
 grep -Fxq "input=$runtime/input" "$called"
 grep -Fxq "backlight=$backlight_power" "$called"
 grep -Fxq "beeper=$runtime/beeper" "$called"
+[ ! -e "$tmp/sleep-calls" ]
 
 # A second start is idempotent and uses service status instead of another start.
 before=$(grep -c '^action=start$' "$called")
 run_service start
 after=$(grep -c '^action=start$' "$called")
 [ "$before" = "$after" ]
+[ ! -e "$tmp/sleep-calls" ]
 
 # Stop failure is reported and must not erase the runtime links/state.
 if FIXTURE_STOP_FAIL=yes run_service stop; then
@@ -193,6 +241,42 @@ run_service stop
 [ ! -e "$running" ]
 grep -Fxq 'action=stop' "$called"
 
+# Process identity and VT readiness can each lag behind service start.
+FIXTURE_PROCESS_DELAY=3 FIXTURE_VT_DELAY=3 run_service start
+[ "$(cat "$runtime/status")" = active ]
+[ -f "$running" ]
+[ "$(cat "$tmp/process-checks")" = 5 ]
+[ "$(cat "$tmp/vt-checks")" = 3 ]
+[ "$(wc -l < "$tmp/sleep-calls")" -eq 4 ]
+run_service stop
+rm -f "$tmp/sleep-calls"
+
+# A definitive start error cleans up even a partially started app, without retries.
+rm -f "$called" "$tmp/console-calls"
+FIXTURE_START_FAIL=yes run_service start > "$tmp/start-error"
+[ "$(cat "$runtime/status")" = startup-failed ]
+[ ! -e "$running" ]
+[ ! -L "$runtime/input" ]
+[ ! -L "$runtime/beeper" ]
+[ ! -e "$tmp/sleep-calls" ]
+grep -Fq 'fixture: definitive start failure' "$tmp/start-error"
+grep -Fxq 'action=stop' "$called"
+[ "$(tail -n 1 "$tmp/console-calls")" = release ]
+
+# An absent app process times out separately from missing VT readiness.
+rm -f "$called" "$tmp/console-calls"
+FIXTURE_PROCESS_MISSING=yes run_service start > "$tmp/process-error"
+[ "$(cat "$runtime/status")" = startup-failed ]
+[ "$(wc -l < "$tmp/sleep-calls")" -eq 50 ]
+[ "$(cat "$tmp/process-checks")" = 51 ]
+[ ! -e "$running" ]
+[ ! -L "$runtime/input" ]
+[ ! -L "$runtime/beeper" ]
+grep -Fq 'app process is missing' "$tmp/process-error"
+grep -Fxq 'action=stop' "$called"
+[ "$(tail -n 1 "$tmp/console-calls")" = release ]
+rm -f "$tmp/sleep-calls"
+
 # Backlight and beeper are optional and become empty API values.
 rm -f "$backlight_power" "$called"
 FIXTURE_NO_BEEPER=yes run_service start
@@ -200,6 +284,22 @@ FIXTURE_NO_BEEPER=yes run_service start
 grep -Fxq 'backlight=' "$called"
 grep -Fxq 'beeper=' "$called"
 run_service stop
+
+# A running frontend without VT_PROCESS/KD_GRAPHICS is stopped and reported.
+export FIXTURE_LEGACY_DISPLAY=yes
+rm -f "$tmp/console-calls" "$called"
+run_service start > "$tmp/vt-error"
+[ "$(cat "$runtime/status")" = startup-failed ]
+[ "$(wc -l < "$tmp/sleep-calls")" -eq 50 ]
+[ "$(cat "$tmp/process-checks")" = 51 ]
+[ ! -e "$running" ]
+[ ! -L "$runtime/input" ]
+[ ! -L "$runtime/beeper" ]
+grep -Fq 'VT readiness missing' "$tmp/vt-error"
+grep -Fq 'fixture: tty7 is not in graphics mode' "$tmp/vt-error"
+grep -Fxq 'action=stop' "$called"
+[ "$(tail -n 1 "$tmp/console-calls")" = release ]
+unset FIXTURE_LEGACY_DISPLAY
 
 # Touch remains required.
 rm -f "$input_dev/event7" "$called"

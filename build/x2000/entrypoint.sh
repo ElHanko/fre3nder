@@ -1293,6 +1293,10 @@ EOF
 	! grep -Eq '^CONFIG_(MEDIA_PLATFORM_DRIVERS|V4L_PLATFORM_DRIVERS|V4L_MEM2MEM_DRIVERS|VIDEOBUF2_DMA_CONTIG|VIDEOBUF2_DMA_SG|V4L2_MEM2MEM_DEV|V4L2_FWNODE|V4L2_ASYNC)=' \
 		"$k/.config"
 	grep -Fxq '# CONFIG_SOUND is not set' "$k/.config"
+	for option in VT VT_CONSOLE FRAMEBUFFER_CONSOLE FRAMEBUFFER_CONSOLE_ROTATION \
+		FRAMEBUFFER_CONSOLE_DEFERRED_TAKEOVER FONT_8x16 HID_GENERIC USB_HID; do
+		grep -Fxq "CONFIG_$option=y" "$k/.config"
+	done
 	grep -Fxq 'CONFIG_FB=y' "$k/.config"
 	grep -Fxq 'CONFIG_FB_INGENIC=y' "$k/.config"
 	grep -Fxq 'CONFIG_FB_INGENIC_STAGE=y' "$k/.config"
@@ -1772,7 +1776,7 @@ check_rootfs() {
 		cut -d: -f1
 	)
 	rcs_line=$(
-		grep -nF '::sysinit:/etc/init.d/rcS' "$inittab" |
+		grep -nF '::sysinit:/usr/libexec/fre3nder/console services' "$inittab" |
 		cut -d: -f1
 	)
 	[ "$root_setup_line" -lt "$rcs_line" ]

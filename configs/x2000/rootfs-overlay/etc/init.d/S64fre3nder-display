@@ -13,6 +13,7 @@ input_sys=${FRE3NDER_DISPLAY_INPUT_SYS:-/sys/class/input}
 input_dev=${FRE3NDER_DISPLAY_INPUT_DEV:-/dev/input}
 input_name=${FRE3NDER_DISPLAY_INPUT_NAME:-ns2009_ts}
 beeper_input_name=${FRE3NDER_DISPLAY_BEEPER_INPUT_NAME:-pwm-beeper}
+console=${FRE3NDER_DISPLAY_CONSOLE:-/usr/libexec/fre3nder/console}
 group_file=${FRE3NDER_DISPLAY_GROUP_FILE:-/etc/group}
 
 log() {
@@ -121,11 +122,31 @@ enable_backlight() {
 run_display_service() {
 	action=$1
 	FRE3NDER_DISPLAY_API=1 \
+	FRE3NDER_DISPLAY_VT=/dev/tty7 \
 	FRE3NDER_DISPLAY_FRAMEBUFFER="$framebuffer" \
 	FRE3NDER_DISPLAY_INPUT="$input_link" \
 	FRE3NDER_DISPLAY_BACKLIGHT_POWER="$display_backlight" \
 	FRE3NDER_DISPLAY_BEEPER="$display_beeper" \
 		"$package_core" "display-service-$action"
+}
+
+wait_display_ready() {
+	# Service start may return before the process has acquired its VT.
+	# Check immediately, then allow at most five seconds of short retries.
+	tries=0
+	while :; do
+		if run_display_service status >/dev/null 2>&1; then
+			if result=$("$console" check 2>&1); then
+				return 0
+			fi
+			readiness_error="VT readiness missing (tty7 VT_PROCESS / KD_GRAPHICS): $result"
+		else
+			readiness_error='app process is missing (service status failed)'
+		fi
+		[ "$tries" -lt 50 ] || return 1
+		sleep 0.1
+		tries=$((tries + 1))
+	done
 }
 
 prepare_runtime() {
@@ -233,7 +254,7 @@ start() {
 		return 0
 	fi
 
-	if run_display_service status >/dev/null 2>&1; then
+	if run_display_service status >/dev/null 2>&1 && "$console" check; then
 		if [ -n "$display_backlight" ] && ! enable_backlight; then
 			log 'backlight control is unavailable; local display remains running'
 		fi
@@ -241,19 +262,28 @@ start() {
 		return 0
 	fi
 
+	if ! "$console" prepare; then
+		set_status console-unavailable
+		log 'framebuffer console or tty7 is unavailable; local display remains stopped'
+		return 0
+	fi
+
 	set_status starting
 	if ! result=$(run_display_service start 2>&1); then
+		run_display_service stop >/dev/null 2>&1 || true
 		rm -f "$input_link" "$beeper_link"
+		"$console" release || true
 		set_status startup-failed
 		log "selected display frontend failed to start: $result"
 		return 0
 	fi
 
-	if ! run_display_service status >/dev/null 2>&1; then
+	if ! wait_display_ready; then
 		run_display_service stop >/dev/null 2>&1 || true
 		rm -f "$input_link" "$beeper_link"
 		set_status startup-failed
-		log 'selected display frontend did not become active'
+		"$console" release || true
+		log "selected display frontend readiness timed out: $readiness_error"
 		return 0
 	fi
 
@@ -289,6 +319,8 @@ stop() {
 		fi
 	fi
 
+	[ -z "$display_backlight" ] || enable_backlight || true
+	"$console" release || true
 	rm -f "$input_link" "$beeper_link"
 	set_status stopped
 	return 0
@@ -298,7 +330,7 @@ service_status() {
 	selection_file_valid || return 1
 	[ -x "$package_core" ] && [ ! -L "$package_core" ] || return 1
 	prepare_optional_paths
-	run_display_service status >/dev/null 2>&1
+	run_display_service status >/dev/null 2>&1 && "$console" check
 }
 
 case "${1:-}" in

@@ -15,3 +15,8 @@ CONFIG_NTPD=y
 
 # S30fre3nder-user adds the screen user to existing functional groups.
 CONFIG_FEATURE_ADDUSER_TO_GROUP=y
+
+# Local VT startup and a guarded askfirst console.
+CONFIG_INIT=y
+CONFIG_FEATURE_USE_INITTAB=y
+CONFIG_DMESG=y

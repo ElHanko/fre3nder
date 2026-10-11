@@ -60,6 +60,8 @@ install -d -m 0755 "$target/ota/packages"
 install -d -m 0700 "$target/root/.ssh"
 ln -snf ../run/fre3nder/resolv.conf "$target/etc/resolv.conf"
 rm -f "$target/etc/wpa_supplicant.conf"
+# Local root access is an operator opt-in, never an immutable image default.
+rm -f "$target/etc/fre3nder/console.enabled"
 
 mdev_conf="$target/etc/mdev.conf"
 touch "$mdev_conf"
@@ -100,6 +102,7 @@ chmod 0755 \
 	"$target/usr/bin/fre3nder" \
 	"$target/usr/libexec/fre3nder/managementd" \
 	"$target/usr/libexec/fre3nder/package-core" \
+	"$target/usr/libexec/fre3nder/console" \
 	"$target/usr/libexec/fre3nder/ota-core" \
 	"$target/usr/libexec/fre3nder/usb" \
 	"$target/etc/init.d/fre3nder-root" \

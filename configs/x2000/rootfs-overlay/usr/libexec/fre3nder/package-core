@@ -534,6 +534,7 @@ def display_service_environment() -> dict[str, str]:
 
     return {
         "FRE3NDER_DISPLAY_API": str(DISPLAY_API_VERSION),
+        "FRE3NDER_DISPLAY_VT": os.environ.get("FRE3NDER_DISPLAY_VT", ""),
         "FRE3NDER_DISPLAY_FRAMEBUFFER": framebuffer,
         "FRE3NDER_DISPLAY_INPUT": input_path,
         "FRE3NDER_DISPLAY_BACKLIGHT_POWER": os.environ.get(

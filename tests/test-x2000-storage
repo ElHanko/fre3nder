@@ -191,14 +191,14 @@ status_is() {
 # Root setup is an immutable sysinit bootstrap, not an rcS S?? service.
 [ "${root_setup##*/}" = fre3nder-root ]
 grep -Fxq '::sysinit:/etc/init.d/fre3nder-root start' "$inittab"
-grep -Fxq '::sysinit:/etc/init.d/rcS' "$inittab"
+grep -Fq '::sysinit:/usr/libexec/fre3nder/console services' "$inittab"
 
 root_setup_line=$(
 	grep -nF '::sysinit:/etc/init.d/fre3nder-root start' "$inittab" |
 	cut -d: -f1
 )
 rcs_line=$(
-	grep -nF '::sysinit:/etc/init.d/rcS' "$inittab" |
+	grep -nF '::sysinit:/usr/libexec/fre3nder/console services' "$inittab" |
 	cut -d: -f1
 )
 

@@ -6,7 +6,9 @@
 ::sysinit:/bin/mkdir -p /dev/pts
 ::sysinit:/bin/mount -t devpts devpts /dev/pts
 ::sysinit:/etc/init.d/fre3nder-root start
-::sysinit:/etc/init.d/rcS
+::sysinit:/usr/libexec/fre3nder/console boot
+::sysinit:/usr/libexec/fre3nder/console services
+tty1::askfirst:/usr/libexec/fre3nder/console shell
 ::ctrlaltdel:/sbin/reboot
 ::shutdown:/etc/init.d/rcK
 ::shutdown:/sbin/swapoff -a

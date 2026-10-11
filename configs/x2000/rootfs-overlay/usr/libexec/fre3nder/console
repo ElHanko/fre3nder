@@ -1,0 +1,158 @@
+#!/usr/bin/python3
+"""Root-owned local VT preparation and opt-in askfirst shell (no daemon)."""
+
+import fcntl
+import os
+import pathlib
+import pwd
+import shutil
+import stat
+import struct
+import subprocess
+import sys
+import time
+
+VT_GETMODE = 0x5601
+VT_SETMODE = 0x5602
+VT_GETSTATE = 0x5603
+VT_ACTIVATE = 0x5606
+KDGETMODE = 0x4B3B
+KDSETMODE = 0x4B3A
+TTY1 = pathlib.Path('/dev/tty1')
+TTY7 = pathlib.Path('/dev/tty7')
+ROTATION = pathlib.Path('/sys/class/graphics/fbcon/rotate_all')
+VTCONSOLES = pathlib.Path('/sys/class/vtconsole')
+ENABLE = pathlib.Path('/etc/fre3nder/console.enabled')
+ROOT_STATUS = pathlib.Path('/run/fre3nder-root/status')
+
+
+def root_owned(path, *, directory=False, root_group=False):
+    info = path.lstat()
+    valid_type = stat.S_ISDIR(info.st_mode) if directory else stat.S_ISREG(info.st_mode)
+    return (valid_type and info.st_uid == 0 and (not root_group or info.st_gid == 0)
+            and not info.st_mode & 0o022)
+
+
+def shell_enabled():
+    try:
+        for path in (pathlib.Path('/etc'), ENABLE.parent):
+            if not root_owned(path, directory=True, root_group=True):
+                return False
+        return (root_owned(ENABLE, root_group=True) and stat.S_IMODE(ENABLE.lstat().st_mode) == 0o600
+                and ENABLE.lstat().st_nlink == 1 and root_owned(ROOT_STATUS)
+                and ROOT_STATUS.read_text().strip() == 'active')
+    except OSError:
+        return False
+
+
+def open_vt(path):
+    fd = os.open(path, os.O_RDWR | os.O_NOCTTY | os.O_NOFOLLOW | os.O_CLOEXEC)
+    info = os.fstat(fd)
+    if not stat.S_ISCHR(info.st_mode) or info.st_rdev != os.makedev(4, int(path.name[3:])):
+        os.close(fd)
+        raise ValueError('unexpected VT device')
+    return fd
+
+
+def text_console():
+    fd = open_vt(TTY1)
+    try:
+        fcntl.ioctl(fd, KDSETMODE, 0)  # KD_TEXT
+        # The first VT output triggers deferred fbcon takeover.
+        os.write(fd, b'Fre3nder Linux console\r\n')
+    finally:
+        os.close(fd)
+    # Linux schedules deferred takeover as work; writing rotate_all before
+    # attachment silently does nothing. Wait briefly for that actual handoff.
+    for _ in range(20):
+        if any('frame buffer' in (entry / 'name').read_text()
+               and (entry / 'bind').read_text().strip() == '1'
+               for entry in VTCONSOLES.glob('vtcon*')):
+            ROTATION.write_text('3\n')  # CCW, same mapping as LV_DISP_ROT_90
+            return
+        time.sleep(0.05)
+    raise ValueError('framebuffer console is not bound')
+
+
+def main():
+    if os.geteuid() != 0:
+        raise ValueError('root is required')
+    action = sys.argv[1] if len(sys.argv) == 2 else ''
+    if action == 'shell':
+        if not shell_enabled():
+            print('Local root shell disabled: root must enable /etc/fre3nder/console.enabled on active FRE3NDERSYS.')
+            return 1
+        os.environ.update(HOME='/root', USER='root', LOGNAME='root', TERM='linux')
+        os.chdir('/root')
+        os.execv('/bin/sh', ['-sh'])
+    elif action == 'boot':
+        text_console()
+        fd = open_vt(TTY1)
+        try:
+            fcntl.ioctl(fd, VT_ACTIVATE, 1)
+            # Replay the available ring buffer, without clearing it or following it.
+            subprocess.run(['dmesg'], stdout=fd, stderr=fd, check=False)
+        finally:
+            os.close(fd)
+    elif action == 'services':
+        # A pipe/tee around rcS would wait forever on inherited daemon stdout
+        # (notably ntpd). Use a volatile log and replay after rcS returns.
+        with open('/run/fre3nder-boot.log', 'w+b') as output:
+            result = subprocess.run(['/etc/init.d/rcS'], stdout=output, stderr=output, check=False)
+            output.seek(0)
+            shutil.copyfileobj(output, sys.stdout.buffer)
+            sys.stdout.buffer.flush()
+            try:
+                fd = open_vt(TTY1)
+            except (OSError, ValueError) as exc:
+                print(f'fre3nder console: {exc}', file=sys.stderr)
+            else:
+                with os.fdopen(fd, 'wb') as console:
+                    output.seek(0)
+                    shutil.copyfileobj(output, console)
+            return result.returncode
+    elif action == 'prepare':
+        text_console()
+        account = pwd.getpwnam('fre3nder')
+        fd = open_vt(TTY7)
+        try:
+            fcntl.ioctl(fd, VT_SETMODE, struct.pack('@BBhhh', 0, 0, 0, 0, 0))
+            fcntl.ioctl(fd, KDSETMODE, 0)
+            os.fchown(fd, account.pw_uid, account.pw_gid)
+            os.fchmod(fd, 0o600)
+        finally:
+            os.close(fd)
+    elif action == 'check':
+        fd = open_vt(TTY7)
+        try:
+            mode, graphics = bytearray(8), bytearray(4)
+            fcntl.ioctl(fd, VT_GETMODE, mode, True)
+            fcntl.ioctl(fd, KDGETMODE, graphics, True)
+            if mode[0] != 1 or struct.unpack('@i', graphics)[0] != 1:
+                raise ValueError('display frontend has not acquired tty7 in VT_PROCESS / KD_GRAPHICS')
+        finally:
+            os.close(fd)
+    elif action == 'release':
+        fd = open_vt(TTY7)
+        try:
+            fcntl.ioctl(fd, VT_SETMODE, struct.pack('@BBhhh', 0, 0, 0, 0, 0))  # VT_AUTO
+            fcntl.ioctl(fd, KDSETMODE, 0)
+            state = bytearray(6)
+            fcntl.ioctl(fd, VT_GETSTATE, state, True)
+            if struct.unpack('@HHH', state)[0] == 7:
+                fcntl.ioctl(fd, VT_ACTIVATE, 1)
+            os.fchown(fd, 0, 0)
+            os.fchmod(fd, 0o600)
+        finally:
+            os.close(fd)
+    else:
+        raise ValueError('usage: console {boot|services|shell|prepare|check|release}')
+    return 0
+
+
+if __name__ == '__main__':
+    try:
+        sys.exit(main())
+    except (OSError, ValueError, KeyError) as exc:
+        print(f'fre3nder console: {exc}', file=sys.stderr)
+        sys.exit(1)
