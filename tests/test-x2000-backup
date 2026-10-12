@@ -244,6 +244,14 @@ def test_offer_plan_and_execute():
         (sys_upper / "sys.txt").write_text(
             "sys fixture\n"
         )
+        packages = sys_upper / "ota/packages"
+        packages.mkdir(parents=True)
+        (packages / "staged.ota").write_bytes(b"must not enter SYS backup")
+        (packages / ".lighttpd-upload").mkdir()
+        (packages / ".lighttpd-upload/chunk").write_bytes(b"temporary proxy data")
+        (sys_upper / "ota/other.txt").write_text("other SYS data remains")
+        (home / "ota/packages").mkdir(parents=True)
+        (home / "ota/packages/home-data.txt").write_text("HOME remains unchanged")
 
         usb_helper = make_usb_helper(
             temporary / "fre3nder-usb",
@@ -341,11 +349,21 @@ def test_offer_plan_and_execute():
             home_result["archive"],
             "r:",
         ) as archive:
+            assert "home/ota/packages/home-data.txt" in archive.getnames()
             assert all(
                 "Fre3nderBackup"
                 not in name
                 for name in archive.getnames()
             )
+
+        with tarfile.open(sys_result["archive"], "r:") as archive:
+            names = archive.getnames()
+            assert "sys/sys.txt" in names
+            assert "sys/ota/other.txt" in names
+            assert not any(name.startswith("sys/ota/packages") for name in names)
+        module.verify_backup_archive(
+            Path(sys_result["archive"]), sys_result["size"], sys_result["sha256"]
+        )
 
 
 def test_execute_rejects_changed_usb():

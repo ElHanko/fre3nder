@@ -208,6 +208,50 @@ button:disabled {
   background: color-mix(in srgb, #b94949 10%, var(--surface));
 }
 
+.ota-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: .65rem;
+  margin: .75rem 0;
+}
+.ota-controls label { font-size: .9rem; }
+.ota-controls input, .ota-controls select { max-width: 100%; }
+select {
+  font: inherit;
+  padding: .45rem;
+  border: 1px solid var(--border);
+  border-radius: .35rem;
+  background: var(--surface);
+  color: var(--text);
+}
+#ota-package { width: 100%; }
+#ota-upload-progress { width: 100%; }
+#ota-backups { overflow-wrap: anywhere; }
+.primary-update { padding: .75rem 1.25rem; font-weight: 600; }
+.ota-progress { padding: 0; margin: 1rem 0; list-style: none; }
+.ota-progress li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: .5rem;
+  padding: .55rem 0;
+  border-bottom: 1px solid var(--border);
+}
+.ota-notice {
+  margin-top: .75rem;
+  padding: .75rem;
+  border-left: .2rem solid var(--accent);
+  background: var(--accent-soft);
+}
+.ota-reboot-view { max-width: 42rem; margin: 4rem auto; text-align: center; }
+.ota-reboot-view h1 { font-size: clamp(2.5rem, 8vw, 4rem); }
+.ota-reboot-view p { line-height: 1.6; }
+details { margin: .75rem 0; }
+summary { color: var(--muted); cursor: pointer; }
+[hidden] { display: none !important; }
+
 @media (max-width: 46rem) {
   .app-shell { display: block; }
   .sidebar {

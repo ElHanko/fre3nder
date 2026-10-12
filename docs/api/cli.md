@@ -163,5 +163,8 @@ advancing. Do not generate IDs or manipulate internal state to skip confirmation
 
 These commands use text output and the common exit rules. Handled OTA failures
 return `1`; extra delegated arguments can also be reported as operation errors.
+Transacting operations are serialized with browser OTA through the same Core
+lock; a concurrent transition fails instead of overwriting transaction state.
+The internal read-only Core `status` operation is not a public CLI subcommand.
 The public command family has no `postboot` entry or promise of automatic
 failed-boot rollback. F005 remains outside platform OTA.

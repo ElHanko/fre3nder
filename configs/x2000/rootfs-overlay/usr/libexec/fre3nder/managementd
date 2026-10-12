@@ -1,6 +1,7 @@
 #!/usr/bin/python3
 """Local privileged management API for Fre3nder."""
 
+import functools
 import grp
 import hmac
 import http.cookies
@@ -9,6 +10,7 @@ import json
 import os
 import pathlib
 import pwd
+import re
 import secrets
 import socket
 import socketserver
@@ -17,6 +19,7 @@ import struct
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import urllib.parse
 
@@ -66,6 +69,28 @@ WEB_UID_OVERRIDE = None
 
 _pairing = None
 _sessions = {}
+_auth_lock = threading.RLock()
+_ota_lock = threading.RLock()
+_execution = None
+
+OTA_CORE = pathlib.Path(__file__).with_name("ota-core")
+OTA_PACKAGES = pathlib.Path("/ota/packages")
+OTA_EXECUTION = SOCKET_PATH.parent / "ota-execution.json"
+OTA_UPLOAD_LIMIT = 96 * 1024 * 1024
+# Keep room for normal SYS writes. Reserve a second complete body for the proxy.
+OTA_SPACE_RESERVE = 32 * 1024 * 1024
+OTA_OPERATIONS = (
+    "verify", "preflight", "backup-plan", "backup", "confirm", "write",
+    "readback", "prepare-activation", "reboot",
+)
+
+
+def auth_locked(function):
+    @functools.wraps(function)
+    def locked(*args, **kwargs):
+        with _auth_lock:
+            return function(*args, **kwargs)
+    return locked
 
 
 class ManagementError(Exception):
@@ -98,12 +123,14 @@ def web_uids():
     return allowed
 
 
+@auth_locked
 def clear_web_auth():
     global _pairing
     _pairing = None
     _sessions.clear()
 
 
+@auth_locked
 def prune_web_sessions(now=None):
     if now is None:
         now = time.monotonic()
@@ -119,6 +146,7 @@ def prune_web_sessions(now=None):
         _sessions.pop(token, None)
 
 
+@auth_locked
 def create_web_session():
     now = time.monotonic()
     prune_web_sessions(now)
@@ -131,6 +159,7 @@ def create_web_session():
     return token
 
 
+@auth_locked
 def web_session_valid(token, touch=True):
     if not token:
         return False
@@ -144,6 +173,7 @@ def web_session_valid(token, touch=True):
     return True
 
 
+@auth_locked
 def revoke_web_session(token):
     if token:
         _sessions.pop(token, None)
@@ -232,6 +262,7 @@ def require_active_root():
         )
 
 
+@auth_locked
 def create_pairing_code():
     global _pairing
     require_active_root()
@@ -250,6 +281,7 @@ def create_pairing_code():
     return code
 
 
+@auth_locked
 def redeem_pairing_code(code):
     global _pairing
     require_active_root()
@@ -287,6 +319,7 @@ def redeem_pairing_code(code):
     return create_web_session()
 
 
+@auth_locked
 def set_maintenance(enabled):
     require_active_root()
     current = maintenance_enabled()
@@ -355,10 +388,170 @@ def error(code, message):
     }
 
 
+def package_directory():
+    for path in (OTA_PACKAGES, *OTA_PACKAGES.parents):
+        if path.is_symlink():
+            raise ManagementError(409, "storage-unsafe", "OTA storage contains a symlink")
+    check_dir(OTA_PACKAGES, "OTA package directory")
+    return OTA_PACKAGES
+
+
+def package_path(package_id):
+    if not isinstance(package_id, str) or re.fullmatch(r"[0-9a-f]{32}", package_id) is None:
+        raise ManagementError(400, "invalid-package", "invalid OTA package ID")
+    path = package_directory() / (package_id + ".ota")
+    try:
+        metadata = check_file(path, "OTA package", required=False)
+    except ValueError as exc:
+        raise ManagementError(409, "storage-unsafe", "OTA package is not a regular non-symlink file") from exc
+    if metadata is None:
+        raise ManagementError(404, "package-unavailable", "The staged OTA package is unavailable")
+    if metadata.st_uid != manager_uid() or metadata.st_mode & 0o022:
+        raise ManagementError(409, "storage-unsafe", "OTA package has unsafe ownership or mode")
+    return path
+
+
+def upload_space(remaining=0):
+    fs = os.statvfs(package_directory())
+    available = fs.f_bavail * fs.f_frsize
+    required = remaining * 2 + OTA_SPACE_RESERVE
+    if remaining and available < required:
+        raise ManagementError(507, "insufficient-space", "Not enough SYS space for the upload, proxy buffer and operating reserve")
+    return {
+        "available_bytes": available,
+        "max_package_bytes": OTA_UPLOAD_LIMIT,
+        "reserve_bytes": OTA_SPACE_RESERVE,
+        "proxy_copy_reserved": True,
+    }
+
+
+def store_execution(value):
+    global _execution
+    check_dir(OTA_EXECUTION.parent, "management runtime directory")
+    check_file(OTA_EXECUTION, "OTA execution status", required=False)
+    with tempfile.NamedTemporaryFile(mode="w", dir=OTA_EXECUTION.parent, prefix=".ota-execution.", delete=False) as output:
+        staging = pathlib.Path(output.name)
+        try:
+            json.dump(value, output)
+            output.flush()
+            os.fsync(output.fileno())
+            os.replace(staging, OTA_EXECUTION)
+        finally:
+            staging.unlink(missing_ok=True)
+    _execution = value
+
+
+def restore_execution():
+    global _execution
+    metadata = check_file(OTA_EXECUTION, "OTA execution status", required=False)
+    if metadata is None:
+        return
+    if metadata.st_uid != manager_uid() or metadata.st_mode & 0o077 or metadata.st_size > 256 * 1024:
+        raise ValueError("unsafe OTA execution status")
+    value = json.loads(OTA_EXECUTION.read_text())
+    if not isinstance(value, dict) or value.get("state") not in ("uploading", "running", "succeeded", "failed", "unknown"):
+        raise ValueError("invalid OTA execution status")
+    if value["state"] in ("running", "uploading"):
+        value["state"] = "unknown"
+        value["error"] = {"code": "execution-unknown", "message": "Management restarted during OTA; completion is unknown. Inspect the Core state before proceeding."}
+    _execution = value
+    # Uploads are never published until complete. No Core consumes these files.
+    for staging in package_directory().glob(".upload-*.part"):
+        check_file(staging, "incomplete OTA upload")
+        staging.unlink()
+
+
+def run_ota_core(operation, arguments=()):
+    environment = {key: value for key, value in os.environ.items() if not key.startswith("FRE3NDER_")}
+    try:
+        result = subprocess.run(
+            [str(OTA_CORE), operation, *arguments], stdin=subprocess.DEVNULL,
+            capture_output=True, text=True, check=False, env=environment,
+        )
+        value = json.loads(result.stdout)
+    except (OSError, UnicodeError, ValueError) as exc:
+        raise ManagementError(502, "ota-core-unavailable", "OTA Core could not return a valid response") from exc
+    if not isinstance(value, dict) or value.get("api_version") != API_VERSION or value.get("operation") != operation or type(value.get("ok")) is not bool:
+        raise ManagementError(502, "ota-core-invalid", "OTA Core returned an incompatible response")
+    if result.returncode != 0 or not value["ok"]:
+        message = value.get("error")
+        raise ManagementError(409, "ota-operation-failed", message if isinstance(message, str) else "OTA operation failed")
+    return value
+
+
+def require_ota_idle():
+    if _execution and _execution["state"] in ("uploading", "running", "unknown"):
+        raise ManagementError(409, "ota-busy", "An OTA operation is running or its completion is unknown")
+    if run_ota_core("status").get("busy"):
+        raise ManagementError(409, "ota-busy", "An OTA operation is active through another interface")
+
+
+def execute_ota(execution, arguments):
+    try:
+        result = run_ota_core(execution["operation"], arguments)
+        completed = {**execution, "state": "succeeded", "result": result}
+    except ManagementError as exc:
+        completed = {**execution, "state": "failed", "error": {"code": exc.code, "message": exc.message}}
+    except Exception:
+        completed = {**execution, "state": "unknown", "error": {"code": "execution-unknown", "message": "OTA execution outcome is unknown"}}
+    with _ota_lock:
+        try:
+            store_execution(completed)
+        except OSError:
+            # The Core outcome survives a disconnected browser even if /run fails.
+            global _execution
+            _execution = {**completed, "state": "unknown"}
+
+
+def start_ota(operation, payload, reserved=False):
+    with _ota_lock:
+        if not reserved:
+            require_ota_idle()
+        fields = {"transaction_id"} if operation == "reboot" else {"package_id"}
+        if operation in ("backup-plan", "backup"):
+            fields |= {"home", "sys"}
+        elif operation in ("confirm", "write", "readback", "prepare-activation"):
+            fields.add("transaction_id")
+        if set(payload) != fields:
+            raise ManagementError(400, "invalid-request", "OTA arguments are incomplete or unsupported")
+        arguments = [] if operation == "reboot" else [str(package_path(payload["package_id"]))]
+        if "home" in fields:
+            if payload["home"] not in ("usb", "none") or payload["sys"] not in ("usb", "home", "none"):
+                raise ManagementError(400, "invalid-selection", "Invalid HOME/SYS backup selection")
+            arguments.append("--home" if payload["home"] == "usb" else "--no-home")
+            arguments.extend(["--no-sys"] if payload["sys"] == "none" else ["--sys", payload["sys"]])
+        if "transaction_id" in fields:
+            transaction_id = payload["transaction_id"]
+            if not isinstance(transaction_id, str) or re.fullmatch(r"[0-9a-f]{32}", transaction_id) is None:
+                raise ManagementError(400, "invalid-transaction", "Invalid OTA transaction ID")
+            arguments.append(transaction_id)
+        execution = {"id": secrets.token_hex(16), "state": "running", "operation": operation, **payload}
+        store_execution(execution)
+        threading.Thread(target=execute_ota, args=(execution, arguments), daemon=True).start()
+        return execution
+
+
+def ota_status():
+    core = run_ota_core("status")
+    packages = []
+    for path in sorted(package_directory().glob("*.ota")):
+        package_id = path.stem
+        if re.fullmatch(r"[0-9a-f]{32}", package_id):
+            metadata = package_path(package_id).stat()
+            packages.append({"id": package_id, "size": metadata.st_size})
+    with _ota_lock:
+        execution = _execution
+    return {"core": core, "execution": execution, "packages": packages, "storage": upload_space()}
+
+
 class Handler(http.server.BaseHTTPRequestHandler):
     server_version = "Fre3nderManagement/1"
     sys_version = ""
     protocol_version = "HTTP/1.0"
+
+    def setup(self):
+        super().setup()
+        self.connection.settimeout(60)
 
     def address_string(self):
         return "local"
@@ -374,8 +567,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self.send_header("Cache-Control", "no-store")
         for name, header_value in extra_headers:
             self.send_header(name, header_value)
-        self.end_headers()
-        self.wfile.write(body)
+        try:
+            self.end_headers()
+            self.wfile.write(body)
+        except (BrokenPipeError, ConnectionResetError):
+            # Execution was accepted independently; a lost reply is not a failure.
+            pass
 
     def peer_uid(self):
         raw = self.connection.getsockopt(
@@ -406,9 +603,14 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 "invalid-request",
                 "Transfer-Encoding is not supported",
             )
-        value = self.headers.get("Content-Length")
+        lengths = self.headers.get_all("Content-Length", [])
+        value = lengths[0] if len(lengths) == 1 else None
+        if len(lengths) > 1:
+            raise ManagementError(400, "invalid-request", "ambiguous Content-Length")
         if value is None:
             return None
+        if re.fullmatch(r"[0-9]+", value) is None:
+            raise ManagementError(400, "invalid-request", "invalid Content-Length")
         try:
             length = int(value)
         except ValueError as exc:
@@ -461,7 +663,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 "Content-Type must be application/json",
             )
         try:
-            payload = json.loads(self.rfile.read(length))
+            body = self.rfile.read(length)
+            if len(body) != length:
+                raise ManagementError(400, "invalid-request", "incomplete JSON request")
+            payload = json.loads(body)
         except (UnicodeDecodeError, json.JSONDecodeError) as exc:
             raise ManagementError(
                 400,
@@ -476,6 +681,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             )
         return payload
 
+    @auth_locked
     def current_web_session(self, touch=False):
         if not maintenance_enabled():
             clear_web_auth()
@@ -525,6 +731,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 "browser request origin is not permitted",
             )
 
+    @auth_locked
     def require_web_admin(self):
         self.require_web_peer()
         self.require_maintenance_origin()
@@ -551,7 +758,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
         _sessions[token]["last_seen"] = time.monotonic()
         return token
 
+    @auth_locked
     def auth_state(self, token):
+        if token not in _sessions:
+            token = None
         state = {
             "authenticated": token is not None,
             "idle_timeout_seconds": SESSION_IDLE_SECONDS,
@@ -570,6 +780,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
     def do_GET(self):
         try:
+            if self.path == "/fre3nder/api/v1/ota/status":
+                self.require_web_peer()
+                if self.current_web_session(touch=True) is None:
+                    raise ManagementError(401, "authentication-required", "Browser administrative session is not authenticated")
+                self.send_json(200, response("ota-status", ota=ota_status()))
+                return
             if self.path == "/fre3nder/api/v1/system":
                 system = {
                     "version": read_line(VERSION_FILE, "Fre3nder version"),
@@ -609,6 +825,19 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
     def do_POST(self):
         try:
+            prefix = "/fre3nder/api/v1/ota/"
+            if self.path.startswith(prefix):
+                operation = self.path[len(prefix):]
+                if operation not in (*OTA_OPERATIONS, "upload"):
+                    raise ManagementError(404, "not-found", "OTA endpoint does not exist")
+                self.require_web_admin()
+                require_active_root()
+                if operation == "upload":
+                    execution = self.upload_ota()
+                else:
+                    execution = start_ota(operation, self.read_json_body())
+                self.send_json(202, response("ota-accepted", execution=execution))
+                return
             actions = {
                 "/fre3nder/api/v1/maintenance/enable": (True, "maintenance-enable"),
                 "/fre3nder/api/v1/maintenance/disable": (False, "maintenance-disable"),
@@ -699,6 +928,52 @@ class Handler(http.server.BaseHTTPRequestHandler):
         except (ManagementError, OSError, ValueError, RuntimeError) as exc:
             self.fail(exc)
 
+    def upload_ota(self):
+        length = self.request_length()
+        if length is None:
+            raise ManagementError(411, "length-required", "Content-Length is required")
+        if length <= 0 or length > OTA_UPLOAD_LIMIT:
+            raise ManagementError(413, "request-too-large", "OTA upload must be between 1 byte and 96 MiB")
+        if self.headers.get_content_type() != "application/octet-stream":
+            raise ManagementError(415, "unsupported-media-type", "OTA upload requires application/octet-stream")
+        name = urllib.parse.unquote(self.headers.get("X-Fre3nder-Filename", ""))
+        if not name.endswith(".ota") or len(name) > 255 or any(c in name for c in "/\\\x00\r\n"):
+            raise ManagementError(400, "invalid-filename", "Select a local .ota file; server paths are not accepted")
+        with _ota_lock:
+            require_ota_idle()
+            upload_space(length)
+            package_id = secrets.token_hex(16)
+            store_execution({"id": secrets.token_hex(16), "operation": "upload", "package_id": package_id, "state": "uploading"})
+        staging = None
+        try:
+            with tempfile.NamedTemporaryFile(mode="wb", dir=package_directory(), prefix=".upload-", suffix=".part", delete=False) as output:
+                staging = pathlib.Path(output.name)
+                remaining = length
+                while remaining:
+                    upload_space(remaining)
+                    chunk = self.rfile.read(min(64 * 1024, remaining))
+                    if not chunk:
+                        raise ManagementError(400, "upload-incomplete", "OTA upload ended before Content-Length")
+                    output.write(chunk)
+                    remaining -= len(chunk)
+                output.flush()
+                os.fsync(output.fileno())
+            # Atomic publication without replacing an existing package.
+            os.link(staging, OTA_PACKAGES / (package_id + ".ota"))
+            staging.unlink()
+            return start_ota("verify", {"package_id": package_id}, reserved=True)
+        except (OSError, ManagementError) as exc:
+            failure = exc if isinstance(exc, ManagementError) else ManagementError(
+                507 if getattr(exc, "errno", None) == 28 else 400,
+                "upload-failed", "OTA upload could not be completed; no incomplete package was published",
+            )
+            with _ota_lock:
+                store_execution({"id": secrets.token_hex(16), "operation": "upload", "package_id": package_id, "state": "failed", "error": {"code": failure.code, "message": failure.message}})
+            raise failure
+        finally:
+            if staging is not None:
+                staging.unlink(missing_ok=True)
+
     def do_PUT(self):
         self.send_json(405, error("method-not-allowed", "HTTP method is not supported"))
 
@@ -706,8 +981,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
     do_PATCH = do_PUT
 
 
-class Server(socketserver.UnixStreamServer):
+class Server(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
     allow_reuse_address = False
+    daemon_threads = True
 
 
 def prepare_socket():
@@ -727,6 +1003,7 @@ def serve():
     if os.geteuid() != 0:
         raise RuntimeError("management daemon must run as root")
     prepare_socket()
+    restore_execution()
     try:
         group = grp.getgrnam(MANAGEMENT_GROUP)
     except KeyError as exc:

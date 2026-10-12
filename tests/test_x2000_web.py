@@ -244,6 +244,8 @@ snapshot_url: /webcam/?action=snapshot
         self.assertFalse((OVERLAY / "etc/init.d/S50lighttpd").exists())
         entrypoint = (ROOT / "build/x2000/entrypoint.sh").read_text()
         self.assertIn('[ -f "$target/usr/lib/lighttpd/mod_proxy.so" ]', entrypoint)
+        self.assertIn('[ -x "$target/usr/libexec/fre3nder/backup-core" ]', entrypoint)
+        self.assertIn('[ -d "$target/ota/packages" ]', entrypoint)
 
 
 class MaintenanceUiTests(unittest.TestCase):
@@ -273,7 +275,7 @@ class MaintenanceUiTests(unittest.TestCase):
         self.assertIn("fre3nder maintenance unlock", self.html)
         self.assertNotRegex(self.html, r'(?:src|href)="https?://')
 
-    def test_dashboard_api_scope_is_pairing_only(self):
+    def test_dashboard_api_and_pairing_boundary(self):
         for path in (
             "/fre3nder/api/v1/system",
             "/fre3nder/api/v1/maintenance",
@@ -288,6 +290,35 @@ class MaintenanceUiTests(unittest.TestCase):
         self.assertNotIn("/maintenance/unlock", self.script)
         self.assertNotIn("/maintenance/lock", self.script)
         self.assertIn('"X-Fre3nder-CSRF": csrfToken', self.script)
+
+    def test_updates_have_three_sections_and_one_primary_action(self):
+        for heading in ("1. Update package", "2. Backup options", "3. Update Fre3nder"):
+            self.assertIn(heading, self.html)
+        self.assertEqual(len(re.findall(r'<h2 id="ota-[^"]+-title"', self.html)), 3)
+        self.assertEqual(self.html.count('class="primary-update"'), 1)
+        self.assertIn('id="ota-update"', self.html)
+        self.assertIn('id="ota-check"', self.html)
+        for obsolete in ("verify", "preflight", "backup-plan", "backup", "confirm", "write", "readback", "prepare-activation", "reboot"):
+            self.assertNotIn(f'id="ota-{obsolete}"', self.html)
+        self.assertIn("Technical details", self.html)
+        self.assertIn('id="ota-reinstall"', self.html)
+
+    def test_package_checks_progress_and_dom_references(self):
+        for check in ("upload", "verify", "preflight"):
+            self.assertIn(f'id="ota-package-{check}"', self.html)
+        for step in ("prepare", "backups", "write", "readback", "activate"):
+            self.assertIn(f'id="ota-progress-{step}"', self.html)
+        for obsolete in ("ota-progress-reboot", "ota-progress-boot", "Restarting printer", "Checking updated system"):
+            self.assertNotIn(obsolete, self.html)
+        for name in re.findall(r'otaElement\("([^"]+)"\)', self.script):
+            self.assertIn(f'id="ota-{name}"', self.html)
+        self.assertNotIn("Completed: ${", self.script)
+        self.assertIn('id="ota-reboot-view"', self.html)
+        self.assertIn("<h1>REBOOT</h1>", self.html)
+        self.assertIn("Please verify that Fre3nder starts normally, the display works", self.html)
+        self.assertIn("The final boot result cannot be verified from this page. You can close this page.", self.html)
+        for unverified in ("Update successful", "Boot verified", "Update completed", "Checking updated system"):
+            self.assertNotIn(unverified, self.script)
 
 
 if __name__ == "__main__":

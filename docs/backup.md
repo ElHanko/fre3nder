@@ -165,6 +165,11 @@ The active SYS backup source is:
 
 Only the active OverlayFS `upper/` tree is backup content.
 
+`<SYS_SOURCE>/ota/packages/` is excluded using the existing archive exclusion
+mechanism. It contains reconstructible staged OTA packages and Maintenance
+proxy buffers, not system customizations. Other SYS content and HOME traversal
+remain unchanged; HOME's existing `Fre3nderBackup/` exclusion still applies.
+
 OverlayFS `work/` state, reset markers, and other runtime implementation state
 are not included.
 

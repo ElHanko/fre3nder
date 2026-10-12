@@ -24,6 +24,60 @@ The 2026.4 release scope is **Managed Platform** (`managed-platform`).
 
 ## Update sequence
 
+The same manual workflow is available under **System Updates** on an explicitly
+enabled Maintenance listener at `http://<printer-host>:8081/`. Pair the browser
+using `fre3nder maintenance unlock`. Upload a local signed `.ota` (maximum
+96 MiB); the platform publishes it under `/ota/packages/` and verifies it through
+OTA-Core. **Upload and verify** automatically waits for verification and runs
+technical preflight. A staged package has one **Check package** action. The page
+shows upload, verification and compatibility results, both versions and slots,
+HOME preservation and SYS reset. Matching version labels do not prohibit an
+update or establish identical binaries. With `artifact_mode: development`, both
+the page and confirmation explain that builds may differ despite matching
+versions. Release packages and unavailable/unknown modes use a neutral notice
+that the selected package will be installed again.
+
+Choose HOME and SYS explicitly from the Core backup offer. **Update Fre3nder**
+asks once for approval of the displayed versions, slots, backup choices, SYS
+reset, Kernel/RootFS writes, activation and restart. An explicit backup decline
+is called out in that confirmation. Only after approval does the browser invoke
+`backup-plan`, `backup`, `confirm`, `write`, `readback`, `prepare-activation` and
+`reboot`, waiting for each result while the connection remains available. Both
+`none` still invokes OTA `backup` to create
+the Core transaction without archives. Selected archives are created and
+verified before any write; staged OTA packages remain excluded from SYS backups.
+
+Completed phases retain their status; only upload uses byte-based percentages.
+Errors stop further submissions without automatic retries. Reload restores the
+session and actual Core/execution state, then offers **Continue update** when
+safe. Continuation requires a new explicit confirmation and starts at the next
+Core phase, without repeating completed writes or backups. Unknown executions
+remain blocked for operator inspection. Non-destructive package checks can be
+retried separately.
+
+A small per-tab browser receipt stores package/transaction identity, backup
+choices and the reboot request outcome, never credentials or permission to
+resume automatically. Progress ends at successful activation preparation. The
+browser prepares a dedicated **REBOOT** view before submitting the restart
+request, initially without claiming acceptance. A successful Core reboot result
+shows **Printer restart requested**. Explicit request or Core rejection returns
+to the error/continuation flow. A lost connection or otherwise unconfirmed result
+shows **Printer restart status unclear**, asking the user to inspect the printer
+without treating the update as failed or claiming reboot acceptance.
+
+The browser stops polling when the reboot result is confirmed or unclear. The
+final view remains visible on disconnect and is restored on reload when the
+per-tab receipt is available; an interrupted pending request becomes unclear.
+Reload repeats no operation. The page does not require Maintenance to return or
+a new pairing session. It asks the user to verify normal Fre3nder startup,
+display operation and printer reconnection, and states that the final boot result
+cannot be verified from this page. Core postboot validation and known-good
+recording remain independent and unchanged. Closing the tab or losing its
+receipt loses the browser's final view; it does not affect Core state.
+See [Management OTA API](api/management.md#manual-ota-endpoints) for upload storage,
+authorization and interrupted-execution behavior. The selected frontend on
+port 80 has no management route.
+
 Use one package throughout. `<transaction-id>` is the opaque value returned by
 the successful OTA `backup` step; copy it unchanged, rather than constructing
 or parsing an ID. Commands and their individual effects are in the

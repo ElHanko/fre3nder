@@ -5,6 +5,8 @@ root_state=${FRE3NDER_ROOT_STATE:-/run/fre3nder-root}
 maintenance_state=${FRE3NDER_MAINTENANCE_STATE:-/home/.fre3nder/maintenance/enabled}
 maintenance_root=${FRE3NDER_MAINTENANCE_ROOT:-/usr/share/fre3nder/web-root/maintenance}
 management_socket=${FRE3NDER_MANAGEMENT_SOCKET:-/run/fre3nder-management/api.sock}
+upload_buffer=${FRE3NDER_MAINTENANCE_UPLOAD_BUFFER:-/ota/packages/.lighttpd-upload}
+management_group=${FRE3NDER_MANAGEMENT_GROUP:-fre3nder-management}
 base_config=${FRE3NDER_MAINTENANCE_WEB_BASE_CONFIG:-/etc/lighttpd/fre3nder-maintenance.conf}
 daemon=${FRE3NDER_LIGHTTPD:-/usr/sbin/lighttpd}
 python=${FRE3NDER_PYTHON:-/usr/bin/python3}
@@ -41,16 +43,18 @@ prepare_runtime() {
 }
 
 prepare_config() {
-	"$python" - "$runtime" "$root_state" "$maintenance_state" "$maintenance_root" "$management_socket" "$base_config" <<'PY_EMBED'
+	"$python" - "$runtime" "$root_state" "$maintenance_state" "$maintenance_root" "$management_socket" "$base_config" "$upload_buffer" "$management_group" <<'PY_EMBED'
+import grp
 import os
 from pathlib import Path
 import stat
 import sys
 import tempfile
 
-runtime, root_state, maintenance_state, maintenance_root, management_socket, base = map(
-    Path, sys.argv[1:]
+runtime, root_state, maintenance_state, maintenance_root, management_socket, base, upload_buffer = map(
+    Path, sys.argv[1:8]
 )
+management_group = sys.argv[8]
 
 
 def safe(path):
@@ -109,10 +113,26 @@ try:
     if not regular(base):
         stop("config-unavailable")
 
+    safe(upload_buffer)
+    parent_stat = upload_buffer.parent.stat()
+    if not upload_buffer.parent.is_dir() or parent_stat.st_uid != os.geteuid() or parent_stat.st_mode & 0o022:
+        stop("upload-storage-invalid")
+    if not upload_buffer.exists():
+        upload_buffer.mkdir(mode=0o700)
+    if not upload_buffer.is_dir():
+        stop("upload-storage-invalid")
+    buffer_stat = upload_buffer.stat()
+    if buffer_stat.st_uid != os.geteuid():
+        stop("upload-storage-invalid")
+    group_id = grp.getgrnam(management_group).gr_gid
+    os.chown(upload_buffer, os.geteuid(), group_id)
+    os.chmod(upload_buffer, 0o730)
+
     lines = [
         f'server.document-root = "{maintenance_root}"',
         f'include "{base}"',
-        '$HTTP["url"] =~ "^/fre3nder/api/v1/(system|maintenance|auth/(session|unlock|lock))$" {',
+        f'server.upload-dirs := ( "{upload_buffer}" )',
+        '$HTTP["url"] =~ "^/fre3nder/api/v1/(system|maintenance|auth/(session|unlock|lock)|ota/(status|upload|verify|preflight|backup-plan|backup|confirm|write|readback|prepare-activation|reboot))$" {',
         f'    proxy.server = ( "" => (( "host" => "{management_socket}" )) )',
         '}',
     ]
@@ -131,7 +151,7 @@ try:
             os.replace(staging, runtime / "lighttpd.conf")
         finally:
             staging.unlink(missing_ok=True)
-except (OSError, ValueError) as exc:
+except (OSError, ValueError, KeyError) as exc:
     print(f"fre3nder maintenance web: {exc}", file=sys.stderr)
     stop("state-invalid")
 PY_EMBED

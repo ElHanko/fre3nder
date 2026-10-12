@@ -89,6 +89,10 @@ Port `8081` exists only while Maintenance is explicitly enabled. It serves the
 core Maintenance UI at `/` and the documented `/fre3nder/api/v1/...` status and
 browser-authentication routes. Browser-admin mutations additionally require a
 paired session, session CSRF token and matching port-8081 `Origin`/`Host`.
+The explicit `/fre3nder/api/v1/ota/` routes expose manual platform updates through
+the existing OTA/Backup cores, including upload to SYS-backed `/ota/packages/`.
+The upload limit is 96 MiB; HOME is not an upload destination. Invocation status
+is volatile and distinct from Core transaction and known-good state.
 
 Neither listener currently supplies TLS. Moonraker continues to own
 HTTP/JSON-RPC/WebSocket authorization for its upstream routes; Management API v1

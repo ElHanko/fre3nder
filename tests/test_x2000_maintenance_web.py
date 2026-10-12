@@ -2,6 +2,7 @@
 # Non-building fixtures for the dedicated Maintenance listener.
 
 import os
+import grp
 from pathlib import Path
 import re
 import socket
@@ -27,6 +28,8 @@ class MaintenanceWebServiceTests(unittest.TestCase):
         self.state = self.root / "home/.fre3nder/maintenance/enabled"
         self.web_root = self.root / "usr/share/fre3nder/web-root/maintenance"
         self.management_socket = self.root / "run/management/api.sock"
+        self.upload_buffer = self.root / "ota/packages/.lighttpd-upload"
+        self.upload_buffer.parent.mkdir(parents=True, mode=0o755)
         self.daemon = self.root / "bin/lighttpd"
         self.calls = self.root / "calls"
         self.env = {k: v for k, v in os.environ.items() if not k.startswith("FRE3NDER_")}
@@ -36,6 +39,8 @@ class MaintenanceWebServiceTests(unittest.TestCase):
             "FRE3NDER_MAINTENANCE_STATE": str(self.state),
             "FRE3NDER_MAINTENANCE_ROOT": str(self.web_root),
             "FRE3NDER_MANAGEMENT_SOCKET": str(self.management_socket),
+            "FRE3NDER_MAINTENANCE_UPLOAD_BUFFER": str(self.upload_buffer),
+            "FRE3NDER_MANAGEMENT_GROUP": grp.getgrgid(os.getgid()).gr_name,
             "FRE3NDER_MAINTENANCE_WEB_BASE_CONFIG": str(BASE_CONFIG),
             "FRE3NDER_LIGHTTPD": str(self.daemon),
             "FRE3NDER_PYTHON": sys.executable,
@@ -108,10 +113,13 @@ while True:
         self.assertIn(f'include "{BASE_CONFIG}"', generated)
         self.assertIn(str(self.management_socket), generated)
         self.assertIn(
-            '^/fre3nder/api/v1/(system|maintenance|auth/(session|unlock|lock))$',
+            '^/fre3nder/api/v1/(system|maintenance|auth/(session|unlock|lock)|ota/(status|upload|verify|preflight|backup-plan|backup|confirm|write|readback|prepare-activation|reboot))$',
             generated,
         )
         self.assertNotIn('/maintenance/', generated)
+        self.assertIn(f'server.upload-dirs := ( "{self.upload_buffer}" )', generated)
+        self.assertEqual(self.upload_buffer.stat().st_mode & 0o777, 0o730)
+        self.assertEqual(self.upload_buffer.stat().st_gid, os.getgid())
 
         self.state.unlink()
         self.run_service("restart", expected="disabled")
@@ -147,6 +155,8 @@ class MaintenanceWebConfigurationTests(unittest.TestCase):
         self.assertIn('server.port = 8081', config)
         self.assertIn('server.username = "nobody"', config)
         self.assertIn('server.groupname = "fre3nder-management"', config)
+        self.assertIn('server.max-request-size = 98304', config)
+        self.assertIn('server.upload-dirs = ( "/ota/packages/.lighttpd-upload" )', config)
         self.assertNotIn('server.document-root', config)
         self.assertNotIn('/maintenance/', config)
         modules = re.search(r'server.modules = \( (.+) \)', config).group(1)

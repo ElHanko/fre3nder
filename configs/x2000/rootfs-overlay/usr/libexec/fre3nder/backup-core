@@ -965,6 +965,7 @@ def execute_backup(
                 target,
                 "SYS",
                 version,
+                excluded_paths=(sys_source / "ota" / "packages",),
             )
         )
 

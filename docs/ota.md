@@ -297,6 +297,7 @@ The initial internal API version is:
 
 The implemented operations are currently:
 
+    status
     verify
     preflight
     backup-plan
@@ -311,6 +312,22 @@ The implemented operations are currently:
 `reboot` is also exposed by the public CLI. `postboot` is an internal startup
 operation invoked by S89, not a public CLI command. See the
 [CLI reference](api/cli.md#ota).
+
+`status` is an internal read-only operation returning existing `transaction`,
+`activation`, `known_good` and `busy` state. It creates no state or lock files,
+advances no transition and does not revalidate package/partition bytes. A recorded
+phase is not authorization to skip the checks performed by its next operation.
+All transacting operations from backup through reboot use one nonblocking
+transition lock covering their validation, execution and state publication.
+Concurrent CLI and browser transitions are rejected; there is no nested write
+lock acquisition.
+
+The Maintenance Web client invokes these existing operations through Management
+API v1 on its explicitly enabled port-8081 origin. A single background execution
+in managementd continues independently of the browser request; HTTP 202 reports
+acceptance, while status polling reports the actual Core result. Management
+records only its invocation outcome under `/run`, not a second OTA transaction
+state machine. See [Management API](api/management.md#manual-ota-endpoints).
 
 `verify` returns structured package identity and verification state.
 
@@ -328,6 +345,8 @@ It remains read-only and does not create an archive.
 `backup` performs the same verification and preflight, then delegates the
 selected backup execution to the backup core. It returns each resulting
 archive path, size, and SHA-256.
+Every selected archive is explicitly reverified through Backup-Core before the
+pending transaction is created; its result includes `verified: true`.
 After successful backup execution it also creates a volatile pending OTA
 transaction for the subsequent confirmation boundary. It does not write the
 inactive kernel or RootFS slots.

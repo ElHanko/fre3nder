@@ -2,6 +2,7 @@
 """Fre3nder OTA core."""
 
 import fcntl
+import functools
 import hashlib
 import json
 import os
@@ -1095,7 +1096,7 @@ def load_pending_transaction(
     return state
 
 
-def verify_pending_backup_result(state):
+def verify_pending_backup_result(state, backup_core=BACKUP_CORE):
     selection = state.get("backup_selection")
     result = state.get("backup_result")
 
@@ -1171,6 +1172,7 @@ def verify_pending_backup_result(state):
                 pathlib.Path(archive),
                 expected_size,
                 expected_digest,
+                backup_core=backup_core,
             )
         except ValueError as exc:
             raise ValueError(
@@ -1305,6 +1307,29 @@ def validate_transaction_binding(
     return response
 
 
+def transaction_operation(function):
+    """Serialize whole transitions, including CLI callers and state validation."""
+    @functools.wraps(function)
+    def locked(*args, **kwargs):
+        pending = pathlib.Path(kwargs.get("pending_transaction_path", PENDING_TRANSACTION))
+        path = pathlib.Path(kwargs.get("write_lock_path", pending.parent / "write.lock"))
+        path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        if path.parent.is_symlink() or not path.parent.is_dir():
+            raise ValueError("unsafe OTA lock directory")
+        fd = os.open(path, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
+        with os.fdopen(fd, "r+") as lock:
+            metadata = os.fstat(lock.fileno())
+            if not stat.S_ISREG(metadata.st_mode) or metadata.st_uid != os.geteuid():
+                raise ValueError("unsafe OTA operation lock")
+            try:
+                fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError as exc:
+                raise ValueError("another OTA operation is active") from exc
+            return function(*args, **kwargs)
+    return locked
+
+
+@transaction_operation
 def confirm_response(
     package,
     arguments,
@@ -1826,6 +1851,7 @@ def write_payload_member(
     }
 
 
+@transaction_operation
 def write_response(
     package,
     arguments,
@@ -1931,49 +1957,25 @@ def write_response(
             "inactive RootFS target is too small"
         )
 
-    lock_path = pathlib.Path(write_lock_path)
+    # The transition lock already covers validation, both writes and publication.
+    # RootFS first, kernel second. Activation is still untouched.
+    rootfs_result = write_payload_member(
+        package,
+        "rootfs.squashfs",
+        rootfs_target,
+        rootfs_size,
+        manifest["artifacts"]["rootfs.squashfs"],
+        allow_regular_targets,
+    )
 
-    try:
-        lock_path.parent.mkdir(
-            mode=0o700,
-            parents=True,
-            exist_ok=True,
-        )
-        lock_stream = lock_path.open("a+")
-    except OSError as exc:
-        raise ValueError(
-            "cannot open OTA write lock"
-        ) from exc
-
-    with lock_stream:
-        try:
-            fcntl.flock(
-                lock_stream.fileno(),
-                fcntl.LOCK_EX | fcntl.LOCK_NB,
-            )
-        except BlockingIOError as exc:
-            raise ValueError(
-                "another OTA write operation is active"
-            ) from exc
-
-        # RootFS first, kernel second. Activation is still untouched.
-        rootfs_result = write_payload_member(
-            package,
-            "rootfs.squashfs",
-            rootfs_target,
-            rootfs_size,
-            manifest["artifacts"]["rootfs.squashfs"],
-            allow_regular_targets,
-        )
-
-        kernel_result = write_payload_member(
-            package,
-            "kernel.uImage",
-            kernel_target,
-            kernel_size,
-            manifest["artifacts"]["kernel.uImage"],
-            allow_regular_targets,
-        )
+    kernel_result = write_payload_member(
+        package,
+        "kernel.uImage",
+        kernel_target,
+        kernel_size,
+        manifest["artifacts"]["kernel.uImage"],
+        allow_regular_targets,
+    )
 
     write_result = {
         "complete": True,
@@ -2054,6 +2056,7 @@ def sha256_target_prefix(
     }
 
 
+@transaction_operation
 def readback_response(
     package,
     arguments,
@@ -3158,6 +3161,7 @@ def verify_activation_targets(
         )
 
 
+@transaction_operation
 def prepare_activation_response(
     package,
     arguments,
@@ -3868,6 +3872,7 @@ def verify_prepared_activation(
     return activation
 
 
+@transaction_operation
 def reboot_response(
     arguments,
     pending_transaction_path=PENDING_TRANSACTION,
@@ -3943,6 +3948,7 @@ def reboot_response(
     }
 
 
+@transaction_operation
 def backup_response(
     package,
     arguments,
@@ -3983,6 +3989,11 @@ def backup_response(
         ),
         backup_core=backup_core,
     )
+
+    verify_pending_backup_result(execution, backup_core=backup_core)
+    for role in ("home", "sys"):
+        if execution["backup_result"][role]["selected"]:
+            execution["backup_result"][role]["verified"] = True
 
     response["operation"] = "backup"
     response["runtime_usb"] = execution[
@@ -4052,7 +4063,53 @@ def error_response(operation, message):
     }
 
 
+def status_response(
+    pending_transaction_path=PENDING_TRANSACTION,
+    activation_record_path=ACTIVATION_RECORD,
+    known_good_path=KNOWN_GOOD_RECORD,
+):
+    """Read recorded state without advancing or authorizing a transition."""
+    pending = pathlib.Path(pending_transaction_path)
+    activation = pathlib.Path(activation_record_path)
+    known_good = pathlib.Path(known_good_path)
+    state = {
+        "transaction": load_pending_transaction(pending)
+        if pending.exists() or pending.is_symlink() else None,
+        "activation": load_activation_record(activation)
+        if activation.exists() or activation.is_symlink() else None,
+        "known_good": None,
+        "busy": False,
+    }
+    if known_good.exists() or known_good.is_symlink():
+        require_regular_file(known_good, "known-good OTA record")
+        if known_good.stat().st_size > MAX_ACTIVATION_RECORD_SIZE:
+            raise ValueError("known-good OTA record is too large")
+        record = json.loads(known_good.read_text())
+        if not isinstance(record, dict) or record.get("api_version") != API_VERSION or record.get("state") != "known-good":
+            raise ValueError("invalid known-good OTA record")
+        state["known_good"] = record
+    lock_path = pending.parent / "write.lock"
+    if lock_path.exists() or lock_path.is_symlink():
+        fd = os.open(lock_path, os.O_RDONLY | os.O_NOFOLLOW)
+        with os.fdopen(fd) as lock:
+            if not stat.S_ISREG(os.fstat(fd).st_mode):
+                raise ValueError("invalid OTA operation lock")
+            try:
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                state["busy"] = True
+    return {"api_version": API_VERSION, "ok": True, "operation": "status", **state}
+
+
 def main():
+    if sys.argv[1:] == ["status"]:
+        try:
+            response = status_response()
+        except (OSError, ValueError) as exc:
+            print(json.dumps(error_response("status", exc), sort_keys=True))
+            return 1
+        print(json.dumps(response, sort_keys=True))
+        return 0
     if (
         len(sys.argv) == 3
         and sys.argv[1] == "reboot"

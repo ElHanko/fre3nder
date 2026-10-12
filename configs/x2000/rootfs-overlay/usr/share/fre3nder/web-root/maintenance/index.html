@@ -16,7 +16,7 @@
 
       <nav aria-label="Maintenance areas">
         <a class="nav-item active" href="#overview" aria-current="page">Overview</a>
-        <span class="nav-item disabled" aria-disabled="true">System Updates</span>
+        <a class="nav-item" href="#updates">System Updates</a>
         <span class="nav-item disabled" aria-disabled="true">Apps</span>
         <span class="nav-item disabled" aria-disabled="true">System</span>
       </nav>
@@ -28,6 +28,7 @@
     </aside>
 
     <main class="content" id="overview">
+      <div id="overview-view">
       <header class="page-header">
         <p class="eyebrow">Overview</p>
         <h1>System status</h1>
@@ -106,6 +107,82 @@
           Administrative actions require a temporary paired browser session.
         </p>
       </section>
+      </div>
+
+      <div id="updates-view" hidden>
+        <div id="ota-workflow">
+        <header class="page-header">
+          <p class="eyebrow">System Updates</p>
+          <h1>Update Fre3nder</h1>
+          <p>Upload a signed platform package. HOME is preserved; SYS is reset when the new system boots.</p>
+        </header>
+        <p id="ota-phase" class="status status-neutral" role="status" aria-live="polite">Unlock administrative access to manage updates.</p>
+        <p id="ota-error" class="error" role="alert" hidden></p>
+
+        <section class="status-section" aria-labelledby="ota-package-title">
+          <h2 id="ota-package-title">1. Update package</h2>
+          <form id="ota-upload-form" class="ota-controls">
+            <label for="ota-file">Local .ota file (up to 96 MiB)</label>
+            <input id="ota-file" type="file" accept=".ota">
+            <button id="ota-upload" class="secondary-button" type="submit" disabled>Upload and verify</button>
+          </form>
+          <progress id="ota-upload-progress" max="100" value="0" hidden aria-label="Upload progress"></progress>
+          <p id="ota-storage" class="section-note"></p>
+          <details id="ota-staged">
+            <summary>Use a staged package</summary>
+            <div class="ota-controls">
+              <label for="ota-package">Staged package</label>
+              <select id="ota-package" disabled></select>
+            </div>
+            <button id="ota-check" class="secondary-button" type="button" disabled>Check package</button>
+          </details>
+          <ul class="ota-progress" aria-label="Package checks">
+            <li>Upload completed <span id="ota-package-upload" class="status status-neutral">Waiting</span></li>
+            <li>Package verified <span id="ota-package-verify" class="status status-neutral">Waiting</span></li>
+            <li>Compatibility check passed <span id="ota-package-preflight" class="status status-neutral">Waiting</span></li>
+          </ul>
+          <dl id="ota-details" class="status-list"></dl>
+          <p id="ota-reinstall" class="ota-notice" role="note" hidden></p>
+        </section>
+
+        <section class="status-section" aria-labelledby="ota-backup-title">
+          <h2 id="ota-backup-title">2. Backup options</h2>
+          <div class="ota-controls">
+            <label for="ota-home">HOME backup</label>
+            <select id="ota-home" disabled></select>
+            <label for="ota-sys">SYS backup</label>
+            <select id="ota-sys" disabled></select>
+          </div>
+          <p class="section-note">Choose both options explicitly. Selected backups are created and verified during the update. Staged OTA packages are excluded from SYS backups.</p>
+        </section>
+
+        <section class="status-section" aria-labelledby="ota-install-title">
+          <h2 id="ota-install-title">3. Update Fre3nder</h2>
+          <button id="ota-update" class="primary-update" type="button" disabled>Update Fre3nder</button>
+          <p class="section-note">One confirmation covers backups, writing Kernel and RootFS, verification, activation and restart. Stop printing and heating before proceeding.</p>
+          <ol class="ota-progress" aria-label="Update progress" aria-live="polite">
+            <li>Preparing update <span id="ota-progress-prepare" class="status status-neutral">Waiting</span></li>
+            <li><span id="ota-backup-label">Creating backups</span> <span id="ota-progress-backups" class="status status-neutral">Waiting</span></li>
+            <li>Writing system <span id="ota-progress-write" class="status status-neutral">Waiting</span></li>
+            <li>Verifying installation <span id="ota-progress-readback" class="status status-neutral">Waiting</span></li>
+            <li>Preparing restart <span id="ota-progress-activate" class="status status-neutral">Waiting</span></li>
+          </ol>
+          <details>
+            <summary>Technical details</summary>
+            <p id="ota-transaction" class="section-note"></p>
+            <div id="ota-backups" class="section-note"></div>
+            <p id="ota-known-good" class="section-note"></p>
+          </details>
+        </section>
+        </div>
+        <section id="ota-reboot-view" class="ota-reboot-view" role="status" aria-live="polite" hidden>
+          <h1>REBOOT</h1>
+          <p><strong id="ota-reboot-status"></strong></p>
+          <p id="ota-reboot-message"></p>
+          <p>Please verify that Fre3nder starts normally, the display works and the printer reconnects after the reboot.</p>
+          <p class="section-note">The final boot result cannot be verified from this page. You can close this page.</p>
+        </section>
+      </div>
     </main>
   </div>
 

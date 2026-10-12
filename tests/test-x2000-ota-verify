@@ -2,6 +2,7 @@
 """Offline fixtures for the Fre3nder OTA v1 lifecycle."""
 
 import hashlib
+import fcntl
 import importlib.machinery
 import importlib.util
 import io
@@ -1114,7 +1115,7 @@ def test_write_identity_failures(package, arguments, options, directory):
 
             assert {path: path.read_bytes() for path in devices.values()} == before
             assert pending.read_bytes() == pending_before
-            assert not lock.exists()
+            assert lock.exists()  # Validation is inside the transition lock.
         finally:
             pending.write_text(confirmed)
 
@@ -2557,7 +2558,70 @@ def expect_preflight_invalid(package, public_key, runtime, text):
         raise AssertionError("preflight unexpectedly succeeded")
 
 
+def test_status_and_transition_lock():
+    with tempfile.TemporaryDirectory() as directory:
+        directory = Path(directory)
+        pending = directory / "pending.json"
+        activation = directory / "activation.json"
+        known_good = directory / "known-good.json"
+        options = dict(pending_transaction_path=pending, activation_record_path=activation, known_good_path=known_good)
+        empty = module.status_response(**options)
+        assert empty["transaction"] is None and empty["known_good"] is None
+        assert list(directory.iterdir()) == []  # Status creates no state or lock.
+        pending.write_text(json.dumps({"api_version": 1, "state": "confirmed", "transaction_id": "a" * 32}))
+        lock_path = directory / "write.lock"
+        with lock_path.open("w") as lock:
+            fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            assert module.status_response(**options)["busy"] is True
+            # Exercise the real CLI in another process. The adapter changes only
+            # the pending path; the held Core lock rejects before any OTA effect.
+            adapter = directory / "core-adapter"
+            adapter.write_text(
+                "#!/usr/bin/env python3\nimport json, runpy, sys\n"
+                f"core = runpy.run_path({str(CORE)!r})\n"
+                "try:\n"
+                f"    result = core['confirm_response'](sys.argv[2], sys.argv[3:], pending_transaction_path={str(pending)!r})\n"
+                "except (OSError, ValueError) as exc:\n"
+                "    print(json.dumps(core['error_response']('confirm', exc)))\n"
+                "    sys.exit(1)\n"
+                "print(json.dumps(result))\n"
+            )
+            adapter.chmod(0o755)
+            result = subprocess.run(
+                [sys.executable, str(CLI), "ota", "confirm", "missing.ota", "a" * 32],
+                env={**os.environ, "FRE3NDER_OTA_CORE": str(adapter)},
+                capture_output=True, text=True, check=False,
+            )
+            assert result.returncode == 1
+            assert "another OTA operation is active" in result.stdout + result.stderr
+            for operation in (module.backup_response, module.confirm_response, module.write_response, module.readback_response, module.prepare_activation_response):
+                try:
+                    operation("missing.ota", ["a" * 32], pending_transaction_path=pending)
+                except ValueError as exc:
+                    assert "another OTA operation is active" in str(exc)
+                else:
+                    raise AssertionError("concurrent transition accepted")
+            try:
+                module.reboot_response(["a" * 32], pending_transaction_path=pending)
+            except ValueError as exc:
+                assert "another OTA operation is active" in str(exc)
+            else:
+                raise AssertionError("concurrent reboot accepted")
+        assert module.status_response(**options)["busy"] is False
+        assert module.status_response(**options)["transaction"]["state"] == "confirmed"
+        known_good.write_text(json.dumps({"api_version": 1, "state": "known-good", "version": "fixture"}))
+        assert module.status_response(**options)["known_good"]["version"] == "fixture"
+        pending.write_text("invalid JSON")
+        try:
+            module.status_response(**options)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError("invalid pending status accepted")
+
+
 def main():
+    test_status_and_transition_lock()
     assert "BR2_PACKAGE_LIBOPENSSL_BIN=y\n" in BUILDROOT_FRAGMENT.read_text()
     test_backup_execution()
     test_partition_identity()

@@ -1569,6 +1569,8 @@ check_rootfs() {
 	[ -x "$target/usr/libexec/fre3nder/managementd" ]
 	[ -x "$target/usr/libexec/fre3nder/package-core" ]
 	[ -x "$target/usr/libexec/fre3nder/ota-core" ]
+	[ -x "$target/usr/libexec/fre3nder/backup-core" ]
+	[ -d "$target/ota/packages" ]
 	[ -x "$target/etc/init.d/S57fre3nder-management" ]
 	[ -x "$target/etc/init.d/S58fre3nder-app-restore" ]
 	[ -x "$target/usr/sbin/lighttpd" ]
