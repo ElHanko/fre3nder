@@ -724,6 +724,26 @@ def write_state(package: pathlib.Path, verified: dict) -> None:
         cached = staged / "package.fre3app"
         shutil.copyfile(package, cached)
         cached.chmod(0o644)
+        # Finish writing before validating and publishing persistent state.
+        # I/O or fsync failure must abort the transaction.
+        with cached.open("rb") as stream:
+            os.fsync(stream.fileno())
+
+        cached_verified = verify_package(cached)
+        if cached_verified != verified:
+            raise ValueError("cached package identity differs from verified source")
+
+        # Keep the exact original archive, including unsigned ZIP metadata.
+        # Comparison is streaming, so large packages are not held in RAM.
+        with package.open("rb") as source, cached.open("rb") as target:
+            while True:
+                source_chunk = source.read(1024 * 1024)
+                target_chunk = target.read(1024 * 1024)
+                if source_chunk != target_chunk:
+                    raise ValueError("cached package bytes differ from source")
+                if not source_chunk:
+                    break
+
         metadata = {
             "name": name,
             "version": verified["version"],

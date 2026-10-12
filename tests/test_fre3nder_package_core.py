@@ -464,7 +464,10 @@ class Fre3AppWebTests(unittest.TestCase):
         package = self.package()
         verified = self.verify(package)
         self.assertIs(verified["web_frontend"], False)
-        self.core.write_state(package, verified)
+        with (mock.patch.object(self.core, "key_path", return_value=self.root / "key"),
+              mock.patch.object(self.core, "fingerprint", return_value="a" * 64),
+              mock.patch.object(self.core, "verify_signature")):
+            self.core.write_state(package, verified)
         metadata = self.core.metadata_path("fluidd")
         value = json.loads(metadata.read_text())
         del value["web_frontend"]
@@ -508,6 +511,47 @@ class Fre3AppWebTests(unittest.TestCase):
         self.assertIn("web refresh failed", stderr.getvalue())
         self.assertTrue(self.core.installed("fluidd"))
         self.assertEqual(self.core.ACTIVE_FRONTEND.read_text(), "fluidd\n")
+
+    def test_corrupt_cached_copy_does_not_replace_existing_state(self):
+        package = self.package("true")
+        verified = self.verify(package)
+        with (mock.patch.object(self.core, "key_path", return_value=self.root / "key"),
+              mock.patch.object(self.core, "fingerprint", return_value="a" * 64),
+              mock.patch.object(self.core, "verify_signature")):
+            self.core.write_state(package, verified)
+            current = self.core.state_dir("fluidd")
+            old_package = (current / "package.fre3app").read_bytes()
+            old_metadata = (current / "metadata.json").read_bytes()
+
+            real_copy = shutil.copyfile
+
+            def corrupt_copy(source, target):
+                real_copy(source, target)
+                with zipfile.ZipFile(target) as archive:
+                    info = archive.getinfo("payload/index.html")
+                    offset = (info.header_offset + 30
+                              + len(info.filename.encode("utf-8")) + len(info.extra))
+                with open(target, "r+b") as stream:
+                    stream.seek(offset)
+                    before = stream.read(1)
+                    stream.seek(offset)
+                    stream.write(bytes([before[0] ^ 1]))
+
+            with mock.patch.object(self.core.shutil, "copyfile", side_effect=corrupt_copy):
+                with self.assertRaises(zipfile.BadZipFile):
+                    self.core.write_state(package, verified)
+
+        self.assertEqual((current / "package.fre3app").read_bytes(), old_package)
+        self.assertEqual((current / "metadata.json").read_bytes(), old_metadata)
+        self.assertEqual([p.name for p in self.core.STATE_ROOT.iterdir()], ["fluidd"])
+
+    def test_cache_fsync_failure_does_not_publish_state(self):
+        package = self.package("true")
+        verified = self.verify(package)
+        with mock.patch.object(self.core.os, "fsync", side_effect=OSError("writeback failed")):
+            with self.assertRaisesRegex(OSError, "writeback failed"):
+                self.core.write_state(package, verified)
+        self.assertFalse(self.core.installed("fluidd"))
 
     def test_s58_only_calls_package_core_and_never_blocks_boot(self):
         service = self.root / "package-core"
@@ -740,7 +784,10 @@ class Fre3AppDisplayTests(unittest.TestCase):
     def test_pre_display_metadata_defaults_to_no_capability(self):
         package = self.package()
         verified = self.verify(package)
-        self.core.write_state(package, verified)
+        with (mock.patch.object(self.core, "key_path", return_value=self.root / "key"),
+              mock.patch.object(self.core, "fingerprint", return_value="a" * 64),
+              mock.patch.object(self.core, "verify_signature")):
+            self.core.write_state(package, verified)
         metadata = self.core.metadata_path("screen")
         value = json.loads(metadata.read_text())
         del value["display_frontend"]
