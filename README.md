@@ -77,6 +77,16 @@ Fre3nderScreen gives the printer a native local interface without putting a brow
 
 And the screen is not hard-wired to one application: Fre3nder treats framebuffer, touch, backlight and beeper access as platform resources that signed display apps can use.
 
+### 🎮 But can it run Doom?
+
+**Of course it can. It's a Fre3nder.**
+
+Doom is available as an optional, signed `.fre3app` display frontend. It uses the native Linux framebuffer and a USB keyboard, replacing Fre3nderScreen without modifying the base system.
+
+Because on Fre3nder, even the touchscreen interface is your choice.
+
+→ [Doom build recipe](https://github.com/ElHanko/fre3nder-apps/tree/main/apps/doom)
+
 ### ⚙️ We didn't stop at Linux
 
 The X2000 host was only half the printer.
