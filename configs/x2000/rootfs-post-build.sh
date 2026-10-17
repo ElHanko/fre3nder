@@ -71,6 +71,11 @@ partition_rule='-sd[a-z][0-9][0-9]* 0:0 0660 */usr/libexec/fre3nder/usb hotplug'
 mdev_tmp="$mdev_conf.fre3nder"
 
 awk -v disk="$disk_rule" -v partition="$partition_rule" '
+    # Replace the first-match Buildroot input rule in place, also on reruns.
+    $1 == "input/event[0-9]+" {
+        $0 = "input/event[0-9]+ 0:1001 660"
+    }
+
     $0 == disk || $0 == partition {
         next
     }
@@ -94,6 +99,10 @@ awk -v disk="$disk_rule" -v partition="$partition_rule" '
 ' "$mdev_conf" > "$mdev_tmp"
 
 mv "$mdev_tmp" "$mdev_conf"
+grep -Fxq 'input/event[0-9]+ 0:1001 660' "$mdev_conf" || {
+	echo 'Fre3nder: expected mdev input permissions rule missing' >&2
+	exit 1
+}
 
 # Remove competing/stale init paths that must not survive incremental assembly.
 rm -f "$target/etc/init.d/S50lighttpd"

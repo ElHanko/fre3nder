@@ -1381,6 +1381,7 @@ printf '%s\n' 'fixture Cypress license' > \
 	"$build_dir/linux-firmware-20250211/LICENCE.cypress"
 export BUILD_DIR="$build_dir"
 mkdir -p "$target/etc/init.d" "$target/usr/libexec/fre3nder" "$target/usr/bin"
+printf '%s\n' 'input/event[0-9]+ root:root 640' > "$target/etc/mdev.conf"
 install -D -m 0644 "$nvram" \
 	"$target/lib/firmware/brcm/brcmfmac43430-sdio.txt"
 install -D -m 0644 "$nvram_license" \
@@ -1388,6 +1389,8 @@ install -D -m 0644 "$nvram_license" \
 cp "$root/configs/x2000/rootfs-overlay/usr/bin/fre3nder" "$target/usr/bin/"
 cp "$root/configs/x2000/rootfs-overlay/usr/libexec/fre3nder/package-core" \
 	"$target/usr/libexec/fre3nder/"
+cp "$root/configs/x2000/rootfs-overlay/usr/libexec/fre3nder/console" \
+    "$target/usr/libexec/fre3nder/"
 cp "$root/configs/x2000/rootfs-overlay/usr/libexec/fre3nder/ota-core" \
 	"$target/usr/libexec/fre3nder/"
 cp "$root/configs/x2000/rootfs-overlay/usr/libexec/fre3nder/managementd" \

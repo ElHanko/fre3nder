@@ -1,0 +1,64 @@
+#!/bin/sh
+set -eu
+
+root=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+post_build="$root/configs/x2000/rootfs-post-build.sh"
+tmp=$(mktemp -d)
+
+cleanup() {
+	rm -rf -- "$tmp"
+}
+trap cleanup EXIT HUP INT TERM
+
+# Exercise the actual mdev post-build transformation without building a RootFS.
+sed -n '/^mdev_conf=/,/^}$/p' \
+	"$post_build" > "$tmp/mdev-hook.sh"
+[ -s "$tmp/mdev-hook.sh" ]
+target=$tmp/target
+mkdir -p "$target/etc"
+cat > "$target/etc/mdev.conf" <<'EOF'
+null root:root 666
+input/event[0-9]+ root:root 640
+input/mice root:root 640
+$MODALIAS=.* root:root 660 @modprobe "$MODALIAS"
+EOF
+cp "$target/etc/mdev.conf" "$tmp/original"
+
+cat > "$tmp/expected" <<'EOF'
+null root:root 666
+input/event[0-9]+ 0:1001 660
+input/mice root:root 640
+-sd[a-z] 0:0 0660 */usr/libexec/fre3nder/usb hotplug
+-sd[a-z][0-9][0-9]* 0:0 0660 */usr/libexec/fre3nder/usb hotplug
+$MODALIAS=.* root:root 660 @modprobe "$MODALIAS"
+EOF
+
+# Exact output verifies replacement, ordering, USB fall-through and modprobe.
+# Repeated post-build passes must leave the generated configuration unchanged.
+for pass in 1 2 3; do
+	. "$tmp/mdev-hook.sh"
+	cmp "$tmp/expected" "$target/etc/mdev.conf"
+done
+
+# The first matching rule must grant input access for single- and multi-digit
+# event numbers (touch, beeper and USB keyboards share this device namespace).
+for device in input/event0 input/event1 input/event2 input/event12; do
+	permissions=$(awk -v device="$device" '
+	    $1 !~ /^#/ && device ~ ("^" $1 "$") {
+	        print $2, $3
+	        exit
+	    }
+	' "$target/etc/mdev.conf")
+	[ "$permissions" = '0:1001 660' ]
+done
+
+# A missing Buildroot input rule must fail with the expected diagnostic.
+grep -Fv 'input/event[0-9]+' "$tmp/original" > "$target/etc/mdev.conf"
+if target="$target" sh -eu "$tmp/mdev-hook.sh" \
+	> "$tmp/stdout" 2> "$tmp/stderr"; then
+	echo 'mdev hook accepted a missing input permissions rule' >&2
+	exit 1
+fi
+grep -Fxq 'Fre3nder: expected mdev input permissions rule missing' "$tmp/stderr"
+
+echo 'fre3nder X2000 mdev permissions fixtures: PASS'
