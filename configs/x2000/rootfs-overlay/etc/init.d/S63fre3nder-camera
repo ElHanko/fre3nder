@@ -14,8 +14,8 @@ status_file=$runtime/status
 log_file=$runtime/mjpg_streamer.log
 port=8080
 listen_address=127.0.0.1
-resolution=${FRE3NDER_CAMERA_RESOLUTION:-1920x1080}
-fps=${FRE3NDER_CAMERA_FPS:-30}
+resolution=${FRE3NDER_CAMERA_RESOLUTION:-1280x720}
+fps=${FRE3NDER_CAMERA_FPS:-15}
 
 log() {
 	echo "fre3nder camera: $*"
