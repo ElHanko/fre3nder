@@ -346,7 +346,7 @@ assert [
     (
         5,
         "patches/kernel/0005-fre3nder-ender3-v3-ke-integration-v6.6.157.patch",
-        "460b02e9a07266351c8aaa374e9caf7abe01486ffcd8ff2a64517796ccb0fd3c",
+        "678f962a0bdfab4f22f1df44586e670b90226b36a4138c987956e49bf0dee1e5",
     ),
 ]
 root = pathlib.Path(sys.argv[1]).resolve().parents[2]
@@ -592,6 +592,8 @@ assert (
 ) in integration_paths
 
 for required in (
+    'model = "Creality Ender-3 V3 KE";',
+    'compatible = "creality,ender-3-v3-ke", "ingenic,x2000";',
     "wifi_bt_power: wifi-bt-power {",
     'compatible = "regulator-fixed";',
     'regulator-name = "wifi_bt_power";',

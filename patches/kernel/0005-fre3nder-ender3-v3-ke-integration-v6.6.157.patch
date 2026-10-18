@@ -604,16 +604,17 @@ Y2W{o?gE<o+2><{907*qoM6N<$g0cgX%>V!Z
 
 diff --git a/module_drivers/dts/x2000/ender3-v3-ke.dts b/module_drivers/dts/x2000/ender3-v3-ke.dts
 new file mode 100644
-index 0000000000000000000000000000000000000000..39f7bd3287371d0d747a7ebf2f8eaa8f3df05abe
+index 0000000000000000000000000000000000000000..ab293e04a5c800040ae8635b57fafc934d75c63e
 --- /dev/null
 +++ b/module_drivers/dts/x2000/ender3-v3-ke.dts
-@@ -0,0 +1,170 @@
+@@ -0,0 +1,171 @@
 +/dts-v1/;
 +
 +#include <dt-bindings/gpio/gpio.h>
 +#include "x2000.dtsi"
 +
 +/ {
++	model = "Creality Ender-3 V3 KE";
 +	compatible = "creality,ender-3-v3-ke", "ingenic,x2000";
 +
 +	backlight {
