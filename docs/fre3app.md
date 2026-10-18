@@ -202,11 +202,29 @@ native app executables. Other payload files are extracted with mode 0644.
 
 ## Runtime and persistence
 
-Reconstructible runtime:
+Runtime locations are fixed local installation roles:
 
 ```text
-/opt/fre3nder/apps-v2/<app>/
+sys:  /opt/fre3nder/apps-v2/<app>/
+home: /home/.fre3nder-runtime/apps-v2/<app>/
 ```
+
+New installs default to `sys`. `--storage home` explicitly selects the persistent
+HOME runtime. Package-Core records `storage: "sys"|"home"` in local installation
+metadata; old metadata without the field means `sys`. Storage is not part of
+the signed manifest, so the same signed archive can be installed at either
+location. Updates always keep the installed role; no migration is implicit.
+
+The Root-owned HOME runtime parent directories allow traversal by app services
+and the web worker (mode `0755`). Extracted runtime files retain the existing
+unprivileged app ownership and executable modes. Package cache, trust and
+installation metadata remain in Root-controlled state. Consumers use the Core's
+runtime resolution and `FRE3NDER_APP_RUNTIME_DIR`, rather than choosing paths.
+
+Runtime transaction directories use the selected filesystem. Before service
+actions, Core checks free space for a complete new extraction alongside any
+old runtime and for the new compressed cache copy, plus 32 MiB headroom. When
+runtime and cache share HOME, these requirements are added together.
 
 Root-controlled persistent package-manager state:
 
@@ -241,7 +259,20 @@ The exact installed `.fre3app` is cached in root-controlled persistent state und
 
 ## Recovery
 
-During boot the package recovery step verifies each cached package again, reconstructs missing `/opt` runtime state, then calls `service restore`.
+After a SYS reset, boot recovery verifies the cached signature and package
+identity against installation metadata for both roles. SYS runtimes are
+reconstructed as before. HOME runtimes are compared with the authenticated
+package's signed file set, hashes and file modes. Valid HOME runtimes are reused
+without unpacking; missing or invalid files trigger reconstruction on HOME.
+Required `service restore` actions still run when the SYS recovery marker is
+absent, even when the HOME files were reused. Normal reboots retain that marker
+and do not repeat extraction or restore for a valid runtime. HOME's cached
+signature and retained files are still checked on boot.
+
+Manual app uploads and the Maintenance proxy spool are temporary HOME state
+under `/home/.tmp/fre3nder/{uploads,lighttpd}/`. Storage initialization safely
+clears the reserved `/home/.tmp` area at every regular boot. This does not
+remove the package cache, HOME runtimes, installation metadata or app data.
 
 `S65fre3nder-app-runtime` subsequently starts packages marked for autostart and asks running packages to stop during platform shutdown. Static web frontends such as Fluidd and all display frontends set `autostart = false`; their platform managers own activation instead. S62 remains the platform HTTP daemon. S58 recovery does not restart S62. Interactive install, update, and remove of the selected web frontend ask the privileged package core to refresh S62 after the package transaction; a web refresh failure is reported without rolling back the package. Display selection is persistent package-manager state and is restored without being changed or invented.
 

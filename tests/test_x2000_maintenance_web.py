@@ -28,7 +28,7 @@ class MaintenanceWebServiceTests(unittest.TestCase):
         self.state = self.root / "home/.fre3nder/maintenance/enabled"
         self.web_root = self.root / "usr/share/fre3nder/web-root/maintenance"
         self.management_socket = self.root / "run/management/api.sock"
-        self.upload_buffer = self.root / "ota/packages/.lighttpd-upload"
+        self.upload_buffer = self.root / "home/.tmp/fre3nder/lighttpd"
         self.upload_buffer.parent.mkdir(parents=True, mode=0o755)
         self.daemon = self.root / "bin/lighttpd"
         self.calls = self.root / "calls"
@@ -113,13 +113,22 @@ while True:
         self.assertIn(f'include "{BASE_CONFIG}"', generated)
         self.assertIn(str(self.management_socket), generated)
         self.assertIn(
-            '^/fre3nder/api/v1/(system|maintenance|auth/(session|unlock|lock)|ota/(status|upload|verify|preflight|backup-plan|backup|confirm|write|readback|prepare-activation|reboot))$',
+            '^/fre3nder/api/v1/(system|maintenance|auth/(session|unlock|lock)|ota/(status|upload|verify|preflight|backup-plan|backup|confirm|write|readback|prepare-activation|reboot)|apps/(status|detail|upload|verify|install|update|remove|discard|acknowledge|display/(select|disable)))$',
             generated,
         )
         self.assertNotIn('/maintenance/', generated)
         self.assertIn(f'server.upload-dirs := ( "{self.upload_buffer}" )', generated)
         self.assertEqual(self.upload_buffer.stat().st_mode & 0o777, 0o730)
         self.assertEqual(self.upload_buffer.stat().st_gid, os.getgid())
+        staged = self.upload_buffer.parent / "uploads"
+        staged.mkdir(mode=0o700)
+        pending = staged / "pending.fre3app"
+        pending.write_bytes(b"keep until printer reboot")
+        proxy = self.upload_buffer / "pending-body"
+        proxy.write_bytes(b"unfinished body")
+        self.run_service("restart", expected="active")
+        self.assertTrue(pending.is_file())
+        self.assertTrue(proxy.is_file())
 
         self.state.unlink()
         self.run_service("restart", expected="disabled")
@@ -155,8 +164,8 @@ class MaintenanceWebConfigurationTests(unittest.TestCase):
         self.assertIn('server.port = 8081', config)
         self.assertIn('server.username = "nobody"', config)
         self.assertIn('server.groupname = "fre3nder-management"', config)
-        self.assertIn('server.max-request-size = 98304', config)
-        self.assertIn('server.upload-dirs = ( "/ota/packages/.lighttpd-upload" )', config)
+        self.assertIn('server.max-request-size = 262144', config)
+        self.assertIn('server.upload-dirs = ( "/home/.tmp/fre3nder/lighttpd" )', config)
         self.assertNotIn('server.document-root', config)
         self.assertNotIn('/maintenance/', config)
         modules = re.search(r'server.modules = \( (.+) \)', config).group(1)

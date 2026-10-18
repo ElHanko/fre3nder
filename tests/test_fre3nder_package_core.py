@@ -13,6 +13,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import types
 import unittest
 from unittest import mock
 import zipfile
@@ -136,6 +137,7 @@ signed_file = "SHA256SUMS"
                           mock.patch.object(core, "read_metadata", return_value=old),
                           mock.patch.object(core, "extract_runtime", side_effect=lambda _p, _v, target: target.mkdir()),
                           mock.patch.object(core, "service_action", return_value=0),
+                          mock.patch.object(core, "check_install_space"),
                           mock.patch.object(core, "write_state") as write_state):
                         if error:
                             with self.assertRaisesRegex(ValueError, error):
@@ -284,6 +286,7 @@ class Fre3AppLifecycleTests(unittest.TestCase):
         package.touch()
         current = self.core.RUNTIME_ROOT / "dummy"
         current.mkdir(parents=True)
+        current.parent.chmod(0o755)
         (current / "old").write_text("old\n")
 
         def extract_runtime(_package, _verified, target):
@@ -316,6 +319,7 @@ class Fre3AppLifecycleTests(unittest.TestCase):
             ),
             mock.patch.object(self.core, "extract_runtime", side_effect=extract_runtime),
             mock.patch.object(self.core, "service_action", side_effect=service_action),
+            mock.patch.object(self.core, "check_install_space"),
             mock.patch.object(self.core, "write_state", state_writer),
         ):
             with self.assertRaisesRegex(ValueError, "start failed"):
@@ -409,6 +413,7 @@ class Fre3AppWebTests(unittest.TestCase):
         package = self.root / "source.zip"
         package.write_bytes(b"fixture")
         with (mock.patch.object(self.core, "verify_package", return_value=verified),
+              mock.patch.object(self.core, "check_install_space"),
               mock.patch.object(self.core, "extract_runtime", side_effect=self.extract),
               mock.patch.object(self.core, "service_action", return_value=0)):
             return self.core.activate_package(package, operation)
@@ -454,6 +459,7 @@ class Fre3AppWebTests(unittest.TestCase):
         shutil.rmtree(self.core.runtime_dir("fluidd"))
         (self.core.RECOVERY_ROOT / "fluidd/restored").unlink()
         with (mock.patch.object(self.core, "verify_package", return_value=self.verified()),
+              mock.patch.object(self.core, "check_install_space"),
               mock.patch.object(self.core, "extract_runtime", side_effect=self.extract),
               mock.patch.object(self.core, "service_action", return_value=0)):
             self.assertEqual(self.core.restore_installed(), 0)
@@ -580,7 +586,13 @@ class Fre3AppDisplayTests(unittest.TestCase):
         self.core.RECOVERY_ROOT = self.root / "recovery"
         self.core.DATA_ROOT = self.root / "data"
         self.core.DISPLAY_SERVICE = self.root / "display-service"
-        self.core.DISPLAY_SERVICE.write_text("#!/bin/sh\nexit 0\n")
+        self.core.DISPLAY_STATUS = self.root / "display-status"
+        self.core.DISPLAY_SERVICE.write_text(
+            "#!/bin/sh\n"
+            f"case $1 in start) echo active > '{self.core.DISPLAY_STATUS}';;\n"
+            f"stop) echo stopped > '{self.core.DISPLAY_STATUS}';; esac\n"
+            "exit 0\n"
+        )
         self.core.DISPLAY_SERVICE.chmod(0o755)
 
     def package(self, display=None, api=None, autostart=False):
@@ -646,6 +658,7 @@ class Fre3AppDisplayTests(unittest.TestCase):
         package.write_bytes(b"fixture")
         with (
             mock.patch.object(self.core, "verify_package", return_value=verified),
+            mock.patch.object(self.core, "check_install_space"),
             mock.patch.object(self.core, "extract_runtime", side_effect=self.extract),
             mock.patch.object(self.core, "service_action", return_value=0),
         ):
@@ -797,6 +810,258 @@ class Fre3AppDisplayTests(unittest.TestCase):
         restored = self.core.read_metadata("screen")
         self.assertIs(restored["display_frontend"], False)
         self.assertIsNone(restored["display_api"])
+
+
+class Fre3AppStorageTests(unittest.TestCase):
+    def setUp(self):
+        self.fixture = Fre3AppTrustTests()
+        self.fixture.setUp()
+        self.addCleanup(self.fixture.tearDown)
+        self.root = self.fixture.root
+        self.env = {**self.fixture.env,
+                    "FRE3NDER_PACKAGE_RUNTIME_ROOT": str(self.root / "sys/apps-v2"),
+                    "FRE3NDER_PACKAGE_RECOVERY_DIR": str(self.root / "sys/restored")}
+        with mock.patch.dict(os.environ, self.env):
+            self.core = load_core_module()
+        self.user = mock.patch.object(self.core, "app_user", return_value=(os.getuid(), os.getgid()))
+        self.user.start()
+        self.addCleanup(self.user.stop)
+        self.actions = mock.patch.object(self.core, "service_action", return_value=0)
+        self.service = self.actions.start()
+        self.addCleanup(self.actions.stop)
+        self.refresh = mock.patch.object(self.core, "refresh_web")
+        self.refresh.start()
+        self.addCleanup(self.refresh.stop)
+
+    def package(self, serial=1, name="dummy"):
+        manifest = f'''format = 1
+[app]
+name = "{name}"
+version = "1.0.{serial}"
+release_serial = {serial}
+[publisher]
+id = "test-publisher"
+key_fingerprint = "{self.fixture.fingerprint}"
+[target]
+platform = "fre3nder-x2000"
+arch = "mipsel"
+[runtime]
+service = "service"
+autostart = false
+[web]
+frontend = true
+'''
+        manifest += '[signature]\nalgorithm = "Ed25519"\nfile = "SHA256SUMS.sig"\nsigned_file = "SHA256SUMS"\n'
+        files = {"manifest.toml": manifest.encode(), "service": b"#!/bin/sh\nexit 0\n",
+                 "payload/index.html": f"release {serial}".encode()}
+        sums = "".join(f"{hashlib.sha256(data).hexdigest()}  {name}\n" for name, data in sorted(files.items())).encode()
+        source = self.root / "checksums"
+        signature = self.root / "signature"
+        source.write_bytes(sums)
+        subprocess.run(["openssl", "pkeyutl", "-sign", "-rawin", "-inkey", self.fixture.private,
+                        "-in", source, "-out", signature], check=True)
+        files.update({"SHA256SUMS": sums, "SHA256SUMS.sig": signature.read_bytes()})
+        package = self.root / f"{name}-{serial}.fre3app"
+        with zipfile.ZipFile(package, "w", zipfile.ZIP_DEFLATED) as archive:
+            for name, data in files.items():
+                archive.writestr(name, data)
+        return package
+
+    def install(self, role=None, name="dummy"):
+        package = self.package(name=name)
+        self.core.activate_package(package, "install", storage=role)
+        return self.core.runtime_dir(name)
+
+    def test_default_explicit_roles_and_legacy_metadata(self):
+        for role in (None, "sys", "home"):
+            name = "app-" + (role or "default")
+            current = self.install(role, name)
+            expected = self.core.RUNTIME_ROOT if role != "home" else self.core.HOME_RUNTIME_ROOT
+            self.assertEqual(current, expected / name)
+            self.assertEqual(self.core.read_metadata(name)["storage"], role or "sys")
+            cached = self.core.state_dir(name) / "package.fre3app"
+            self.assertEqual(cached.read_bytes(), (self.root / f"{name}-1.fre3app").read_bytes())
+            self.assertNotIn("storage", self.core.verify_package(cached)["manifest"]["app"])
+        metadata = self.core.metadata_path("app-default")
+        value = json.loads(metadata.read_text())
+        del value["storage"]
+        metadata.write_text(json.dumps(value))
+        self.assertEqual(self.core.read_metadata("app-default")["storage"], "sys")
+        self.assertEqual(self.core.runtime_dir("app-default"), self.core.RUNTIME_ROOT / "app-default")
+
+    def test_invalid_storage_and_update_migration_are_rejected(self):
+        package = self.package()
+        for role in ("/tmp", "../home", "HOME", "", 1, []):
+            with self.subTest(role=role), self.assertRaisesRegex(ValueError, "storage"):
+                self.core.activate_package(package, "install", storage=role)
+        self.install("sys")
+        with self.assertRaisesRegex(ValueError, "preserve"):
+            self.core.activate_package(self.package(2), "update", storage="home")
+        metadata = self.core.metadata_path("dummy")
+        data = json.loads(metadata.read_text())
+        data["storage"] = "../other"
+        metadata.write_text(json.dumps(data))
+        with self.assertRaisesRegex(ValueError, "storage"):
+            self.core.runtime_dir("dummy")
+
+    def test_updates_and_removal_keep_each_runtime_role(self):
+        for role in ("sys", "home"):
+            name = "app-" + role
+            current = self.install(role, name)
+            self.core.activate_package(self.package(2, name), "update")
+            self.assertEqual(self.core.runtime_dir(name), current)
+            self.assertEqual((current / "payload/index.html").read_bytes(), b"release 2")
+            other = self.core.prepare_runtime_root("home" if role == "sys" else "sys") / name
+            other.mkdir()
+            (other / "keep").write_text("unrelated")
+            self.core.remove_package(name)
+            self.assertFalse(current.exists())
+            self.assertTrue((other / "keep").is_file())
+
+    def test_core_install_syntax_and_status_report_storage(self):
+        for role in (None, "sys", "home"):
+            name = "app-" + (role or "default")
+            package = self.package(name=name)
+            args = [str(CORE), "install", str(package)] + (["--storage", role] if role else [])
+            output = io.StringIO()
+            with contextlib.redirect_stdout(output), mock.patch.object(sys, "argv", args):
+                self.assertEqual(self.core.main(), 0)
+            self.assertEqual(json.loads(output.getvalue())["package"]["storage"], role or "sys")
+            output = io.StringIO()
+            with contextlib.redirect_stdout(output), mock.patch.object(sys, "argv", [str(CORE), "status", name]):
+                self.core.main()
+            self.assertEqual(json.loads(output.getvalue())["app"]["storage"], role or "sys")
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output), mock.patch.object(sys, "argv", [str(CORE), "list"]):
+            self.core.main()
+        self.assertEqual({item["name"]: item["storage"] for item in json.loads(output.getvalue())["apps"]},
+                         {"app-default": "sys", "app-sys": "sys", "app-home": "home"})
+
+    def test_update_failure_restores_runtime_metadata_and_cache(self):
+        for role in ("sys", "home"):
+            name = "app-" + role
+            current = self.install(role, name)
+            old_state = {path.name: path.read_bytes() for path in self.core.state_dir(name).iterdir()}
+            self.service.side_effect = lambda _name, action, *args: 1 if action == "update" else 0
+            with self.assertRaisesRegex(ValueError, "update failed"):
+                self.core.activate_package(self.package(2, name), "update")
+            self.service.side_effect = None
+            self.assertEqual((current / "payload/index.html").read_bytes(), b"release 1")
+            self.assertEqual(old_state, {path.name: path.read_bytes() for path in self.core.state_dir(name).iterdir()})
+
+    def test_sys_reset_reconstructs_sys_but_reuses_valid_home_runtime(self):
+        sys_runtime = self.install("sys", "app-sys")
+        home_runtime = self.install("home", "app-home")
+        home_inode = (home_runtime / "service").stat().st_ino
+        shutil.rmtree(self.core.RUNTIME_ROOT)
+        shutil.rmtree(self.core.RECOVERY_ROOT)
+        self.service.reset_mock()
+        with mock.patch.object(self.core, "extract_runtime", wraps=self.core.extract_runtime) as extract:
+            self.assertEqual(self.core.restore_installed(), 0)
+        self.assertEqual(extract.call_count, 1)
+        self.assertTrue((sys_runtime / "service").is_file())
+        self.assertEqual((home_runtime / "service").stat().st_ino, home_inode)
+        self.assertIn(mock.call("app-home", "restore", home_runtime), self.service.call_args_list)
+        self.service.reset_mock()
+        with mock.patch.object(self.core, "extract_runtime", wraps=self.core.extract_runtime) as extract:
+            self.assertEqual(self.core.restore_installed(), 0)
+            extract.assert_not_called()
+        self.service.assert_not_called()
+
+    def test_missing_and_damaged_home_runtime_are_reconstructed(self):
+        current = self.install("home")
+        for damage in ("missing", "checksum", "symlink"):
+            if damage == "missing":
+                shutil.rmtree(current)
+            elif damage == "checksum":
+                (current / "payload/index.html").write_bytes(b"tampered")
+            else:
+                (current / "payload/index.html").unlink()
+                (current / "payload/index.html").symlink_to(self.root / "checksums")
+            with mock.patch.object(self.core, "extract_runtime", wraps=self.core.extract_runtime) as extract:
+                self.assertEqual(self.core.restore_installed(), 0)
+                extract.assert_called_once()
+            self.assertEqual((current / "payload/index.html").read_bytes(), b"release 1")
+
+    def test_home_recovery_rechecks_cached_trust_and_preserves_valid_runtime_on_error(self):
+        current = self.install("home")
+        with mock.patch.object(self.core, "verify_signature", side_effect=ValueError("untrusted cache")):
+            self.assertEqual(self.core.restore_installed(), 1)
+        self.assertEqual((current / "payload/index.html").read_bytes(), b"release 1")
+
+    def test_capacity_counts_extraction_and_cache_before_service_actions(self):
+        package = self.package()
+        for role in ("sys", "home"):
+            self.service.reset_mock()
+            with mock.patch.object(self.core.os, "statvfs", return_value=types.SimpleNamespace(f_bavail=1, f_frsize=4096)):
+                with self.assertRaisesRegex(ValueError, "space"):
+                    self.core.activate_package(package, "install", storage=role)
+            self.service.assert_not_called()
+            self.assertFalse(self.core.installed("dummy"))
+        target = self.core.prepare_runtime_root("home")
+        reserve = 32 * 1024 * 1024
+        # Each requirement separately fits; their combined HOME use does not.
+        free = reserve + package.stat().st_size
+        with mock.patch.object(self.core.os, "statvfs", return_value=types.SimpleNamespace(f_bavail=free, f_frsize=1)):
+            with self.assertRaisesRegex(ValueError, "space"):
+                self.core.check_install_space(package, target, "home")
+
+    def test_service_and_web_resolution_use_home_metadata(self):
+        current = self.install("home")
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output), mock.patch.object(sys, "argv", [str(CORE), "frontend-status"]):
+            self.core.main()
+        self.assertEqual(json.loads(output.getvalue())["frontend"]["document_root"], str(current / "payload"))
+        self.actions.stop()
+        with mock.patch.object(self.core.subprocess, "run", return_value=types.SimpleNamespace(returncode=0)) as execute:
+            self.assertEqual(self.core.service_action("dummy", "status"), 0)
+        self.actions.start()
+        self.assertEqual(execute.call_args.kwargs["cwd"], current)
+        self.assertEqual(execute.call_args.kwargs["env"]["FRE3NDER_APP_RUNTIME_DIR"], str(current))
+
+    def test_capacity_failure_does_not_stop_or_replace_installed_runtime(self):
+        for role in ("sys", "home"):
+            name = "app-" + role
+            current = self.install(role, name)
+            package = self.package(2, name)
+            self.service.reset_mock()
+            with mock.patch.object(self.core.os, "statvfs", return_value=types.SimpleNamespace(f_bavail=1, f_frsize=4096)):
+                with self.assertRaisesRegex(ValueError, "space"):
+                    self.core.activate_package(package, "update")
+            self.service.assert_not_called()
+            self.assertEqual(self.core.read_metadata(name)["release_serial"], 1)
+            self.assertEqual((current / "payload/index.html").read_bytes(), b"release 1")
+
+    def test_sys_extraction_and_home_cache_need_space_on_their_own_filesystems(self):
+        package = self.package()
+        target = self.core.prepare_runtime_root("sys")
+        original_stat = pathlib.Path.stat
+
+        def separate_devices(path, *args, **kwargs):
+            result = original_stat(path, *args, **kwargs)
+            if path == target:
+                values = list(result)
+                values[2] += 1
+                return os.stat_result(values)
+            return result
+
+        reserve = 32 * 1024 * 1024
+        for lacking in ("sys", "home"):
+            def available(path):
+                low = path == (target if lacking == "sys" else self.core.PACKAGE_STATE_ROOT)
+                return types.SimpleNamespace(f_frsize=4096, f_bavail=reserve // 4096 if low else 1024 * 1024)
+            with (mock.patch.object(pathlib.Path, "stat", separate_devices),
+                  mock.patch.object(self.core.os, "statvfs", side_effect=available)):
+                with self.assertRaisesRegex(ValueError, lacking.upper()):
+                    self.core.check_install_space(package, target, "sys")
+
+    def test_symlink_runtime_root_cannot_redirect_installation(self):
+        outside = self.root / "outside"
+        outside.mkdir()
+        self.core.HOME_RUNTIME_ROOT.parent.symlink_to(outside)
+        with self.assertRaisesRegex(ValueError, "unsafe"):
+            self.core.activate_package(self.package(), "install", storage="home")
+        self.assertEqual(list(outside.iterdir()), [])
 
 
 if __name__ == "__main__":

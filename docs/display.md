@@ -52,6 +52,29 @@ already installed app; follow the [explicit app-update procedure](installation.m
 `S64fre3nder-display` manages VT, framebuffer, touch, optional backlight, and
 optional beeper access; S65 skips display frontends.
 
+Display apps use Package-Core's fixed SYS/HOME runtime resolution just like
+other apps. SYS is the installation default; explicit HOME runtimes survive
+SYS reset. S64 delegates start, stop and status to Core and supplies the same
+hardware environment and groups for either role. Recovery and app updates
+preserve the recorded storage choice; no runtime symlink or migration is used.
+
+An explicit `display-select` succeeds only when S64 reports `active` and its
+live service/VT status check succeeds. S64's boot-safe zero exit code alone is
+not readiness confirmation. Package Core reuses S64's existing bounded startup
+wait and adds no delay or background service. Reselecting an active display
+does not restart it; reselecting a stopped or failed display attempts a checked
+start.
+
+If a new selection fails to start, Package Core safely stops it, restores the
+previous selection and checks that display's startup too. The original
+operation still fails; its error includes the failed runtime status and the
+recovery outcome. With no previous selection, Core clears the selection and
+requests S64's normal diagnostic-console fallback. A `stop-failed` status or an
+unconfirmed stop prevents selection changes and further starts; Core does not
+force tty7 ownership. A failed restoration is reported as an additional error.
+Maintenance receives a failed receipt and uses its existing red modal and
+Operation details, even when the previous display was successfully restored.
+
 The unprivileged app service stores its settings at
 `$FRE3NDER_APP_DATA_DIR/fre3nderscreen.json`. On first setup it copies an
 existing regular legacy config from

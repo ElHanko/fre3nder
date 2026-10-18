@@ -92,6 +92,19 @@ class Fre3nderAppCliDispatchTests(unittest.TestCase):
             ],
         )
 
+    def test_install_storage_is_fixed_and_forwarded_to_core(self):
+        for role in ("sys", "home"):
+            result = self.run_cli("app", "install", "/tmp/dummy.fre3app", "--storage", role)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(self.dispatched(), [str(self.package), "install", "/tmp/dummy.fre3app", "--storage", role])
+        self.log.unlink()
+        for role in ("/tmp", "HOME", "../home", ""):
+            result = self.run_cli("app", "install", "/tmp/dummy.fre3app", "--storage", role)
+            self.assertNotEqual(result.returncode, 0)
+        result = self.run_cli("app", "update", "/tmp/dummy.fre3app", "--storage", "home")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(self.log.exists())
+
     def test_key_add_maps_to_package_core(self):
         result = self.run_cli(
             "app",

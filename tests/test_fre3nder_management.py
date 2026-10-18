@@ -182,6 +182,48 @@ class ManagementApiTests(unittest.TestCase):
         self.assertIn('"enabled":false', body)
         self.assertFalse(self.daemon.MAINTENANCE_STATE.exists())
 
+    def test_repeated_enable_does_not_refresh_active_web(self):
+        status, _body = self.request(
+            "POST",
+            "/fre3nder/api/v1/maintenance/enable",
+        )
+        self.assertEqual(status, 200)
+
+        with patch.object(
+            self.daemon, "refresh_web", wraps=self.daemon.refresh_web,
+        ) as refresh:
+            status, body = self.request(
+                "POST",
+                "/fre3nder/api/v1/maintenance/enable",
+            )
+            refresh.assert_not_called()
+
+        self.assertEqual(status, 200)
+        self.assertEqual(
+            json.loads(body)["maintenance"],
+            {"enabled": True, "web_status": "active"},
+        )
+
+    def test_enable_refreshes_web_unless_already_enabled_and_active(self):
+        for enabled, web_status in (
+            (False, "active"),
+            (True, "stopped"),
+            (True, "unknown"),
+        ):
+            with self.subTest(enabled=enabled, web_status=web_status):
+                self.daemon.set_maintenance(enabled)
+                self.web_status.write_text(web_status + "\n")
+                with patch.object(
+                    self.daemon, "refresh_web", wraps=self.daemon.refresh_web,
+                ) as refresh:
+                    status, _body = self.request(
+                        "POST",
+                        "/fre3nder/api/v1/maintenance/enable",
+                    )
+                    refresh.assert_called_once_with()
+                self.assertEqual(status, 200)
+                self.assertEqual(self.web_status.read_text(), "active\n")
+
     def test_invalid_state_fails_closed(self):
         self.daemon.MAINTENANCE_STATE.parent.mkdir(
             parents=True,
@@ -475,6 +517,8 @@ class ManagementApiTests(unittest.TestCase):
         self.daemon.OTA_PACKAGES = self.root / "ota/packages"
         self.daemon.OTA_PACKAGES.mkdir(parents=True, mode=0o755)
         self.daemon.OTA_EXECUTION = self.runtime / "ota-execution.json"
+        self.daemon.OTA_UPLOAD_BUFFER = self.root / "home/.tmp/fre3nder/lighttpd"
+        self.daemon.OTA_UPLOAD_BUFFER.mkdir(parents=True, mode=0o700)
         self.core_state = {"transaction": None, "activation": None, "known_good": None, "busy": False}
         self.core_calls = []
         self.block_core = None
@@ -730,6 +774,272 @@ class ManagementApiTests(unittest.TestCase):
         self.assertFalse(staging.exists())
         with self.assertRaises(self.daemon.ManagementError):
             self.daemon.require_ota_idle()
+
+    def setup_apps(self):
+        headers = self.setup_ota()
+        apps = self.daemon.apps
+        apps.STAGING = self.root / "home/.tmp/fre3nder/uploads"
+        apps.STAGING.parent.chmod(0o700)
+        apps.EXECUTION_FILE = self.runtime / "apps-execution.json"
+        self.app_calls = []
+        self.block_app = None
+        self.app_identity = {"name": "sample", "version": "2.0", "publisher": "trusted",
+                             "storage": "home",
+                             "release_serial": 2, "fingerprint": "a" * 64,
+                             "web_frontend": False, "display_frontend": False, "display_api": None}
+
+        def core(operation, *args):
+            self.app_calls.append((operation, args))
+            if operation in apps.OPERATIONS and self.block_app:
+                self.block_app.wait(5)
+            result = {"api_version": 1, "ok": True, "operation": operation}
+            if operation == "verify":
+                result["package"] = dict(self.app_identity)
+            elif operation == "list":
+                result["apps"] = [dict(self.app_identity)]
+            elif operation == "display-list":
+                result.update(active=None, apps=[])
+            elif operation == "frontend-status":
+                result["frontend"] = {"active": None}
+            elif operation == "status":
+                result["app"] = {**self.app_identity, "running": True}
+            elif operation == "storage-status":
+                result["storage"] = {"sys": {"available_bytes": 100}, "home": {"available_bytes": 200}}
+            return result
+
+        mocked = patch.object(apps, "run_core", side_effect=core)
+        mocked.start()
+        self.addCleanup(mocked.stop)
+        return headers
+
+    def app_request(self, operation, payload, headers):
+        return self.request_full("POST", "/fre3nder/api/v1/apps/" + operation,
+                                 body=json.dumps(payload),
+                                 headers={**headers, "Content-Type": "application/json"})
+
+    def app_upload(self, headers, extra=None):
+        return self.request_full("POST", "/fre3nder/api/v1/apps/upload", body=b"fixture",
+                                 headers={**headers, "Content-Type": "application/octet-stream",
+                                          "X-Fre3nder-Filename": "fixture.fre3app", **(extra or {})})
+
+    def wait_app_execution(self):
+        deadline = time.monotonic() + 3
+        while self.daemon.apps.running() and time.monotonic() < deadline:
+            time.sleep(.01)
+        self.assertFalse(self.daemon.apps.running(), "App fixture did not finish")
+        return self.daemon.apps._execution
+
+    def test_apps_mutations_require_session_csrf_origin_and_web_peer(self):
+        headers = self.setup_apps()
+        operations = ("verify", "install", "update", "remove", "display/select",
+                      "display/disable", "discard", "acknowledge", "upload")
+        for operation in operations:
+            for extra, expected in [
+                ({"Cookie": ""}, 401), ({"Cookie": "fre3nder_admin=invalid"}, 401),
+                ({"X-Fre3nder-CSRF": ""}, 403), ({"X-Fre3nder-CSRF": "wrong"}, 403),
+                ({"Origin": ""}, 403), ({"Origin": "http://printer.test"}, 403),
+                ({"Origin": "http://other.test:8081"}, 403), ({"Host": "other.test:8081"}, 403),
+            ]:
+                with self.subTest(operation=operation, extra=extra):
+                    status, body, _ = self.request_full("POST", "/fre3nder/api/v1/apps/" + operation,
+                                                      headers={**headers, **extra})
+                    self.assertEqual(status, expected, body)
+            with patch.object(self.daemon, "web_uids", return_value=set()):
+                status, body, _ = self.request_full("POST", "/fre3nder/api/v1/apps/" + operation,
+                                                  headers=headers)
+                self.assertEqual(status, 403, body)
+        self.assertEqual(self.app_calls, [])
+        self.assertFalse(self.daemon.apps.STAGING.exists())
+
+    def test_apps_reads_require_session_and_web_peer(self):
+        headers = self.setup_apps()
+        for suffix in ("status", "detail?name=sample"):
+            path = "/fre3nder/api/v1/apps/" + suffix
+            status, _, _ = self.request_full("GET", path)
+            self.assertEqual(status, 401)
+            with patch.object(self.daemon, "web_uids", return_value=set()):
+                status, _, _ = self.request_full("GET", path, headers=headers)
+                self.assertEqual(status, 403)
+            status, body, _ = self.request_full("GET", path, headers=headers)
+            self.assertEqual(status, 200, body)
+            self.assertTrue(json.loads(body)["ok"])
+        self.daemon.clear_web_auth()
+        status, _, _ = self.app_upload(headers)
+        self.assertEqual(status, 401)
+        self.assertFalse(any(op in self.daemon.apps.OPERATIONS for op, _ in self.app_calls))
+
+    def test_apps_http_upload_update_identity_and_explicit_mutations(self):
+        headers = self.setup_apps()
+        status, body, _ = self.app_upload(headers)
+        self.assertEqual(status, 202, body)
+        package_id = json.loads(body)["execution"]["package_id"]
+        self.assertEqual(self.wait_app_execution()["state"], "succeeded")
+        self.assertEqual([op for op, _ in self.app_calls], ["verify"])
+        status, body, _ = self.request_full("GET", "/fre3nder/api/v1/apps/status", headers=headers)
+        self.assertEqual(status, 200, body)
+        self.assertEqual(json.loads(body)["apps"]["verified_packages"], [package_id])
+        status, body, _ = self.app_request("update", {"package_id": package_id, "name": "other"}, headers)
+        self.assertEqual(status, 409, body)
+        self.assertEqual(json.loads(body)["error"]["code"], "identity-mismatch")
+        self.assertFalse(any(op == "update" for op, _ in self.app_calls))
+        for operation, payload in [
+            ("verify", {"package_id": package_id}),
+            ("update", {"package_id": package_id, "name": "sample"}),
+            ("remove", {"name": "sample"}), ("display/select", {"name": "sample"}),
+            ("display/disable", {}),
+        ]:
+            status, body, _ = self.app_request(operation, payload, headers)
+            self.assertEqual(status, 202, body)
+            self.assertEqual(self.wait_app_execution()["state"], "succeeded")
+        self.assertFalse(list(self.daemon.apps.STAGING.glob("*.fre3app")))
+
+    def test_apps_http_install_discard_and_acknowledgement(self):
+        headers = self.setup_apps()
+        for operation in ("install", "discard"):
+            status, body, _ = self.app_upload(headers)
+            self.assertEqual(status, 202, body)
+            package_id = json.loads(body)["execution"]["package_id"]
+            self.wait_app_execution()
+            status, body, _ = self.app_request(operation, {"package_id": package_id}, headers)
+            self.assertEqual(status, 202 if operation == "install" else 200, body)
+            self.wait_app_execution()
+            self.assertFalse(list(self.daemon.apps.STAGING.glob("*.fre3app")))
+        self.daemon.apps.store_execution({"id": "b" * 32, "operation": "remove", "state": "unknown"})
+        status, _, _ = self.app_request("remove", {"name": "sample"}, headers)
+        self.assertEqual(status, 409)
+        status, body, _ = self.app_request("acknowledge", {}, headers)
+        self.assertEqual(status, 200, body)
+        self.assertFalse(self.daemon.apps.running())
+
+    def test_apps_http_rejects_paths_extra_fields_and_inactive_runtime(self):
+        headers = self.setup_apps()
+        for operation, payload in [
+            ("remove", {"name": "../etc/passwd"}), ("verify", {"package_id": "../file"}),
+            ("install", {"package_id": "a" * 32, "path": "/tmp/fixture"}),
+            ("update", {"package_id": "a" * 32, "name": "sample", "allow_downgrade": True}),
+            ("display/disable", {"name": "sample"}), ("discard", {}),
+            ("acknowledge", {"command": "true"}),
+        ]:
+            status, body, _ = self.app_request(operation, payload, headers)
+            self.assertEqual(status, 400, body)
+        for extra, expected in [
+            ({"Content-Type": "multipart/form-data"}, 415),
+            ({"X-Fre3nder-Filename": "..%2Ffile.fre3app"}, 400),
+            ({"Content-Length": str(256 * 1024 * 1024 + 1)}, 413),
+        ]:
+            status, body, _ = self.app_upload(headers, extra)
+            self.assertEqual(status, expected, body)
+        self.root_status.write_text("inactive\n")
+        status, body, _ = self.app_request("remove", {"name": "sample"}, headers)
+        self.assertEqual(status, 409, body)
+        self.assertEqual(self.app_calls, [])
+
+    def test_display_start_failure_is_exposed_in_failed_http_receipt(self):
+        headers = self.setup_apps()
+        apps = self.daemon.apps
+        original = apps.run_core.side_effect
+        message = ('Display frontend "doom" failed to start (status: startup-failed; service status not confirmed). '
+                   'Previous display "fre3nderscreen" restored.')
+
+        def core(operation, *args):
+            if operation == "display-select":
+                raise apps.AppError(409, "package-rejected", message)
+            if operation == "display-list":
+                return {"active": "fre3nderscreen", "apps": []}
+            return original(operation, *args)
+
+        with patch.object(apps, "run_core", side_effect=core):
+            status, body, _ = self.app_request("display/select", {"name": "doom"}, headers)
+            self.assertEqual(status, 202, body)
+            job = json.loads(body)["execution"]
+            self.assertEqual(self.wait_app_execution()["state"], "failed")
+            status, body, _ = self.request_full("GET", "/fre3nder/api/v1/apps/status", headers=headers)
+        self.assertEqual(status, 200, body)
+        state = json.loads(body)["apps"]
+        self.assertEqual(state["execution"]["id"], job["id"])
+        self.assertEqual(state["execution"]["state"], "failed")
+        self.assertEqual(state["execution"]["error"]["message"], message)
+        self.assertEqual(state["display"]["active"], "fre3nderscreen")
+
+    def test_apps_and_ota_http_operations_exclude_each_other(self):
+        headers = self.setup_apps()
+        self.block_app = threading.Event()
+        self.addCleanup(self.block_app.set)
+        status, body, _ = self.app_request("remove", {"name": "sample"}, headers)
+        self.assertEqual(status, 202, body)
+        status, body, _ = self.ota_request("verify", {"package_id": "a" * 32}, headers)
+        self.assertEqual(status, 409, body)
+        self.assertEqual(json.loads(body)["error"]["code"], "apps-busy")
+        status, _, _ = self.request_full("GET", "/fre3nder/api/v1/apps/status", headers=headers)
+        self.assertEqual(status, 200)
+        self.block_app.set()
+        self.wait_app_execution()
+        self.block_core = threading.Event()
+        self.addCleanup(self.block_core.set)
+        path = self.daemon.OTA_PACKAGES / ("a" * 32 + ".ota")
+        path.write_bytes(b"fixture")
+        path.chmod(0o600)
+        status, body, _ = self.ota_request("verify", {"package_id": "a" * 32}, headers)
+        self.assertEqual(status, 202, body)
+        for operation in ("remove", "upload"):
+            status, body, _ = self.app_request(operation, {"name": "sample"}, headers)
+            self.assertEqual(status, 409, body)
+            self.assertEqual(json.loads(body)["error"]["code"], "ota-busy")
+        self.block_core.set()
+        self.assertEqual(self.wait_execution()["state"], "succeeded")
+
+    def test_apps_http_storage_selection_and_status(self):
+        headers = self.setup_apps()
+        for role in (None, "sys", "home"):
+            status, body, _ = self.app_upload(headers)
+            self.assertEqual(status, 202, body)
+            package_id = json.loads(body)["execution"]["package_id"]
+            self.wait_app_execution()
+            payload = {"package_id": package_id}
+            if role is not None:
+                payload["storage"] = role
+            status, body, _ = self.app_request("install", payload, headers)
+            self.assertEqual(status, 202, body)
+            self.wait_app_execution()
+            self.assertEqual(self.app_calls[-1][1][-2:], ("--storage", role or "sys"))
+        for suffix in ("status", "detail?name=sample"):
+            status, body, _ = self.request_full("GET", "/fre3nder/api/v1/apps/" + suffix, headers=headers)
+            self.assertEqual(status, 200, body)
+            result = json.loads(body)
+            app = result["apps"]["installed"][0] if suffix == "status" else result["app"]
+            self.assertEqual(app["storage"], "home")
+        for role in ("/tmp", "HOME", None, []):
+            status, body, _ = self.app_request("install", {"package_id": "a" * 32, "storage": role}, headers)
+            self.assertEqual(status, 400, body)
+        status, _, _ = self.app_request("update", {"package_id": "a" * 32, "name": "sample", "storage": "sys"}, headers)
+        self.assertEqual(status, 400)
+
+    def test_ota_upload_checks_home_proxy_and_sys_staging_separately(self):
+        self.setup_ota()
+        directory = self.daemon.OTA_PACKAGES
+        proxy = self.daemon.OTA_UPLOAD_BUFFER
+        original_stat = pathlib.Path.stat
+
+        def separate_devices(path, *args, **kwargs):
+            result = original_stat(path, *args, **kwargs)
+            if path == proxy:
+                values = list(result)
+                values[2] += 1
+                return os.stat_result(values)
+            return result
+
+        reserve = self.daemon.OTA_SPACE_RESERVE
+        for lacking in (directory, proxy):
+            def available(path):
+                return types.SimpleNamespace(f_bavail=reserve + (9 if path == lacking else 100), f_frsize=1)
+            with (patch.object(pathlib.Path, "stat", separate_devices),
+                  patch.object(self.daemon.os, "statvfs", side_effect=available)):
+                with self.assertRaises(self.daemon.ManagementError) as exc:
+                    self.daemon.upload_space(10)
+                self.assertEqual(exc.exception.status, 507)
+        with (patch.object(pathlib.Path, "stat", separate_devices),
+              patch.object(self.daemon.os, "statvfs", return_value=types.SimpleNamespace(f_bavail=reserve + 10, f_frsize=1))):
+            self.assertEqual(self.daemon.upload_space(10)["max_package_bytes"], 96 * 1024 * 1024)
 
 
 if __name__ == "__main__":

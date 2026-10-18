@@ -73,8 +73,8 @@ details are authoritative in [`.fre3app` v1](../fre3app.md).
 | Syntax | Purpose / requirements | Effects and result |
 | --- | --- | --- |
 | `fre3nder app verify <package.fre3app>` | Check container, manifest, checksums, trusted publisher and signature | No app install/service action; current response describes identity/capabilities; trust resolution may initialize manager directories |
-| `fre3nder app install <package.fre3app>` | Install a verified app not already installed; installer expects the `.fre3app` suffix | Extract payload, invoke signed `install`, start if autostart, cache package/state; first eligible web frontend may be selected; display selection is separate |
-| `fre3nder app update <package.fre3app> [--allow-downgrade]` | Require installed app, same publisher/fingerprint and frontend capabilities; validate release ordering | Stop/update/restart as required, replace runtime and cache; keep selection; explicit flag permits lower serial but does not bypass other checks |
+| `fre3nder app install <package.fre3app> [--storage sys\|home]` | Install a verified app not already installed; `.fre3app` suffix; storage defaults to `sys` | Extract into the chosen fixed runtime, invoke signed `install`, start if autostart, cache package/state; first eligible web frontend may be selected; display selection is separate |
+| `fre3nder app update <package.fre3app> [--allow-downgrade]` | Require installed app, same publisher/fingerprint and frontend capabilities; validate release ordering | Stop/update/restart as required, replace runtime and cache; preserve storage and selection; explicit flag permits lower serial but does not bypass other checks |
 | `fre3nder app remove <app>` | Require installed app; invoke stop/uninstall as appropriate | Remove manager/runtime/recovery state; clear affected selection; service code can change app data, so do not infer data rollback |
 | `fre3nder app list` | Inspect installed manager metadata | Current response contains `apps`; no service start |
 | `fre3nder app status <app>` | Require installed app | Ordinary app invokes signed `status` as the app user; can initialize its data directory and emit service output. Display running-state uses selection/manager checks |
@@ -82,6 +82,12 @@ details are authoritative in [`.fre3app` v1](../fre3app.md).
 Same release serial is rejected; two development serial-zero packages use version
 identity to reject the same package. A lower serial requires `--allow-downgrade`.
 There is no repository search/download/update-discovery subcommand in this CLI.
+
+Storage accepts only `sys` or `home`, never a filesystem path. SYS maps to
+`/opt/fre3nder/apps-v2/<app>/`; HOME maps to
+`/home/.fre3nder-runtime/apps-v2/<app>/`. List and status report the installed
+`storage` role, treating old metadata without this field as `sys`. Updates do
+not accept `--storage` and cannot move an app between roles.
 
 ## Display selection
 

@@ -17,7 +17,7 @@
       <nav aria-label="Maintenance areas">
         <a class="nav-item active" href="#overview" aria-current="page">Overview</a>
         <a class="nav-item" href="#updates">System Updates</a>
-        <span class="nav-item disabled" aria-disabled="true">Apps</span>
+        <a class="nav-item" href="#apps">Apps</a>
         <span class="nav-item disabled" aria-disabled="true">System</span>
       </nav>
 
@@ -183,9 +183,77 @@
           <p class="section-note">The final boot result cannot be verified from this page. You can close this page.</p>
         </section>
       </div>
+      <div id="apps-view" hidden>
+        <header class="page-header">
+          <p class="eyebrow">Apps</p>
+          <h1>Manage signed applications</h1>
+          <p>Install, update and remove trusted .fre3app packages. Upload never installs automatically.</p>
+        </header>
+        <p id="apps-error" class="error" role="alert" hidden></p>
+        <p id="apps-execution" class="status status-neutral" role="status" aria-live="polite"></p>
+        <p id="apps-message" class="section-note" role="status"></p>
+        <details><summary>Operation details</summary><pre id="apps-result"></pre></details>
+        <section class="status-section" aria-labelledby="apps-installed-title">
+          <h2 id="apps-installed-title">Installed Apps</h2>
+          <p id="apps-installed-success" class="success" role="status" aria-live="polite" hidden></p>
+          <div id="apps-installed"></div>
+        </section>
+        <section class="status-section" aria-labelledby="apps-upload-title">
+          <h2 id="apps-upload-title">Install / update an app</h2>
+          <button id="apps-cancel-update" class="secondary-button" type="button" hidden>Cancel selected update / general upload</button>
+          <form id="apps-upload-form" class="ota-controls">
+            <label for="apps-file">Local .fre3app file (up to 256 MiB)</label>
+            <input id="apps-file" type="file" accept=".fre3app">
+            <button id="apps-upload" class="secondary-button" type="submit" disabled>Upload and verify</button>
+          </form>
+          <progress id="apps-progress" value="0" max="100" hidden aria-label="App upload progress"></progress>
+          <p id="apps-upload-error" class="error" role="alert" hidden></p>
+          <p id="apps-storage" class="section-note"></p>
+          <div class="ota-controls">
+            <label for="apps-staged">Staged package</label>
+            <select id="apps-staged" disabled></select>
+            <button id="apps-verify" class="secondary-button" type="button" disabled>Verify again</button>
+            <button id="apps-discard" class="secondary-button" type="button" disabled>Discard upload</button>
+          </div>
+          <p id="apps-package-error" class="error" role="alert" hidden></p>
+          <p id="apps-package-success" class="success" role="status" aria-live="polite" hidden></p>
+          <div id="apps-install-options" class="ota-controls" hidden>
+            <label for="apps-install-storage">Installation storage</label>
+            <select id="apps-install-storage"></select>
+          </div>
+          <div id="apps-verified" class="app-entry"></div>
+          <button id="apps-acknowledge" class="secondary-button" type="button" hidden>Acknowledge unknown result after inspection</button>
+        </section>
+        <section class="status-section" aria-labelledby="apps-frontends-title">
+          <h2 id="apps-frontends-title">Frontend selection</h2>
+          <dl class="status-list">
+            <div><dt>Active web frontend</dt><dd id="apps-web-active">Loading…</dd></div>
+            <div><dt>Selected display frontend</dt><dd id="apps-display-active">Loading…</dd></div>
+          </dl>
+          <p class="section-note">Web selection follows the existing first-installed frontend policy; manual web switching is not available.</p>
+          <div id="apps-display-list"></div>
+          <button id="apps-display-disable" class="secondary-button" type="button" disabled>Disable display frontend</button>
+          <p id="apps-frontend-error" class="error" role="alert" hidden></p>
+        </section>
+      </div>
     </main>
   </div>
 
+  <dialog id="apps-operation" class="app-operation" aria-labelledby="apps-operation-title" aria-describedby="apps-operation-note">
+    <div id="apps-operation-status" class="app-operation-status" role="status" aria-live="polite">
+      <span id="apps-operation-spinner" class="app-spinner" aria-hidden="true"></span>
+      <h2 id="apps-operation-title"></h2>
+    </div>
+    <p id="apps-operation-note" class="section-note">Please wait. This can take a moment.</p>
+    <details id="apps-operation-details">
+      <summary>Operation details</summary>
+      <p id="apps-operation-execution" class="section-note"></p>
+      <pre id="apps-operation-result"></pre>
+    </details>
+    <button id="apps-operation-close" class="secondary-button" type="button" hidden>Close</button>
+  </dialog>
+
   <script src="maintenance.js"></script>
+  <script src="apps.js"></script>
 </body>
 </html>

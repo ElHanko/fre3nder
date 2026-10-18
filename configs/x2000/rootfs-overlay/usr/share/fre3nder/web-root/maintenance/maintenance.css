@@ -208,6 +208,15 @@ button:disabled {
   background: color-mix(in srgb, #b94949 10%, var(--surface));
 }
 
+.success {
+  margin-bottom: 1.5rem;
+  padding: .75rem 1rem;
+  border: 1px solid var(--ok);
+  border-radius: .4rem;
+  color: var(--ok);
+  background: var(--ok-soft);
+}
+
 .ota-controls {
   display: flex;
   flex-wrap: wrap;
@@ -266,4 +275,45 @@ summary { color: var(--muted); cursor: pointer; }
   .access-summary { display: none; }
   .content { padding: 1.5rem 1rem 3rem; }
   .status-list > div { grid-template-columns: 1fr; gap: .35rem; }
+}
+
+/* Signed app management uses the existing Maintenance palette. */
+.app-entry { background: var(--surface); border: 1px solid var(--border); border-radius: .4rem;
+             padding: .9rem 1rem; margin: .6rem 0; }
+.app-entry h3 { margin: 0; font-size: 1rem; }
+.app-actions { display: flex; align-items: center; flex-wrap: wrap; gap: .5rem; margin: .6rem 0; }
+#apps-progress { width: 100%; }
+#apps-staged { max-width: 100%; }
+#apps-verified { overflow-wrap: anywhere; }
+.app-operation {
+  width: min(32rem, calc(100% - 2rem));
+  max-height: calc(100dvh - 2rem);
+  padding: 1.5rem;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: .4rem;
+  background: var(--surface);
+  color: var(--text);
+}
+.app-operation::backdrop { background: rgb(0 0 0 / 45%); }
+.app-operation-status { display: flex; align-items: center; gap: .75rem; }
+.app-operation-status h2 { margin: 0; overflow-wrap: anywhere; }
+.app-operation pre {
+  max-height: min(20rem, 40dvh);
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.app-spinner {
+  flex: 0 0 auto;
+  width: 1.4rem;
+  height: 1.4rem;
+  border: .2rem solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: app-spin .8s linear infinite;
+}
+@keyframes app-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .app-spinner { animation: none; }
 }

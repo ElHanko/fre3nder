@@ -15,7 +15,7 @@ before installing a package. The `fre3nder` CLI exposes:
 
 ```text
 fre3nder app verify <package.fre3app>
-fre3nder app install <package.fre3app>
+fre3nder app install <package.fre3app> [--storage sys|home]
 fre3nder app update <package.fre3app> [--allow-downgrade]
 fre3nder app remove <app>
 fre3nder app list
@@ -27,11 +27,31 @@ fre3nder app key {list|show|add|remove} ...
 
 The exact verified package is cached in root-managed persistent state under
 `/home/.fre3nder/packages/<app>/package.fre3app`. S58 verifies that copy again,
-reconstructs `/opt/fre3nder/apps-v2/<app>/`, and calls the unprivileged service's
-`restore` action after a system-overlay reset. Recovery needs neither a network
-download nor a web-service restart. S65 starts packages marked for autostart.
+reconstructs missing SYS runtimes, and calls the unprivileged service's
+`restore` action after a system-overlay reset. Valid HOME runtimes are retained.
+Recovery needs neither a network download nor a web-service restart. S65 starts
+packages marked for autostart.
 See [the package format](fre3app.md) for its trust and service
 contract.
+
+## Fixed app storage roles
+
+| Local installation choice | Runtime | Platform update behavior |
+| --- | --- | --- |
+| `sys` (default) | `/opt/fre3nder/apps-v2/<app>/` | Reconstructed from the signed HOME cache after SYS reset |
+| `home` (explicit) | `/home/.fre3nder-runtime/apps-v2/<app>/` | Retained and checked against the signed cache; reconstructed only if missing or invalid |
+
+Package-Core stores `storage` in Root-controlled installation metadata. An absent
+field means `sys`; the signed package manifest is unchanged. Updates preserve
+the recorded role. There is no automatic migration or arbitrary runtime path.
+Web and display managers consume the same Core resolution. Cache and application
+data stay at their existing HOME locations for both roles.
+
+Before install or update, Core budgets the complete new extraction beside the
+old runtime and a new persistent package copy, with 32 MiB operating headroom.
+HOME runtime and cache requirements are combined when they share a filesystem.
+Transaction directories reside beside the selected runtime for atomic rename
+and rollback. Installed app data is not a rollback snapshot.
 
 Fluidd is the first official web-frontend `.fre3app`. Its complete static web
 payload lives in signed `payload/` members. Fluidd's service validates that
@@ -138,7 +158,7 @@ The selected application frontend and core Maintenance UI use independent
 Lighttpd service instances and separate browser origins.
 
 `S62fre3nder-web` owns the selected application frontend on port `80`. It uses
-the active frontend name to serve `/opt/fre3nder/apps-v2/<app>/payload`.
+the Core-resolved active frontend runtime to serve its `payload/`, on SYS or HOME.
 `/etc/lighttpd/fre3nder.conf` remains frontend-neutral platform configuration:
 `/websocket` and the Moonraker `/printer`, `/api`, `/access`, `/machine`, and
 `/server` paths proxy to Moonraker at `127.0.0.1:17126`. `/webcam/` proxies to
@@ -162,3 +182,38 @@ The application-frontend opt-out marker stays in user-owned
 `/home/fre3nder/.fre3nder/web/disabled`. Maintenance state is separate and
 root-managed under `/home/.fre3nder/maintenance/`. The package core's frontend
 selection remains independent of that Maintenance state.
+
+## Manual Maintenance app administration
+
+The explicitly enabled port-8081 Maintenance page provides an **Apps** section
+for installed-app inspection, signed `.fre3app` upload and verification,
+explicit installation, update and removal, and existing display selection.
+A successful upload does not install a package. The Package-Core still decides
+publisher trust, update ordering, service lifecycle and frontend effects.
+
+The page reports the existing selected web frontend but does not switch it:
+Package-Core has no supported manual web selection operation. Removing the
+selected frontend clears port-80 selection; Maintenance stays available on
+port 8081. Removing the selected display frontend similarly clears its
+selection and can leave the screen without an active UI. The Factory-app
+bootstrap and persistent user choice rules remain unchanged.
+
+An app's Update button binds verification and confirmation to that app's name.
+A different package cannot be confirmed until the selected update is cancelled
+and a general upload is started. Version and publisher policy stays in Package-Core.
+
+CLI and Maintenance mutations acquire the existing OTA transition lock
+(`/run/fre3nder/ota/write.lock`) before the package lock
+(`/run/.package-operation.lock`). Both are nonblocking and held by Package-Core
+for the complete operation, then released on success or failure. OTA transitions
+use the same first lock. Package verification and metadata inspection do not
+acquire these mutation locks.
+
+Maintenance stages app uploads privately in `/home/.tmp/fre3nder/uploads/`.
+Its Apps and OTA requests share `/home/.tmp/fre3nder/lighttpd/` as the proxy
+buffer; the separate port-80 listener is unaffected. App upload checks budget
+staging, proxy and a future cache copy together with 64 MiB HOME headroom.
+Core separately checks actual installation capacity at the chosen runtime.
+The reserved `/home/.tmp` area is safely cleared at every regular boot before
+services start. Uninstalled uploads are deliberately discarded by printer reboot,
+while a Maintenance-service restart preserves them.

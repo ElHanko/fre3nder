@@ -7,6 +7,7 @@ import io
 import json
 import os
 import pathlib
+import shutil
 import subprocess
 import stat
 import sys
@@ -44,6 +45,7 @@ class Fre3nderDisplayManagerCoreTests(unittest.TestCase):
         self.core.DISPLAY_ROOT = self.core.PACKAGE_STATE_ROOT / "display"
         self.core.ACTIVE_DISPLAY = self.core.DISPLAY_ROOT / "active"
         self.core.RUNTIME_ROOT = self.root / "runtime"
+        self.core.HOME_RUNTIME_ROOT = self.root / "home-runtime/apps-v2"
         self.core.RECOVERY_ROOT = self.root / "recovery"
         self.core.DATA_ROOT = self.root / "data"
 
@@ -55,6 +57,7 @@ class Fre3nderDisplayManagerCoreTests(unittest.TestCase):
             "exit 0\n"
         )
         self.core.DISPLAY_SERVICE.chmod(0o755)
+        self.core.DISPLAY_STATUS = self.root / "display-status"
 
     def metadata(self, name="screen", serial=1, display=True):
         return {
@@ -140,6 +143,24 @@ class Fre3nderDisplayManagerCoreTests(unittest.TestCase):
         setgid.assert_called_once_with(1000)
         setuid.assert_called_once_with(1000)
 
+    def test_home_display_resolves_runtime_for_all_service_actions(self):
+        self.install_state()
+        previous = self.core.runtime_dir("screen")
+        target = self.core.prepare_runtime_root("home") / "screen"
+        shutil.move(previous, target)
+        metadata = self.core.metadata_path("screen")
+        metadata.write_text(json.dumps({**self.metadata(), "storage": "home"}))
+        environment = {"FRE3NDER_DISPLAY_API": "1", "FRE3NDER_DISPLAY_FRAMEBUFFER": "/dev/fixture-fb",
+                       "FRE3NDER_DISPLAY_INPUT": "/dev/fixture-input"}
+        with (mock.patch.dict(os.environ, environment),
+              mock.patch.object(self.core, "app_user", return_value=(os.getuid(), os.getgid())),
+              mock.patch.object(self.core, "display_group_ids", return_value=(28, 1001, 1002)),
+              mock.patch.object(self.core.subprocess, "run", return_value=types.SimpleNamespace(returncode=0)) as run):
+            for action in ("start", "stop", "status"):
+                self.assertEqual(self.core.display_service_action(action), 0)
+                self.assertEqual(run.call_args.kwargs["cwd"], target)
+                self.assertEqual(run.call_args.kwargs["env"]["FRE3NDER_APP_RUNTIME_DIR"], str(target))
+
     def test_selected_display_update_and_remove_use_display_manager(self):
         package = self.root / "screen.fre3app"
         package.write_bytes(b"fixture")
@@ -157,6 +178,7 @@ class Fre3nderDisplayManagerCoreTests(unittest.TestCase):
                 return_value=self.metadata(serial=1),
             ),
             mock.patch.object(self.core, "extract_runtime", side_effect=extract),
+            mock.patch.object(self.core, "check_install_space"),
             mock.patch.object(self.core, "service_action", return_value=0),
         ):
             self.core.activate_package(package, "install")
@@ -171,6 +193,7 @@ class Fre3nderDisplayManagerCoreTests(unittest.TestCase):
                 return_value=self.metadata(serial=2),
             ),
             mock.patch.object(self.core, "extract_runtime", side_effect=extract),
+            mock.patch.object(self.core, "check_install_space"),
             mock.patch.object(self.core, "service_action", return_value=0),
         ):
             self.core.activate_package(package, "update")
@@ -201,6 +224,7 @@ class Fre3nderDisplayManagerCoreTests(unittest.TestCase):
         with (
             mock.patch.object(self.core, "verify_package", return_value=self.metadata()),
             mock.patch.object(self.core, "extract_runtime", side_effect=extract),
+            mock.patch.object(self.core, "check_install_space"),
             mock.patch.object(self.core, "service_action", return_value=0),
             mock.patch.object(self.core, "run_display_manager") as display_manager,
         ):
@@ -228,6 +252,148 @@ class Fre3nderDisplayManagerCoreTests(unittest.TestCase):
                 self.core.main()
 
         self.assertEqual(self.core.active_display(), "screen")
+
+    def prepare_display_switch(self):
+        self.install_state("fre3nderscreen")
+        self.install_state("doom")
+        metadata = self.core.metadata_path("doom")
+        metadata.write_text(json.dumps({**self.metadata("doom"), "storage": "home"}))
+        home = self.core.prepare_runtime_root("home") / "doom"
+        shutil.move(self.core.RUNTIME_ROOT / "doom", home)
+        self.core.select_display("fre3nderscreen")
+        self.core.DISPLAY_STATUS.write_text("active\n")
+        self.events = self.root / "display-events"
+        # Like S64, start exits zero even when readiness failed. Status remains
+        # independent so an active marker alone cannot establish readiness.
+        self.core.DISPLAY_SERVICE.write_text(
+            "#!/bin/sh\n"
+            f"name=$(cat '{self.core.ACTIVE_DISPLAY}' 2>/dev/null || true)\n"
+            f"printf '%s:%s\\n' \"$name\" \"$1\" >> '{self.events}'\n"
+            f"status='{self.core.DISPLAY_STATUS}'\n"
+            "case $1 in\n"
+            f"start) if [ -f '{self.root}/fail-start-'\"$name\" ]; then\n"
+            f"  cat '{self.root}/fail-start-'\"$name\" > \"$status\"\n"
+            "  elif [ -n \"$name\" ]; then echo active > \"$status\"\n"
+            "  else echo disabled > \"$status\"; fi;;\n"
+            f"stop) if [ -e '{self.root}/fail-stop-'\"$name\" ]; then\n"
+            "  echo stop-failed > \"$status\"; exit 1; fi\n"
+            "  echo stopped > \"$status\";;\n"
+            "status) [ \"$(cat \"$status\")\" = active ] &&\n"
+            f"  [ ! -e '{self.root}/fail-status-'\"$name\" ];;\n"
+            "esac\n"
+        )
+
+    def select(self, name="doom"):
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output), mock.patch.object(sys, "argv", [str(CORE), "display-select", name]):
+            self.assertEqual(self.core.main(), 0)
+        return json.loads(output.getvalue())
+
+    def test_display_switch_confirms_runtime_and_service(self):
+        self.prepare_display_switch()
+        self.assertTrue(self.select()["ok"])
+        self.assertEqual(self.core.active_display(), "doom")
+        self.assertEqual(self.core.read_metadata("doom")["storage"], "home")
+        self.assertEqual(self.events.read_text().splitlines(),
+                         ["fre3nderscreen:stop", "doom:start", "doom:status"])
+
+    def test_zero_exit_start_failure_restores_previous_display(self):
+        self.prepare_display_switch()
+        for status in ("startup-failed", "starting", "framebuffer-unavailable"):
+            with self.subTest(status=status):
+                self.events.unlink(missing_ok=True)
+                (self.root / "fail-start-doom").write_text(status + "\n")
+                with self.assertRaisesRegex(ValueError, 'Display frontend "doom" failed to start.*' + status + '.*Previous display "fre3nderscreen" restored'):
+                    self.select()
+                self.assertEqual(self.core.active_display(), "fre3nderscreen")
+                self.assertEqual(self.core.DISPLAY_STATUS.read_text().strip(), "active")
+                self.assertEqual(self.events.read_text().splitlines(),
+                                 ["fre3nderscreen:stop", "doom:start", "doom:stop", "fre3nderscreen:start", "fre3nderscreen:status"])
+
+    def test_display_switch_also_reports_failed_restoration(self):
+        self.prepare_display_switch()
+        for name in ("doom", "fre3nderscreen"):
+            (self.root / ("fail-start-" + name)).write_text("startup-failed\n")
+        with self.assertRaisesRegex(ValueError, 'doom.*startup-failed.*Recovery failed.*fre3nderscreen.*startup-failed'):
+            self.select()
+        self.assertEqual(self.core.active_display(), "fre3nderscreen")
+
+    def test_failed_first_display_returns_to_diagnostic_fallback(self):
+        self.prepare_display_switch()
+        self.core.disable_display()
+        (self.root / "fail-start-doom").write_text("startup-failed\n")
+        with self.assertRaisesRegex(ValueError, "startup-failed.*diagnostic console fallback"):
+            self.select()
+        self.assertIsNone(self.core.active_display())
+        self.assertEqual(self.core.DISPLAY_STATUS.read_text().strip(), "disabled")
+        self.assertEqual(self.events.read_text().splitlines(), ["doom:start", "doom:stop", ":start"])
+
+    def test_failed_stop_prevents_selection_or_vt_takeover(self):
+        self.prepare_display_switch()
+        (self.root / "fail-stop-fre3nderscreen").touch()
+        with self.assertRaisesRegex(ValueError, "stop.*failed"):
+            self.select()
+        self.assertEqual(self.core.active_display(), "fre3nderscreen")
+        self.assertEqual(self.events.read_text().splitlines(), ["fre3nderscreen:stop"])
+
+    def test_start_stop_failed_state_prevents_recovery_takeover(self):
+        self.prepare_display_switch()
+        (self.root / "fail-start-doom").write_text("stop-failed\n")
+        with self.assertRaisesRegex(ValueError, "doom.*stop-failed.*Recovery failed.*VT ownership"):
+            self.select()
+        self.assertEqual(self.core.active_display(), "doom")
+        self.assertEqual(self.events.read_text().splitlines(), ["fre3nderscreen:stop", "doom:start"])
+
+    def test_failed_recovery_stop_keeps_failed_frontend_selected(self):
+        self.prepare_display_switch()
+        (self.root / "fail-start-doom").write_text("startup-failed\n")
+        (self.root / "fail-stop-doom").touch()
+        with self.assertRaisesRegex(ValueError, "startup-failed.*Recovery failed.*stop.*failed"):
+            self.select()
+        self.assertEqual(self.core.active_display(), "doom")
+        self.assertEqual(self.events.read_text().splitlines(), ["fre3nderscreen:stop", "doom:start", "doom:stop"])
+
+    def test_existing_stop_failed_blocks_switch_and_reselection(self):
+        self.prepare_display_switch()
+        self.core.DISPLAY_STATUS.write_text("stop-failed\n")
+        for name in ("fre3nderscreen", "doom"):
+            with self.subTest(name=name), self.assertRaisesRegex(ValueError, "stop-failed.*VT ownership"):
+                self.select(name)
+        self.assertEqual(self.core.active_display(), "fre3nderscreen")
+        self.assertFalse(self.events.exists())
+
+    def test_zero_exit_stop_without_stopped_state_does_not_change_selection(self):
+        self.prepare_display_switch()
+        with mock.patch.object(self.core, "run_display_manager", return_value=True) as manager:
+            with self.assertRaisesRegex(ValueError, "stop not confirmed.*VT ownership"):
+                self.select()
+        manager.assert_called_once_with("stop", required=True)
+        self.assertEqual(self.core.active_display(), "fre3nderscreen")
+
+    def test_selected_active_display_is_not_restarted(self):
+        self.prepare_display_switch()
+        self.assertTrue(self.select("fre3nderscreen")["ok"])
+        self.assertEqual(self.events.read_text().splitlines(), ["fre3nderscreen:status"])
+
+    def test_selected_failed_display_is_started_and_checked_again(self):
+        self.prepare_display_switch()
+        self.core.select_display("doom")
+        self.core.DISPLAY_STATUS.write_text("startup-failed\n")
+        (self.root / "fail-start-doom").write_text("startup-failed\n")
+        with self.assertRaisesRegex(ValueError, "doom.*startup-failed"):
+            self.select()
+        self.assertEqual(self.events.read_text().splitlines(), ["doom:start"])
+        (self.root / "fail-start-doom").unlink()
+        self.events.unlink()
+        self.assertTrue(self.select()["ok"])
+        self.assertEqual(self.events.read_text().splitlines(), ["doom:start", "doom:status"])
+
+    def test_active_marker_without_service_readiness_is_not_success(self):
+        self.prepare_display_switch()
+        (self.root / "fail-status-doom").touch()
+        with self.assertRaisesRegex(ValueError, "doom.*active.*service status.*restored"):
+            self.select()
+        self.assertEqual(self.core.active_display(), "fre3nderscreen")
 
     def test_generic_runtime_skips_display_frontends(self):
         self.install_state()

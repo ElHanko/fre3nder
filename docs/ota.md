@@ -656,9 +656,13 @@ overlay; they are not persistent `HOME` data.
 
 `/ota/apps-v2/<name>/restored` is also SYS-overlay state. It records that a
 signed package cached in root-managed `/home/.fre3nder/packages/<name>/` has
-been reconstructed for the current system overlay. A platform update/reset
-removes this marker together with reconstructible app files. The next boot
-verifies the cached package again and restores it without network access.
+completed recovery for the current system overlay. A platform update/reset
+removes this marker together with SYS app runtimes. The next boot verifies
+the cached package and local metadata again. SYS runtimes are reconstructed;
+valid HOME runtimes under `/home/.fre3nder-runtime/apps-v2/` are retained and
+checked against the signed file set instead of unpacked again. Both roles run
+the required `service restore` action when the marker was removed. Storage is a
+local Core installation choice, defaults to SYS, and is preserved by app updates.
 
 This intentionally couples package cleanup to the existing update lifecycle.
 If verification or preflight aborts before activation, the staged package
@@ -670,8 +674,15 @@ automatically. The freshly booted immutable RootFS then exposes an empty
 OTA v1 therefore does not require a separate successful-update cleanup
 mechanism for staged packages.
 
-Normal OTA upload handling must write only below `/ota/packages/`; it must not
+Normal OTA package staging writes only below `/ota/packages/`; it must not
 replace the trust anchor below `/ota/keys/`.
+
+The Maintenance HTTP request buffer for both OTA and Apps resides separately at
+`/home/.tmp/fre3nder/lighttpd/`. OTA capacity checks account for its HOME body
+copy and SYS staging separately, combining budgets if they share a filesystem.
+The 96 MiB OTA limit and all Core transaction/activation rules are unchanged.
+Early boot safely clears the reserved `/home/.tmp` area, including app uploads
+in `/home/.tmp/fre3nder/uploads/`; a web-service restart does not clear it.
 
 Package verification must establish the Ed25519 signature first and then require
 the checksum file, manifest metadata, declared sizes, and actual payload hashes
@@ -938,6 +949,11 @@ preserve the HOME assignment
 preserve the HOME filesystem
 preserve HOME contents
 ```
+
+The explicitly reserved temporary workspace `/home/.tmp/` is the exception:
+storage initialization clears it at every regular boot, including an update
+boot. Installed HOME runtimes, cached packages, trust, metadata and app data lie
+outside that area and remain preserved.
 
 The new release consumes the same logical `HOME` role after activation.
 

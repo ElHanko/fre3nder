@@ -74,9 +74,25 @@ const renderAuth = (auth) => {
     : "Administrative actions require a temporary paired browser session.";
   if (authenticated) {
     loadOta().catch(handleStatusError);
+    if (typeof appsLoad === "function") appsLoad().catch((error) => appsError(error.message));
   } else {
     stopOtaPolling();
     disableOtaControls();
+    if (typeof appsPoll !== "undefined") {
+      if (appsPoll) clearTimeout(appsPoll);
+      appsPoll = null;
+      appsState = null;
+      appsVerified = null;
+      appsSelectedUpdate = null;
+      appsCompletedExecution = null;
+      appsSubmitting = false;
+      appsBusy = false;
+      appsClearMessages();
+      document.getElementById("apps-cancel-update").hidden = true;
+      document.getElementById("apps-install-options").hidden = true;
+      document.getElementById("apps-verified").replaceChildren();
+      document.getElementById("apps-installed").replaceChildren();
+    }
   }
 };
 
@@ -652,10 +668,12 @@ window.addEventListener("pageshow", () => { if (csrfToken) loadOta().catch(handl
 
 const renderNavigation = () => {
   const updates = window.location.hash === "#updates" || Boolean(rebootStatus());
-  document.getElementById("overview-view").hidden = updates;
+  const appPage = !updates && window.location.hash === "#apps";
+  document.getElementById("overview-view").hidden = updates || appPage;
   document.getElementById("updates-view").hidden = !updates;
+  document.getElementById("apps-view").hidden = !appPage;
   for (const link of document.querySelectorAll("nav a")) {
-    const active = link.getAttribute("href") === (updates ? "#updates" : "#overview");
+    const active = link.getAttribute("href") === (updates ? "#updates" : appPage ? "#apps" : "#overview");
     link.classList.toggle("active", active);
     if (active) link.setAttribute("aria-current", "page");
     else link.removeAttribute("aria-current");

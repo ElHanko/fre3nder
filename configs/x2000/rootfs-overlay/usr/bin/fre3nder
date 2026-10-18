@@ -220,7 +220,7 @@ def run_maintenance(action):
 
 def usage():
     print(
-        "usage: fre3nder app install <package.fre3app>",
+        "usage: fre3nder app install <package.fre3app> [--storage sys|home]",
         file=sys.stderr,
     )
     print(
@@ -1262,12 +1262,13 @@ def main():
     if namespace == "app":
         arguments = sys.argv[2:]
 
-        if len(arguments) == 2 and arguments[0] == "install":
-            action, target = arguments
-            if not is_package_path(target):
+        if len(arguments) in (2, 4) and arguments[0] == "install":
+            action, target = arguments[:2]
+            if (not is_package_path(target) or (len(arguments) == 4
+                    and (arguments[2] != "--storage" or arguments[3] not in ("sys", "home")))):
                 return usage()
             try:
-                run_package_core(action, (target,))
+                run_package_core(action, tuple(arguments[1:]))
             except RuntimeError as exc:
                 print(f"fre3nder app: {exc}", file=sys.stderr)
                 return 1

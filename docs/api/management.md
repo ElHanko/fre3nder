@@ -3,8 +3,9 @@
 The Fre3nder Management API is the platform-owned interface for local
 administration that must not be implemented independently by the web UI or local
 display. API v1 covers system status, explicit Maintenance Web activation and
-temporary browser-administration pairing and manual platform OTA. Application
-operations continue to use their existing public CLI paths.
+temporary browser-administration pairing, manual platform OTA and manual
+signed application management. Application package semantics continue to use
+the existing Package-Core.
 
 ## Transport and privilege boundary
 
@@ -172,13 +173,15 @@ chunk, and requires exactly the announced length. Complete files are published
 atomically with a no-replacement hard link, then the temporary name is removed.
 EOF, timeout and write failures remove incomplete uploads. Complete packages
 remain available after verification failures; a successful target-boot SYS reset
-removes staged packages and proxy buffers.
+removes staged OTA packages. The boot-cleaned HOME area removes proxy buffers.
 
-Lighttpd uses `/ota/packages/.lighttpd-upload/`, owned by Root with mode `0730`
-and group `fre3nder-management`. Port-80 `nobody:nobody` cannot traverse it.
-Before upload, `statvfs.f_bavail` must cover two complete bodies (staging and
-proxy copy) plus **32 MiB** for ordinary SYS writes. The remaining double-body
-budget is rechecked while streaming. This reserves capacity conservatively;
+The Maintenance Lighttpd worker uses `/home/.tmp/fre3nder/lighttpd/`, owned by
+Root with mode `0730` and group `fre3nder-management`. Port-80 `nobody:nobody`
+cannot traverse it. Apps and OTA share this proxy buffer. Before OTA upload,
+`statvfs.f_bavail` must cover staging on SYS and the proxy copy on HOME, each
+with **32 MiB** headroom. If both paths share a filesystem, their body budgets
+are combined. The remaining budget is rechecked while streaming. This reserves
+capacity conservatively;
 it does not reserve filesystem blocks against unrelated Root writers. Uploads
 fail with `507` on insufficient capacity or ENOSPC. Content-Length is required;
 Transfer-Encoding and multipart uploads are unsupported.
@@ -283,7 +286,7 @@ POST /fre3nder/api/v1/auth/lock
 
 The root-only Maintenance mutation paths (`enable`, `disable`, pairing-code
 creation and global `lock`) are not routed by either web listener. The explicit
-documented OTA routes are projected only on Maintenance; there are no general app,
+documented OTA routes are projected only on Maintenance; manual Apps routes are also projected only on Maintenance; there are no
 standalone backup, SSH or command-execution routes.
 
 Port separation is an origin boundary, not a cookie boundary. Authenticated
@@ -312,3 +315,69 @@ logic remain in those cores.
 
 There is no general command-execution endpoint, no arbitrary path operation and
 no client-supplied block-device or slot selection in Management API v1.
+
+## Manual Apps endpoints
+
+While Maintenance is enabled, paired browser administrators can manage trusted
+`.fre3app` packages under `/fre3nder/api/v1/apps/`. The same session cookie,
+CSRF token, Origin/Host validation, and privileged Unix socket apply to every
+mutation. Port 80 has no Apps routes. All responses retain API v1's `ok`,
+`operation`, and structured error format.
+
+| Method / suffix | Input / response |
+| --- | --- |
+| `GET status` | Installed metadata including `storage`, web/display selections, staged packages, volatile execution, HOME upload capacity and Core-reported SYS/HOME runtime capacity |
+| `GET detail?name=<app>` | Package-Core status of one installed app (service status may have side effects) |
+| `POST upload` | Streaming binary `.fre3app`, `Content-Length`, URL-encoded `X-Fre3nder-Filename`; automatically begins Verify, not installation |
+| `POST verify` | `{ "package_id": "<id>" }` |
+| `POST install` | `{ "package_id": "<id>", "storage": "sys" }`; optional `storage` accepts only `sys` or `home`, defaults to `sys`; requires a successful staged verification |
+| `POST update` | `{ "package_id": "<id>", "name": "<app>" }`; exact app identity, no downgrade option |
+| `POST remove` | `{ "name": "<app>" }` |
+| `POST display/select` | `{ "name": "<app>" }` |
+| `POST display/disable` | `{}` |
+| `POST discard` | `{ "package_id": "<id>" }`; deletes only a staged upload |
+| `POST acknowledge` | `{}`; operator acknowledgement of unknown execution after rereading installed state |
+
+Core operations and successful upload verification return `202 apps-accepted`
+with an execution ID, operation and `running` state. `GET status` reports
+`running`, `succeeded`, `failed` or `unknown`. It never automatically resubmits
+jobs. An `unknown` outcome blocks additional mutations until the administrator
+has inspected the installed state and explicitly acknowledged the uncertainty.
+Execution metadata is stored under `/run/fre3nder-management/apps-execution.json`,
+not in the package cache.
+Install receipts include the verified app name even if the operation fails.
+Status snapshots capture the receipt before reading Package-Core state, so a
+completion during the read remains `running` in that response and is polled again.
+The Maintenance UI confirms successful install/update/remove receipts against
+the returned installed state before showing a green success message. A removal
+must be absent; an installation or update must match the resulting package's
+name, version and release serial. New actions clear previous messages.
+
+App files are staged as private, Root-owned temporary files under
+`/home/.tmp/fre3nder/uploads/` (directory `0700`, files `0600`), then published
+atomically without overwrite. Filenames
+supplied by browsers are never used as filesystem paths. The maximum compressed
+package is 256 MiB; HOME upload capacity checks budget proxy buffering, staging
+and a future persistent cache copy together, plus 64 MiB headroom. Core checks
+uncompressed runtime, transaction and cache space again before installation. The
+96 MiB OTA package limit remains unchanged. Persistent verified package copies
+remain solely under Package-Core ownership in HOME. Package-Core maintains the
+trust decision, release-serial policy, service lifecycle, and frontend selection.
+It also owns cross-process exclusion with CLI app mutations and OTA transitions:
+it acquires the existing OTA lock before the package lock, without waiting.
+A conflicting asynchronous app job reports failure in its execution receipt;
+acceptance does not guarantee that the mutation started.
+
+App updates accept no storage argument and preserve Core's installed role.
+`GET status` returns `storage.sys.available_bytes` and
+`storage.home.available_bytes` from Core (`null` when unavailable), alongside
+the existing upload `available_bytes`, maximum and reserve fields.
+
+The early storage bootstrap clears all of `/home/.tmp` only after validating
+the real writable HOME mount, before managementd or Lighttpd starts. Parent
+directories `/home/.tmp` and `/home/.tmp/fre3nder` are Root-owned `0711`.
+Uninstalled app uploads and proxy buffers are intentionally lost at printer
+reboot; installed caches and HOME runtimes are separate. Restarting Maintenance
+does not clear uploads. OTA's `/ota/packages/`, transaction state and 96 MiB
+limit retain their existing lifecycle. Operation errors appear beside the
+affected upload, package, app or frontend controls; session/API errors may be global.

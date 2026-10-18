@@ -5,7 +5,7 @@ root_state=${FRE3NDER_ROOT_STATE:-/run/fre3nder-root}
 maintenance_state=${FRE3NDER_MAINTENANCE_STATE:-/home/.fre3nder/maintenance/enabled}
 maintenance_root=${FRE3NDER_MAINTENANCE_ROOT:-/usr/share/fre3nder/web-root/maintenance}
 management_socket=${FRE3NDER_MANAGEMENT_SOCKET:-/run/fre3nder-management/api.sock}
-upload_buffer=${FRE3NDER_MAINTENANCE_UPLOAD_BUFFER:-/ota/packages/.lighttpd-upload}
+upload_buffer=${FRE3NDER_MAINTENANCE_UPLOAD_BUFFER:-/home/.tmp/fre3nder/lighttpd}
 management_group=${FRE3NDER_MANAGEMENT_GROUP:-fre3nder-management}
 base_config=${FRE3NDER_MAINTENANCE_WEB_BASE_CONFIG:-/etc/lighttpd/fre3nder-maintenance.conf}
 daemon=${FRE3NDER_LIGHTTPD:-/usr/sbin/lighttpd}
@@ -132,7 +132,7 @@ try:
         f'server.document-root = "{maintenance_root}"',
         f'include "{base}"',
         f'server.upload-dirs := ( "{upload_buffer}" )',
-        '$HTTP["url"] =~ "^/fre3nder/api/v1/(system|maintenance|auth/(session|unlock|lock)|ota/(status|upload|verify|preflight|backup-plan|backup|confirm|write|readback|prepare-activation|reboot))$" {',
+        '$HTTP["url"] =~ "^/fre3nder/api/v1/(system|maintenance|auth/(session|unlock|lock)|ota/(status|upload|verify|preflight|backup-plan|backup|confirm|write|readback|prepare-activation|reboot)|apps/(status|detail|upload|verify|install|update|remove|discard|acknowledge|display/(select|disable)))$" {',
         f'    proxy.server = ( "" => (( "host" => "{management_socket}" )) )',
         '}',
     ]

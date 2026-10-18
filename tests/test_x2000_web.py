@@ -2,8 +2,10 @@
 """Non-building web-service fixtures. The fake daemon binds no network socket."""
 
 import os
+import json
 from pathlib import Path
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -38,6 +40,7 @@ class WebServiceTests(unittest.TestCase):
             "FRE3NDER_HOME_DIR": str(self.home),
             "FRE3NDER_PACKAGE_STATE_ROOT": str(self.package_state),
             "FRE3NDER_PACKAGE_RUNTIME_ROOT": str(self.web),
+            "FRE3NDER_PACKAGE_CORE": str(OVERLAY / "usr/libexec/fre3nder/package-core"),
             "FRE3NDER_WEB_BASE_CONFIG": str(BASE_CONFIG),
             "FRE3NDER_LIGHTTPD": str(self.daemon),
             "FRE3NDER_PYTHON": sys.executable,
@@ -83,7 +86,13 @@ while True:
     def setup_frontend(self):
         self.write(self.root_state / "status", "active\n")
         self.home.mkdir(parents=True, exist_ok=True)
+        self.package_state.mkdir(mode=0o700)
+        self.active.parent.mkdir(mode=0o700)
         self.write(self.active, "sample-ui\n")
+        self.active.chmod(0o644)
+        state = self.package_state / "packages/sample-ui"
+        self.write(state / "installed")
+        self.write(state / "metadata.json", json.dumps({"name": "sample-ui", "web_frontend": True}))
         self.write(self.payload / "index.html", "fixture frontend")
 
     def test_no_persistent_root(self):
@@ -117,7 +126,8 @@ while True:
         self.run_service(expected="no-frontend")
         for name in ("../escape", "/tmp", "", "two\nnames", "a" * 65, "A"):
             self.write(self.active, name)
-            self.run_service(expected="frontend-invalid")
+            self.active.chmod(0o644)
+            self.run_service(expected="state-invalid")
         self.active.unlink()
         self.active.symlink_to(self.payload / "index.html")
         self.run_service(expected="state-invalid")
@@ -184,6 +194,18 @@ while True:
         self.run_service(ok=False)
         self.assertFalse((self.home / "status").exists())
         self.assertFalse(self.calls.exists())
+
+    def test_home_frontend_is_resolved_by_package_core(self):
+        self.setup_frontend()
+        home_runtime = self.package_state.parent / ".fre3nder-runtime/apps-v2"
+        home_runtime.parent.mkdir(mode=0o755)
+        shutil.move(self.web, home_runtime)
+        metadata = self.package_state / "packages/sample-ui/metadata.json"
+        metadata.write_text(json.dumps({"name": "sample-ui", "web_frontend": True, "storage": "home"}))
+        self.run_service(expected="active")
+        generated = (self.runtime / "lighttpd.conf").read_text()
+        self.assertIn(str(home_runtime / "sample-ui/payload"), generated)
+        self.assertFalse(self.web.exists())
 
 
 class WebConfigurationTests(unittest.TestCase):

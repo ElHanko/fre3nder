@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 import hashlib
+import contextlib
+import fcntl
 import grp
 import json
 import os
@@ -35,6 +37,7 @@ STATE_ROOT = PACKAGE_STATE_ROOT / "packages"
 USER_KEYS = PACKAGE_STATE_ROOT / "app-keys"
 DATA_ROOT = HOME_DIR / ".local/share"
 RUNTIME_ROOT = pathlib.Path(os.environ.get("FRE3NDER_PACKAGE_RUNTIME_ROOT", "/opt/fre3nder/apps-v2"))
+HOME_RUNTIME_ROOT = PACKAGE_STATE_ROOT.parent / ".fre3nder-runtime/apps-v2"
 RECOVERY_ROOT = pathlib.Path(os.environ.get("FRE3NDER_PACKAGE_RECOVERY_DIR", "/ota/apps-v2"))
 FRONTEND_ROOT = PACKAGE_STATE_ROOT / "frontend"
 ACTIVE_FRONTEND = FRONTEND_ROOT / "active"
@@ -44,6 +47,7 @@ WEB_SERVICE = pathlib.Path(os.environ.get("FRE3NDER_WEB_SERVICE", "/etc/init.d/S
 DISPLAY_SERVICE = pathlib.Path(
     os.environ.get("FRE3NDER_DISPLAY_SERVICE", "/etc/init.d/S64fre3nder-display")
 )
+DISPLAY_STATUS = pathlib.Path(os.environ.get("FRE3NDER_DISPLAY_RUNTIME", "/run/fre3nder-display")) / "status"
 MAX_MANIFEST = 64 * 1024
 MAX_CHECKSUMS = 2 * 1024 * 1024
 MAX_SIGNATURE = 64
@@ -397,8 +401,106 @@ def state_dir(name: str) -> pathlib.Path:
     return STATE_ROOT / name
 
 
-def runtime_dir(name: str) -> pathlib.Path:
-    return RUNTIME_ROOT / name
+def storage_role(value: str) -> str:
+    if value not in ("sys", "home"):
+        raise ValueError("app storage must be sys or home")
+    return value
+
+
+def runtime_root(storage: str) -> pathlib.Path:
+    root = RUNTIME_ROOT if storage_role(storage) == "sys" else HOME_RUNTIME_ROOT
+    for part in (root, *root.parents):
+        if part.is_symlink() or (part.exists() and not part.is_dir()):
+            raise ValueError(f"unsafe app runtime path: {part}")
+    return root
+
+
+def prepare_runtime_root(storage: str) -> pathlib.Path:
+    root = runtime_root(storage)
+    # HOME's runtime is public-readable, while cache and trust remain private.
+    for path in ([root.parent] if storage == "home" else []) + [root]:
+        if not path.exists():
+            path.mkdir(parents=True, mode=0o755)
+            path.chmod(0o755)
+        st = path.stat()
+        if st.st_uid != os.geteuid() or st.st_mode & 0o022:
+            raise ValueError(f"unsafe app runtime directory: {path}")
+    return root
+
+
+def runtime_dir(name: str, storage: str | None = None) -> pathlib.Path:
+    if not APP_RE.fullmatch(name):
+        raise ValueError("invalid app name")
+    role = storage_role(storage if storage is not None else read_metadata(name).get("storage", "sys"))
+    path = runtime_root(role) / name
+    if path.is_symlink() or (path.exists() and not path.is_dir()):
+        raise ValueError(f"unsafe app runtime directory: {path}")
+    return path
+
+
+def storage_status() -> dict:
+    result = {}
+    for role in ("sys", "home"):
+        try:
+            path = runtime_root(role)
+            while not path.exists():
+                path = path.parent
+            fs = os.statvfs(path)
+            result[role] = {"available_bytes": fs.f_bavail * fs.f_frsize}
+        except (OSError, ValueError):
+            result[role] = {"available_bytes": None}
+    return result
+
+
+def check_install_space(package: pathlib.Path, target: pathlib.Path, storage: str) -> None:
+    ensure_manager_directory(PACKAGE_STATE_ROOT)
+    fs = os.statvfs(target)
+    block = fs.f_frsize
+    with zipfile.ZipFile(package) as archive:
+        # The old runtime stays allocated during update; free space must hold
+        # the complete new extraction plus directory/transaction overhead.
+        unpacked = sum(((item.file_size + block - 1) // block + len(pathlib.PurePosixPath(item.filename).parts)) * block
+                       for item in archive.infolist())
+    cache = package.stat().st_size + 4 * block
+    reserve = 32 * 1024 * 1024
+    home_fs = os.statvfs(PACKAGE_STATE_ROOT)
+    if target.stat().st_dev == PACKAGE_STATE_ROOT.stat().st_dev:
+        if min(fs.f_bavail * block, home_fs.f_bavail * home_fs.f_frsize) < unpacked + cache + reserve:
+            raise ValueError(f"not enough {storage.upper()}/HOME space for app extraction, transaction and package cache")
+    else:
+        if fs.f_bavail * block < unpacked + reserve:
+            raise ValueError(f"not enough {storage.upper()} space for app extraction and transaction")
+        if home_fs.f_bavail * home_fs.f_frsize < cache + reserve:
+            raise ValueError("not enough HOME space for the persistent package cache")
+
+
+def runtime_matches(package: pathlib.Path, current: pathlib.Path) -> bool:
+    """Compare retained HOME files with the already authenticated cached package."""
+    if not current.is_dir():
+        return False
+    try:
+        with zipfile.ZipFile(package) as archive:
+            names = sorted(item.filename for item in archive.infolist()
+                           if not item.is_dir() and item.filename not in ("SHA256SUMS", "SHA256SUMS.sig"))
+            checksums = parse_checksums(archive.read("SHA256SUMS"), names)
+        actual = set()
+        for directory, dirs, files in os.walk(current):
+            if any((pathlib.Path(directory) / name).is_symlink() for name in dirs):
+                return False
+            for name in files:
+                path = pathlib.Path(directory) / name
+                relative = path.relative_to(current).as_posix()
+                regular_file(path, "retained app file")
+                mode = 0o755 if relative == "service" or relative.startswith("payload/bin/") else 0o644
+                if stat.S_IMODE(path.stat().st_mode) != mode or relative not in checksums:
+                    return False
+                with path.open("rb") as stream:
+                    if hashlib.file_digest(stream, "sha256").hexdigest() != checksums[relative]:
+                        return False
+                actual.add(relative)
+        return actual == set(names)
+    except (OSError, ValueError):
+        return False
 
 
 def metadata_path(name: str) -> pathlib.Path:
@@ -419,6 +521,7 @@ def read_metadata(name: str) -> dict:
     data.setdefault("web_frontend", False)
     data.setdefault("display_frontend", False)
     data.setdefault("display_api", None)
+    data["storage"] = storage_role(data.get("storage", "sys"))
     if type(data["web_frontend"]) is not bool:
         raise ValueError("installed web capability is invalid")
     if type(data["display_frontend"]) is not bool:
@@ -609,7 +712,17 @@ def run_display_manager(action: str, *, required: bool = False) -> bool:
 
 
 
+def display_runtime_status() -> str:
+    try:
+        regular_file(DISPLAY_STATUS, "display runtime status")
+        return DISPLAY_STATUS.read_text().strip() or "unavailable"
+    except (OSError, ValueError):
+        return "unavailable"
+
+
 def display_manager_running() -> bool:
+    if display_runtime_status() != "active":
+        return False
     try:
         result = subprocess.run(
             [str(DISPLAY_SERVICE), "status"],
@@ -621,6 +734,60 @@ def display_manager_running() -> bool:
     except OSError:
         return False
     return result.returncode == 0
+
+
+def start_selected_display(name: str) -> None:
+    try:
+        run_display_manager("start", required=True)
+    except ValueError as exc:
+        raise ValueError(f'Display frontend "{name}" failed to start ({exc}; status: {display_runtime_status()}).') from exc
+    # S64 already waits for app/VT readiness; its boot-safe exit code is not
+    # evidence of success. Both the runtime state and live service must agree.
+    if not display_manager_running():
+        raise ValueError(f'Display frontend "{name}" failed to start (status: {display_runtime_status()}; service status not confirmed).')
+
+
+def stop_selected_display() -> None:
+    if display_runtime_status() == "stop-failed":
+        raise ValueError("display manager stop-failed; VT ownership is unconfirmed")
+    try:
+        run_display_manager("stop", required=True)
+    except ValueError as exc:
+        raise ValueError(f"{exc} (status: {display_runtime_status()})") from exc
+    if display_runtime_status() != "stopped":
+        raise ValueError(f"display manager stop not confirmed (status: {display_runtime_status()}); VT ownership is unconfirmed")
+
+
+def switch_display(name: str) -> None:
+    display_metadata(name)
+    previous = active_display()
+    if display_runtime_status() == "stop-failed":
+        raise ValueError("display manager stop-failed; VT ownership is unconfirmed; selection unchanged")
+    if previous == name:
+        if not display_manager_running():
+            start_selected_display(name)
+        return
+    if previous is not None:
+        stop_selected_display()
+    try:
+        select_display(name)
+        start_selected_display(name)
+    except (OSError, ValueError) as failure:
+        try:
+            stop_selected_display()
+            if previous is not None:
+                select_display(previous)
+                start_selected_display(previous)
+                restored = f'Previous display "{previous}" restored.'
+            else:
+                disable_display()
+                run_display_manager("start", required=True)
+                if display_runtime_status() != "disabled":
+                    raise ValueError(f"display disable not confirmed (status: {display_runtime_status()})")
+                restored = "Display selection cleared; diagnostic console fallback requested."
+        except (OSError, ValueError) as recovery:
+            raise ValueError(f"{failure} Recovery failed: {recovery}") from failure
+        raise ValueError(f"{failure} {restored}") from failure
 
 
 def refresh_web() -> None:
@@ -713,7 +880,8 @@ def extract_runtime(package: pathlib.Path, verified: dict, target: pathlib.Path)
     chown_tree(target, uid, gid)
 
 
-def write_state(package: pathlib.Path, verified: dict) -> None:
+def write_state(package: pathlib.Path, verified: dict, storage: str = "sys") -> None:
+    storage = storage_role(storage)
     name = verified["name"]
     ensure_manager_directory(PACKAGE_STATE_ROOT)
     ensure_manager_directory(STATE_ROOT)
@@ -746,6 +914,7 @@ def write_state(package: pathlib.Path, verified: dict) -> None:
 
         metadata = {
             "name": name,
+            "storage": storage,
             "version": verified["version"],
             "release_serial": verified["release_serial"],
             "publisher": verified["publisher"],
@@ -774,7 +943,11 @@ def write_state(package: pathlib.Path, verified: dict) -> None:
             raise
 
 
-def activate_package(package: pathlib.Path, operation: str, allow_downgrade: bool = False) -> dict:
+def activate_package(package: pathlib.Path, operation: str, allow_downgrade: bool = False,
+                     storage: str | None = None) -> dict:
+    if operation == "update" and storage is not None:
+        raise ValueError("updates preserve the installed app storage")
+    storage = storage_role(storage if storage is not None else "sys")
     verified = verify_package(package)
     name = verified["name"]
     selected_before = active_frontend() if verified["web_frontend"] else None
@@ -788,6 +961,7 @@ def activate_package(package: pathlib.Path, operation: str, allow_downgrade: boo
         raise ValueError(f"app is not installed: {name}")
     if exists:
         old = read_metadata(name)
+        storage = storage_role(old.get("storage", "sys"))
         if old.get("web_frontend") != verified["web_frontend"]:
             raise ValueError("web frontend capability differs from installed app")
         if (
@@ -810,11 +984,12 @@ def activate_package(package: pathlib.Path, operation: str, allow_downgrade: boo
             raise ValueError("same package release is already installed")
         if verified["release_serial"] < old_serial and not allow_downgrade:
             raise ValueError("package downgrade requires --allow-downgrade")
-    RUNTIME_ROOT.mkdir(parents=True, exist_ok=True)
-    with tempfile.TemporaryDirectory(dir=RUNTIME_ROOT, prefix=f".{name}.") as tmp:
+    target = prepare_runtime_root(storage)
+    current = runtime_dir(name, storage)
+    check_install_space(package, target, storage)
+    with tempfile.TemporaryDirectory(dir=target, prefix=f".{name}.") as tmp:
         staged = pathlib.Path(tmp) / "new"
         extract_runtime(package, verified, staged)
-        current = runtime_dir(name)
         previous = pathlib.Path(tmp) / "previous"
         was_running = False
         display_stopped = False
@@ -846,7 +1021,7 @@ def activate_package(package: pathlib.Path, operation: str, allow_downgrade: boo
                 if operation == "install" and verified["web_frontend"] and selected_before is None:
                     select_frontend(name)
                     selected_new = True
-                write_state(package, verified)
+                write_state(package, verified, storage)
             except Exception:
                 if selected_new:
                     ACTIVE_FRONTEND.unlink(missing_ok=True)
@@ -936,11 +1111,13 @@ def restore_installed() -> int:
             continue
         try:
             marker = RECOVERY_ROOT / name / "restored"
-            if marker.is_file() and runtime_dir(name).is_dir():
+            metadata = read_metadata(name)
+            storage = metadata["storage"]
+            current = runtime_dir(name, storage)
+            if storage == "sys" and marker.is_file() and not marker.is_symlink() and current.is_dir():
                 continue
             package = state_dir(name) / "package.fre3app"
             verified = verify_package(package)
-            metadata = read_metadata(name)
             expected = {
                 "name": verified["name"],
                 "version": verified["version"],
@@ -951,16 +1128,25 @@ def restore_installed() -> int:
                 "web_frontend": verified["web_frontend"],
                 "display_frontend": verified["display_frontend"],
                 "display_api": verified["display_api"],
+                "storage": storage,
             }
             if metadata != expected or verified["name"] != name:
                 raise ValueError("cached package differs from installed state")
-            RUNTIME_ROOT.mkdir(parents=True, exist_ok=True)
-            with tempfile.TemporaryDirectory(dir=RUNTIME_ROOT, prefix=f".{name}.") as tmp:
+            if storage == "home" and runtime_matches(package, current):
+                if not marker.is_file() or marker.is_symlink():
+                    rc = service_action(name, "restore", current)
+                    if rc != 0:
+                        raise ValueError(f"app service restore failed: exit {rc}")
+                    marker.parent.mkdir(parents=True, exist_ok=True)
+                    marker.touch(exist_ok=True)
+                continue
+            target = prepare_runtime_root(storage)
+            check_install_space(package, target, storage)
+            with tempfile.TemporaryDirectory(dir=target, prefix=f".{name}.") as tmp:
                 transaction = pathlib.Path(tmp)
                 staged = transaction / "new"
                 previous = transaction / "previous"
                 extract_runtime(package, verified, staged)
-                current = runtime_dir(name)
                 if current.exists():
                     os.replace(current, previous)
                 try:
@@ -1017,9 +1203,11 @@ def stop_installed() -> int:
         return 0
     for root in sorted(STATE_ROOT.iterdir(), key=lambda p: p.name, reverse=True):
         name = root.name
-        if not APP_RE.fullmatch(name) or not installed(name) or not runtime_dir(name).is_dir():
+        if not APP_RE.fullmatch(name) or not installed(name):
             continue
         try:
+            if not runtime_dir(name).is_dir():
+                continue
             if read_metadata(name)["display_frontend"]:
                 continue
             if service_action(name, "status") != 0:
@@ -1051,8 +1239,12 @@ def main() -> int:
         remove_key(args[1]); response("key-remove", True, publisher=args[1]); return 0
     if len(args) == 2 and args[0] == "verify":
         item = verify_package(pathlib.Path(args[1])); response("verify", True, package={k: item[k] for k in ("name","version","release_serial","publisher","fingerprint","web_frontend","display_frontend","display_api")}); return 0
-    if len(args) == 2 and args[0] == "install":
-        item = activate_package(pathlib.Path(args[1]), "install"); response("install", True, package={k: item[k] for k in ("name","version","release_serial","publisher")}); return 0
+    if len(args) in (2, 4) and args[0] == "install":
+        if len(args) == 4 and args[2] != "--storage":
+            raise ValueError("unsupported install option")
+        storage = storage_role(args[3]) if len(args) == 4 else "sys"
+        item = activate_package(pathlib.Path(args[1]), "install", storage=storage)
+        response("install", True, package={**{k: item[k] for k in ("name","version","release_serial","publisher")}, "storage": storage}); return 0
     if len(args) in (2, 3) and args[0] == "update":
         allow = len(args) == 3 and args[2] == "--allow-downgrade"
         if len(args) == 3 and not allow:
@@ -1092,22 +1284,21 @@ def main() -> int:
                 item["active"] = root.name == selected
                 apps.append(item)
         response("display-list", True, active=selected, apps=apps); return 0
+    if args == ["frontend-status"]:
+        name = active_frontend()
+        document_root = None
+        if name is not None:
+            if not installed(name) or not read_metadata(name)["web_frontend"]:
+                raise ValueError("selected app is not an installed web frontend")
+            document_root = str(runtime_dir(name) / "payload")
+        response("frontend-status", True, frontend={"active": name, "document_root": document_root}); return 0
+    if args == ["storage-status"]:
+        response("storage-status", True, storage=storage_status()); return 0
     if args == ["display-status"]:
         response("display-status", True, display={"active": active_display()}); return 0
     if len(args) == 2 and args[0] == "display-select":
         name = args[1]
-        display_metadata(name)
-        previous = active_display()
-        if previous != name:
-            if previous is not None:
-                run_display_manager("stop", required=True)
-            try:
-                select_display(name)
-            except Exception:
-                if previous is not None:
-                    run_display_manager("start")
-                raise
-            run_display_manager("start")
+        switch_display(name)
         response("display-select", True, display={"active": name}); return 0
     if args == ["display-disable"]:
         previous = active_display()
@@ -1144,6 +1335,31 @@ def main() -> int:
 
 if __name__ == "__main__":
     try:
+        # All callers acquire OTA first, then package, for the whole mutation.
+        if sys.argv[1:2] and sys.argv[1] in (
+                "install", "update", "remove", "display-select", "display-disable",
+                "restore-installed", "start-installed", "stop-installed", "key-add", "key-remove"):
+            # Keep host fixtures isolated from the machine's global /run.
+            lock_root = (PACKAGE_STATE_ROOT if "FRE3NDER_PACKAGE_STATE_ROOT" in os.environ
+                         else pathlib.Path("/run"))
+            ensure_manager_directory(lock_root)
+            ota_lock = (lock_root / "ota/write.lock" if "FRE3NDER_PACKAGE_STATE_ROOT" in os.environ
+                        else pathlib.Path("/run/fre3nder/ota/write.lock"))
+            with contextlib.ExitStack() as locks:
+                for description, path in (("OTA/app", ota_lock),
+                                          ("package", lock_root / ".package-operation.lock")):
+                    ensure_manager_directory(path.parent)
+                    fd = os.open(path, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600)
+                    lock = locks.enter_context(os.fdopen(fd, "r+"))
+                    metadata = os.fstat(fd)
+                    if (not stat.S_ISREG(metadata.st_mode) or metadata.st_uid != os.geteuid()
+                            or metadata.st_mode & 0o077):
+                        raise ValueError(f"unsafe {description} operation lock")
+                    try:
+                        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    except BlockingIOError as exc:
+                        raise ValueError(f"another {description} operation is active") from exc
+                sys.exit(main())
         sys.exit(main())
     except (
         OSError,

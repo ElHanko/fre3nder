@@ -31,6 +31,35 @@ artifacts, including diagnostic operation when a backend is absent or invalid.
 No internal p9/p10 fallback is implemented. Detailed degraded-runtime results
 remain in [storage evidence](../research/docs/storage-layout.md#fre3nder-persistence-roles).
 
+## App runtimes and reserved temporary HOME storage
+
+Package-Core owns two fixed runtime roles. New installations use SYS at
+`/opt/fre3nder/apps-v2/<app>/` unless HOME is explicitly selected at
+`/home/.fre3nder-runtime/apps-v2/<app>/`. Local installation metadata records
+`storage`; missing fields mean `sys`. Updates preserve the role and do not
+migrate apps. Both roles use `/home/.fre3nder/packages/<app>/` as the signed
+cache and `/home/fre3nder/.local/share/<app>/` as app-owned data. After SYS
+reset, S58 reconstructs SYS apps but retains valid, verified HOME runtime files;
+required `service restore` actions still run. See [apps](apps.md).
+
+The existing early `fre3nder-root` bootstrap reserves `/home/.tmp/` and clears
+its contents at every regular boot, after mounting HOME and before root switch
+and rcS. It requires exactly one matching writable ext4 HOME mount, safe real
+path components and Root-controlled directories. Missing, wrong or read-only
+HOME and nested mounts inside the temporary area prevent cleanup. Deletion is
+scoped through directory descriptors and does not follow symlinks outside the
+reserved area. A symlink in place of `.tmp` is rejected.
+
+The bootstrap prepares Root-owned `.tmp/` and `.tmp/fre3nder/` with mode `0711`,
+and private `uploads/` and `lighttpd/` children initially `0700`. The Maintenance
+service grants only its worker group access to `lighttpd/` (`0730`,
+`root:fre3nder-management`); management uploads remain Root-only. A Maintenance
+restart changes no staged content. A printer reboot deliberately discards
+uninstalled uploads. The separate port-80 listener keeps its existing buffer
+and access boundary. Host fixtures cover cleanup and permission contracts. On
+the Fre3nder development reference X2000, HOME app installation and persistence
+across multiple RootFS upgrades with SYS reset were successfully exercised.
+
 ## Regular software shutdown
 
 Fre3nder's [inittab](../configs/x2000/rootfs-overlay/etc/inittab) replaces the

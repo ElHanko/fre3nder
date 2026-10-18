@@ -56,7 +56,9 @@ PUBLIC / SUPPORTED in the documented scope:
 | Userdata HOME | `/home`, current backend `LABEL=FRE3NDERHOME` ext4 |
 | System SYS | Current `LABEL=FRE3NDERSYS` ext4, reconstructible OverlayFS upper/work and platform boot metadata |
 | Immutable baseline | `/rom`; `/run` and `/tmp` are volatile |
-| App runtime | `/opt/fre3nder/apps-v2/<app>/`, reconstructible after SYS reset |
+| SYS app runtime (default) | `/opt/fre3nder/apps-v2/<app>/`, reconstructible after SYS reset |
+| HOME app runtime (explicit) | `/home/.fre3nder-runtime/apps-v2/<app>/`, retained across SYS reset and verified against the signed cache |
+| Temporary HOME workspace | `/home/.tmp/`, safely cleared at every regular boot before services; uninstalled app uploads are lost |
 | App-owned data | `/home/fre3nder/.local/share/<app>/` |
 | Root-managed signed package cache | `/home/.fre3nder/packages/<app>/`; recovery verifies cached package again |
 | Web/display selection | `/home/.fre3nder/frontend/active`, `/home/.fre3nder/display/active`; manage through supported CLI/platform selection behavior |
@@ -91,8 +93,15 @@ browser-authentication routes. Browser-admin mutations additionally require a
 paired session, session CSRF token and matching port-8081 `Origin`/`Host`.
 The explicit `/fre3nder/api/v1/ota/` routes expose manual platform updates through
 the existing OTA/Backup cores, including upload to SYS-backed `/ota/packages/`.
-The upload limit is 96 MiB; HOME is not an upload destination. Invocation status
-is volatile and distinct from Core transaction and known-good state.
+The OTA upload limit is 96 MiB; package staging remains on SYS. The Maintenance
+request spool for OTA and Apps is `/home/.tmp/fre3nder/lighttpd/` on HOME.
+Paired administrators additionally have manual Apps routes for signed `.fre3app`
+upload to `/home/.tmp/fre3nder/uploads/` (256 MiB maximum), verification and
+Package-Core operations. Install accepts the fixed `sys` or `home` role;
+updates preserve installed storage. Core resolves paths for all app services,
+web payloads and display lifecycle actions. Cache and app data locations are
+independent of runtime storage. No automatic migration is performed.
+Invocation status is volatile and distinct from Core transaction and known-good state.
 
 Neither listener currently supplies TLS. Moonraker continues to own
 HTTP/JSON-RPC/WebSocket authorization for its upstream routes; Management API v1

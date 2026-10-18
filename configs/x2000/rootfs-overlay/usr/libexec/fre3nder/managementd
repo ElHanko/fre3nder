@@ -2,6 +2,7 @@
 """Local privileged management API for Fre3nder."""
 
 import functools
+import importlib.util
 import grp
 import hmac
 import http.cookies
@@ -23,6 +24,11 @@ import threading
 import time
 import urllib.parse
 
+
+_apps_source = pathlib.Path(__file__).with_name("management_apps.py")
+_apps_spec = importlib.util.spec_from_file_location("fre3nder_management_apps", _apps_source)
+apps = importlib.util.module_from_spec(_apps_spec)
+_apps_spec.loader.exec_module(apps)
 
 API_VERSION = 1
 SOCKET_PATH = pathlib.Path(
@@ -75,9 +81,10 @@ _execution = None
 
 OTA_CORE = pathlib.Path(__file__).with_name("ota-core")
 OTA_PACKAGES = pathlib.Path("/ota/packages")
+OTA_UPLOAD_BUFFER = pathlib.Path("/home/.tmp/fre3nder/lighttpd")
 OTA_EXECUTION = SOCKET_PATH.parent / "ota-execution.json"
 OTA_UPLOAD_LIMIT = 96 * 1024 * 1024
-# Keep room for normal SYS writes. Reserve a second complete body for the proxy.
+# Keep operating headroom on SYS (staging) and HOME (the shared proxy buffer).
 OTA_SPACE_RESERVE = 32 * 1024 * 1024
 OTA_OPERATIONS = (
     "verify", "preflight", "backup-plan", "backup", "confirm", "write",
@@ -412,16 +419,27 @@ def package_path(package_id):
 
 
 def upload_space(remaining=0):
-    fs = os.statvfs(package_directory())
+    directory = package_directory()
+    for path in (OTA_UPLOAD_BUFFER, *OTA_UPLOAD_BUFFER.parents):
+        if path.is_symlink():
+            raise ManagementError(409, "storage-unsafe", "Upload buffer contains a symlink")
+    metadata = OTA_UPLOAD_BUFFER.stat()
+    if not stat.S_ISDIR(metadata.st_mode) or metadata.st_uid != manager_uid() or metadata.st_mode & 0o007:
+        raise ManagementError(409, "storage-unsafe", "Upload buffer has unsafe ownership or permissions")
+    fs = os.statvfs(directory)
+    proxy_fs = os.statvfs(OTA_UPLOAD_BUFFER)
     available = fs.f_bavail * fs.f_frsize
-    required = remaining * 2 + OTA_SPACE_RESERVE
-    if remaining and available < required:
-        raise ManagementError(507, "insufficient-space", "Not enough SYS space for the upload, proxy buffer and operating reserve")
+    proxy_available = proxy_fs.f_bavail * proxy_fs.f_frsize
+    same_filesystem = directory.stat().st_dev == metadata.st_dev
+    required = remaining * (2 if same_filesystem else 1) + OTA_SPACE_RESERVE
+    if remaining and (available < required or proxy_available < required):
+        raise ManagementError(507, "insufficient-space", "Not enough SYS staging or HOME proxy space for the upload and operating reserve")
     return {
         "available_bytes": available,
         "max_package_bytes": OTA_UPLOAD_LIMIT,
         "reserve_bytes": OTA_SPACE_RESERVE,
         "proxy_copy_reserved": True,
+        "proxy_available_bytes": proxy_available,
     }
 
 
@@ -772,6 +790,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
         return state
 
     def fail(self, exc):
+        if isinstance(exc, apps.AppError):
+            self.send_json(exc.status, error(exc.code, exc.message))
+            return
         if isinstance(exc, ManagementError):
             self.send_json(exc.status, error(exc.code, exc.message))
             return
@@ -780,6 +801,21 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
     def do_GET(self):
         try:
+            if self.path == "/fre3nder/api/v1/apps/status":
+                self.require_web_peer()
+                if self.current_web_session(touch=True) is None:
+                    raise ManagementError(401, "authentication-required", "Browser administrative session is not authenticated")
+                self.send_json(200, response("apps-status", apps=apps.overview()))
+                return
+            if self.path.startswith("/fre3nder/api/v1/apps/detail?"):
+                self.require_web_peer()
+                if self.current_web_session(touch=True) is None:
+                    raise ManagementError(401, "authentication-required", "Browser administrative session is not authenticated")
+                query = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query, strict_parsing=True)
+                if set(query) != {"name"} or len(query["name"]) != 1:
+                    raise ManagementError(400, "invalid-request", "Expected exactly one app name")
+                self.send_json(200, response("apps-detail", app=apps.details(query["name"][0])))
+                return
             if self.path == "/fre3nder/api/v1/ota/status":
                 self.require_web_peer()
                 if self.current_web_session(touch=True) is None:
@@ -820,11 +856,48 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 )
                 return
             raise ManagementError(404, "not-found", "management endpoint does not exist")
-        except (ManagementError, OSError, ValueError, RuntimeError) as exc:
+        except (ManagementError, apps.AppError, OSError, ValueError, RuntimeError) as exc:
             self.fail(exc)
 
     def do_POST(self):
         try:
+            app_prefix = "/fre3nder/api/v1/apps/"
+            if self.path.startswith(app_prefix):
+                operation = self.path[len(app_prefix):]
+                operations = {
+                    "upload": None, "verify": "verify", "install": "install",
+                    "update": "update", "remove": "remove",
+                    "display/select": "display-select", "display/disable": "display-disable",
+                    "discard": None, "acknowledge": None,
+                }
+                if operation not in operations:
+                    raise ManagementError(404, "not-found", "Apps endpoint does not exist")
+                self.require_web_admin()
+                require_active_root()
+                with _ota_lock:
+                    require_ota_idle()
+                    if operation == "upload":
+                        if self.headers.get_content_type() != "application/octet-stream":
+                            raise ManagementError(415, "unsupported-media-type", "App upload requires application/octet-stream")
+                        filename = urllib.parse.unquote(self.headers.get("X-Fre3nder-Filename", ""))
+                        job = apps.upload(self.rfile, self.request_length(), filename)
+                    else:
+                        payload = self.read_json_body()
+                        if operation == "discard":
+                            if set(payload) != {"package_id"}:
+                                raise ManagementError(400, "invalid-request", "Expected package_id")
+                            value = apps.discard(payload["package_id"])
+                            self.send_json(200, response("apps-discard", discarded=value))
+                            return
+                        if operation == "acknowledge":
+                            if payload:
+                                raise ManagementError(400, "invalid-request", "Expected empty object")
+                            apps.acknowledge()
+                            self.send_json(200, response("apps-acknowledge"))
+                            return
+                        job = apps.start(operations[operation], payload)
+                self.send_json(202, response("apps-accepted", execution=job))
+                return
             prefix = "/fre3nder/api/v1/ota/"
             if self.path.startswith(prefix):
                 operation = self.path[len(prefix):]
@@ -832,10 +905,13 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     raise ManagementError(404, "not-found", "OTA endpoint does not exist")
                 self.require_web_admin()
                 require_active_root()
-                if operation == "upload":
-                    execution = self.upload_ota()
-                else:
-                    execution = start_ota(operation, self.read_json_body())
+                with _ota_lock:
+                    if apps.running():
+                        raise ManagementError(409, "apps-busy", "An app operation is active or its outcome is unknown")
+                    if operation == "upload":
+                        execution = self.upload_ota()
+                    else:
+                        execution = start_ota(operation, self.read_json_body())
                 self.send_json(202, response("ota-accepted", execution=execution))
                 return
             actions = {
@@ -846,8 +922,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 self.require_empty_body()
                 self.require_admin()
                 enabled, operation = actions[self.path]
+                already_active = (
+                    enabled and maintenance_enabled() and web_status() == "active"
+                )
                 set_maintenance(enabled)
-                refresh = refresh_web()
+                refresh = "not-needed" if already_active else refresh_web()
                 state = {
                     "enabled": maintenance_enabled(),
                     "web_status": web_status(),
@@ -925,7 +1004,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 "not-found",
                 "management endpoint does not exist",
             )
-        except (ManagementError, OSError, ValueError, RuntimeError) as exc:
+        except (ManagementError, apps.AppError, OSError, ValueError, RuntimeError) as exc:
             self.fail(exc)
 
     def upload_ota(self):
@@ -1004,6 +1083,7 @@ def serve():
         raise RuntimeError("management daemon must run as root")
     prepare_socket()
     restore_execution()
+    apps.restore()
     try:
         group = grp.getgrnam(MANAGEMENT_GROUP)
     except KeyError as exc:

@@ -3,8 +3,7 @@
 runtime=${FRE3NDER_WEB_RUNTIME:-/run/fre3nder-web}
 root_state=${FRE3NDER_ROOT_STATE:-/run/fre3nder-root}
 fre3nder_home=${FRE3NDER_HOME_DIR:-/home/fre3nder}
-package_state=${FRE3NDER_PACKAGE_STATE_ROOT:-/home/.fre3nder}
-package_runtime=${FRE3NDER_PACKAGE_RUNTIME_ROOT:-/opt/fre3nder/apps-v2}
+package_core=${FRE3NDER_PACKAGE_CORE:-/usr/libexec/fre3nder/package-core}
 base_config=${FRE3NDER_WEB_BASE_CONFIG:-/etc/lighttpd/fre3nder.conf}
 daemon=${FRE3NDER_LIGHTTPD:-/usr/sbin/lighttpd}
 python=${FRE3NDER_PYTHON:-/usr/bin/python3}
@@ -41,15 +40,16 @@ prepare_runtime() {
 }
 
 prepare_config() {
-	"$python" - "$runtime" "$root_state" "$fre3nder_home" "$package_state" "$package_runtime" "$base_config" <<'PY'
+	"$python" - "$runtime" "$root_state" "$fre3nder_home" "$package_core" "$base_config" <<'PY'
+import json
 import os
 from pathlib import Path
-import re
 import stat
+import subprocess
 import sys
 import tempfile
 
-runtime, root_state, home, package_state, package_runtime, base = map(Path, sys.argv[1:])
+runtime, root_state, home, package_core, base = map(Path, sys.argv[1:])
 
 
 def safe(path):
@@ -79,15 +79,16 @@ def selected_frontend():
     if regular(disabled):
         return None, "disabled"
 
-    active = package_state / "frontend/active"
-    if not regular(active):
+    safe(package_core)
+    answer = subprocess.run([str(package_core), "frontend-status"], stdin=subprocess.DEVNULL,
+                            capture_output=True, text=True, check=False)
+    state = json.loads(answer.stdout)
+    if answer.returncode or state.get("api_version") != 1 or state.get("operation") != "frontend-status" or not state.get("ok"):
+        raise ValueError("Package Core could not resolve the selected web frontend")
+    frontend = state["frontend"]
+    if frontend["active"] is None:
         return None, "no-frontend"
-
-    name = active.read_text().removesuffix("\n")
-    if not re.fullmatch(r"[a-z][a-z0-9_-]{0,63}", name):
-        return None, "frontend-invalid"
-
-    document_root = package_runtime / name / "payload"
+    document_root = Path(frontend["document_root"])
     safe(document_root)
     if not document_root.is_dir():
         return None, "payload-unavailable"
