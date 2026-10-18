@@ -62,8 +62,8 @@ The normal SSH administrative/root context may use all five commands. Pairing
 codes live only in the running management daemon, expire after ten minutes and
 are invalidated after five failed attempts or one successful redemption. The
 generic `fre3nder` application user is not granted management-socket access.
-Fre3nderScreen will later use the same API through an explicit narrow capability
-rather than inheriting management authority for every app.
+Only a protected official Fre3nderScreen display service uses a special primary
+management GID; generic apps still lack the management socket capability.
 
 ## App packages
 

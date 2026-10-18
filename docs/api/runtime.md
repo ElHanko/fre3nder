@@ -26,6 +26,17 @@ These are values provided to services, not permission for users to redirect
 platform management paths. The same identifier can also exist as an internal
 test override; that use is not promoted to a public configuration knob.
 
+## Native Fre3nderScreen administration boundary
+
+The official, built-in-publisher `fre3nderscreen` display package is extracted
+with manager-owned runtime files. Its selected service process may use primary
+GID `fre3nder-management` (while keeping unprivileged UID `fre3nder`) only when
+Package-Core confirms protected runtime ownership and the official publisher
+identity. Other display and ordinary app services never receive this GID.
+Legacy unprotected Screen runtimes are re-extracted from verified signed caches
+on boot; the old writable runtime is not simply reowned in place. This is a
+local Unix-credential boundary, independent of the disabled-by-default web UI.
+
 ## Display Frontend API v1
 
 PUBLIC / SUPPORTED: `[display] frontend = true`, `api = 1`; display apps do not

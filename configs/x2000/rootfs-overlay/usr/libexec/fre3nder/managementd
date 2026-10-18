@@ -597,19 +597,44 @@ class Handler(http.server.BaseHTTPRequestHandler):
             # Execution was accepted independently; a lost reply is not a failure.
             pass
 
-    def peer_uid(self):
+    def peer_credentials(self):
         raw = self.connection.getsockopt(
             socket.SOL_SOCKET, socket.SO_PEERCRED, struct.calcsize("3i")
         )
-        return struct.unpack("3i", raw)[1]
+        return struct.unpack("3i", raw)
+
+    def peer_uid(self):
+        return self.peer_credentials()[1]
+
+    def is_screen_peer(self):
+        # Linux SO_PEERCRED primary GID is set only by root's Package-Core for
+        # a protected, officially signed Fre3nderScreen runtime.
+        try:
+            uid = pwd.getpwnam("fre3nder").pw_uid
+            gid = grp.getgrnam(MANAGEMENT_GROUP).gr_gid
+        except KeyError:
+            return False
+        _, peer_uid, peer_gid = self.peer_credentials()
+        return peer_uid == uid and peer_gid == gid
 
     def require_admin(self):
-        if self.peer_uid() not in mutation_uids():
+        if self.peer_uid() not in mutation_uids() and not self.is_screen_peer():
             raise ManagementError(
                 403,
                 "forbidden",
                 "operation is not permitted for this local client",
             )
+
+    def require_screen_or_web_session(self):
+        if self.is_screen_peer():
+            return
+        self.require_web_peer()
+        if self.current_web_session(touch=True) is None:
+            raise ManagementError(401, "authentication-required", "Browser administrative session is not authenticated")
+
+    def require_screen_or_web_admin(self):
+        if not self.is_screen_peer():
+            self.require_web_admin()
 
     def require_web_peer(self):
         if self.peer_uid() not in web_uids():
@@ -808,33 +833,25 @@ class Handler(http.server.BaseHTTPRequestHandler):
         try:
             if self.path == "/fre3nder/api/v1/system/details":
                 if self.peer_uid() not in mutation_uids():
-                    self.require_web_peer()
-                    if self.current_web_session(touch=True) is None:
-                        raise ManagementError(401, "authentication-required", "Browser administrative session is not authenticated")
+                    self.require_screen_or_web_session()
                 with _ota_lock:
                     execution = _execution
                 self.send_json(200, response("system-details", system=system_info.snapshot(
                     VERSION_FILE, ROOT_STATUS, maintenance_enabled, WEB_STATUS, execution)))
                 return
             if self.path == "/fre3nder/api/v1/apps/status":
-                self.require_web_peer()
-                if self.current_web_session(touch=True) is None:
-                    raise ManagementError(401, "authentication-required", "Browser administrative session is not authenticated")
+                self.require_screen_or_web_session()
                 self.send_json(200, response("apps-status", apps=apps.overview()))
                 return
             if self.path.startswith("/fre3nder/api/v1/apps/detail?"):
-                self.require_web_peer()
-                if self.current_web_session(touch=True) is None:
-                    raise ManagementError(401, "authentication-required", "Browser administrative session is not authenticated")
+                self.require_screen_or_web_session()
                 query = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query, strict_parsing=True)
                 if set(query) != {"name"} or len(query["name"]) != 1:
                     raise ManagementError(400, "invalid-request", "Expected exactly one app name")
                 self.send_json(200, response("apps-detail", app=apps.details(query["name"][0])))
                 return
             if self.path == "/fre3nder/api/v1/ota/status":
-                self.require_web_peer()
-                if self.current_web_session(touch=True) is None:
-                    raise ManagementError(401, "authentication-required", "Browser administrative session is not authenticated")
+                self.require_screen_or_web_session()
                 self.send_json(200, response("ota-status", ota=ota_status()))
                 return
             if self.path == "/fre3nder/api/v1/system":
@@ -887,7 +904,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 }
                 if operation not in operations:
                     raise ManagementError(404, "not-found", "Apps endpoint does not exist")
-                self.require_web_admin()
+                self.require_screen_or_web_admin()
                 require_active_root()
                 with _ota_lock:
                     require_ota_idle()
@@ -918,7 +935,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 operation = self.path[len(prefix):]
                 if operation not in (*OTA_OPERATIONS, "upload"):
                     raise ManagementError(404, "not-found", "OTA endpoint does not exist")
-                self.require_web_admin()
+                self.require_screen_or_web_admin()
                 require_active_root()
                 with _ota_lock:
                     if apps.running():

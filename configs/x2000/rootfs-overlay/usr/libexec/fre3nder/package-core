@@ -23,6 +23,10 @@ import zipfile
 API_VERSION = 1
 FORMAT_VERSION = 1
 DISPLAY_API_VERSION = 1
+# Only the verified, official Screen package may inherit the management socket GID.
+MANAGEMENT_GROUP = "fre3nder-management"
+SCREEN_APP = "fre3nderscreen"
+SCREEN_PUBLISHER = "fre3nder-official"
 PLATFORM = "fre3nder-x2000"
 ARCH = "mipsel"
 APP_RE = re.compile(r"[a-z][a-z0-9_-]{0,63}")
@@ -809,6 +813,38 @@ def app_user():
     return account.pw_uid, account.pw_gid
 
 
+def official_screen(metadata: dict) -> bool:
+    """Recognize the pinned official display role, never a name-only privilege."""
+    if (metadata.get("name") != SCREEN_APP
+            or metadata.get("publisher") != SCREEN_PUBLISHER
+            or metadata.get("display_frontend") is not True
+            or metadata.get("display_api") != DISPLAY_API_VERSION):
+        return False
+    key = BUILTIN_KEYS / (SCREEN_PUBLISHER + ".pem")
+    regular_file(key, "built-in Screen publisher key")
+    info = key.stat()
+    if info.st_uid != os.geteuid() or info.st_mode & 0o022:
+        raise ValueError("built-in Screen publisher key is not protected")
+    return metadata.get("fingerprint") == fingerprint(key)
+
+
+def protected_screen_runtime(runtime: pathlib.Path) -> bool:
+    """All executable/package files must be manager-owned and non-writable."""
+    if not runtime.is_dir() or runtime.is_symlink():
+        return False
+    for directory, directories, files in os.walk(runtime, followlinks=False):
+        for name in ["", *directories, *files]:
+            path = pathlib.Path(directory) / name if name else pathlib.Path(directory)
+            try:
+                info = path.lstat()
+            except OSError:
+                return False
+            if (info.st_uid != os.geteuid() or info.st_mode & 0o022
+                    or not (stat.S_ISDIR(info.st_mode) or stat.S_ISREG(info.st_mode))):
+                return False
+    return True
+
+
 def chown_tree(path: pathlib.Path, uid: int, gid: int) -> None:
     for root, dirs, files in os.walk(path):
         os.chown(root, uid, gid)
@@ -829,6 +865,14 @@ def service_action(
     service = runtime / "service"
     regular_file(service, "app service")
     uid, gid = app_user()
+    # Protect the management capability with *both* peer UID and primary GID.
+    # No ordinary application inherits this GID; UID stays unprivileged.
+    service_gid = gid
+    if (action in ("start", "stop", "status") and name == SCREEN_APP
+            and installed(name) and active_display() == name):
+        metadata = read_metadata(name)
+        if official_screen(metadata) and protected_screen_runtime(runtime):
+            service_gid = grp.getgrnam(MANAGEMENT_GROUP).gr_gid
     data_dir = DATA_ROOT / name
     data_dir.mkdir(parents=True, exist_ok=True)
     os.chown(data_dir, uid, gid)
@@ -847,8 +891,13 @@ def service_action(
         env.update(extra_env)
 
     def demote():
-        os.setgroups(list(supplementary_groups))
-        os.setgid(gid)
+        groups = set(supplementary_groups)
+        # S64's root:fre3nder 0710 runtime needs the original app GID for
+        # directory traversal even when Screen uses the management primary GID.
+        if service_gid != gid:
+            groups.add(gid)
+        os.setgroups(sorted(groups))
+        os.setgid(service_gid)
         os.setuid(uid)
     result = subprocess.run(
         [str(service), action],
@@ -862,7 +911,10 @@ def service_action(
 
 
 def extract_runtime(package: pathlib.Path, verified: dict, target: pathlib.Path) -> None:
-    uid, gid = app_user()
+    # The privileged Screen's signed executable/service must not be writable by
+    # another .fre3app sharing the generic fre3nder UID.
+    uid, gid = ((os.geteuid(), os.getegid()) if official_screen(verified)
+                else app_user())
     with zipfile.ZipFile(package, "r") as archive:
         target.mkdir(parents=True, mode=0o755)
         for info in archive.infolist():
@@ -1114,7 +1166,9 @@ def restore_installed() -> int:
             metadata = read_metadata(name)
             storage = metadata["storage"]
             current = runtime_dir(name, storage)
-            if storage == "sys" and marker.is_file() and not marker.is_symlink() and current.is_dir():
+            if (storage == "sys" and marker.is_file() and not marker.is_symlink()
+                    and current.is_dir() and
+                    (not official_screen(metadata) or protected_screen_runtime(current))):
                 continue
             package = state_dir(name) / "package.fre3app"
             verified = verify_package(package)
@@ -1132,7 +1186,8 @@ def restore_installed() -> int:
             }
             if metadata != expected or verified["name"] != name:
                 raise ValueError("cached package differs from installed state")
-            if storage == "home" and runtime_matches(package, current):
+            if (storage == "home" and runtime_matches(package, current) and
+                    (not official_screen(metadata) or protected_screen_runtime(current))):
                 if not marker.is_file() or marker.is_symlink():
                     rc = service_action(name, "restore", current)
                     if rc != 0:

@@ -28,9 +28,15 @@ endpoints are accepted only from the configured Lighttpd worker UID and can
 create or revoke temporary in-memory browser sessions; they do not themselves
 perform platform mutations. This prevents every `.fre3app` process from gaining
 platform-management authority merely because applications currently share the
-`fre3nder` runtime UID. A later Fre3nderScreen integration must grant its
-selected process an explicit narrow capability while continuing to use this same
-API contract.
+`fre3nder` runtime UID. Fre3nderScreen's selected process receives a narrowly scoped primary
+`fre3nder-management` GID only when Package-Core executes the official signed
+Screen package from a protected, manager-owned runtime. `SO_PEERCRED` must match
+both the generic application UID and this primary GID; ordinary `.fre3app`
+processes receive neither this GID nor socket access. This never runs the Screen
+as Root. The selected Screen may call System details, Apps, OTA and local
+Maintenance-control routes directly through the Unix socket; it does not use
+browser cookies, CSRF, or port 8081. Core signature/transaction checks are
+unchanged. The generic app UID alone has no privileged access.
 
 The explicit browser OTA routes additionally permit paired browser administrators
 through the existing worker/session/CSRF/Origin checks. This exception does not
@@ -81,12 +87,12 @@ Example shape:
 Returns `operation: system-details` and a read-only `system` snapshot for the
 Maintenance **System** page and future local display clients. The existing
 compact `/system` response remains unchanged. Detailed hostname, network and
-device information is **not public**: this endpoint accepts UID 0 over the Unix
-socket, or the Maintenance worker with a valid paired browser session while
-Maintenance is enabled. A cookie from any other local UID grants no access.
-GET requires no CSRF token and performs no administrative operation. A future
-Fre3nderScreen client still needs the narrow local capability described above;
-the shared application UID gains no new permission here.
+device information is **not public**: this endpoint accepts UID 0 or the
+authorized protected Screen service over the Unix socket, or a Maintenance
+worker with a valid paired browser session while Maintenance is enabled. A
+cookie from any other local UID grants no access.
+GET requires no CSRF token and performs no administrative operation. The selected protected Fre3nderScreen client also has read access via its
+special primary GID; the shared application UID alone gains no permission.
 
 The response uses bytes, seconds and unformatted numeric load averages. Missing,
 unreadable or unconfirmed observations are JSON `null`; clients display
@@ -221,9 +227,11 @@ traffic. No credential or session token is stored persistently.
 ## Manual OTA endpoints
 
 All paths below have the prefix `/fre3nder/api/v1/ota/`. The read endpoint
-requires the Maintenance worker and a valid paired session. Every POST also
-requires `X-Fre3nder-CSRF`, matching HTTP port-8081 Origin/Host and active
-writable runtime. Root-only Maintenance-control authorization is unchanged.
+requires either the privileged Screen peer or the Maintenance worker with a
+valid paired session. Browser POST requests still require
+`X-Fre3nder-CSRF`, matching HTTP port-8081 Origin/Host and active writable
+runtime. The protected Screen peer uses its Unix credentials instead;
+Maintenance-control authorization is independent of the web.
 
 | Method / suffix | Input |
 | --- | --- |
@@ -397,9 +405,10 @@ no client-supplied block-device or slot selection in Management API v1.
 ## Manual Apps endpoints
 
 While Maintenance is enabled, paired browser administrators can manage trusted
-`.fre3app` packages under `/fre3nder/api/v1/apps/`. The same session cookie,
-CSRF token, Origin/Host validation, and privileged Unix socket apply to every
-mutation. Port 80 has no Apps routes. All responses retain API v1's `ok`,
+`.fre3app` packages under `/fre3nder/api/v1/apps/`. For browser mutations,
+the session cookie, CSRF token and Origin/Host validation remain mandatory.
+The protected local Screen peer instead uses its Unix credentials and can
+access these routes even with Maintenance Web disabled. Port 80 has no Apps routes. All responses retain API v1's `ok`,
 `operation`, and structured error format.
 
 | Method / suffix | Input / response |
