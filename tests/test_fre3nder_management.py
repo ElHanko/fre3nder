@@ -161,6 +161,58 @@ class ManagementApiTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertIn('"enabled":false', body)
 
+    def test_system_details_require_root_or_a_paired_web_peer(self):
+        path = "/fre3nder/api/v1/system/details"
+        private = {"platform": {"hostname": "printer.test"}, "network": {"interfaces": []}}
+        with patch.object(self.daemon, "mutation_uids", return_value={0}), \
+                patch.object(self.daemon, "web_uids", return_value={41000}), \
+                patch.object(self.daemon.system_info, "snapshot", return_value=private) as snapshot:
+            with patch.object(self.daemon.Handler, "peer_uid", return_value=41001):
+                status, _ = self.request("GET", path)
+                self.assertEqual(status, 403)
+            with patch.object(self.daemon.Handler, "peer_uid", return_value=41000):
+                status, _ = self.request("GET", path)
+                self.assertEqual(status, 401)
+            snapshot.assert_not_called()
+            with patch.object(self.daemon.Handler, "peer_uid", return_value=0):
+                status, body = self.request("GET", path)
+                self.assertEqual(status, 200)
+                self.assertEqual(json.loads(body)["system"], private)
+            self.daemon.set_maintenance(True)
+            token = self.daemon.create_web_session()
+            headers = {"Cookie": f"fre3nder_admin={token}"}
+            with patch.object(self.daemon.Handler, "peer_uid", return_value=41001):
+                status, _, _ = self.request_full("GET", path, headers=headers)
+                self.assertEqual(status, 403, "a session must not authorize another local UID")
+            with patch.object(self.daemon.Handler, "peer_uid", return_value=41000):
+                status, body, _ = self.request_full("GET", path, headers=headers)
+                self.assertEqual(status, 200)
+                self.assertEqual(json.loads(body)["operation"], "system-details")
+                self.daemon._sessions[token]["last_seen"] -= self.daemon.SESSION_IDLE_SECONDS + 1
+                status, _, _ = self.request_full("GET", path, headers=headers)
+                self.assertEqual(status, 401)
+                token = self.daemon.create_web_session()
+                self.daemon.set_maintenance(False)
+                status, _, _ = self.request_full("GET", path, headers={"Cookie": f"fre3nder_admin={token}"})
+                self.assertEqual(status, 401)
+
+    def test_system_details_do_not_expand_public_status_or_mutate(self):
+        with patch.object(self.daemon.system_info, "snapshot", return_value={"platform": {}}), \
+                patch.object(self.daemon, "refresh_web") as refresh, \
+                patch.object(self.daemon, "set_maintenance") as set_maintenance, \
+                patch.object(self.daemon.apps, "overview") as apps, \
+                patch.object(self.daemon, "ota_status") as ota:
+            status, body = self.request("GET", "/fre3nder/api/v1/system/details")
+            self.assertEqual(status, 200, body)
+            self.assertFalse(self.daemon.MAINTENANCE_STATE.exists())
+            for action in (refresh, set_maintenance, apps, ota):
+                action.assert_not_called()
+            status, body = self.request("GET", "/fre3nder/api/v1/system")
+            self.assertEqual(status, 200)
+            self.assertEqual(json.loads(body)["system"], {"version": "2026.5.a", "root_status": "active"})
+            status, _ = self.request("POST", "/fre3nder/api/v1/system/details")
+            self.assertEqual(status, 404)
+
     def test_enable_disable_is_persistent_and_refreshes_web(self):
         status, body = self.request(
             "POST",

@@ -76,6 +76,83 @@ Example shape:
 }
 ```
 
+### `GET /fre3nder/api/v1/system/details`
+
+Returns `operation: system-details` and a read-only `system` snapshot for the
+Maintenance **System** page and future local display clients. The existing
+compact `/system` response remains unchanged. Detailed hostname, network and
+device information is **not public**: this endpoint accepts UID 0 over the Unix
+socket, or the Maintenance worker with a valid paired browser session while
+Maintenance is enabled. A cookie from any other local UID grants no access.
+GET requires no CSRF token and performs no administrative operation. A future
+Fre3nderScreen client still needs the narrow local capability described above;
+the shared application UID gains no new permission here.
+
+The response uses bytes, seconds and unformatted numeric load averages. Missing,
+unreadable or unconfirmed observations are JSON `null`; clients display
+`Unavailable`. Empty observed lists and absent frontend selections remain distinct
+from unavailable observations. One unavailable source does not discard the rest
+of the snapshot.
+
+| `system` member | Fields / source |
+| --- | --- |
+| `platform` | `version`, `hardware_model`, `cpu_model`, `architecture`, `kernel_version`, `hostname`; VERSION, device tree, `/proc/cpuinfo`, uname and `/proc/sys/kernel/` |
+| `runtime` | `uptime_seconds`, UTC ISO-8601 `system_time`, `load_average` array in 1/5/15-minute order |
+| `memory` | `total_bytes`, `available_bytes`, `used_bytes`, `swap_total_bytes`, `swap_free_bytes`, `swap_used_bytes`; `/proc/meminfo` |
+| `storage` | SYS/HOME array: `role`, `mountpoint`, `device`, `filesystem`, `total_bytes`, `used_bytes`, `available_bytes` |
+| `boot` | `active_slot`, `active_rootfs`, `root_status` |
+| `network` | Ethernet/WLAN `interfaces` array with `name`, `kind`, `state`, `carrier`, `addresses`; `default_ipv4_routes` and unambiguous `default_ipv4_route` |
+| `usb` | Array of `port`, `parent`, `manufacturer`, `product`, `vendor_id`, `product_id`, `driver`, `interfaces` (`interface`, `driver`); USB sysfs topology, without serial numbers |
+| `services` | Array of `name`, `status`, `recorded_status`, nullable `process_running` |
+| `applications` | `installed_count`, `web_frontend`, `display_frontend`, `display_runtime_status` |
+| `maintenance` | `enabled`, recorded `web_status`, read-only OTA-Core `ota` status and volatile OTA `execution` receipt |
+
+RAM usage is `MemTotal - MemAvailable`, never `MemTotal - MemFree`: reclaimable
+cache is not presented as fully used RAM. Missing `MemAvailable` leaves used RAM
+and its meter unavailable. No CPU-utilization sampler or history is added.
+
+Storage matches the actual `/proc/mounts` entries at the existing runtime role
+mountpoints (`/run/fre3nder-root/system` and `/home`), using OTA-Core's mount
+parser. Missing or ambiguous mounts do not fall back to the containing filesystem.
+`statvfs` reports used blocks as `f_blocks - f_bfree` and available space as
+`f_bavail`, in bytes; filesystem reservations can therefore make used plus
+available smaller than total. No USB block-device names are assumed. Boot slot
+and RootFS come from OTA-Core's `discover_active_slot` and the running kernel's
+`root=` argument, never from historical selector classifications. An unsupported
+or ambiguous root argument leaves both fields unavailable.
+
+Network link state comes from `/sys/class/net`; the existing `ifconfig -a`
+supplies addresses without changing configuration. The address list reflects
+what that platform tool reports, including aliases; it does not infer addresses
+from lease files. Default IPv4 routes come from `/proc/net/route` and contain
+`interface`, `gateway`, `metric`. Only a unique lowest-metric route is selected;
+equal candidates leave `default_ipv4_route` unavailable. This is the main IPv4
+routing table, not a claim about IPv6 or policy-routing decisions. If the route
+file cannot be read, the route list is `null`, distinct from an empty table.
+
+Service observations cover Klipper, Moonraker, Management, the application and
+Maintenance web servers, camera, time synchronization, SSH and the display
+manager. Recorded `active` is only retained as the effective service status when
+the PID's `/proc` command line matches the expected platform process. A missing
+process yields `not-running`; missing identity evidence yields `unconfirmed`.
+These checks do not establish application health. Display runtime status is
+explicitly **recorded** manager status: this query never calls application
+service hooks or acquires a VT. Frontend selections read Package-Core's existing
+Root-managed markers, returning `{status: selected, name: ...}`, `none` or
+`unavailable`. Installed count uses only Package-Core `list`, not Apps
+overview/detail; no upload directories or temporary output files are created.
+OTA inspection uses only Core's existing read-only `status_response`, without
+advancing transactions or creating package storage. No logs, history, new daemon
+or additional tool installation are needed.
+
+The Maintenance System view loads a snapshot on entry and on **Refresh**, with
+no periodic polling. It uses the existing pairing controls in Overview, clears
+private data on browser lock, and marks failures locally. RAM and SYS/HOME have
+usage meters; USB connections and drivers start collapsed and scroll when long.
+Overview stays the compact summary. This API/UI has host and Chromium fixture
+coverage; field availability on the target system remains a separate runtime
+check, not evidence of a newly performed hardware qualification.
+
 ### `GET /fre3nder/api/v1/maintenance`
 
 Returns whether the Maintenance Web feature is explicitly enabled and the
@@ -278,6 +355,7 @@ While Maintenance is enabled, the dedicated port-8081 Lighttpd worker proxies:
 
 ```text
 GET  /fre3nder/api/v1/system
+GET  /fre3nder/api/v1/system/details  (Root locally or paired browser)
 GET  /fre3nder/api/v1/maintenance
 GET  /fre3nder/api/v1/auth/session
 POST /fre3nder/api/v1/auth/unlock

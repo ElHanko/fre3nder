@@ -18,7 +18,7 @@
         <a class="nav-item active" href="#overview" aria-current="page">Overview</a>
         <a class="nav-item" href="#updates">System Updates</a>
         <a class="nav-item" href="#apps">Apps</a>
-        <span class="nav-item disabled" aria-disabled="true">System</span>
+        <a class="nav-item" href="#system">System</a>
       </nav>
 
       <div class="access-summary">
@@ -107,6 +107,67 @@
           Administrative actions require a temporary paired browser session.
         </p>
       </section>
+      </div>
+
+      <div id="system-view" hidden>
+        <header class="page-header">
+          <p class="eyebrow">System</p>
+          <h1>System information</h1>
+          <p>Read-only information about the running Fre3nder platform.</p>
+          <button id="system-refresh" class="secondary-button" type="button" disabled>Refresh</button>
+          <p id="system-info-status" class="section-note" role="status" aria-live="polite"></p>
+        </header>
+        <p id="system-locked" class="section-note">Unlock administrative access in <a href="#overview">Overview</a> to view device and network details.</p>
+        <p id="system-info-error" class="error" role="alert" hidden></p>
+        <div id="system-information" hidden>
+          <section class="status-section" aria-labelledby="system-platform-title">
+            <h2 id="system-platform-title">Platform</h2>
+            <dl id="system-platform" class="status-list"></dl>
+          </section>
+          <section class="status-section" aria-labelledby="system-runtime-title">
+            <h2 id="system-runtime-title">Runtime</h2>
+            <dl id="system-runtime" class="status-list"></dl>
+          </section>
+          <section class="status-section" aria-labelledby="system-memory-title">
+            <h2 id="system-memory-title">Memory</h2>
+            <dl id="system-memory" class="status-list"></dl>
+            <p class="section-note">RAM used = total − MemAvailable. Reclaimable cache counts as available memory.</p>
+          </section>
+          <section class="status-section" aria-labelledby="system-storage-title">
+            <h2 id="system-storage-title">Storage</h2>
+            <div id="system-storage"></div>
+          </section>
+          <section class="status-section" aria-labelledby="system-boot-title">
+            <h2 id="system-boot-title">Boot system</h2>
+            <dl id="system-boot" class="status-list"></dl>
+          </section>
+          <section class="status-section" aria-labelledby="system-network-title">
+            <h2 id="system-network-title">Network</h2>
+            <dl id="system-network-route" class="status-list"></dl>
+            <div id="system-network"></div>
+          </section>
+          <section class="status-section" aria-labelledby="system-usb-title">
+            <h2 id="system-usb-title">USB</h2>
+            <p id="system-usb-count" class="section-note"></p>
+            <details>
+              <summary>USB devices and connections</summary>
+              <div id="system-usb"></div>
+            </details>
+          </section>
+          <section class="status-section" aria-labelledby="system-services-title">
+            <h2 id="system-services-title">Services</h2>
+            <dl id="system-services" class="status-list"></dl>
+            <p class="section-note">Service status combines recorded startup state with the current process state. Display status is the latest recorded manager status.</p>
+          </section>
+          <section class="status-section" aria-labelledby="system-applications-title">
+            <h2 id="system-applications-title">Applications</h2>
+            <dl id="system-applications" class="status-list"></dl>
+          </section>
+          <section class="status-section" aria-labelledby="system-maintenance-title">
+            <h2 id="system-maintenance-title">Maintenance</h2>
+            <dl id="system-maintenance" class="status-list"></dl>
+          </section>
+        </div>
       </div>
 
       <div id="updates-view" hidden>
@@ -255,5 +316,6 @@
 
   <script src="maintenance.js"></script>
   <script src="apps.js"></script>
+  <script src="system.js"></script>
 </body>
 </html>

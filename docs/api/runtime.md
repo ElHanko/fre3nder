@@ -122,6 +122,12 @@ edit it directly. The existing `/home/fre3nder/.fre3nder/web/disabled` marker
 continues to opt out of the selected application web frontend. An explicitly
 enabled Maintenance UI is independent of that frontend choice.
 
+Its **System** view is a read-only technical snapshot with manual Refresh,
+separate from the compact Overview. Detailed device/network observations use
+the protected Management API `GET /fre3nder/api/v1/system/details`; they require
+Root locally or a paired Maintenance browser. See the [System API contract](management.md#get-fre3nderapiv1systemdetails)
+for units, missing-value semantics and the limits of recorded service status.
+
 PUBLIC / SUPPORTED, narrowly scoped: the regular non-symlink file
 `/home/fre3nder/f005-auto-transition.enabled` must contain exactly seven bytes
 `enabled`, without newline. It permits one existing Stock→Fre3nder MCU transfer

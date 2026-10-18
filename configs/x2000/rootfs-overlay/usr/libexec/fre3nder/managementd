@@ -30,6 +30,11 @@ _apps_spec = importlib.util.spec_from_file_location("fre3nder_management_apps", 
 apps = importlib.util.module_from_spec(_apps_spec)
 _apps_spec.loader.exec_module(apps)
 
+_system_source = pathlib.Path(__file__).with_name("management_system.py")
+_system_spec = importlib.util.spec_from_file_location("fre3nder_management_system", _system_source)
+system_info = importlib.util.module_from_spec(_system_spec)
+_system_spec.loader.exec_module(system_info)
+
 API_VERSION = 1
 SOCKET_PATH = pathlib.Path(
     os.environ.get("FRE3NDER_MANAGEMENT_SOCKET", "/run/fre3nder-management/api.sock")
@@ -801,6 +806,16 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
     def do_GET(self):
         try:
+            if self.path == "/fre3nder/api/v1/system/details":
+                if self.peer_uid() not in mutation_uids():
+                    self.require_web_peer()
+                    if self.current_web_session(touch=True) is None:
+                        raise ManagementError(401, "authentication-required", "Browser administrative session is not authenticated")
+                with _ota_lock:
+                    execution = _execution
+                self.send_json(200, response("system-details", system=system_info.snapshot(
+                    VERSION_FILE, ROOT_STATUS, maintenance_enabled, WEB_STATUS, execution)))
+                return
             if self.path == "/fre3nder/api/v1/apps/status":
                 self.require_web_peer()
                 if self.current_web_session(touch=True) is None:

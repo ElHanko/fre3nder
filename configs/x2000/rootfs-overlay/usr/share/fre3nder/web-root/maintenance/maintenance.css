@@ -125,6 +125,7 @@ dd { margin: 0; overflow-wrap: anywhere; }
 }
 .status-ok { background: var(--ok-soft); color: var(--ok); }
 .status-on { background: var(--accent-soft); color: var(--accent); }
+.status-error { background: color-mix(in srgb, #b94949 10%, var(--surface)); color: #b94949; }
 .status-loading, .status-neutral { color: var(--muted); }
 .section-note { margin: .65rem 0 0; font-size: .85rem; }
 
@@ -317,3 +318,10 @@ summary { color: var(--muted); cursor: pointer; }
 @media (prefers-reduced-motion: reduce) {
   .app-spinner { animation: none; }
 }
+
+.system-group { margin: 1rem 0; }
+.system-group h3 { margin: 0 0 .5rem; font-size: .95rem; overflow-wrap: anywhere; }
+.system-usage { display: flex; align-items: center; gap: .75rem; }
+.system-usage meter { width: 100%; min-width: 0; height: 1rem; accent-color: var(--ok); }
+.system-usage span { flex: 0 0 auto; font-size: .85rem; }
+#system-view details { max-height: 65vh; overflow: auto; }

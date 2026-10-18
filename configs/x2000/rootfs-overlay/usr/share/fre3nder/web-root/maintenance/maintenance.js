@@ -56,6 +56,7 @@ const renderAuth = (auth) => {
     typeof auth.csrf_token === "string" &&
     auth.csrf_token.length > 0;
   csrfToken = authenticated ? auth.csrf_token : null;
+  if (typeof systemAuthChanged === "function") systemAuthChanged(authenticated);
   const label = authenticated ? "Unlocked" : "Locked";
   const kind = authenticated ? "ok" : "neutral";
 
@@ -73,8 +74,10 @@ const renderAuth = (auth) => {
     ? "This browser has temporary administrative access."
     : "Administrative actions require a temporary paired browser session.";
   if (authenticated) {
-    loadOta().catch(handleStatusError);
-    if (typeof appsLoad === "function") appsLoad().catch((error) => appsError(error.message));
+    if (window.location.hash !== "#system") {
+      loadOta().catch(handleStatusError);
+      if (typeof appsLoad === "function") appsLoad().catch((error) => appsError(error.message));
+    }
   } else {
     stopOtaPolling();
     disableOtaControls();
@@ -664,20 +667,27 @@ otaElement("package").addEventListener("change", () => {
 });
 for (const role of ["home", "sys"]) otaElement(role).addEventListener("change", renderOta);
 window.addEventListener("pagehide", () => { ++otaEpoch; otaActivity = null; stopOtaPolling(); });
-window.addEventListener("pageshow", () => { if (csrfToken) loadOta().catch(handleStatusError); });
+window.addEventListener("pageshow", () => { if (csrfToken && window.location.hash !== "#system") loadOta().catch(handleStatusError); });
 
 const renderNavigation = () => {
   const updates = window.location.hash === "#updates" || Boolean(rebootStatus());
   const appPage = !updates && window.location.hash === "#apps";
-  document.getElementById("overview-view").hidden = updates || appPage;
+  const systemPage = !updates && window.location.hash === "#system";
+  const enteringUpdates = updates && document.getElementById("updates-view").hidden;
+  const enteringApps = appPage && document.getElementById("apps-view").hidden;
+  document.getElementById("overview-view").hidden = updates || appPage || systemPage;
   document.getElementById("updates-view").hidden = !updates;
   document.getElementById("apps-view").hidden = !appPage;
+  document.getElementById("system-view").hidden = !systemPage;
   for (const link of document.querySelectorAll("nav a")) {
-    const active = link.getAttribute("href") === (updates ? "#updates" : appPage ? "#apps" : "#overview");
+    const active = link.getAttribute("href") === (updates ? "#updates" : appPage ? "#apps" : systemPage ? "#system" : "#overview");
     link.classList.toggle("active", active);
     if (active) link.setAttribute("aria-current", "page");
     else link.removeAttribute("aria-current");
   }
+  if (systemPage && typeof systemLoad === "function") systemLoad();
+  if (csrfToken && enteringUpdates) loadOta().catch(handleStatusError);
+  if (csrfToken && enteringApps && typeof appsLoad === "function") appsLoad().catch((error) => appsError(error.message));
 };
 window.addEventListener("hashchange", renderNavigation);
 renderNavigation();
