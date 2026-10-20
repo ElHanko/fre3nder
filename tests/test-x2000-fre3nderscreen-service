@@ -408,6 +408,10 @@ assert source["repository"] == "https://github.com/ElHanko/fre3nderscreen.git"
 assert source["release"] == "2026.2"
 assert source["commit"] == "63e7ecb9fff980b53f4987ef9994675aecf9e0a2"
 assert source["license"] == "GPL-3.0-only"
+assert "vendored_dependency" not in source
+assert sources["userspace"]["wpa_supplicant"]["source"] == "upstream Buildroot package"
+assert "wpa_supplicant/COPYING" not in component
+assert "WPA-SUPPLICANT-LICENSE" not in component
 assert '"$tmp/app/bin/fre3nderscreen"' in component
 assert 'rootfs-overlay.tar' not in component
 

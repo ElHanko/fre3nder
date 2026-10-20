@@ -163,10 +163,6 @@
           "commit": "ddce42155e67589a8b1534c4935242f759c07646",
           "license": "MIT"
         }
-      },
-      "vendored_dependency": {
-        "name": "wpa_supplicant control client",
-        "license": "BSD-3-Clause"
       }
     },
     "wpa_supplicant": {

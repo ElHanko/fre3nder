@@ -137,6 +137,12 @@ mode `0644`, checking byte equality and SHA256. Defaults are the sibling
 override them. It performs no RootFS build or deployment and requires explicit
 build/signing authorization before execution.
 
+The combined release wrapper requires a clean tracked fre3nder-apps worktree
+(both staged and unstaged changes are checked). The platform worktree is
+recorded as clean or dirty in the artifact manifest rather than rejected;
+use reviewed, committed inputs for the release. Do not bypass the apps
+check by invoking lower-level packaging commands.
+
 The underlying cross-builder remains available for separate artifact builds,
 including `--develop`; the release pipeline accepts no `--develop`. RootFS assembly
 validates the finished package using the same package core as runtime install
@@ -145,6 +151,58 @@ the RootFS build manifest; the seed is not part of the Fre3nder build-input hash
 An embedded seed does not replace an installed app after Factory bootstrap has
 completed. Deployment and [updating that app](installation.md#update-the-installed-display-app)
 are separate steps.
+
+### Fre3nderScreen 2026.2 release integration
+
+The cross-builder and fre3nder-apps importer now agree on a reduced app
+artifact: one binary, six themes and seven required license texts, plus
+`artifact-manifest.json` and `SHA256SUMS`. The unused Screen-vendored WPA
+control client is gone; Core's separate Buildroot `wpa_supplicant` remains.
+Submodule/patch, static MIPS32r2 hardfloat ABI, provenance, exact file-set
+and checksum validation remain in place. No Management/OTA API changes
+are needed.
+
+The source pin still points to `63e7ecb9fff980b53f4987ef9994675aecf9e0a2`.
+It does not include native management or cleanup. A successful build at
+this old pin is not the intended 2026.2 release. Complete these steps:
+
+1. Separately approve and commit the cleaned Fre3nderScreen source; make
+   that exact commit fetchable. Then explicitly update
+   `userspace.fre3nderscreen.commit` in `configs/x2000/sources.json`, the
+   matching assertion in `tests/test-x2000-fre3nderscreen-service` and
+   release/provenance documentation. Keep the four submodule pins and
+   release `2026.2`; do not substitute `main`.
+2. Review/commit the matching platform and apps integration changes when
+   authorized. The app template remains `2026.2-fre3nder.2`, serial `2`;
+   Development uses serial `0` and cannot silently replace a Release.
+3. After explicit build/signing approval, run the existing combined
+   release command above (or supply `--apps-repo` and `--key`). It needs
+   the prepared Buildroot host toolchain and an existing signing key.
+   Verify the source/ABI manifest, `.fre3app` and byte-identical Factory
+   seed. No Kernel or RootFS rebuild is needed for this app package.
+4. Separately authorize installation and regression testing of that exact
+   package on X2000. Prior hardware tests cover Screen `65b37b9`; the
+   operator-reported cleanup simulator test does not qualify the release.
+5. Before publishing, explicitly resolve the existing local/remote Screen
+   tag `2026.2`, currently targeting `63e7ecb`. Do not move or delete it
+   automatically. Correcting that prepared tag requires a separate
+   decision; choosing a new version instead also requires matching pin
+   and package-version changes. Tags, pushes and releases need approval.
+
+Before the final commit/pin is available, the smallest target build for
+the local cleanup is the existing Development artifact-only path, with
+separate explicit build approval:
+
+```sh
+FRE3NDER_FRE3NDERSCREEN_SOURCE=../fre3nderscreen \
+  scripts/build-x2000-fre3nderscreen --develop
+```
+
+It preserves the source worktree and produces only the neutral app
+artifact, without package signing, Factory-seed replacement or deployment.
+The updated importer can then validate it with `--develop` and an unused
+temporary `--output` directory. This checks the reduced file/checksum
+contract without treating the snapshot as a Release.
 
 The component scripts are
 [`scripts/build-x2000-kernel`](../scripts/build-x2000-kernel),

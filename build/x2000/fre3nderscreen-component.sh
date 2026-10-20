@@ -127,7 +127,6 @@ PY
 	grep -Fq 'MIT License' "$source_dir/lv_drivers/LICENSE"
 	grep -Fq 'BSD 3-Clause License' "$source_dir/libhv/LICENSE"
 	grep -Fq 'The MIT License (MIT)' "$source_dir/spdlog/LICENSE"
-	grep -Fq 'BSD license' "$source_dir/wpa_supplicant/COPYING"
 	grep -Fq 'Bitstream Vera Fonts Copyright' \
 		"$source_dir/licenses/DEJAVU-FONTS-LICENSE.txt"
 	grep -Fq 'Apache License' \
@@ -199,8 +198,6 @@ build_app() {
 		"$tmp/app/licenses/LIBHV-LICENSE"
 	install -m 0644 "$source_dir/spdlog/LICENSE" \
 		"$tmp/app/licenses/SPDLOG-LICENSE"
-	install -m 0644 "$source_dir/wpa_supplicant/COPYING" \
-		"$tmp/app/licenses/WPA-SUPPLICANT-LICENSE"
 	install -m 0644 "$source_dir/licenses/DEJAVU-FONTS-LICENSE.txt" \
 		"$tmp/app/licenses/DEJAVU-FONTS-LICENSE"
 	install -m 0644 "$source_dir/licenses/MATERIAL-DESIGN-ICONS-LICENSE.txt" \

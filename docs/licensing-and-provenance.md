@@ -182,9 +182,12 @@ license provenance remains explicit in the source and wheel manifests.
 
 The release-mode Fre3nderScreen source is pinned in the Fre3nder-maintained fork
 `https://github.com/ElHanko/fre3nderscreen.git` at commit
-`63e7ecb9fff980b53f4987ef9994675aecf9e0a2` (prepared release `2026.2`), under
-`GPL-3.0-only`. The repository retains the original GuppyScreen Git history and upstream provenance;
-the application at this pin identifies as Fre3nderScreen.
+`63e7ecb9fff980b53f4987ef9994675aecf9e0a2` (`2026.2` preparation), under
+`GPL-3.0-only`. This pin predates native management and the subsequent
+cleanup; it remains unchanged until the final cleanup commit is approved,
+committed and fetchable. The repository retains the original GuppyScreen
+Git history and upstream provenance. See the remaining
+[release integration steps](build.md#fre3nderscreen-20262-release-integration).
 
 The fork descends from the published `ballaswag/guppyscreen` `0.0.26-beta`
 baseline at commit `cf5c6d7539a2dca090ca71c177f57a2d96df443a`. Exact source and
@@ -194,9 +197,14 @@ source and submodules before the network-disabled build phase and builds them
 with Fre3nder's Buildroot GCC 13.4.0 MIPS userspace toolchain.
 
 The pinned submodules remain LVGL 8.3.11 and lv_drivers under MIT, libhv under
-BSD-3-Clause, and spdlog under MIT. The vendored wpa_supplicant control-client
-source remains BSD-3-Clause. Their license texts are copied alongside the GPL
-text into the neutral app artifact and then into the signed package payload.
+BSD-3-Clause, and spdlog under MIT. Their license texts are copied alongside
+the GPL text into the neutral app artifact and then into the signed package
+payload. The cleaned Screen source removes its unused vendored WPA control
+code; the builder no longer checks or copies `wpa_supplicant/COPYING`.
+The app artifact carries seven license texts: GPL, LVGL, lv_drivers, libhv,
+spdlog, DejaVu and Material Design Icons. Fre3nder's independent Buildroot
+`userspace.wpa_supplicant` system service and its licensing remain required
+and unchanged. Older app artifacts retain their original notices.
 
 The inherited `assets/dejavusans_mono_14.c` font has the DejaVu Fonts License
 (Bitstream Vera derived terms); its exact font version is not established from
@@ -212,10 +220,14 @@ layout, and flat single-printer configuration directly in source. Fre3nder
 does not execute or redistribute the removed GuppyScreen installers or
 Creality-specific binary payloads.
 
-The prepared release source has application-code/submodule continuity with the
-recorded Development Factory-app source. That is source continuity, not hardware
-qualification of an unbuilt release binary. Exact predecessor/package identities
-and exercised behavior are preserved in
+The operator reports X2000 hardware qualification with Fre3nder 2026.5 and
+Screen `65b37b9`: unprivileged startup as `fre3nder` with primary GID
+`fre3nder-management`, protected root-owned app runtime, native system
+information, app management including writes, and the full OTA workflow
+through backup, readback, activation and restart. The subsequent cleanup
+passed a Docker/SDL build and manual UI testing according to the operator;
+this does not qualify the final MIPS release artifact or every UI function.
+Earlier Factory-app qualification remains historical evidence in
 [display qualification](../research/docs/display-qualification.md).
 
 ## Public Creality Klipper source

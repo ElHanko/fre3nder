@@ -23,17 +23,19 @@ technology prematurely.
 
 ### Fre3nderScreen project boundary
 
-Fre3nderScreen is maintained outside the Fre3nder platform repository. Release
-`2026.1` establishes its independent release boundary; Fre3nder now prepares
-the `2026.2` release source pin at
-`63e7ecb9fff980b53f4987ef9994675aecf9e0a2`. The source repository is named `fre3nderscreen`
-while retaining the original project history and upstream provenance. The
-Factory `.fre3app` integration was hardware-qualified on the investigated
-reference system with a separate Development package built from source commit
-`14cd41599f1ee8dec659b282e54762fd61552c5a`.
-Only documentation changed between that qualified source and the prepared
-`2026.2` source. The `2026.2` release binary has not yet been built or
-hardware-qualified.
+Fre3nderScreen is maintained outside the Fre3nder platform repository, with
+its original history and upstream provenance retained. Its current source
+includes native System, Apps and OTA management, followed by removal of
+unused Guppy scope. The operator reports hardware qualification of those
+management paths at `65b37b9` on Fre3nder 2026.5, and a successful Docker/SDL
+build and manual UI test after cleanup.
+
+Finish the [2026.2 release integration](build.md#fre3nderscreen-20262-release-integration):
+approve and commit the cleaned Screen source, replace the old
+`63e7ecb9fff980b53f4987ef9994675aecf9e0a2` pin, build the X2000 artifact,
+package/sign it through fre3nder-apps, and qualify the final package on
+hardware under separate authorization. Existing tests do not qualify that
+future release binary. Resolve the existing old `2026.2` tag explicitly.
 
 ### Local UI product experience
 
