@@ -1,128 +1,46 @@
-# Moonraker runtime and service contract
+# Moonraker system fre3app
 
-## Current architecture
+Moonraker is an **image-seeded, mandatory system fre3app**, not a Python/Git
+checkout embedded at `/opt/fre3nder/moonraker`. Sources and the nine pinned
+pure-Python wheels are prepared in `fre3nder-apps/apps/moonraker/`, then signed
+with the **existing official** Fre3nder app signing key.
 
-Each Fre3nder platform release is designed to carry a pinned Moonraker
-source baseline and its matching runtime directly in the immutable SquashFS RootFS:
+## Packaging and image seed
 
-```text
-/rom
-├── /opt/fre3nder/moonraker/       pinned upstream Git checkout
-├── /opt/fre3nder/moonraker-env/   Python virtual environment
-├── S61fre3nder-moonraker
-└── Fre3nder integration
+The regular X2000 RootFS build requires a signed `moonraker.fre3app` in
+`local/production/system-apps/` (or `FRE3NDER_SYSTEM_APP_PACKAGES_DIR`). A
+release RootFS requires `release_serial >= 1`. A development RootFS may carry a
+signed `release_serial = 0` test package. The host builder verifies the seed
+against the immutable official public key before entering Docker.
 
-writable system OverlayFS upper
-└── later Moonraker source and environment updates
+RootFS post-build copies the whole verified seed into
+`/usr/share/fre3nder/system-apps/`. The old RootFS Moonraker checkout/venv are
+removed, even from reused target trees. The generic `S58fre3nder-system-apps`
+reconciler installs or upgrades the signed package after recovery.
 
-/home/fre3nder/printer_data/
-└── configuration, database, logs, G-code, and user state
+## Boot and service
 
-/run/fre3nder-moonraker/
-└── volatile PID, status, and Unix socket
-```
+1. S58 restores already-installed app packages from the signed persistent cache.
+2. S58 system-apps reconciles the Moonraker seed without starting it.
+3. S59/S60 start the Klipper MCU and API socket.
+4. S61 prepares `/home/fre3nder/printer_data` and `/run/fre3nder-moonraker`.
+5. S61 asks `package-core service-start moonraker` to start the verified runtime
+   under the unprivileged `fre3nder` user; readiness requires the UDS socket.
 
-Moonraker is not a separately installed Fre3nder managed-app payload. It has no
-versioned `/opt/fre3nder/apps` hierarchy, `active-version` record, resolver, or
-app-only build artifact. OverlayFS already provides the required separation
-between a recoverable RootFS baseline and later writable application changes.
+Moonraker sets `autostart = false` because only S61 owns its platform-dependent
+boot order. During a **manual update**, Package-Core restarts a previously
+running service after switching its runtime; no double-start from S65.
 
-## Baseline and dependency construction
+Moonraker's persistent config/logs/database/G-code remain at
+`/home/fre3nder/printer_data`, independent of any app update, SYS reset or OTA.
+The app service provides no on-device pip/Git updater. Moonraker's own upstream
+`update_manager` must not modify the read-only signed application runtime.
 
-The canonical build pin is `userspace.moonraker.commit` in
-[sources.json](../configs/x2000/sources.json), currently
-`9e676eba6b02661a4dfa3ec6e7ac3f3504498e6d`. Build/test consumers read it through
-`scripts/source-value userspace.moonraker.commit`. Public upstream is
-`https://github.com/Arksine/moonraker.git`, GPL-3.0-only.
+## Qualification gate
 
-The RootFS retains a valid Git checkout at `/opt/fre3nder/moonraker` and a
-PEP-405 environment at `/opt/fre3nder/moonraker-env`, with system site packages
-enabled. Native modules belong to Buildroot; hash-pinned pure-Python wheels
-are recorded in [the wheel manifest](../configs/x2000/moonraker-python-wheels.json).
-Boot performs no dependency installation. S61 launches the environment Python
-and exports `PIP_ONLY_BINARY=:all:` so updates cannot compile native modules
-on the printer. Git and TLS-capable libcurl are RootFS dependencies.
-
-## Service contract
-
-S40 configures loopback as `127.0.0.1/8`. S60 starts Klippy with:
-
-```text
--a /run/fre3nder-klipper/klippy.sock
-```
-
-S60 reports `active` only when the expected Klippy process is alive, its
-identity matches, and that path is a real Unix socket. Its bounded readiness
-failure states are `startup-timeout` and `startup-failed`. Qualification is limited to the recorded reference artifacts.
-
-S61 requires the active persistent root, active Klipper plus its UDS, a valid
-fixed Moonraker baseline, its Python environment, and valid persistent printer
-data. It creates a default configuration only when none exists and never
-overwrites user configuration. It launches:
-
-```text
-/opt/fre3nder/moonraker-env/bin/python
-    /opt/fre3nder/moonraker/moonraker/moonraker.py
-    -d /home/fre3nder/printer_data
-    -c /home/fre3nder/printer_data/config/moonraker.conf
-    -l /home/fre3nder/printer_data/logs/moonraker.log
-    -u /run/fre3nder-moonraker/moonraker.sock
-```
-
-The PID and exact command identity gate stop/restart operations. If the fixed
-RootFS baseline or environment is absent, S61 reports `baseline-invalid` and
-does not attempt installation or repair.
-
-S61 starts Moonraker with `GIT_CONFIG_COUNT=1`,
-`GIT_CONFIG_KEY_0=safe.directory` and `GIT_CONFIG_VALUE_0` set to its exact
-source checkout (`/opt/fre3nder/moonraker` by default). Moonraker and its Git
-subprocesses inherit this runtime trust exception for the root-owned checkout;
-other services receive no exception and no Git configuration file is changed.
-
-## Update ownership and current updater limit
-
-The default uses `provider: none`, `[update_manager] channel: stable` and
-`enable_system_updates: False`. Moonraker owns its application source/environment
-only; Kernel, RootFS, base Klipper, A/B state, F005 and system packages remain
-Fre3nder-owned. A Git checkout/environment does not establish a qualified
-self-update lifecycle. Dependency transitions and BusyBox/S61 restart handling
-still need explicit implementation/qualification within that ownership boundary.
-
-The Git trust exception grants no filesystem write permissions or self-update
-qualification. Updater endpoints remain exposed; restored Git detection allows
-status refreshes to proceed to fetch, which can still fail on the root-owned
-baseline's write permissions. Successful Git detection alone does not establish
-update support.
-
-The default includes `[include fre3nder/*.conf]`. S61 provides the fragment
-directory and app-neutral `00-base.conf`. Existing user configuration is retained
-and needs the include added manually if absent. Signed Fluidd packages do not
-create a Moonraker updater fragment; legacy migration is separate.
-
-## Authorization and HTTP access
-
-Moonraker listens on `127.0.0.1:17126`. The platform
-[HTTP proxy](api/runtime.md#http-routing) exposes the documented Moonraker and
-WebSocket routes. Moonraker owns authorization; Lighttpd discards client-supplied
-identity headers before supplying the actual connection address.
-
-Fre3nder 2026.4 deliberately accepts the upstream
-[authorization change](https://github.com/Arksine/moonraker/commit/fbfe3482c32c934b34cbe00d04c0a29f3abb0291):
-an already trusted connection retains authorization after a failed credential
-attempt. With API-key authentication enabled, an invalid nonblank API key remains
-invalid and an untrusted client gains no trusted authorization. Existing
-`trusted_clients` remain the trust boundary. No Fre3nder configuration change
-was required. Fre3nder does not disable `enable_api_key` or force `force_logins`.
-This contract makes no general safety claim about arbitrary LAN clients.
-
-## Recovery contract
-
-A SYS-overlay reset exposes the immutable RootFS Moonraker source/environment
-again. HOME retains configuration, database, logs and G-code. Normal reboot
-retains those user files; missing defaults are seeded without replacing existing
-configuration. An invalid immutable baseline fails closed as `baseline-invalid`;
-startup does not download or repair it.
-
-The current pin has no new build/hardware qualification from the source refresh.
-The older qualified baseline and dated service/proxy/recovery observations remain
-in [the historical qualification](../research/docs/apps-web-qualification.md#moonraker-2026-09-14-documentation-snapshot).
+The host signed package and unit tests do not prove that Moonraker's native
+Python imports or API work on X2000. Qualify imports, startup, Klipper API,
+manual update/rollback, SYS-reset recovery, OTA update and OTA rollback before
+deploying this migration to a production printer. Native Python libraries are
+still supplied by the Buildroot platform; compatibility needs a documented
+contract before declaring arbitrary independent Moonraker releases supported.

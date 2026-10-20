@@ -1,284 +1,91 @@
 #!/bin/sh
 set -eu
-
-unset GIT_CONFIG_COUNT GIT_CONFIG_KEY_0 GIT_CONFIG_VALUE_0
-
+# S61 integration fixture: verifies gates, state preservation and single service owner.
 root=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
-service=$root/configs/x2000/rootfs-overlay/etc/init.d/S61fre3nder-moonraker
+service="$root/configs/x2000/rootfs-overlay/etc/init.d/S61fre3nder-moonraker"
 tmp=$(mktemp -d)
-
-cleanup() {
-	if [ -r "$runtime/moonraker.pid" ]; then
-		kill "$(cat "$runtime/moonraker.pid")" 2>/dev/null || true
-	fi
-	rm -rf -- "$tmp"
-}
-
-trap cleanup EXIT HUP INT TERM
-
-runtime=$tmp/run/moonraker
-klipper_runtime=$tmp/run/klipper
-state_dir=$tmp/run/root-state
-home_root=$tmp/home
-fre3nder_home=$home_root/fre3nder
-printer_data=$fre3nder_home/printer_data
-config=$printer_data/config/moonraker.conf
-default_config=$tmp/default-moonraker.conf
-default_camera_config=$tmp/default-camera.conf
-camera_config=$printer_data/config/fre3nder/camera.conf
-moonraker_root=$tmp/opt/fre3nder/moonraker
-moonraker=$moonraker_root/moonraker/moonraker.py
-python=$tmp/opt/fre3nder/moonraker-env/bin/python
-called=$tmp/python-called
-klippy_uds=$tmp/run/klippy.sock
-ready_file=$tmp/moonraker-ready
-exit_before_ready=
-mockbin=$tmp/bin
-permissions=$tmp/permissions
-start_calls=$tmp/start-calls
-mkdir -p "$mockbin"
-cat > "$mockbin/chown" <<'EOF'
+trap 'rm -rf -- "$tmp"' EXIT HUP INT TERM
+runtime="$tmp/run/moonraker"
+klipper_runtime="$tmp/run/klipper"
+root_state="$tmp/run/root"
+home="$tmp/home"
+printer_data="$home/fre3nder/printer_data"
+config="$printer_data/config/moonraker.conf"
+default="$tmp/default-moonraker.conf"
+camera="$tmp/default-camera.conf"
+core="$tmp/fake-package-core"
+calls="$tmp/calls"
+mockbin="$tmp/bin"
+mkdir -p "$runtime" "$klipper_runtime" "$root_state" "$home" "$mockbin"
+cat > "$mockbin/chown" <<'MOCK'
 #!/bin/sh
-[ "${GIT_CONFIG_COUNT+x}${GIT_CONFIG_KEY_0+x}${GIT_CONFIG_VALUE_0+x}" = '' ] || exit 1
-printf 'chown %s %s\n' "$1" "$2" >> "$FIXTURE_PERMISSIONS"
-EOF
-cat > "$mockbin/start-stop-daemon" <<'EOF'
+exit 0
+MOCK
+chmod 755 "$mockbin/chown"
+cat > "$core" <<'MOCK'
 #!/bin/sh
-printf '%s\n' "$@" > "$FIXTURE_START_CALLS"
-[ "$1" = -S ] || exit 1
-shift
-while [ "$#" -gt 0 ]; do
-	case "$1" in
-	-q|-b|-m) shift ;;
-	-p) pid_file=$2; shift 2 ;;
-	-c) [ "$2" = fre3nder:fre3nder ] || exit 1; shift 2 ;;
-	-x) binary=$2; shift 2 ;;
-	--) shift; break ;;
-	*) exit 1 ;;
-	esac
-done
-"$binary" "$@" >/dev/null 2>&1 &
-printf '%s\n' "$!" > "$pid_file"
-EOF
-chmod 0755 "$mockbin"/*
-
-mkdir -p "$state_dir" "$klipper_runtime" "$home_root" \
-	"$moonraker_root/.git" "$(dirname "$moonraker")" "$(dirname "$python")"
-git init -q "$moonraker_root"
-printf '%s\n' active > "$state_dir/status"
-printf '%s\n' active > "$klipper_runtime/status"
-printf '%s\n' '[server]' '[include fre3nder/*.conf]' > "$default_config"
-cat > "$default_camera_config" <<'EOF'
-[webcam fre3nder_camera]
-location: printer
-service: mjpegstreamer
-stream_url: /webcam/?action=stream
-snapshot_url: /webcam/?action=snapshot
-EOF
-
-python3 - "$klippy_uds" <<'PY_SOCKET'
-import socket
-import sys
-
-sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-sock.bind(sys.argv[1])
-sock.close()
-PY_SOCKET
-
-[ -S "$klippy_uds" ]
-
-cat > "$moonraker" <<'PY'
+printf '%s\n' "$1 $2" >> "$FIXTURE_CALLS"
+case "$1 $2" in
+'service-start moonraker')
+    [ -S "$FRE3NDER_KLIPPER_API_SOCKET" ] || exit 1
+    python3 - "$FRE3NDER_MOONRAKER_RUNTIME/moonraker.sock" <<'PY_SOCKET'
 import os
-import pathlib
-import socket
-import subprocess
-import sys
-import time
-
-repo = str(pathlib.Path(__file__).parent.parent)
-assert os.environ["GIT_CONFIG_COUNT"] == "1"
-assert os.environ["GIT_CONFIG_KEY_0"] == "safe.directory"
-assert os.environ["GIT_CONFIG_VALUE_0"] == repo
-git_env = dict(os.environ, GIT_OPTIONAL_LOCKS="0",
-               GIT_TEST_ASSUME_DIFFERENT_OWNER="1",
-               GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL=os.devnull)
-assert subprocess.check_output(
-    ["git", "-C", repo, "config", "--show-scope", "--get", "safe.directory"],
-    env=git_env, text=True,
-).strip() == "command\t" + repo
-assert subprocess.check_output(
-    ["git", "-C", repo, "rev-parse", "--show-toplevel"],
-    env=git_env, text=True,
-).strip() == repo
-
-pathlib.Path(os.environ["FIXTURE_PYTHON_CALLED"]).write_text(
-    os.environ.get("PIP_ONLY_BINARY", "") + "\n" + "\n".join(sys.argv[1:]) + "\n",
-    encoding="utf-8",
-)
-if os.environ.get("FIXTURE_EXIT_BEFORE_READY"):
-    raise SystemExit(1)
-
-ready_file = pathlib.Path(os.environ["FIXTURE_READY_FILE"])
-while not ready_file.exists():
-    time.sleep(0.05)
-
-uds = sys.argv[sys.argv.index("-u") + 1]
-sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-sock.bind(uds)
-time.sleep(60)
-PY
-
-ln -s "$(command -v python3)" "$python"
-
-run_service() {
-	PATH=$mockbin:$PATH FIXTURE_PERMISSIONS=$permissions \
-	FIXTURE_START_CALLS=$start_calls \
-	FRE3NDER_MOONRAKER_RUNTIME=$runtime \
-	FRE3NDER_KLIPPER_RUNTIME=$klipper_runtime \
-	FRE3NDER_KLIPPER_API_SOCKET=$klippy_uds \
-	FRE3NDER_ROOT_STATE=$state_dir \
-	FRE3NDER_HOME_ROOT=$home_root \
-	FRE3NDER_HOME_DIR=$fre3nder_home \
-	FRE3NDER_MOONRAKER_DEFAULT_CONFIG=$default_config \
-	FRE3NDER_MOONRAKER_CAMERA_DEFAULT_CONFIG=$default_camera_config \
-	FRE3NDER_MOONRAKER_ROOT=$moonraker_root \
-	FRE3NDER_MOONRAKER_ENTRYPOINT=$moonraker \
-	FRE3NDER_PYTHON=$python \
-	FIXTURE_PYTHON_CALLED=$called \
-	FIXTURE_READY_FILE=$ready_file \
-	FIXTURE_EXIT_BEFORE_READY=$exit_before_ready \
-		"$service" "$1"
-}
-
-wait_for_file() {
-	seconds=0
-	while [ ! -e "$1" ]; do
-		[ "$seconds" -lt 10 ] || return 1
-		sleep 1
-		seconds=$((seconds + 1))
-	done
-}
-
-rm "$state_dir/status"
-run_service start
-[ "$(cat "$runtime/status")" = degraded-root ]
-[ ! -e "$called" ]
-printf '%s\n' active > "$state_dir/status"
-
-rm "$klipper_runtime/status"
-run_service start
-[ "$(cat "$runtime/status")" = klipper-unavailable ]
-[ ! -e "$called" ]
-printf '%s\n' active > "$klipper_runtime/status"
-
-python3 - "$runtime/moonraker.sock" <<'PY_SOCKET'
 import socket
 import sys
-
-sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-sock.bind(sys.argv[1])
-sock.close()
+path = sys.argv[1]
+if not os.path.exists(path):
+    sock = socket.socket(socket.AF_UNIX)
+    sock.bind(path)
+    sock.close()
 PY_SOCKET
-
-[ -S "$runtime/moonraker.sock" ]
-run_service start &
-service_pid=$!
-wait_for_file "$called"
-[ -e "$called" ]
-[ ! -e "$runtime/moonraker.sock" ]
-[ "$(cat "$runtime/status")" = starting ]
-kill -0 "$service_pid" 2>/dev/null
-[ -f "$runtime/moonraker.pid" ]
-[ -f "$config" ] && [ ! -L "$config" ]
-cmp -s "$default_config" "$config"
-[ "$(stat -c '%a' "$config")" = 644 ]
-[ -f "$camera_config" ] && [ ! -L "$camera_config" ]
-cmp -s "$default_camera_config" "$camera_config"
-[ "$(stat -c '%a' "$camera_config")" = 644 ]
-grep -Fxq -- '-c' "$start_calls"
-grep -Fxq -- 'fre3nder:fre3nder' "$start_calls"
-for directory in "$fre3nder_home" "$printer_data" "$printer_data/config" \
-	"$printer_data/logs" "$printer_data/config/fre3nder"; do
-	grep -Fxq "chown fre3nder:fre3nder $directory" "$permissions"
-done
-for file in "$config" "$camera_config" "$printer_data/config/fre3nder/00-base.conf"; do
-	grep -Fxq "chown fre3nder:fre3nder $file" "$permissions"
-done
-grep -Fxq "chown root:fre3nder $runtime" "$permissions"
-grep -Fxq "chown root:root $runtime/status" "$permissions"
-[ "$(stat -c '%a' "$runtime")" = 1770 ]
-[ "$(stat -c '%a' "$runtime/status")" = 644 ]
-! grep -Fq 'chown fre3nder:fre3nder "$log_file"' "$service"
-sed -n '1p' "$called" | grep -Fxq ':all:'
-grep -Fxq -- '-d' "$called"
-grep -Fxq -- "$printer_data" "$called"
-grep -Fxq -- '-c' "$called"
-grep -Fxq -- "$config" "$called"
-grep -Fxq -- '-l' "$called"
-grep -Fxq -- "$printer_data/logs/moonraker.log" "$called"
-grep -Fxq -- '-u' "$called"
-grep -Fxq -- "$runtime/moonraker.sock" "$called"
-
-: > "$ready_file"
-wait "$service_pid"
-[ -S "$runtime/moonraker.sock" ]
+    ;;
+'service-status moonraker') [ -S "$FRE3NDER_MOONRAKER_RUNTIME/moonraker.sock" ] ;;
+'service-stop moonraker') rm -f "$FRE3NDER_MOONRAKER_RUNTIME/moonraker.sock" ;;
+*) exit 1 ;;
+esac
+MOCK
+chmod 755 "$core"
+printf '%s\n' '[server]' '[include fre3nder/*.conf]' > "$default"
+printf '%s\n' '[webcam fre3nder_camera]' > "$camera"
+run() {
+    PATH="$mockbin:$PATH" FIXTURE_CALLS="$calls" \
+    FRE3NDER_PACKAGE_CORE="$core" FRE3NDER_MOONRAKER_RUNTIME="$runtime" \
+    FRE3NDER_ROOT_STATE="$root_state" \
+    FRE3NDER_KLIPPER_RUNTIME="$klipper_runtime" \
+    FRE3NDER_KLIPPER_API_SOCKET="$klipper_runtime/klippy.sock" \
+    FRE3NDER_HOME_ROOT="$home" \
+    FRE3NDER_MOONRAKER_DEFAULT_CONFIG="$default" \
+    FRE3NDER_MOONRAKER_CAMERA_DEFAULT_CONFIG="$camera" \
+        sh "$service" "$1"
+}
+run start
+[ "$(cat "$runtime/status")" = degraded-root ]
+[ ! -e "$calls" ]
+printf 'active\n' > "$root_state/status"
+run start
+[ "$(cat "$runtime/status")" = klipper-unavailable ]
+[ ! -e "$calls" ]
+python3 - "$klipper_runtime/klippy.sock" <<'PY_SOCKET'
+import socket
+import sys
+s = socket.socket(socket.AF_UNIX)
+s.bind(sys.argv[1])
+s.close()
+PY_SOCKET
+printf 'active\n' > "$klipper_runtime/status"
+run start
 [ "$(cat "$runtime/status")" = active ]
-pid=$(cat "$runtime/moonraker.pid")
-: > "$permissions"
-run_service start
-[ "$(cat "$runtime/moonraker.pid")" = "$pid" ]
-grep -Fxq "chown root:fre3nder $runtime" "$permissions"
-[ "$(stat -c '%a' "$runtime")" = 1770 ]
-
-: > "$ready_file"
-run_service restart
-[ "$(cat "$runtime/status")" = active ]
-[ -f "$runtime/moonraker.pid" ]
-
-run_service stop
+[ -S "$runtime/moonraker.sock" ]
+[ -f "$config" ] && cmp "$default" "$config"
+[ -f "$printer_data/config/fre3nder/camera.conf" ]
+grep -Fxq 'service-start moonraker' "$calls"
+grep -Fxq 'service-status moonraker' "$calls"
+printf 'user-owned config\n' > "$config"
+run start
+[ "$(cat "$config")" = 'user-owned config' ]
+run stop
 [ "$(cat "$runtime/status")" = stopped ]
-[ ! -e "$runtime/moonraker.pid" ]
 [ ! -e "$runtime/moonraker.sock" ]
-
-# An existing main configuration still receives a missing platform fragment.
-printf '%s\n' '# retained-user-config' > "$config"
-rm -f "$camera_config"
-rm -f "$called"
-: > "$ready_file"
-run_service start
-[ "$(cat "$config")" = '# retained-user-config' ]
-cmp -s "$default_camera_config" "$camera_config"
-run_service stop
-
-# Existing Moonraker and camera configuration are persistent userdata and are
-# never overwritten.
-printf '%s\n' '# retained-camera-config' > "$camera_config"
-rm -f "$called"
-: > "$ready_file"
-run_service start
-[ "$(cat "$config")" = '# retained-user-config' ]
-[ "$(cat "$camera_config")" = '# retained-camera-config' ]
-run_service stop
-
-# An early Moonraker exit never becomes an active service.
-rm -f "$ready_file"
-exit_before_ready=1
-run_service start
-[ "$(cat "$runtime/status")" = startup-failed ]
-[ ! -e "$runtime/moonraker.sock" ]
-exit_before_ready=
-
-# A missing RootFS baseline fails closed without installation or repair.
-rm -f "$moonraker" "$called"
-run_service start
-[ "$(cat "$runtime/status")" = baseline-invalid ]
-[ ! -e "$called" ]
-
-! grep -Eq 'pip|https?://' "$service"
-! grep -Fq 'f005-mcu-state' "$service"
-! grep -Fq 'managed-app-resolve' "$service"
-! grep -Fq 'active-version' "$service"
-grep -Fq 'while :; do' "$service"
-grep -Fq '[ -S "$uds" ]' "$service"
-
-echo 'fre3nder-x2000 Moonraker service fixtures: PASS'
+! grep -Fq 'start-stop-daemon' "$service"
+! grep -Fq 'moonraker-env' "$service"
+printf 'fre3nder-x2000 Moonraker system fre3app S61 fixture: PASS\n'

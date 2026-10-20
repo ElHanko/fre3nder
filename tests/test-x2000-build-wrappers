@@ -168,15 +168,27 @@ cp "$root/local/production/artifacts/x2000/f005/klipper-f005-mainline.bin" \
 	"$tmp/klipper-f005-mainline.bin"
 printf '%s\n' '{"qualified_release_match": true}' > "$tmp/build-manifest.json"
 : > "$docker_log"
+# The currently prepared Moonraker system app has development serial 0.
+# Production builds must still reject this image seed before entering Docker.
+release_log="$tmp/moonraker-release-preflight.log"
+if FRE3NDER_F005_FIRMWARE="$tmp/klipper-f005-mainline.bin" \
+	X2000_BUILD_DOCKER="$fake_docker" X2000_TEST_DOCKER_LOG="$docker_log" \
+	"$buildroot_builder" --assemble > "$release_log" 2>&1; then
+	echo 'Release RootFS accepted Moonraker development serial 0' >&2
+	exit 1
+fi
+grep -Fq 'release image requires Moonraker release_serial >= 1' "$release_log"
+! grep -Fq 'build-rootfs-only' "$docker_log"
+
 FRE3NDER_F005_FIRMWARE="$tmp/klipper-f005-mainline.bin" \
 	X2000_BUILD_DOCKER="$fake_docker" X2000_TEST_DOCKER_LOG="$docker_log" \
-	"$buildroot_builder" --assemble
+	"$buildroot_builder" --assemble --develop
 grep -Fq -- "-v $tmp/klipper-f005-mainline.bin:/f005-firmware:ro" "$docker_log"
 
 printf '%s\n' '{"qualified_release_match": false}' > "$tmp/build-manifest.json"
 if FRE3NDER_F005_FIRMWARE="$tmp/klipper-f005-mainline.bin" \
 	X2000_BUILD_DOCKER="$fake_docker" X2000_TEST_DOCKER_LOG="$docker_log" \
-	"$buildroot_builder" --assemble >/dev/null 2>&1; then
+	"$buildroot_builder" --assemble --develop >/dev/null 2>&1; then
 	echo 'RootFS builder accepted a non-qualified F005 candidate' >&2
 	exit 1
 fi
@@ -308,7 +320,6 @@ printf '%s\n' "$help_output" | grep -Fq -- '--develop'
 run_orchestrator
 printf '%s\n' \
 	'kernel ' \
-	'moonraker ' \
 	'buildroot --toolchain default' \
 	'buildroot --assemble default' | cmp -s - "$tmp/wrapper.log"
 
@@ -321,7 +332,6 @@ full="$fixture/local/production/artifacts/x2000/full"
 run_orchestrator --develop
 printf '%s\n' \
 	'kernel --develop' \
-	'moonraker --develop' \
 	'buildroot --toolchain --develop default' \
 	'buildroot --assemble --develop default' | cmp -s - "$tmp/wrapper.log"
 [ -f "$fixture/local/production/artifacts/x2000/full/rootfs.squashfs" ]
@@ -339,7 +349,6 @@ printf '%s\n' 'kernel --develop' | cmp -s - "$tmp/wrapper.log"
 # Explicit RootFS-only scope.
 run_orchestrator --rootfs-only
 printf '%s\n' \
-	'moonraker ' \
 	'buildroot --toolchain default' \
 	'buildroot --assemble default' | cmp -s - "$tmp/wrapper.log"
 [ ! -e "$fixture/local/production/artifacts/x2000/kernel-only" ]
@@ -348,7 +357,6 @@ printf '%s\n' \
 
 run_orchestrator --rootfs-only --develop
 printf '%s\n' \
-	'moonraker --develop' \
 	'buildroot --toolchain --develop default' \
 	'buildroot --assemble --develop default' | cmp -s - "$tmp/wrapper.log"
 
@@ -357,7 +365,6 @@ run_orchestrator --develop --f005-build
 printf '%s\n' \
 	'kernel --develop' \
 	'f005' \
-	'moonraker --develop' \
 	'buildroot --toolchain --develop default' \
 	"buildroot --assemble --develop $fixture/local/production/artifacts/f005/candidate/klipper-f005-mainline.bin" | \
 	cmp -s - "$tmp/wrapper.log"
@@ -365,7 +372,6 @@ printf '%s\n' \
 run_orchestrator --rootfs-only --develop --f005-build
 printf '%s\n' \
 	'f005' \
-	'moonraker --develop' \
 	'buildroot --toolchain --develop default' \
 	"buildroot --assemble --develop $fixture/local/production/artifacts/f005/candidate/klipper-f005-mainline.bin" | \
 	cmp -s - "$tmp/wrapper.log"

@@ -4,7 +4,6 @@ set -eu
 root=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
 kernel_builder="$root/scripts/build-x2000-kernel"
 buildroot_builder="$root/scripts/build-x2000-buildroot"
-moonraker_builder="$root/scripts/build-x2000-moonraker"
 f005_builder="$root/scripts/build-f005"
 artifact_root="$root/local/production/artifacts/x2000"
 ota_key_dir="$root/local/production/keys/ota"
@@ -237,7 +236,6 @@ if [ "$build_scope" = full ] || [ "$build_scope" = rootfs ]; then
 		export FRE3NDER_F005_FIRMWARE_MODE=candidate
 	fi
 
-	"$moonraker_builder" $component_args
 	export FRE3NDER_FACTORY_FRE3NDERSCREEN_APP="$factory_seed"
 	export FRE3NDER_FACTORY_FRE3NDERSCREEN_MODE="$factory_mode"
 	"$buildroot_builder" --toolchain $component_args

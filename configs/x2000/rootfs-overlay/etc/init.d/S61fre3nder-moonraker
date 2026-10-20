@@ -1,7 +1,8 @@
 #!/bin/sh
-
+# Prepare Moonraker's platform-owned state and start only its signed fre3app.
+# Klipper must be active before the managed application may run.
+set -u
 runtime=${FRE3NDER_MOONRAKER_RUNTIME:-/run/fre3nder-moonraker}
-pid_file=$runtime/moonraker.pid
 status=$runtime/status
 uds=$runtime/moonraker.sock
 root_state=${FRE3NDER_ROOT_STATE:-/run/fre3nder-root}
@@ -19,295 +20,88 @@ fre3nder_base_config=$fre3nder_config_dir/00-base.conf
 camera_config=$fre3nder_config_dir/camera.conf
 default_camera_config=${FRE3NDER_MOONRAKER_CAMERA_DEFAULT_CONFIG:-/usr/share/fre3nder/defaults/camera.conf}
 persistent_logs=${FRE3NDER_MOONRAKER_LOG_DIR:-$printer_data/logs}
-moonraker_root=${FRE3NDER_MOONRAKER_ROOT:-/opt/fre3nder/moonraker}
-moonraker=${FRE3NDER_MOONRAKER_ENTRYPOINT:-$moonraker_root/moonraker/moonraker.py}
-python=${FRE3NDER_PYTHON:-/opt/fre3nder/moonraker-env/bin/python}
-startup_timeout=${FRE3NDER_MOONRAKER_START_TIMEOUT:-30}
+package_core=${FRE3NDER_PACKAGE_CORE:-/usr/libexec/fre3nder/package-core}
 
-log() {
-	echo "fre3nder moonraker: $*"
-}
-
-set_status() {
-	mkdir -p "$runtime" 2>/dev/null || return 0
-	printf '%s\n' "$1" > "$status" 2>/dev/null || true
-}
-
-regular_file_equals() {
-	[ -f "$1" ] && [ ! -L "$1" ] && [ "$(cat "$1")" = "$2" ]
-}
-
-root_active() {
-	regular_file_equals "$root_state/status" active
-}
-
-klipper_active() {
-	regular_file_equals "$klipper_status" active && [ -S "$klippy_uds" ]
-}
+log() { echo "fre3nder moonraker: $*"; }
+set_status() { mkdir -p "$runtime" 2>/dev/null || return 0; printf '%s\n' "$1" > "$status" 2>/dev/null || true; }
+regular_file_equals() { [ -f "$1" ] && [ ! -L "$1" ] && [ "$(cat "$1")" = "$2" ]; }
+root_active() { regular_file_equals "$root_state/status" active; }
+klipper_active() { regular_file_equals "$klipper_status" active && [ -S "$klippy_uds" ]; }
 
 ensure_directory() {
-	if [ ! -e "$1" ] && [ ! -L "$1" ]; then
-		mkdir -m 0700 "$1" || return 1
-	fi
-	[ -d "$1" ] && [ ! -L "$1" ] && chown fre3nder:fre3nder "$1"
+    if [ ! -e "$1" ] && [ ! -L "$1" ]; then mkdir -m 0700 "$1" || return 1; fi
+    [ -d "$1" ] && [ ! -L "$1" ] && chown fre3nder:fre3nder "$1"
 }
-
 seed_regular_file() {
-	destination=$1
-	source=$2
-	if [ -e "$destination" ] || [ -L "$destination" ]; then
-		[ -f "$destination" ] && [ ! -L "$destination" ]
-		return
-	fi
-	[ -f "$source" ] && [ ! -L "$source" ] || return 1
-	install -m 0644 "$source" "$destination"
+    destination=$1; source=$2
+    if [ -e "$destination" ] || [ -L "$destination" ]; then
+        [ -f "$destination" ] && [ ! -L "$destination" ]; return
+    fi
+    [ -f "$source" ] && [ ! -L "$source" ] || return 1
+    install -m 0644 "$source" "$destination"
 }
-
 prepare_printer_data() {
-	[ -d "$home_root" ] && [ ! -L "$home_root" ] || return 1
-	ensure_directory "$fre3nder_home" || return 1
-	ensure_directory "$printer_data" || return 1
-	ensure_directory "$config_dir" || return 1
-	ensure_directory "$persistent_logs" || return 1
-	ensure_directory "$fre3nder_config_dir" || return 1
-
-	if [ -e "$fre3nder_base_config" ] || [ -L "$fre3nder_base_config" ]; then
-		[ -f "$fre3nder_base_config" ] && [ ! -L "$fre3nder_base_config" ] ||
-			return 1
-	else
-		printf '%s\n' \
-			'# Fre3nder-managed Moonraker configuration fragments.' \
-			> "$fre3nder_base_config" || return 1
-		chmod 0644 "$fre3nder_base_config" || return 1
-	fi
-	chown fre3nder:fre3nder "$fre3nder_base_config" || return 1
-	seed_regular_file "$camera_config" "$default_camera_config" || return 1
-	chown fre3nder:fre3nder "$camera_config" || return 1
-
-	if [ -e "$config" ] || [ -L "$config" ]; then
-		[ -f "$config" ] && [ ! -L "$config" ] || return 1
-	else
-		# An explicitly overridden config path is never implicitly populated.
-		[ "${FRE3NDER_MOONRAKER_CONFIG+x}" != x ] || return 1
-		[ -f "$default_config" ] && [ ! -L "$default_config" ] || return 1
-		install -m 0644 "$default_config" "$config" || return 1
-	fi
-	chown fre3nder:fre3nder "$config"
+    [ -d "$home_root" ] && [ ! -L "$home_root" ] || return 1
+    ensure_directory "$fre3nder_home" || return 1
+    ensure_directory "$printer_data" || return 1
+    ensure_directory "$config_dir" || return 1
+    ensure_directory "$persistent_logs" || return 1
+    ensure_directory "$fre3nder_config_dir" || return 1
+    if [ -e "$fre3nder_base_config" ] || [ -L "$fre3nder_base_config" ]; then
+        [ -f "$fre3nder_base_config" ] && [ ! -L "$fre3nder_base_config" ] || return 1
+    else
+        printf '%s\n' '# Fre3nder-managed Moonraker configuration fragments.' > "$fre3nder_base_config" || return 1
+        chmod 0644 "$fre3nder_base_config" || return 1
+    fi
+    chown fre3nder:fre3nder "$fre3nder_base_config" || return 1
+    seed_regular_file "$camera_config" "$default_camera_config" || return 1
+    chown fre3nder:fre3nder "$camera_config" || return 1
+    if [ -e "$config" ] || [ -L "$config" ]; then
+        [ -f "$config" ] && [ ! -L "$config" ] || return 1
+    else
+        [ "${FRE3NDER_MOONRAKER_CONFIG+x}" != x ] || return 1
+        [ -f "$default_config" ] && [ ! -L "$default_config" ] || return 1
+        install -m 0644 "$default_config" "$config" || return 1
+    fi
+    chown fre3nder:fre3nder "$config"
 }
 
-validate_baseline() {
-	[ -d "$moonraker_root" ] && [ ! -L "$moonraker_root" ] || return 1
-	[ -d "$moonraker_root/.git" ] && [ ! -L "$moonraker_root/.git" ] || return 1
-	[ -f "$moonraker" ] && [ ! -L "$moonraker" ] || return 1
-	[ -x "$python" ] || return 1
-}
-
-pid_has_arg() {
-	proc_pid=$1
-	expected_arg=$2
-	[ -r "/proc/$proc_pid/cmdline" ] || return 1
-	tr '\000' '\n' < "/proc/$proc_pid/cmdline" |
-		grep -F -x -q "$expected_arg"
-}
-
-pid_is_moonraker() {
-	proc_pid=$1
-	case "$proc_pid" in
-	*[!0-9]*|'') return 1 ;;
-	esac
-
-	kill -0 "$proc_pid" 2>/dev/null || return 1
-
-	pid_has_arg "$proc_pid" "$python" &&
-		pid_has_arg "$proc_pid" "$moonraker" &&
-		pid_has_arg "$proc_pid" "$printer_data" &&
-		pid_has_arg "$proc_pid" "$config" &&
-		pid_has_arg "$proc_pid" "$uds"
-}
-
-
-terminate_moonraker() {
-	proc_pid=$1
-
-	pid_is_moonraker "$proc_pid" || return 0
-
-	kill "$proc_pid" 2>/dev/null || true
-
-	seconds=0
-	while pid_is_moonraker "$proc_pid"; do
-		if [ "$seconds" -ge 10 ]; then
-			kill -KILL "$proc_pid" 2>/dev/null || true
-			break
-		fi
-		sleep 1
-		seconds=$((seconds + 1))
-	done
-
-	seconds=0
-	while pid_is_moonraker "$proc_pid"; do
-		if [ "$seconds" -ge 2 ]; then
-			return 1
-		fi
-		sleep 1
-		seconds=$((seconds + 1))
-	done
-
-	wait "$proc_pid" 2>/dev/null || true
-	return 0
+prepare_runtime() {
+    [ ! -L "$runtime" ] || return 1
+    mkdir -p "$runtime" || return 1
+    [ -d "$runtime" ] && [ ! -L "$status" ] || return 1
+    [ ! -e "$status" ] || [ -f "$status" ] || return 1
+    : >> "$status" || return 1
+    chown root:root "$status" && chmod 0644 "$status" &&
+        chown root:fre3nder "$runtime" && chmod 1770 "$runtime"
 }
 
 start() {
-	case "$startup_timeout" in
-	*[!0-9]*|'')
-		set_status runtime-invalid
-		log 'invalid Moonraker startup timeout'
-		return 0
-		;;
-	esac
-	mkdir -p "$runtime" || {
-		log 'runtime setup failed'
-		return 0
-	}
-	[ -d "$runtime" ] && [ ! -L "$runtime" ] || {
-		log 'runtime path is invalid'
-		return 0
-	}
-	[ ! -L "$status" ] && { [ ! -e "$status" ] || [ -f "$status" ]; } &&
-		: >> "$status" && chown root:root "$status" && chmod 0644 "$status" &&
-		chown root:fre3nder "$runtime" && chmod 1770 "$runtime" || {
-		log 'runtime permissions are invalid'
-		return 0
-	}
-	if ! root_active; then
-		set_status degraded-root
-		log 'persistent root is unavailable; Moonraker remains stopped'
-		return 0
-	fi
-	if ! klipper_active; then
-		set_status klipper-unavailable
-		log 'Klipper service or API socket is unavailable; Moonraker remains stopped'
-		return 0
-	fi
-	if [ -r "$pid_file" ]; then
-		pid=$(cat "$pid_file")
-		if validate_baseline && pid_is_moonraker "$pid"; then
-			if [ -S "$uds" ]; then
-				set_status active
-				return 0
-			fi
-			set_status readiness-failed
-			log 'Moonraker is running without its expected API socket'
-			return 0
-		fi
-		case "$pid" in
-		*[!0-9]*|'') ;;
-		*)
-			if kill -0 "$pid" 2>/dev/null; then
-				log 'stale PID file refers to a non-Moonraker process; ignoring it'
-			fi
-			;;
-		esac
-		rm -f "$pid_file"
-	fi
-	if ! prepare_printer_data; then
-		set_status printer-data-invalid
-		log 'persistent printer data or configuration is unavailable'
-		return 0
-	fi
-	if ! validate_baseline; then
-		set_status baseline-invalid
-		log 'Moonraker RootFS baseline or Python environment is missing or invalid'
-		return 0
-	fi
-	log_file=$persistent_logs/moonraker.log
-	if [ -e "$log_file" ] || [ -L "$log_file" ]; then
-		[ -f "$log_file" ] && [ ! -L "$log_file" ] || {
-			set_status printer-data-invalid
-			return 0
-		}
-	fi
-	rm -f "$uds"
-	set_status starting
-
-	if ! HOME="$fre3nder_home" PIP_ONLY_BINARY=:all: \
-		GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=safe.directory \
-		GIT_CONFIG_VALUE_0="$moonraker_root" \
-		start-stop-daemon -S -q -b -m -p "$pid_file" \
-		-c fre3nder:fre3nder -x "$python" -- "$moonraker" \
-		-d "$printer_data" \
-		-c "$config" \
-		-l "$log_file" \
-		-u "$uds" \
-		>/dev/null 2>&1; then
-		rm -f "$pid_file" "$uds"
-		set_status startup-failed
-		return 0
-	fi
-	pid=$(cat "$pid_file" 2>/dev/null)
-
-	seconds=0
-	while :; do
-		if ! pid_is_moonraker "$pid"; then
-			rm -f "$pid_file" "$uds"
-			set_status startup-failed
-			log 'Moonraker exited during startup'
-			return 0
-		fi
-		if [ -S "$uds" ]; then
-			set_status active
-			log 'Moonraker started from the RootFS baseline'
-			return 0
-		fi
-		if [ "$seconds" -ge "$startup_timeout" ]; then
-			if ! terminate_moonraker "$pid"; then
-				set_status readiness-cleanup-failed
-				log "Moonraker did not create its API socket within ${startup_timeout} seconds and could not be terminated"
-				return 0
-			fi
-			rm -f "$pid_file" "$uds"
-			set_status readiness-failed
-			log "Moonraker did not create its API socket within ${startup_timeout} seconds"
-			return 0
-		fi
-		sleep 1
-		seconds=$((seconds + 1))
-	done
+    prepare_runtime || { log 'invalid runtime directory'; return 0; }
+    if ! root_active; then set_status degraded-root; return 0; fi
+    if ! klipper_active; then set_status klipper-unavailable; return 0; fi
+    if ! prepare_printer_data; then set_status printer-data-invalid; return 0; fi
+    if ! "$package_core" service-start moonraker >/dev/null; then
+        set_status app-start-failed
+        log 'signed Moonraker app is unavailable or failed readiness'
+        return 0
+    fi
+    if "$package_core" service-status moonraker >/dev/null && [ -S "$uds" ]; then
+        set_status active
+        log 'Moonraker running from signed system fre3app'
+    else
+        set_status readiness-failed
+        log 'Moonraker did not expose its API socket'
+    fi
 }
-
 stop() {
-	if [ -r "$pid_file" ]; then
-		pid=$(cat "$pid_file")
-		if validate_baseline && pid_is_moonraker "$pid"; then
-			if ! terminate_moonraker "$pid"; then
-				set_status stop-timeout
-				log 'Moonraker did not stop after SIGTERM and SIGKILL'
-				return 0
-			fi
-		else
-			case "$pid" in
-			*[!0-9]*|'') ;;
-			*)
-				if kill -0 "$pid" 2>/dev/null; then
-					log 'stale PID file refers to a non-Moonraker process; not killing it'
-				fi
-				;;
-			esac
-		fi
-		rm -f "$pid_file"
-	fi
-
-	rm -f "$uds"
-	set_status stopped
+    "$package_core" service-stop moonraker >/dev/null 2>&1 || true
+    set_status stopped
 }
-
 case "${1:-}" in
 start) start ;;
 stop) stop ;;
-restart)
-	stop
-	regular_file_equals "$status" stopped && start
-	;;
-*) echo "usage: $0 {start|stop|restart}" >&2; exit 1 ;;
+restart) stop; start ;;
+*) echo 'usage: S61fre3nder-moonraker {start|stop|restart}' >&2; exit 2 ;;
 esac
-
 exit 0

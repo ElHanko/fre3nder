@@ -12,6 +12,7 @@ f005_firmware_mode=${FRE3NDER_F005_FIRMWARE_MODE:-qualified}
 ota_public_key=${FRE3NDER_OTA_PUBLIC_KEY:-"$local_root/keys/ota/public.pem"}
 factory_seed=${FRE3NDER_FACTORY_FRE3NDERSCREEN_APP:-"$local_root/factory-apps/fre3nderscreen.fre3app"}
 factory_mode=${FRE3NDER_FACTORY_FRE3NDERSCREEN_MODE-release}
+system_app_seeds=${FRE3NDER_SYSTEM_APP_PACKAGES_DIR:-"$local_root/system-apps"}
 docker_cmd=${X2000_BUILD_DOCKER:-docker}
 artifact_mode=release
 phase=
@@ -120,6 +121,32 @@ if (mode == "development" and serial != 0) or (mode == "release" and serial < 1)
     raise SystemExit("factory app release serial does not match expected app mode")
 PY
 
+[ -d "$system_app_seeds" ] && [ ! -L "$system_app_seeds" ] || {
+    echo "missing regular system-app package directory: $system_app_seeds" >&2; exit 1;
+}
+PYTHONDONTWRITEBYTECODE=1 python3 - "$root" "$system_app_seeds" "$artifact_mode" <<'PY_SYSTEM'
+import importlib.machinery
+import importlib.util
+from pathlib import Path
+import sys
+root, packages = map(Path, sys.argv[1:3])
+mode = sys.argv[3]
+loader = importlib.machinery.SourceFileLoader("fre3nder_build_system_seed", str(
+    root / "configs/x2000/rootfs-overlay/usr/libexec/fre3nder/package-core"))
+spec = importlib.util.spec_from_loader(loader.name, loader)
+core = importlib.util.module_from_spec(spec)
+loader.exec_module(core)
+core.BUILTIN_KEYS = root / "configs/x2000/rootfs-overlay/usr/share/fre3nder/app-keys"
+core.SYSTEM_APP_DIR = packages
+seeds = core.image_system_apps()
+moonraker = next((item for _, item in seeds if item["name"] == "moonraker"), None)
+if moonraker is None or moonraker["autostart"]:
+    raise SystemExit("image needs official platform-managed Moonraker system fre3app")
+if mode == "release" and moonraker["release_serial"] < 1:
+    raise SystemExit("release image requires Moonraker release_serial >= 1")
+print(f"Moonraker image seed: {moonraker['version']} ({moonraker['release_serial']})")
+PY_SYSTEM
+
 command -v openssl >/dev/null 2>&1 || {
 	echo 'openssl is required to validate the OTA public key' >&2
 	exit 1
@@ -160,9 +187,11 @@ fi
 	-e "FRE3NDER_F005_FIRMWARE_MODE=$f005_firmware_mode" \
 	-e FRE3NDER_OTA_PUBLIC_KEY=/ota-public-key \
 	-e FRE3NDER_FACTORY_FRE3NDERSCREEN_APP=/factory-fre3nderscreen-app \
+	-e FRE3NDER_SYSTEM_APP_PACKAGES_DIR=/system-app-seeds \
 	"$@" \
 	-v "$ota_public_key:/ota-public-key:ro" \
 	-v "$factory_seed:/factory-fre3nderscreen-app:ro" \
+	-v "$system_app_seeds:/system-app-seeds:ro" \
 	-v "$root:/project" \
 	-v "$work_root:/work" \
 	"$image" build-rootfs-only

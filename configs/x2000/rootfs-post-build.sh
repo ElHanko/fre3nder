@@ -38,14 +38,13 @@ install -D -m 0644 "$factory_seed" \
 install -D -m 0644 "$linux_firmware_license" \
 	"$target/usr/share/licenses/linux-firmware/LICENCE.cypress"
 
-moonraker_root="$target/opt/fre3nder/moonraker"
-moonraker_transport_git="$moonraker_root/.fre3nder-git"
-moonraker_git="$moonraker_root/.git"
-[ -d "$moonraker_transport_git" ]
-rm -rf -- "$moonraker_git"
-mv "$moonraker_transport_git" "$moonraker_git"
-[ -d "$moonraker_git" ]
-[ ! -e "$moonraker_transport_git" ]
+# The immutable RootFS must never retain the old Moonraker runtime.
+rm -rf -- "$target/opt/fre3nder/moonraker" "$target/opt/fre3nder/moonraker-env"
+[ -f "$system_target/moonraker.fre3app" ] &&
+    [ ! -L "$system_target/moonraker.fre3app" ] || {
+    echo 'Required signed Moonraker system-app seed is missing' >&2
+    exit 1
+}
 
 # Development Buildroot output may be reused. Remove obsolete embedded display
 # paths so stale target trees cannot retain a legacy RootFS component.

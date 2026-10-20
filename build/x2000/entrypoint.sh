@@ -178,6 +178,18 @@ if ota_public_key:
         ota_public_key_path.read_bytes()
     ).hexdigest()
 
+system_seeds = os.environ.get("FRE3NDER_SYSTEM_APP_PACKAGES_DIR")
+if system_seeds:
+    seed_dir = pathlib.Path(system_seeds)
+    if not seed_dir.is_dir() or seed_dir.is_symlink():
+        raise SystemExit("image system-app seed directory is unavailable")
+    manifest["system_apps"] = {
+        p.name: {"sha256": hashlib.sha256(p.read_bytes()).hexdigest(),
+                 "size": p.stat().st_size}
+        for p in sorted(seed_dir.glob("*.fre3app"))
+        if p.is_file() and not p.is_symlink()
+    }
+
 factory_seed = os.environ.get("FRE3NDER_FACTORY_FRE3NDERSCREEN_APP")
 if factory_seed:
     path = pathlib.Path(factory_seed)
@@ -834,7 +846,7 @@ record_rootfs_components() {
 	manifest=$1/build-manifest.json
 	f005_identity=$(validate_f005_firmware "$brout/target$f005_target_path")
 	python3 - "$manifest" "$f005_identity" \
-		"$moonraker_component/component-manifest.json" <<'PY'
+		<<'PY'
 import json
 import pathlib
 import sys
@@ -1666,44 +1678,17 @@ check_rootfs() {
 		exit 1
 	fi
 	moonraker_service="$target/etc/init.d/S61fre3nder-moonraker"
-	grep -Fq 'root_active()' "$moonraker_service"
-	grep -Fq 'klipper_active()' "$moonraker_service"
-	grep -Fq 'moonraker_root=${FRE3NDER_MOONRAKER_ROOT:-/opt/fre3nder/moonraker}' \
-		"$moonraker_service"
-	grep -Fq 'python=${FRE3NDER_PYTHON:-/opt/fre3nder/moonraker-env/bin/python}' \
-		"$moonraker_service"
-	grep -Fxq 'startup_timeout=${FRE3NDER_MOONRAKER_START_TIMEOUT:-30}' \
-		"$moonraker_service"
-	grep -Fq 'if [ "$seconds" -ge "$startup_timeout" ]; then' \
-		"$moonraker_service"
+	grep -Fq 'service-start moonraker' "$moonraker_service"
+	grep -Fq 'service-status moonraker' "$moonraker_service"
+	! grep -Fq 'start-stop-daemon' "$moonraker_service"
 	grep -Fxq '[include fre3nder/*.conf]' \
 		"$target/usr/share/fre3nder/defaults/moonraker.conf"
 	grep -Fxq '[webcam fre3nder_camera]' \
 		"$target/usr/share/fre3nder/defaults/camera.conf"
-	grep -Fxq 'stream_url: /webcam/?action=stream' \
-		"$target/usr/share/fre3nder/defaults/camera.conf"
-	grep -Fxq 'snapshot_url: /webcam/?action=snapshot' \
-		"$target/usr/share/fre3nder/defaults/camera.conf"
-	grep -Fq 'PIP_ONLY_BINARY=:all:' "$moonraker_service"
-	grep -Fq -- '-d "$printer_data"' "$moonraker_service"
-	grep -Fq -- '-u "$uds"' "$moonraker_service"
-	grep -Fq 'uds=$runtime/moonraker.sock' "$moonraker_service"
-	! grep -Eq 'pip|https?://' "$moonraker_service"
-	moonraker_root="$target/opt/fre3nder/moonraker"
-	moonraker_env="$target/opt/fre3nder/moonraker-env"
-	[ -f "$moonraker_root/moonraker/moonraker.py" ]
-	[ -d "$moonraker_root/.git" ]
-	[ "$(git -C "$moonraker_root" rev-parse HEAD)" = "$moonraker_commit" ]
-	[ "$(git -C "$moonraker_root" symbolic-ref --short HEAD)" = master ]
-	[ "$(git -C "$moonraker_root" remote get-url origin)" = "$moonraker_url" ]
-	[ "$(git -C "$moonraker_root" config --get branch.master.remote)" = origin ]
-	[ "$(git -C "$moonraker_root" config --get branch.master.merge)" = refs/heads/master ]
-	[ -f "$moonraker_env/pyvenv.cfg" ]
-	grep -Fxq 'include-system-site-packages = true' "$moonraker_env/pyvenv.cfg"
-	[ -f "$moonraker_env/bin/activate" ]
-	[ "$(readlink "$moonraker_env/bin/python")" = /usr/bin/python3 ]
-	[ "$(readlink "$moonraker_env/bin/pip")" = /usr/bin/pip3 ]
-	[ -d "$moonraker_env/lib/python3.12/site-packages" ]
+	seed="$target/usr/share/fre3nder/system-apps/moonraker.fre3app"
+	[ -f "$seed" ] && [ ! -L "$seed" ]
+	[ ! -e "$target/opt/fre3nder/moonraker" ]
+	[ ! -e "$target/opt/fre3nder/moonraker-env" ]
 	factory_seed=${FRE3NDER_FACTORY_FRE3NDERSCREEN_APP:?}
 	rootfs_seed="$target/usr/share/fre3nder/factory-apps/fre3nderscreen.fre3app"
 	[ -f "$rootfs_seed" ] && [ ! -L "$rootfs_seed" ]
@@ -1885,9 +1870,9 @@ build() {
 	jobs=${JOBS:-4}
 	prepare_buildroot
 	prepare_klipper_overlay
-	prepare_rootfs_component moonraker "$moonraker_component" "$moonraker_overlay"
+	# Runtime delivered exclusively through the verified image system-app seed.
 	brout="$work/buildroot-output-fre3nder"
-	extra_overlay="$klipper_overlay $moonraker_overlay"
+	extra_overlay="$klipper_overlay"
 	configure_buildroot "$brout" "$extra_overlay"
 	make -C "$buildroot" O="$brout" -j"$jobs" toolchain
 	write_buildroot_toolchain_fingerprint "$brout"
@@ -1998,10 +1983,10 @@ build_kernel_only() {
 build_rootfs_only() {
 	prepare_buildroot
 	prepare_klipper_overlay
-	prepare_rootfs_component moonraker "$moonraker_component" "$moonraker_overlay"
+	# Runtime delivered exclusively through the verified image system-app seed.
 	brout="$work/buildroot-output-fre3nder"
 	configure_buildroot "$brout" \
-		"$klipper_overlay $moonraker_overlay"
+		"$klipper_overlay"
 	make -C "$buildroot" O="$brout" -j"${JOBS:-4}" toolchain
 	write_buildroot_toolchain_fingerprint "$brout"
 	build_klipper_chelper "$brout"

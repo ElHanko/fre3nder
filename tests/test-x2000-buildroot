@@ -717,7 +717,7 @@ grep -Fq 'gcc.br_real' "$entrypoint"
 "$fingerprint" --list-inputs | grep -Fxq 'scripts/source-value'
 grep -Fq '$0 [OPTIONS]' "$build_script"
 grep -Fq 'build-x2000-buildroot' "$build_script"
-grep -Fq 'build-x2000-moonraker' "$build_script"
+! grep -Fq 'build-x2000-moonraker' "$build_script"
 ! grep -Fq 'build-x2000-fre3nderscreen' "$build_script"
 grep -Fq 'build-x2000-kernel' "$build_script"
 grep -Fq 'build-f005' "$build_script"
@@ -750,10 +750,9 @@ grep -Fq 'moonraker_commit=$("$project/scripts/source-value" userspace.moonraker
 	"$entrypoint"
 grep -Fq 'prepare_moonraker_overlay()' "$entrypoint"
 [ "$(grep -Fc 'prepare_moonraker_overlay' "$entrypoint")" -eq 2 ]
-grep -Fq 'extra_overlay="$klipper_overlay $moonraker_overlay"' \
-	"$entrypoint"
+grep -Fq 'extra_overlay="$klipper_overlay"' "$entrypoint"
 ! grep -Fq 'wifi_overlay' "$entrypoint"
-grep -Fq 'prepare_rootfs_component moonraker' "$entrypoint"
+! grep -Fq 'prepare_rootfs_component moonraker' "$entrypoint"
 ! grep -Fq 'prepare_rootfs_component fre3nderscreen' "$entrypoint"
 grep -Fq 'input_name=${FRE3NDER_DISPLAY_INPUT_NAME:-ns2009_ts}' "$entrypoint"
 ! grep -Fq 'FRE3NDER_FRE3NDERSCREEN_' "$entrypoint"
@@ -799,16 +798,10 @@ assert authorization["trusted_clients"].split() == [
 ]
 PY
 ! grep -Fxq 'enabled: True' "$moonraker_default"
-grep -Fq 'moonraker_root=${FRE3NDER_MOONRAKER_ROOT:-/opt/fre3nder/moonraker}' \
-	"$moonraker_service"
-grep -Fq 'moonraker=${FRE3NDER_MOONRAKER_ENTRYPOINT:-$moonraker_root/moonraker/moonraker.py}' \
-	"$moonraker_service"
-grep -Fq '/opt/fre3nder/moonraker-env/bin/python' "$moonraker_service"
-grep -Fq 'PIP_ONLY_BINARY=:all:' "$moonraker_service"
-grep -Fq -- '-u "$uds"' "$moonraker_service"
-! grep -Eq 'pip|https?://' "$moonraker_service"
-! grep -Fq 'managed-app-resolve' "$moonraker_service"
-! grep -Fq 'active-version' "$moonraker_service"
+grep -Fq 'service-start moonraker' "$moonraker_service"
+grep -Fq 'service-status moonraker' "$moonraker_service"
+! grep -Fq 'start-stop-daemon' "$moonraker_service"
+! grep -Fq 'moonraker-env' "$moonraker_service"
 [ ! -e "$root/configs/x2000/rootfs-overlay/usr/libexec/fre3nder/managed-app-resolve" ]
 grep -Fq 'f005_target_path=/var/lib/fre3nder/firmware/f005/klipper-f005-mainline.bin' \
 	"$entrypoint"
@@ -1341,34 +1334,7 @@ assert firmware_path.stat().st_size == firmware["size"]
 assert hashlib.sha256(firmware_path.read_bytes()).hexdigest() == firmware["sha256"]
 PY
 
-# The staged Moonraker checkout keeps Git metadata under a neutral name so
-# Buildroot's generic overlay VCS filter transfers it. The post-build hook
-# restores the real Git directory without overwriting a conflicting target.
-git clone -q "$moonraker_source" "$tmp/moonraker-source"
-git -C "$tmp/moonraker-source" remote set-url origin \
-	'https://github.com/Arksine/moonraker.git'
-moonraker=$tmp/moonraker-source
-moonraker_overlay=$tmp/moonraker-overlay
-moonraker_wheel_manifest=$moonraker_wheels
-moonraker_url=https://github.com/Arksine/moonraker.git
-sed -n '/^prepare_moonraker_overlay() {$/,/^}$/p' "$entrypoint" \
-	> "$tmp/prepare-moonraker-overlay.sh"
-. "$tmp/prepare-moonraker-overlay.sh"
-prepare_moonraker_source() {
-	[ "$(git -C "$moonraker" rev-parse HEAD)" = \
-		"$moonraker_commit" ]
-}
-prepare_moonraker_overlay
-moonraker_root="$moonraker_overlay/opt/fre3nder/moonraker"
-[ -z "$(find "$moonraker_overlay/opt/fre3nder/moonraker-env/lib/python3.12/site-packages" \
-	\( -type d -name '__pycache__' -o -type f \( -name '*.pyc' -o -name '*.pyo' \) \) \
-	-print -quit)" ]
-[ -d "$moonraker_root/.fre3nder-git" ]
-[ ! -e "$moonraker_root/.git" ]
-[ "$(git --git-dir="$moonraker_root/.fre3nder-git" rev-parse HEAD)" = \
-	"$moonraker_commit" ]
-[ "$(git --git-dir="$moonraker_root/.fre3nder-git" remote get-url origin)" = \
-	https://github.com/Arksine/moonraker.git ]
+# Image Moonraker is a signed fre3app; it is no longer copied as a Git overlay.
 
 target=$tmp/target
 build_dir=$tmp/build
@@ -1378,6 +1344,9 @@ export FRE3NDER_OTA_PUBLIC_KEY="$ota_public_key"
 factory_seed=$tmp/fre3nderscreen-factory.fixture
 printf '%s\n' 'signed factory fixture' > "$factory_seed"
 export FRE3NDER_FACTORY_FRE3NDERSCREEN_APP="$factory_seed"
+mkdir -p "$tmp/system-app-seeds"
+printf '%s\n' 'signed moonraker seed fixture' > "$tmp/system-app-seeds/moonraker.fre3app"
+export FRE3NDER_SYSTEM_APP_PACKAGES_DIR="$tmp/system-app-seeds"
 mkdir -p "$build_dir/linux-firmware-20250211"
 printf '%s\n' 'fixture Cypress license' > \
 	"$build_dir/linux-firmware-20250211/LICENCE.cypress"
@@ -1410,6 +1379,7 @@ touch "$target/etc/init.d/fre3nder-root" \
 	"$target/etc/init.d/S50dropbear" \
 	"$target/etc/init.d/S58fre3nder-app-restore" \
 	"$target/etc/init.d/S58fre3nder-system-apps" \
+	"$target/etc/init.d/S58fre3nder-system-apps" \
 	"$target/etc/init.d/S59fre3nder-klipper-mcu" \
 	"$target/etc/init.d/S60fre3nder-klipper" \
 	"$target/etc/init.d/S61fre3nder-moonraker" \
@@ -1423,7 +1393,8 @@ touch "$target/etc/init.d/fre3nder-root" \
 	"$target/usr/libexec/fre3nder/f005-mcu-state" \
 	"$target/usr/libexec/fre3nder/f005-stock-to-fre3nder" \
 	"$target/usr/libexec/fre3nder/udhcpc"
-cp -a "$moonraker_overlay/." "$target/"
+mkdir -p "$target/opt/fre3nder/moonraker" "$target/opt/fre3nder/moonraker-env"
+printf old > "$target/opt/fre3nder/moonraker/stale"
 "$post_build" "$target"
 cmp "$ota_public_key" "$target/ota/keys/public.pem"
 cmp "$build_dir/linux-firmware-20250211/LICENCE.cypress" \
@@ -1449,33 +1420,13 @@ cmp "$nvram_license" \
 cmp "$factory_seed" "$target/usr/share/fre3nder/factory-apps/fre3nderscreen.fre3app"
 [ "$(stat -c '%a' "$target/usr/share/fre3nder/factory-apps/fre3nderscreen.fre3app")" = 644 ]
 [ ! -e "$target/etc/init.d/S50lighttpd" ]
-moonraker_root="$target/opt/fre3nder/moonraker"
-[ -d "$moonraker_root/.git" ]
-[ ! -e "$moonraker_root/.fre3nder-git" ]
-[ "$(git -C "$moonraker_root" rev-parse HEAD)" = \
-	"$moonraker_commit" ]
-[ "$(git -C "$moonraker_root" remote get-url origin)" = \
-	https://github.com/Arksine/moonraker.git ]
-
-# Re-running the post-build hook replaces stale Git metadata in an incremental
-# target with the freshly transported metadata from the current overlay.
-printf '%s\n' old > "$moonraker_root/.git/old-post-build-marker"
-cp -a "$moonraker_root/.git" "$moonraker_root/.fre3nder-git"
-rm -f -- "$moonraker_root/.fre3nder-git/old-post-build-marker"
-printf '%s\n' current > \
-	"$moonraker_root/.fre3nder-git/current-overlay-marker"
+seed="$target/usr/share/fre3nder/system-apps/moonraker.fre3app"
+cmp "$FRE3NDER_SYSTEM_APP_PACKAGES_DIR/moonraker.fre3app" "$seed"
+[ ! -e "$target/opt/fre3nder/moonraker" ]
+[ ! -e "$target/opt/fre3nder/moonraker-env" ]
+# Rerunning post-build stays idempotent and does not restore legacy payload.
 "$post_build" "$target"
-[ ! -e "$moonraker_root/.fre3nder-git" ]
-[ ! -e "$moonraker_root/.git/old-post-build-marker" ]
-grep -Fxq current "$moonraker_root/.git/current-overlay-marker"
-
-# A stale .git alone is not accepted when the current overlay transport is
-# missing.
-if "$post_build" "$target"; then
-	echo 'RootFS post-build accepted missing Moonraker transport metadata' >&2
-	exit 1
-fi
-grep -Fxq current "$moonraker_root/.git/current-overlay-marker"
+cmp "$FRE3NDER_SYSTEM_APP_PACKAGES_DIR/moonraker.fre3app" "$seed"
 
 [ "$(grep -Fc 'make -C "$buildroot" O="$brout" -j"$jobs" toolchain' \
 	"$entrypoint")" -eq 2 ]

@@ -1194,7 +1194,7 @@ def activate_package(package: pathlib.Path, operation: str, allow_downgrade: boo
             if rc != 0:
                 raise ValueError(f"app service {action} failed: exit {rc}")
             started = False
-            if verified["autostart"] and start_service:
+            if (verified["autostart"] or was_running) and start_service:
                 rc = service_action(name, "start", current)
                 if rc != 0:
                     raise ValueError(f"app service start failed: exit {rc}")
@@ -1417,6 +1417,18 @@ def response(operation: str, ok: bool, **fields):
     print(json.dumps(value, sort_keys=True))
 
 
+def service_command(name: str, action: str) -> int:
+    """Operate a signed installed app without bypassing Package-Core ownership."""
+    if not APP_RE.fullmatch(name) or not installed(name):
+        raise ValueError(f"app is not installed: {name}")
+    metadata = read_metadata(name)
+    if action not in ("start", "stop", "status"):
+        raise ValueError("unsupported service command")
+    # Service actions always resolve the currently installed signed runtime.
+    # A missing/invalid runtime must never fall back to the old RootFS app.
+    return service_action(name, action)
+
+
 def main() -> int:
     args = sys.argv[1:]
     if args == ["key-list"]:
@@ -1514,6 +1526,11 @@ def main() -> int:
             exit_code=rc,
         )
         return 0 if rc == 0 else 1
+    if len(args) == 2 and args[0] in ("service-start", "service-stop", "service-status"):
+        action = args[0].removeprefix("service-")
+        rc = service_command(args[1], action)
+        response(args[0], rc == 0, name=args[1], exit_code=rc)
+        return 0 if rc == 0 else 1
     if args == ["restore-installed"]:
         return restore_installed()
     if args == ["reconcile-system-apps"]:
@@ -1531,6 +1548,7 @@ if __name__ == "__main__":
         if sys.argv[1:2] and sys.argv[1] in (
                 "install", "update", "remove", "display-select", "display-disable",
                 "restore-installed", "reconcile-system-apps",
+                 "service-start", "service-stop",
                 "start-installed", "stop-installed", "key-add", "key-remove"):
             # Keep host fixtures isolated from the machine's global /run.
             lock_root = (PACKAGE_STATE_ROOT if "FRE3NDER_PACKAGE_STATE_ROOT" in os.environ
