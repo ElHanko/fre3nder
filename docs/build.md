@@ -167,47 +167,57 @@ Submodule/patch, static MIPS32r2 hardfloat ABI, provenance, exact file-set
 and checksum validation remain in place. No Management/OTA API changes
 are needed.
 
-The source pin still points to `63e7ecb9fff980b53f4987ef9994675aecf9e0a2`.
-It does not include native management or cleanup. A successful build at
-this old pin is not the intended 2026.2 release. Complete these steps:
+The source cleanup is committed and fetchable at
+`823d090bc97f9e6b429aebda93f588450b33f40b`, the current
+`userspace.fre3nderscreen.commit` pin. Release `2026.2` and the four submodule
+pins remain unchanged. The matching platform and apps integration is committed.
+The operator reports successful Docker/SDL build and manual UI testing, and
+a local X2000 Development cross-build of the cleaned sources. Production
+release packaging and hardware qualification of the final release binary
+remain pending.
 
-1. Separately approve and commit the cleaned Fre3nderScreen source; make
-   that exact commit fetchable. Then explicitly update
-   `userspace.fre3nderscreen.commit` in `configs/x2000/sources.json`, the
-   matching assertion in `tests/test-x2000-fre3nderscreen-service` and
-   release/provenance documentation. Keep the four submodule pins and
-   release `2026.2`; do not substitute `main`.
-2. Review/commit the matching platform and apps integration changes when
-   authorized. The app template remains `2026.2-fre3nder.2`, serial `2`;
-   Development uses serial `0` and cannot silently replace a Release.
-3. After explicit build/signing approval, run the existing combined
-   release command above (or supply `--apps-repo` and `--key`). It needs
-   the prepared Buildroot host toolchain and an existing signing key.
-   Verify the source/ABI manifest, `.fre3app` and byte-identical Factory
-   seed. No Kernel or RootFS rebuild is needed for this app package.
-4. Separately authorize installation and regression testing of that exact
+The app template remains `2026.2-fre3nder.2`, serial `2`; Development uses
+serial `0` and cannot silently replace a Release. The standalone Screen
+pipeline does not build Moonraker or require its system-app seed. A later
+RootFS assembly independently requires the signed Moonraker seed, with a
+positive release serial for a release image.
+
+Remaining release steps:
+
+1. Use reviewed, committed inputs and a clean tracked apps worktree. After
+   explicit build/signing approval, run from Fre3nder:
+
+   ```sh
+   scripts/build-x2000-fre3nderscreen-release \
+     --apps-repo ../fre3nder-apps \
+     --key <existing-signing-key>
+   ```
+
+   It needs the prepared Buildroot host toolchain and an existing signing
+   key. The cross-builder fetches the exact pin rather than using an old
+   Development artifact. The apps wrapper replaces the generated payload
+   after rejecting unsafe recipe boundaries and payload symlinks; no manual
+   deletion of old payloads is required. Outputs are the neutral app artifact,
+   `dist/fre3nderscreen-2026.2-fre3nder.2-x2000.fre3app` in fre3nder-apps,
+   and the byte-identical local Factory seed. No Kernel or RootFS rebuild is
+   needed for this app package.
+2. Verify the package offline using Fre3nder Package-Core's `verify_package()`
+   with `BUILTIN_KEYS` set to the repository's
+   `configs/x2000/rootfs-overlay/usr/share/fre3nder/app-keys/`. Require the
+   official publisher, version `2026.2-fre3nder.2`, serial `2`, display API `1`
+   and `autostart = false`. Check the signed
+   `payload/artifact-manifest.json` against the source/submodule pins and ABI.
+   The importer checks the exact file set, manifest hashes and `SHA256SUMS`;
+   Package-Core verifies the package checksums and Ed25519 signature. Confirm
+   package/Factory-seed byte equality and SHA256 without installing anything.
+3. Separately authorize installation and regression testing of that exact
    package on X2000. Prior hardware tests cover Screen `65b37b9`; the
-   operator-reported cleanup simulator test does not qualify the release.
-5. Before publishing, explicitly resolve the existing local/remote Screen
+   cleanup simulator and Development cross-build do not qualify the release.
+4. Before publishing, explicitly resolve the existing local/remote Screen
    tag `2026.2`, currently targeting `63e7ecb`. Do not move or delete it
    automatically. Correcting that prepared tag requires a separate
    decision; choosing a new version instead also requires matching pin
    and package-version changes. Tags, pushes and releases need approval.
-
-Before the final commit/pin is available, the smallest target build for
-the local cleanup is the existing Development artifact-only path, with
-separate explicit build approval:
-
-```sh
-FRE3NDER_FRE3NDERSCREEN_SOURCE=../fre3nderscreen \
-  scripts/build-x2000-fre3nderscreen --develop
-```
-
-It preserves the source worktree and produces only the neutral app
-artifact, without package signing, Factory-seed replacement or deployment.
-The updated importer can then validate it with `--develop` and an unused
-temporary `--output` directory. This checks the reduced file/checksum
-contract without treating the snapshot as a Release.
 
 The component scripts are
 [`scripts/build-x2000-kernel`](../scripts/build-x2000-kernel),

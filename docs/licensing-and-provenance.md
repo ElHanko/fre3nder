@@ -183,11 +183,11 @@ RootFS build manifest records the embedded package hash in `system_apps`.
 
 The release-mode Fre3nderScreen source is pinned in the Fre3nder-maintained fork
 `https://github.com/ElHanko/fre3nderscreen.git` at commit
-`63e7ecb9fff980b53f4987ef9994675aecf9e0a2` (`2026.2` preparation), under
-`GPL-3.0-only`. This pin predates native management and the subsequent
-cleanup; it remains unchanged until the final cleanup commit is approved,
-committed and fetchable. The repository retains the original GuppyScreen
-Git history and upstream provenance. See the remaining
+`823d090bc97f9e6b429aebda93f588450b33f40b` (release `2026.2`), under
+`GPL-3.0-only`. This committed, fetchable source includes native management
+and the subsequent cleanup. The matching platform builder and apps importer
+are integrated. The repository retains the original GuppyScreen Git history
+and upstream provenance. See the remaining
 [release integration steps](build.md#fre3nderscreen-20262-release-integration).
 
 The fork descends from the published `ballaswag/guppyscreen` `0.0.26-beta`
@@ -226,8 +226,10 @@ Screen `65b37b9`: unprivileged startup as `fre3nder` with primary GID
 `fre3nder-management`, protected root-owned app runtime, native system
 information, app management including writes, and the full OTA workflow
 through backup, readback, activation and restart. The subsequent cleanup
-passed a Docker/SDL build and manual UI testing according to the operator;
-this does not qualify the final MIPS release artifact or every UI function.
+passed a Docker/SDL build, manual UI testing and a local X2000 Development
+cross-build according to the operator. Production release packaging and
+hardware qualification of the final release binary remain pending; the
+development results do not qualify that binary or every UI function.
 Earlier Factory-app qualification remains historical evidence in
 [display qualification](../research/docs/display-qualification.md).
 

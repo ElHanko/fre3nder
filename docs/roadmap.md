@@ -27,15 +27,17 @@ Fre3nderScreen is maintained outside the Fre3nder platform repository, with
 its original history and upstream provenance retained. Its current source
 includes native System, Apps and OTA management, followed by removal of
 unused Guppy scope. The operator reports hardware qualification of those
-management paths at `65b37b9` on Fre3nder 2026.5, and a successful Docker/SDL
-build and manual UI test after cleanup.
+management paths at `65b37b9` on Fre3nder 2026.5, and successful Docker/SDL
+build, manual UI testing and local X2000 Development cross-build after cleanup.
 
-Finish the [2026.2 release integration](build.md#fre3nderscreen-20262-release-integration):
-approve and commit the cleaned Screen source, replace the old
-`63e7ecb9fff980b53f4987ef9994675aecf9e0a2` pin, build the X2000 artifact,
-package/sign it through fre3nder-apps, and qualify the final package on
-hardware under separate authorization. Existing tests do not qualify that
-future release binary. Resolve the existing old `2026.2` tag explicitly.
+The source cleanup is committed and pinned at
+`823d090bc97f9e6b429aebda93f588450b33f40b`, retaining release `2026.2`.
+The matching platform and apps integration is complete. Finish the
+[release preparation](build.md#fre3nderscreen-20262-release-integration):
+build the production X2000 artifact, package/sign it through fre3nder-apps,
+and qualify the final package on hardware under separate authorization.
+Development tests do not qualify that release binary. Resolve the existing
+old `2026.2` tag explicitly before publication.
 
 ### Local UI product experience
 
