@@ -338,6 +338,7 @@ class FirmwareFixtures(unittest.TestCase):
                    f005_firmware_mode="candidate", artifact_mode="development",
                    docker_cmd=str(docker), docker_log=str(log), runtime_user="fixture",
                    work_root=str(self.directory), image="fixture", ota_public_key="fixture",
+                   app_public_key="fixture",
                    factory_seed="fixture")
         env["system_app_seeds"] = str(self.directory)
         result = subprocess.run(["sh", "-eu"], input=command, text=True, env=env,

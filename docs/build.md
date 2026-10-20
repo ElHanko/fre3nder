@@ -22,6 +22,13 @@ candidate. Building an artifact does not qualify or authorize its deployment.
   command refuses to replace an existing pair. Kernel-only does not need the
   keys; RootFS assembly needs the public key as its trust anchor, and final
   composition needs the matching pair.
+- For RootFS assembly, the existing official Ed25519 app public key at
+  `local/production/keys/apps/fre3nder-official.pem`, or an explicit
+  `FRE3NDER_APP_PUBLIC_KEY` path. This is a local build input covered by the
+  existing `/local/` ignore rule; no official key is stored in the RootFS
+  overlay. Supply the existing key without generating a replacement or
+  changing the private signing key. Missing or invalid keys stop assembly
+  before the container build begins.
 
 A normal release build requires a clean project worktree. Use `--develop`
 explicitly for a build from the current worktree. This changes artifact mode
@@ -121,6 +128,15 @@ RootFS assembly also requires the official signed Moonraker system app in
 It is prepared and signed separately in `fre3nder-apps`; a release image
 requires a positive release serial. See [Moonraker](moonraker.md).
 
+Before the RootFS build begins, the host verifies both the Fre3nderScreen
+Factory package and Moonraker system-app seeds with the local official app
+public key using the unchanged Package-Core. The key is mounted read-only
+into the build container, like the OTA public key. RootFS post-build validates
+and installs the same key as
+`/usr/share/fre3nder/app-keys/fre3nder-official.pem` with mode `0644`.
+No key is generated automatically and no fallback key is used. The runtime
+signature and trust model is unchanged.
+
 The orchestrator runs the Kernel builder, then Buildroot
 `--toolchain`, and Buildroot `--assemble`. It uses the pinned
 Buildroot internal MIPS toolchain for the host components. The resulting
@@ -202,9 +218,9 @@ Remaining release steps:
    and the byte-identical local Factory seed. No Kernel or RootFS rebuild is
    needed for this app package.
 2. Verify the package offline using Fre3nder Package-Core's `verify_package()`
-   with `BUILTIN_KEYS` set to the repository's
-   `configs/x2000/rootfs-overlay/usr/share/fre3nder/app-keys/`. Require the
-   official publisher, version `2026.2-fre3nder.2`, serial `2`, display API `1`
+   with `BUILTIN_KEYS` set to the local
+   `local/production/keys/apps/` directory containing `fre3nder-official.pem`.
+   Require the official publisher, version `2026.2-fre3nder.2`, serial `2`, display API `1`
    and `autostart = false`. Check the signed
    `payload/artifact-manifest.json` against the source/submodule pins and ABI.
    The importer checks the exact file set, manifest hashes and `SHA256SUMS`;

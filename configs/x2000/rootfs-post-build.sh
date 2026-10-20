@@ -3,7 +3,23 @@ set -eu
 
 target=$1
 ota_public_key=${FRE3NDER_OTA_PUBLIC_KEY:?FRE3NDER_OTA_PUBLIC_KEY is required}
+app_public_key=${FRE3NDER_APP_PUBLIC_KEY:?FRE3NDER_APP_PUBLIC_KEY is required}
 factory_seed=${FRE3NDER_FACTORY_FRE3NDERSCREEN_APP:?FRE3NDER_FACTORY_FRE3NDERSCREEN_APP is required}
+command -v openssl >/dev/null 2>&1 || {
+	echo 'openssl is required to validate the app public key' >&2
+	exit 1
+}
+[ -f "$app_public_key" ] && [ ! -L "$app_public_key" ] || {
+	echo "missing regular app public key: $app_public_key" >&2
+	exit 1
+}
+openssl pkey -pubin -in "$app_public_key" -text -noout 2>/dev/null |
+	grep -q '^ED25519 Public-Key:$' || {
+	echo "invalid app public key (expected Ed25519): $app_public_key" >&2
+	exit 1
+}
+install -D -m 0644 "$app_public_key" \
+	"$target/usr/share/fre3nder/app-keys/fre3nder-official.pem"
 linux_firmware_license="$BUILD_DIR/linux-firmware-20250211/LICENCE.cypress"
 system_app_seeds=${FRE3NDER_SYSTEM_APP_PACKAGES_DIR:-}
 system_target="$target/usr/share/fre3nder/system-apps"

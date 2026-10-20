@@ -90,34 +90,84 @@ grep -Fq 'source_date_epoch=$(git -C "$source_dir" show -s --format=%ct "$commit
 grep -Fq 'SOURCE_DATE_EPOCH="$source_date_epoch" \' \
 	"$fre3nderscreen_component"
 
-# RootFS wrapper fixtures use metadata stubs; Package-Core tests cover signatures.
+# RootFS wrapper fixtures verify signed packages with the real Package-Core.
 rootfs_fixture="$tmp/rootfs-project"
 core_dir="$rootfs_fixture/configs/x2000/rootfs-overlay/usr/libexec/fre3nder"
 mkdir -p "$rootfs_fixture/scripts" "$rootfs_fixture/build/x2000" "$core_dir" \
     "$rootfs_fixture/local/production/system-apps" \
-    "$rootfs_fixture/local/production/factory-apps"
+    "$rootfs_fixture/local/production/factory-apps" \
+    "$rootfs_fixture/local/production/keys/apps"
 cp "$buildroot_builder" "$rootfs_fixture/scripts/build-x2000-buildroot"
 cp "$root/build/x2000/f005_firmware.py" "$rootfs_fixture/build/x2000/"
 cp "$root/configs/x2000/f005-mcu-release.json" "$rootfs_fixture/configs/x2000/"
 cp "$root/VERSION" "$rootfs_fixture/"
 printf '/local/\n' > "$rootfs_fixture/.gitignore"
 git -C "$rootfs_fixture" init -q
-cat > "$core_dir/package-core" <<'PY_CORE'
-import json
-
-def verify_package(path):
-    return json.loads(path.read_text())
-
-def image_system_apps():
-    return [(path, verify_package(path)) for path in SYSTEM_APP_DIR.glob("*.fre3app")]
-PY_CORE
-printf '%s\n' '{"name":"fre3nderscreen","publisher":"fre3nder-official","display_frontend":true,"display_api":1,"autostart":false,"release_serial":1}' > \
-    "$rootfs_fixture/local/production/factory-apps/fre3nderscreen.fre3app"
+chmod 0755 "$rootfs_fixture/local/production/system-apps"
+cp "$root/configs/x2000/rootfs-overlay/usr/libexec/fre3nder/package-core" "$core_dir/"
+app_public_key="$rootfs_fixture/local/production/keys/apps/fre3nder-official.pem"
+cp "$generated_keys/public.pem" "$app_public_key"
+factory_seed="$rootfs_fixture/local/production/factory-apps/fre3nderscreen.fre3app"
 system_seed="$rootfs_fixture/local/production/system-apps/moonraker.fre3app"
-write_system_seed() {
-    printf '{"name":"moonraker","version":"fixture-%s","autostart":false,"release_serial":%s}\n' \
-        "$1" "$1" > "$system_seed"
+cat > "$tmp/write-app-seed.py" <<'PY_SEED'
+import hashlib
+from pathlib import Path
+import subprocess
+import sys
+import tempfile
+import zipfile
+
+package, private = map(Path, sys.argv[1:3])
+serial = int(sys.argv[3])
+der = subprocess.check_output([
+    "openssl", "pkey", "-in", str(private), "-pubout", "-outform", "DER"])
+manifest = f'''format = 1
+[app]
+name = "{package.stem}"
+version = "fixture-{serial}"
+release_serial = {serial}
+[publisher]
+id = "fre3nder-official"
+key_fingerprint = "{hashlib.sha256(der).hexdigest()}"
+[target]
+platform = "fre3nder-x2000"
+arch = "mipsel"
+[runtime]
+service = "service"
+autostart = false
+[signature]
+algorithm = "Ed25519"
+file = "SHA256SUMS.sig"
+signed_file = "SHA256SUMS"
+'''
+if package.stem == "fre3nderscreen":
+    manifest += '[display]\nfrontend = true\napi = 1\n'
+files = {"manifest.toml": manifest.encode(), "service": b"#!/bin/sh\nexit 0\n"}
+sums = "".join(f"{hashlib.sha256(data).hexdigest()}  {name}\n"
+               for name, data in sorted(files.items())).encode()
+with tempfile.TemporaryDirectory() as tmp:
+    source, signature = Path(tmp) / "sums", Path(tmp) / "signature"
+    source.write_bytes(sums)
+    subprocess.run(["openssl", "pkeyutl", "-sign", "-rawin", "-inkey", str(private),
+                    "-in", str(source), "-out", str(signature)], check=True)
+    signed = signature.read_bytes()
+if len(sys.argv) > 4:
+    signed = bytes([signed[0] ^ 1]) + signed[1:]
+files.update({"SHA256SUMS": sums, "SHA256SUMS.sig": signed})
+with zipfile.ZipFile(package, "w") as archive:
+    for name, data in files.items():
+        archive.writestr(name, data)
+PY_SEED
+write_app_seed() {
+    seed_path=$1
+    seed_serial=$2
+    shift 2
+    python3 "$tmp/write-app-seed.py" "$seed_path" "$generated_keys/private.pem" "$seed_serial" "$@"
 }
+write_system_seed() {
+    write_app_seed "$system_seed" "$1"
+}
+write_app_seed "$factory_seed" 1
 write_system_seed 1
 buildroot_builder="$rootfs_fixture/scripts/build-x2000-buildroot"
 
@@ -137,6 +187,43 @@ if FRE3NDER_FACTORY_FRE3NDERSCREEN_APP="$tmp/missing-seed" \
 fi
 ! grep -Fq 'build-rootfs-only' "$docker_log"
 grep -Fq -- '-v "$factory_seed:/factory-fre3nderscreen-app:ro"' "$buildroot_builder"
+
+# Missing, malformed, non-Ed25519 and symlinked app keys fail before Docker.
+printf 'invalid key\n' > "$tmp/invalid-app-key.pem"
+openssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:P-256 \
+    -out "$tmp/ec-private.pem" >/dev/null 2>&1
+openssl pkey -in "$tmp/ec-private.pem" -pubout -out "$tmp/ec-public.pem"
+ln -s "$app_public_key" "$tmp/app-key-link.pem"
+for key in "$tmp/missing-app-key.pem" "$tmp/invalid-app-key.pem" \
+    "$tmp/ec-public.pem" "$tmp/app-key-link.pem"; do
+    : > "$docker_log"
+    if FRE3NDER_APP_PUBLIC_KEY="$key" X2000_BUILD_DOCKER="$fake_docker" \
+        X2000_TEST_DOCKER_LOG="$docker_log" "$buildroot_builder" --assemble \
+        > "$tmp/app-key-error.log" 2>&1; then
+        echo 'RootFS assembly accepted a missing or invalid app public key' >&2
+        exit 1
+    fi
+    grep -Fq 'app public key:' "$tmp/app-key-error.log" || \
+        grep -Fq 'app public key (expected Ed25519):' "$tmp/app-key-error.log"
+    [ ! -s "$docker_log" ]
+done
+
+# Both package preflights must reject an invalid signature before Docker.
+for seed in "$factory_seed" "$system_seed"; do
+    write_app_seed "$seed" 1 invalid-signature
+    : > "$docker_log"
+    if X2000_BUILD_DOCKER="$fake_docker" X2000_TEST_DOCKER_LOG="$docker_log" \
+        "$buildroot_builder" --assemble > "$tmp/app-signature-error.log" 2>&1; then
+        echo 'RootFS assembly accepted an invalid app signature' >&2
+        exit 1
+    fi
+    grep -Fq 'Ed25519 signature verification failed' "$tmp/app-signature-error.log" || {
+        cat "$tmp/app-signature-error.log" >&2
+        exit 1
+    }
+    [ ! -s "$docker_log" ]
+    write_app_seed "$seed" 1
+done
 
 for invalid in --kernel-build --f005-build --rootfs-only --kernel-only --unknown; do
 	if "$kernel_builder" "$invalid" >/dev/null 2>&1; then
@@ -206,6 +293,8 @@ for serial in 0 1; do
             [ "$mode" = development ] || [ "$serial" -ge 1 ]
             grep -Fq 'build-rootfs-only' "$docker_log"
             grep -Fq -- "-v $rootfs_fixture/local/production/system-apps:/system-app-seeds:ro" "$docker_log"
+            grep -Fq -- "-v $app_public_key:/app-public-key:ro" "$docker_log"
+            grep -Fq 'FRE3NDER_APP_PUBLIC_KEY=/app-public-key' "$docker_log"
         else
             [ "$mode" = release ] && [ "$serial" -eq 0 ]
             grep -Fq 'release image requires Moonraker release_serial >= 1' "$release_log"
@@ -214,6 +303,14 @@ for serial in 0 1; do
     done
 done
 grep -Fq -- "-v $tmp/klipper-f005-mainline.bin:/f005-firmware:ro" "$docker_log"
+
+# An explicit key path may use a different filename; trust remains official.
+: > "$docker_log"
+FRE3NDER_APP_PUBLIC_KEY="$generated_keys/public.pem" \
+    FRE3NDER_F005_FIRMWARE="$tmp/klipper-f005-mainline.bin" \
+    X2000_BUILD_DOCKER="$fake_docker" X2000_TEST_DOCKER_LOG="$docker_log" \
+    "$buildroot_builder" --assemble --develop
+grep -Fq -- "-v $generated_keys/public.pem:/app-public-key:ro" "$docker_log"
 
 printf '%s\n' '{"qualified_release_match": false}' > "$tmp/build-manifest.json"
 if FRE3NDER_F005_FIRMWARE="$tmp/klipper-f005-mainline.bin" \

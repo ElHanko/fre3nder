@@ -1173,6 +1173,10 @@ build_dir=$tmp/build
 ota_public_key=$tmp/ota-public.pem
 printf '%s\n' 'fixture OTA public key' > "$ota_public_key"
 export FRE3NDER_OTA_PUBLIC_KEY="$ota_public_key"
+app_public_key=$tmp/app-public.pem
+openssl genpkey -algorithm ED25519 -out "$tmp/app-private.pem"
+openssl pkey -in "$tmp/app-private.pem" -pubout -out "$app_public_key"
+export FRE3NDER_APP_PUBLIC_KEY="$app_public_key"
 factory_seed=$tmp/fre3nderscreen-factory.fixture
 printf '%s\n' 'signed factory fixture' > "$factory_seed"
 export FRE3NDER_FACTORY_FRE3NDERSCREEN_APP="$factory_seed"
@@ -1226,8 +1230,20 @@ touch "$target/etc/init.d/fre3nder-root" \
 	"$target/usr/libexec/fre3nder/udhcpc"
 mkdir -p "$target/opt/fre3nder/moonraker" "$target/opt/fre3nder/moonraker-env"
 printf old > "$target/opt/fre3nder/moonraker/stale"
+printf 'invalid key\n' > "$tmp/invalid-app-key.pem"
+for key in "$tmp/missing-app-key.pem" "$tmp/invalid-app-key.pem"; do
+    if FRE3NDER_APP_PUBLIC_KEY="$key" "$post_build" "$target" \
+        > "$tmp/app-key-error.log" 2>&1; then
+        echo 'RootFS post-build accepted a missing or invalid app public key' >&2
+        exit 1
+    fi
+    grep -Fq 'app public key' "$tmp/app-key-error.log"
+done
 "$post_build" "$target"
 cmp "$ota_public_key" "$target/ota/keys/public.pem"
+installed_app_key="$target/usr/share/fre3nder/app-keys/fre3nder-official.pem"
+cmp "$app_public_key" "$installed_app_key"
+[ "$(stat -c '%a' "$installed_app_key")" = 644 ]
 cmp "$build_dir/linux-firmware-20250211/LICENCE.cypress" \
 	"$target/usr/share/licenses/linux-firmware/LICENCE.cypress"
 cmp "$nvram" "$target/lib/firmware/brcm/brcmfmac43430-sdio.txt"
@@ -1258,6 +1274,7 @@ cmp "$FRE3NDER_SYSTEM_APP_PACKAGES_DIR/moonraker.fre3app" "$seed"
 # Rerunning post-build stays idempotent and does not restore legacy payload.
 "$post_build" "$target"
 cmp "$FRE3NDER_SYSTEM_APP_PACKAGES_DIR/moonraker.fre3app" "$seed"
+cmp "$app_public_key" "$installed_app_key"
 
 [ "$(grep -Fc 'make -C "$buildroot" O="$brout" -j"$jobs" toolchain' \
 	"$entrypoint")" -eq 2 ]

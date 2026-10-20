@@ -10,6 +10,7 @@ work_root="$local_root/work/x2000"
 f005_firmware=${FRE3NDER_F005_FIRMWARE:-"$local_root/artifacts/x2000/f005/klipper-f005-mainline.bin"}
 f005_firmware_mode=${FRE3NDER_F005_FIRMWARE_MODE:-qualified}
 ota_public_key=${FRE3NDER_OTA_PUBLIC_KEY:-"$local_root/keys/ota/public.pem"}
+app_public_key=${FRE3NDER_APP_PUBLIC_KEY:-"$local_root/keys/apps/fre3nder-official.pem"}
 factory_seed=${FRE3NDER_FACTORY_FRE3NDERSCREEN_APP:-"$local_root/factory-apps/fre3nderscreen.fre3app"}
 factory_mode=${FRE3NDER_FACTORY_FRE3NDERSCREEN_MODE-release}
 system_app_seeds=${FRE3NDER_SYSTEM_APP_PACKAGES_DIR:-"$local_root/system-apps"}
@@ -75,10 +76,10 @@ clean_rootfs_python_cache() {
 clean_rootfs_python_cache
 
 git -C "$root" check-ignore -q local/production
-"$docker_cmd" build -t "$image" "$root/build/x2000"
-mkdir -p "$work_root"
 
 if [ "$phase" = --toolchain ]; then
+	"$docker_cmd" build -t "$image" "$root/build/x2000"
+	mkdir -p "$work_root"
 	"$docker_cmd" run --rm --user "$runtime_user" \
 		-v "$root:/project" \
 		-v "$work_root:/work" \
@@ -91,11 +92,30 @@ if [ "$phase" = --toolchain ]; then
 	exit 0
 fi
 
+command -v openssl >/dev/null 2>&1 || {
+	echo 'openssl is required to validate the OTA and app public keys' >&2
+	exit 1
+}
+[ -f "$app_public_key" ] && [ ! -L "$app_public_key" ] || {
+	echo "missing regular app public key: $app_public_key" >&2
+	exit 1
+}
+openssl pkey -pubin -in "$app_public_key" -text -noout 2>/dev/null |
+	grep -q '^ED25519 Public-Key:$' || {
+	echo "invalid app public key (expected Ed25519): $app_public_key" >&2
+	exit 1
+}
+
+# Package-Core resolves built-in keys by publisher filename.
+app_keys=$(mktemp -d)
+trap 'rm -rf -- "$app_keys"' EXIT HUP INT TERM
+install -m 0644 "$app_public_key" "$app_keys/fre3nder-official.pem"
+
 [ -f "$factory_seed" ] && [ ! -L "$factory_seed" ] || {
 	echo "missing regular Fre3nderScreen factory app: $factory_seed" >&2
 	exit 1
 }
-PYTHONDONTWRITEBYTECODE=1 python3 - "$root" "$factory_seed" "$factory_mode" <<'PY'
+PYTHONDONTWRITEBYTECODE=1 python3 - "$root" "$factory_seed" "$factory_mode" "$app_keys" <<'PY'
 import importlib.machinery
 import importlib.util
 from pathlib import Path
@@ -108,7 +128,7 @@ loader = importlib.machinery.SourceFileLoader("fre3nder_factory_package_core", s
 spec = importlib.util.spec_from_loader(loader.name, loader)
 core = importlib.util.module_from_spec(spec)
 loader.exec_module(core)
-core.BUILTIN_KEYS = root / "configs/x2000/rootfs-overlay/usr/share/fre3nder/app-keys"
+core.BUILTIN_KEYS = Path(sys.argv[4])
 package = core.verify_package(seed)
 if (package["name"] != "fre3nderscreen"
         or package["publisher"] != "fre3nder-official"
@@ -124,7 +144,7 @@ PY
 [ -d "$system_app_seeds" ] && [ ! -L "$system_app_seeds" ] || {
     echo "missing regular system-app package directory: $system_app_seeds" >&2; exit 1;
 }
-PYTHONDONTWRITEBYTECODE=1 python3 - "$root" "$system_app_seeds" "$artifact_mode" <<'PY_SYSTEM'
+PYTHONDONTWRITEBYTECODE=1 python3 - "$root" "$system_app_seeds" "$artifact_mode" "$app_keys" <<'PY_SYSTEM'
 import importlib.machinery
 import importlib.util
 from pathlib import Path
@@ -136,7 +156,7 @@ loader = importlib.machinery.SourceFileLoader("fre3nder_build_system_seed", str(
 spec = importlib.util.spec_from_loader(loader.name, loader)
 core = importlib.util.module_from_spec(spec)
 loader.exec_module(core)
-core.BUILTIN_KEYS = root / "configs/x2000/rootfs-overlay/usr/share/fre3nder/app-keys"
+core.BUILTIN_KEYS = Path(sys.argv[4])
 core.SYSTEM_APP_DIR = packages
 seeds = core.image_system_apps()
 moonraker = next((item for _, item in seeds if item["name"] == "moonraker"), None)
@@ -147,10 +167,6 @@ if mode == "release" and moonraker["release_serial"] < 1:
 print(f"Moonraker image seed: {moonraker['version']} ({moonraker['release_serial']})")
 PY_SYSTEM
 
-command -v openssl >/dev/null 2>&1 || {
-	echo 'openssl is required to validate the OTA public key' >&2
-	exit 1
-}
 [ -f "$ota_public_key" ] && [ ! -L "$ota_public_key" ] || {
 	echo "missing OTA public key: $ota_public_key" >&2
 	exit 1
@@ -169,6 +185,9 @@ python3 "$root/build/x2000/f005_firmware.py" --root "$root" \
 	--firmware "$f005_firmware" --mode "$f005_firmware_mode" \
 	--artifact-mode "$artifact_mode" >/dev/null
 
+"$docker_cmd" build -t "$image" "$root/build/x2000"
+mkdir -p "$work_root"
+
 container_f005_firmware=/f005-firmware
 set -- -v "$f005_firmware:$container_f005_firmware:ro"
 if [ "$f005_firmware_mode" = candidate ]; then
@@ -186,10 +205,12 @@ fi
 	-e "FRE3NDER_F005_FIRMWARE=$container_f005_firmware" \
 	-e "FRE3NDER_F005_FIRMWARE_MODE=$f005_firmware_mode" \
 	-e FRE3NDER_OTA_PUBLIC_KEY=/ota-public-key \
+	-e FRE3NDER_APP_PUBLIC_KEY=/app-public-key \
 	-e FRE3NDER_FACTORY_FRE3NDERSCREEN_APP=/factory-fre3nderscreen-app \
 	-e FRE3NDER_SYSTEM_APP_PACKAGES_DIR=/system-app-seeds \
 	"$@" \
 	-v "$ota_public_key:/ota-public-key:ro" \
+	-v "$app_public_key:/app-public-key:ro" \
 	-v "$factory_seed:/factory-fre3nderscreen-app:ro" \
 	-v "$system_app_seeds:/system-app-seeds:ro" \
 	-v "$root:/project" \

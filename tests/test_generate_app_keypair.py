@@ -23,10 +23,7 @@ class GenerateAppKeypairTests(unittest.TestCase):
         shutil.copyfile(SOURCE, self.script)
         self.script.chmod(0o755)
         self.key_dir = self.repo / "local/production/keys/apps"
-        self.rootfs_key = (
-            self.repo
-            / "configs/x2000/rootfs-overlay/usr/share/fre3nder/app-keys/fre3nder-official.pem"
-        )
+        self.rootfs_key = self.key_dir / "fre3nder-official.pem"
 
     def tearDown(self):
         self.temp.cleanup()
@@ -54,6 +51,7 @@ class GenerateAppKeypairTests(unittest.TestCase):
         self.assertTrue(public.is_file())
         self.assertTrue(self.rootfs_key.is_file())
         self.assertEqual(public.read_bytes(), self.rootfs_key.read_bytes())
+        self.assertFalse((self.repo / "configs/x2000/rootfs-overlay").exists())
 
         self.assertEqual(
             stat.S_IMODE(private.stat().st_mode),
@@ -97,7 +95,8 @@ class GenerateAppKeypairTests(unittest.TestCase):
         self.assertEqual(first.returncode, 0, first.stderr)
         original = self.digest(self.rootfs_key)
 
-        shutil.rmtree(self.key_dir)
+        (self.key_dir / "private.pem").unlink()
+        (self.key_dir / "public.pem").unlink()
 
         second = self.run_script()
         self.assertNotEqual(second.returncode, 0)

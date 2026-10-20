@@ -13,7 +13,7 @@ usage() {
 key_dir=${1:-"$root/local/production/keys/apps"}
 private_key="$key_dir/private.pem"
 public_key="$key_dir/public.pem"
-rootfs_key="$root/configs/x2000/rootfs-overlay/usr/share/fre3nder/app-keys/fre3nder-official.pem"
+rootfs_key="$root/local/production/keys/apps/fre3nder-official.pem"
 
 command -v openssl >/dev/null 2>&1 || {
 	echo 'openssl is required to prepare the app signing keypair' >&2
