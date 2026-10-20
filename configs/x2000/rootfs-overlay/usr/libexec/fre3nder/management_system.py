@@ -230,7 +230,8 @@ def process_running(pid_path, arguments):
 def services():
     specs = (
         ("Klipper", "fre3nder-klipper", "klippy.pid", ("/usr/share/klipper/klippy/klippy.py",)),
-        ("Moonraker", "fre3nder-moonraker", "moonraker.pid", ("/opt/fre3nder/moonraker/moonraker/moonraker.py",)),
+        ("Moonraker", "fre3nder-moonraker", ROOT / "home/fre3nder/.local/share/moonraker/moonraker.pid",
+         ("/opt/fre3nder/apps-v2/moonraker/payload/source/moonraker/moonraker.py",)),
         ("Management", "fre3nder-management", "managementd.pid", ("/usr/libexec/fre3nder/managementd",)),
         ("Web server", "fre3nder-web", "lighttpd.pid", ("/usr/sbin/lighttpd", "-f", "/run/fre3nder-web/lighttpd.conf")),
         ("Maintenance web server", "fre3nder-maintenance-web", "lighttpd.pid", ("/usr/sbin/lighttpd", "-f", "/run/fre3nder-maintenance-web/lighttpd.conf")),

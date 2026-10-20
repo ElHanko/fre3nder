@@ -908,7 +908,10 @@ frontend = true
         for role in ("sys", "home"):
             name = "app-" + role
             current = self.install(role, name)
+            self.service.reset_mock()
             self.core.activate_package(self.package(2, name), "update")
+            self.assertEqual([call.args[1] for call in self.service.call_args_list],
+                             ["status", "stop", "update", "start"])
             self.assertEqual(self.core.runtime_dir(name), current)
             self.assertEqual((current / "payload/index.html").read_bytes(), b"release 2")
             other = self.core.prepare_runtime_root("home" if role == "sys" else "sys") / name
@@ -1012,6 +1015,13 @@ frontend = true
         with contextlib.redirect_stdout(output), mock.patch.object(sys, "argv", [str(CORE), "frontend-status"]):
             self.core.main()
         self.assertEqual(json.loads(output.getvalue())["frontend"]["document_root"], str(current / "payload"))
+        self.service.reset_mock()
+        for action in ("start", "status", "stop"):
+            with contextlib.redirect_stdout(output), mock.patch.object(
+                    sys, "argv", [str(CORE), "service-" + action, "dummy"]):
+                self.assertEqual(self.core.main(), 0)
+        self.assertEqual([call.args[1] for call in self.service.call_args_list],
+                         ["start", "status", "stop"])
         self.actions.stop()
         with mock.patch.object(self.core.subprocess, "run", return_value=types.SimpleNamespace(returncode=0)) as execute:
             self.assertEqual(self.core.service_action("dummy", "status"), 0)

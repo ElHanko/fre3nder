@@ -87,8 +87,9 @@ persistent log. A missing `printer.cfg` is seeded once from the immutable
 `/usr/share/fre3nder/defaults/printer.cfg`; an existing userdata configuration
 is not overwritten. Fre3nder-owned device-management metadata is kept separate
 under `/home/fre3nder/.fre3nder`, currently including the persistent Dropbear
-host identity under `.fre3nder/ssh`. Moonraker code and its Python environment
-are system state under `/opt`; only `printer_data` belongs in userdata.
+host identity under `.fre3nder/ssh`. Moonraker code and pure-Python dependencies
+are installed from the signed system app into the Package-Core-managed runtime;
+its printer-facing userdata remains in `printer_data`.
 
 Existing persistent `printer.cfg` files do not receive later RootFS default
 sections automatically. The reference-system Host-MCU/ADXL qualification

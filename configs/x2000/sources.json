@@ -133,12 +133,6 @@
       "license": "GPL-3.0-only",
       "role": "upstream host runtime and Linux-process MCU source with project passive-UART patch"
     },
-    "moonraker": {
-      "repository": "https://github.com/Arksine/moonraker.git",
-      "commit": "9e676eba6b02661a4dfa3ec6e7ac3f3504498e6d",
-      "license": "GPL-3.0-only",
-      "role": "qualified RootFS application baseline"
-    },
     "fre3nderscreen": {
       "repository": "https://github.com/ElHanko/fre3nderscreen.git",
       "release": "2026.2",

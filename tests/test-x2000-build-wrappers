@@ -5,7 +5,6 @@ root=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
 orchestrator="$root/scripts/build-x2000"
 kernel_builder="$root/scripts/build-x2000-kernel"
 buildroot_builder="$root/scripts/build-x2000-buildroot"
-moonraker_builder="$root/scripts/build-x2000-moonraker"
 fre3nderscreen_builder="$root/scripts/build-x2000-fre3nderscreen"
 fre3nderscreen_component="$root/build/x2000/fre3nderscreen-component.sh"
 key_generator="$root/scripts/generate-ota-keypair"
@@ -50,13 +49,6 @@ X2000_BUILD_DOCKER="$fake_docker" X2000_TEST_DOCKER_LOG="$docker_log" \
 	"$kernel_builder" --develop
 grep -Fq 'FRE3NDER_ARTIFACT_MODE=development' "$docker_log"
 
-: > "$docker_log"
-X2000_BUILD_DOCKER="$fake_docker" X2000_TEST_DOCKER_LOG="$docker_log" \
-	"$moonraker_builder" --develop
-grep -Fq 'fetch-moonraker' "$docker_log"
-grep -Fq 'build-moonraker-component' "$docker_log"
-grep -Fq 'FRE3NDER_ARTIFACT_MODE=development' "$docker_log"
-
 screen_fixture="$tmp/fre3nderscreen-wrapper-project"
 mkdir -p "$screen_fixture/scripts" "$screen_fixture/local/production"
 cp "$fre3nderscreen_builder" \
@@ -97,6 +89,37 @@ grep -Fq 'source_date_epoch=$(git -C "$source_dir" show -s --format=%ct "$commit
 	"$fre3nderscreen_component"
 grep -Fq 'SOURCE_DATE_EPOCH="$source_date_epoch" \' \
 	"$fre3nderscreen_component"
+
+# RootFS wrapper fixtures use metadata stubs; Package-Core tests cover signatures.
+rootfs_fixture="$tmp/rootfs-project"
+core_dir="$rootfs_fixture/configs/x2000/rootfs-overlay/usr/libexec/fre3nder"
+mkdir -p "$rootfs_fixture/scripts" "$rootfs_fixture/build/x2000" "$core_dir" \
+    "$rootfs_fixture/local/production/system-apps" \
+    "$rootfs_fixture/local/production/factory-apps"
+cp "$buildroot_builder" "$rootfs_fixture/scripts/build-x2000-buildroot"
+cp "$root/build/x2000/f005_firmware.py" "$rootfs_fixture/build/x2000/"
+cp "$root/configs/x2000/f005-mcu-release.json" "$rootfs_fixture/configs/x2000/"
+cp "$root/VERSION" "$rootfs_fixture/"
+printf '/local/\n' > "$rootfs_fixture/.gitignore"
+git -C "$rootfs_fixture" init -q
+cat > "$core_dir/package-core" <<'PY_CORE'
+import json
+
+def verify_package(path):
+    return json.loads(path.read_text())
+
+def image_system_apps():
+    return [(path, verify_package(path)) for path in SYSTEM_APP_DIR.glob("*.fre3app")]
+PY_CORE
+printf '%s\n' '{"name":"fre3nderscreen","publisher":"fre3nder-official","display_frontend":true,"display_api":1,"autostart":false,"release_serial":1}' > \
+    "$rootfs_fixture/local/production/factory-apps/fre3nderscreen.fre3app"
+system_seed="$rootfs_fixture/local/production/system-apps/moonraker.fre3app"
+write_system_seed() {
+    printf '{"name":"moonraker","version":"fixture-%s","autostart":false,"release_serial":%s}\n' \
+        "$1" "$1" > "$system_seed"
+}
+write_system_seed 1
+buildroot_builder="$rootfs_fixture/scripts/build-x2000-buildroot"
 
 : > "$docker_log"
 X2000_BUILD_DOCKER="$fake_docker" X2000_TEST_DOCKER_LOG="$docker_log" \
@@ -168,21 +191,28 @@ cp "$root/local/production/artifacts/x2000/f005/klipper-f005-mainline.bin" \
 	"$tmp/klipper-f005-mainline.bin"
 printf '%s\n' '{"qualified_release_match": true}' > "$tmp/build-manifest.json"
 : > "$docker_log"
-# The currently prepared Moonraker system app has development serial 0.
-# Production builds must still reject this image seed before entering Docker.
-release_log="$tmp/moonraker-release-preflight.log"
-if FRE3NDER_F005_FIRMWARE="$tmp/klipper-f005-mainline.bin" \
-	X2000_BUILD_DOCKER="$fake_docker" X2000_TEST_DOCKER_LOG="$docker_log" \
-	"$buildroot_builder" --assemble > "$release_log" 2>&1; then
-	echo 'Release RootFS accepted Moonraker development serial 0' >&2
-	exit 1
-fi
-grep -Fq 'release image requires Moonraker release_serial >= 1' "$release_log"
-! grep -Fq 'build-rootfs-only' "$docker_log"
-
-FRE3NDER_F005_FIRMWARE="$tmp/klipper-f005-mainline.bin" \
-	X2000_BUILD_DOCKER="$fake_docker" X2000_TEST_DOCKER_LOG="$docker_log" \
-	"$buildroot_builder" --assemble --develop
+# Release rejects serial 0; development accepts 0 and positive release serials.
+# Positive serials are also accepted by Release, independently of local packages.
+for serial in 0 1; do
+    write_system_seed "$serial"
+    for mode in release development; do
+        : > "$docker_log"
+        set -- --assemble
+        [ "$mode" = release ] || set -- "$@" --develop
+        release_log="$tmp/moonraker-preflight.log"
+        if FRE3NDER_F005_FIRMWARE="$tmp/klipper-f005-mainline.bin" \
+            X2000_BUILD_DOCKER="$fake_docker" X2000_TEST_DOCKER_LOG="$docker_log" \
+            "$buildroot_builder" "$@" > "$release_log" 2>&1; then
+            [ "$mode" = development ] || [ "$serial" -ge 1 ]
+            grep -Fq 'build-rootfs-only' "$docker_log"
+            grep -Fq -- "-v $rootfs_fixture/local/production/system-apps:/system-app-seeds:ro" "$docker_log"
+        else
+            [ "$mode" = release ] && [ "$serial" -eq 0 ]
+            grep -Fq 'release image requires Moonraker release_serial >= 1' "$release_log"
+            ! grep -Fq 'build-rootfs-only' "$docker_log"
+        fi
+    done
+done
 grep -Fq -- "-v $tmp/klipper-f005-mainline.bin:/f005-firmware:ro" "$docker_log"
 
 printf '%s\n' '{"qualified_release_match": false}' > "$tmp/build-manifest.json"
@@ -236,10 +266,6 @@ ota_key_hash=$(sha256sum "$FRE3NDER_OTA_PUBLIC_KEY" | awk '{print $1}')
 printf '{"version":"2026.4.a","artifact_mode":"release","project_commit":"fixture","project_worktree_status":"clean","build_input_sha256":"","ota_public_key_sha256":"%s","artifacts":{"rootfs.squashfs":"%s","buildroot.config":"%s"}}\n' \
 	"$ota_key_hash" "$rootfs_hash" "$config_hash" > "$dir/build-manifest.json"
 EOF
-cat > "$fixture/scripts/build-x2000-moonraker" <<'EOF'
-#!/bin/sh
-printf 'moonraker %s\n' "$*" >> "$X2000_WRAPPER_LOG"
-EOF
 cat > "$fixture/scripts/build-x2000-fre3nderscreen" <<'EOF'
 #!/bin/sh
 printf 'fre3nderscreen %s\n' "$*" >> "$X2000_WRAPPER_LOG"
@@ -252,7 +278,6 @@ EOF
 chmod 0755 "$fixture/scripts/build-x2000" \
 	"$fixture/scripts/build-x2000-kernel" \
 	"$fixture/scripts/build-x2000-buildroot" \
-	"$fixture/scripts/build-x2000-moonraker" \
 	"$fixture/scripts/build-x2000-fre3nderscreen" \
 	"$fixture/scripts/build-f005"
 

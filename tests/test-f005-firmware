@@ -276,8 +276,8 @@ class FirmwareFixtures(unittest.TestCase):
         self.write_candidate()
         entrypoint = (ROOT / "build/x2000/entrypoint.sh").read_text()
         functions = "\n".join(re.search(
-            rf"^{name}\(\) \{{\n.*?^\}}", entrypoint, re.M | re.S
-        )[0] for name in ("validate_f005_firmware", "record_rootfs_components"))
+            rf"^{name}\(\) \{{\n.*?^\}}(?=\n\n[a-z_]+\(\))", entrypoint, re.M | re.S
+        )[0] for name in ("validate_f005_firmware", "write_build_manifest"))
         staged_root = self.directory / "buildroot/target"
         staged = staged_root / TARGET_PATH.lstrip("/")
         staged.parent.mkdir(parents=True)
@@ -292,20 +292,22 @@ class FirmwareFixtures(unittest.TestCase):
         target_checks = entrypoint[check_start:check_end]
         output = self.directory / "rootfs-output"
         output.mkdir()
-        (output / "build-manifest.json").write_text('{"artifact_mode":"development"}')
-        component = self.directory / "moonraker"
-        component.mkdir()
-        (component / "component-manifest.json").write_text(json.dumps({
-            "component": "moonraker", "source": {}, "build_input_sha256": "fixture",
-            "artifact": {"sha256": "fixture"},
-        }))
+        (output / "rootfs.squashfs").write_bytes(b"fixture")
         command = functions + '\nvalidate_f005_firmware "$f005_firmware" --runtime-target > '
         command += '"$target/usr/share/fre3nder/f005-runtime-target.json"\n'
-        command += target_checks + '\nrecord_rootfs_components "$output"\n'
+        command += target_checks + '\nwrite_build_manifest "$output" rootfs.squashfs\n'
         env = dict(os.environ, project=str(ROOT), f005_firmware=str(self.firmware),
                    f005_target_path=TARGET_PATH, f005_firmware_mode="candidate",
                    artifact_mode="development", brout=str(staged_root.parent),
-                   target=str(staged_root), output=str(output), moonraker_component=str(component))
+                   target=str(staged_root), output=str(output),
+                   version="2026.5.a", release_year="2026", release_number="5",
+                   release_patch="0", release_stage="alpha", release_scope="managed-platform",
+                   project_commit="fixture", project_worktree_status="dirty",
+                   build_input_sha256=subprocess.check_output(
+                       [str(ROOT / "scripts/x2000-build-input-sha256")], text=True).strip())
+        env.pop("FRE3NDER_OTA_PUBLIC_KEY", None)
+        env.pop("FRE3NDER_FACTORY_FRE3NDERSCREEN_APP", None)
+        env.pop("FRE3NDER_SYSTEM_APP_PACKAGES_DIR", None)
         result = subprocess.run(["sh", "-eu"], input=command, text=True, env=env,
                                 capture_output=True)
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -354,7 +356,7 @@ class FirmwareFixtures(unittest.TestCase):
         (project / "configs/x2000/rootfs-overlay").mkdir(parents=True)
         shutil.copyfile(ROOT / "scripts/build-x2000", scripts / "build-x2000")
         (scripts / "build-x2000").chmod(0o755)
-        for name in ("build-f005", "build-x2000-moonraker", "build-x2000-buildroot"):
+        for name in ("build-f005", "build-x2000-buildroot"):
             path = scripts / name
             path.write_text('#!/bin/sh\nprintf "%s %s %s\\n" "$(basename "$0")" '
                             '"$*" "${FRE3NDER_F005_FIRMWARE_MODE:-unset}" >> "$fixture_log"\n'

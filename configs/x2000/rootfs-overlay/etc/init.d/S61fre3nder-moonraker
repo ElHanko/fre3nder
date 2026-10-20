@@ -4,7 +4,6 @@
 set -u
 runtime=${FRE3NDER_MOONRAKER_RUNTIME:-/run/fre3nder-moonraker}
 status=$runtime/status
-uds=$runtime/moonraker.sock
 root_state=${FRE3NDER_ROOT_STATE:-/run/fre3nder-root}
 klipper_runtime=${FRE3NDER_KLIPPER_RUNTIME:-/run/fre3nder-klipper}
 klipper_status=$klipper_runtime/status
@@ -86,13 +85,8 @@ start() {
         log 'signed Moonraker app is unavailable or failed readiness'
         return 0
     fi
-    if "$package_core" service-status moonraker >/dev/null && [ -S "$uds" ]; then
-        set_status active
-        log 'Moonraker running from signed system fre3app'
-    else
-        set_status readiness-failed
-        log 'Moonraker did not expose its API socket'
-    fi
+    set_status active
+    log 'Moonraker running from signed system fre3app'
 }
 stop() {
     "$package_core" service-stop moonraker >/dev/null 2>&1 || true

@@ -37,7 +37,7 @@ scripts/generate-ota-keypair  # once per build environment
 scripts/build-x2000
 ```
 
-The default command builds Kernel, Moonraker, the Buildroot toolchain, and
+The default command builds Kernel, the Buildroot toolchain, and
 RootFS, then composes a signed OTA package. RootFS assembly requires an already
 signed Fre3nderScreen factory `.fre3app` at
 `local/production/factory-apps/fre3nderscreen.fre3app`, or an explicit
@@ -116,7 +116,12 @@ building. The top-level orchestrator selects `development` only with the app
 flag and otherwise selects `release`. A release platform cannot use a development
 Factory app. These commands still require explicit build/signing authorization.
 
-The orchestrator runs the Kernel builder, then Moonraker, Buildroot
+RootFS assembly also requires the official signed Moonraker system app in
+`local/production/system-apps/` or `FRE3NDER_SYSTEM_APP_PACKAGES_DIR`.
+It is prepared and signed separately in `fre3nder-apps`; a release image
+requires a positive release serial. See [Moonraker](moonraker.md).
+
+The orchestrator runs the Kernel builder, then Buildroot
 `--toolchain`, and Buildroot `--assemble`. It uses the pinned
 Buildroot internal MIPS toolchain for the host components. The resulting
 RootFS is read-only SquashFS.
@@ -206,7 +211,6 @@ contract without treating the snapshot as a Release.
 
 The component scripts are
 [`scripts/build-x2000-kernel`](../scripts/build-x2000-kernel),
-[`scripts/build-x2000-moonraker`](../scripts/build-x2000-moonraker),
 [`scripts/build-x2000-buildroot`](../scripts/build-x2000-buildroot).
 Use the top-level orchestrator for normal build scopes.
 
@@ -215,7 +219,6 @@ The host artifact directories are:
 | Directory under `local/production/artifacts/x2000/` | Result |
 | --- | --- |
 | `kernel-only/` | `kernel.uImage`, DTB, effective kernel configuration, manifest and checksums |
-| `moonraker/` | Validated component overlay archive |
 | `fre3nderscreen/app/` | Separate neutral binary, themes, licenses, source/ABI manifest and checksums |
 | `rootfs-only/` | `rootfs.squashfs`, effective Buildroot configuration, manifest and checksums |
 | `full/` | Combined individual artifacts, manifest, checksums and `fre3nder-<version>-ender3-v3-ke.ota` |
@@ -230,7 +233,7 @@ trust-anchor relationship are specified in [OTA architecture](ota.md).
 | Command | Builds | Does not build | Output |
 | --- | --- | --- | --- |
 | `scripts/build-x2000 --kernel-only` | Buildroot toolchain and linux-firmware prerequisites, then Kernel | RootFS artifact or OTA package | `kernel-only/` |
-| `scripts/build-x2000 --rootfs-only` | Moonraker and Buildroot toolchain/RootFS | Kernel, Fre3nderScreen cross-build, or OTA package | Moonraker component and `rootfs-only/` |
+| `scripts/build-x2000 --rootfs-only` | Buildroot toolchain/RootFS with signed app seeds | Kernel, Moonraker package, Fre3nderScreen cross-build, or OTA package | `rootfs-only/` |
 | `scripts/build-x2000 --compose-only` | No component | Kernel and RootFS | Validated `full/` and signed OTA package |
 
 Add `--develop` to a Kernel-only or RootFS-only development build.
@@ -285,8 +288,8 @@ that command. In each directory, inspect its own `build-manifest.json`:
 | Build scope | Fields to inspect in that manifest |
 | --- | --- |
 | `--kernel-only` | `version`, `artifact_mode`, `project_commit`, `project_worktree_status`, and `artifacts` hashes for `kernel.uImage`, DTB, and effective Kernel configuration |
-| `--rootfs-only` | The same identity fields, `artifacts` hashes for `rootfs.squashfs` and `buildroot.config`, plus `ota_public_key_sha256`, `rootfs_components`, and `factory_apps.fre3nderscreen.sha256` for the signed seed embedded in the RootFS |
-| Full build or `--compose-only` | The same identity fields and `artifacts` hashes for Kernel and RootFS, `ota_public_key_sha256`, `rootfs_components`, `factory_apps.fre3nderscreen.sha256`, plus `component_provenance` for each input and `composition_provenance` for the final assembly |
+| `--rootfs-only` | The same identity fields, `artifacts` hashes for `rootfs.squashfs` and `buildroot.config`, plus `ota_public_key_sha256`, `f005_firmware`, `system_apps`, and `factory_apps.fre3nderscreen.sha256` for the signed seeds embedded in the RootFS |
+| Full build or `--compose-only` | The same identity fields and `artifacts` hashes for Kernel and RootFS, `ota_public_key_sha256`, `f005_firmware`, `system_apps`, `factory_apps.fre3nderscreen.sha256`, plus `component_provenance` for each input and `composition_provenance` for the final assembly |
 
 For `development` artifacts, also check `build_input_sha256`; release artifacts
 have no such field and require `project_worktree_status: clean`. The

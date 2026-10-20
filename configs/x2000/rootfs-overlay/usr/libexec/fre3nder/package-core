@@ -1421,11 +1421,10 @@ def service_command(name: str, action: str) -> int:
     """Operate a signed installed app without bypassing Package-Core ownership."""
     if not APP_RE.fullmatch(name) or not installed(name):
         raise ValueError(f"app is not installed: {name}")
-    metadata = read_metadata(name)
+    read_metadata(name)
     if action not in ("start", "stop", "status"):
         raise ValueError("unsupported service command")
     # Service actions always resolve the currently installed signed runtime.
-    # A missing/invalid runtime must never fall back to the old RootFS app.
     return service_action(name, action)
 
 

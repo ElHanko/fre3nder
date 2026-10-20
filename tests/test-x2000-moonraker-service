@@ -28,19 +28,9 @@ printf '%s\n' "$1 $2" >> "$FIXTURE_CALLS"
 case "$1 $2" in
 'service-start moonraker')
     [ -S "$FRE3NDER_KLIPPER_API_SOCKET" ] || exit 1
-    python3 - "$FRE3NDER_MOONRAKER_RUNTIME/moonraker.sock" <<'PY_SOCKET'
-import os
-import socket
-import sys
-path = sys.argv[1]
-if not os.path.exists(path):
-    sock = socket.socket(socket.AF_UNIX)
-    sock.bind(path)
-    sock.close()
-PY_SOCKET
+    exit "${FIXTURE_START_RC:-0}"
     ;;
-'service-status moonraker') [ -S "$FRE3NDER_MOONRAKER_RUNTIME/moonraker.sock" ] ;;
-'service-stop moonraker') rm -f "$FRE3NDER_MOONRAKER_RUNTIME/moonraker.sock" ;;
+'service-stop moonraker') ;;
 *) exit 1 ;;
 esac
 MOCK
@@ -48,7 +38,7 @@ chmod 755 "$core"
 printf '%s\n' '[server]' '[include fre3nder/*.conf]' > "$default"
 printf '%s\n' '[webcam fre3nder_camera]' > "$camera"
 run() {
-    PATH="$mockbin:$PATH" FIXTURE_CALLS="$calls" \
+    PATH="$mockbin:$PATH" FIXTURE_CALLS="$calls" FIXTURE_START_RC="${FIXTURE_START_RC:-0}" \
     FRE3NDER_PACKAGE_CORE="$core" FRE3NDER_MOONRAKER_RUNTIME="$runtime" \
     FRE3NDER_ROOT_STATE="$root_state" \
     FRE3NDER_KLIPPER_RUNTIME="$klipper_runtime" \
@@ -75,17 +65,24 @@ PY_SOCKET
 printf 'active\n' > "$klipper_runtime/status"
 run start
 [ "$(cat "$runtime/status")" = active ]
-[ -S "$runtime/moonraker.sock" ]
 [ -f "$config" ] && cmp "$default" "$config"
 [ -f "$printer_data/config/fre3nder/camera.conf" ]
-grep -Fxq 'service-start moonraker' "$calls"
-grep -Fxq 'service-status moonraker' "$calls"
+[ "$(cat "$calls")" = 'service-start moonraker' ]
 printf 'user-owned config\n' > "$config"
+mkdir -p "$printer_data/database" "$printer_data/gcodes"
+printf history > "$printer_data/database/fixture"
+printf gcode > "$printer_data/gcodes/fixture"
+printf log > "$printer_data/logs/fixture"
 run start
 [ "$(cat "$config")" = 'user-owned config' ]
 run stop
 [ "$(cat "$runtime/status")" = stopped ]
-[ ! -e "$runtime/moonraker.sock" ]
+FIXTURE_START_RC=17 run start
+[ "$(cat "$runtime/status")" = app-start-failed ]
+[ "$(cat "$config")" = 'user-owned config' ]
+[ "$(cat "$printer_data/database/fixture")" = history ]
+[ "$(cat "$printer_data/gcodes/fixture")" = gcode ]
+[ "$(cat "$printer_data/logs/fixture")" = log ]
 ! grep -Fq 'start-stop-daemon' "$service"
 ! grep -Fq 'moonraker-env' "$service"
 printf 'fre3nder-x2000 Moonraker system fre3app S61 fixture: PASS\n'

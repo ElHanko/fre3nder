@@ -167,6 +167,17 @@ class SystemInformationTests(unittest.TestCase):
         self.write("run/fre3nder-display/status", "startup-failed\n")
         self.assertEqual(self.info.services()[-1]["status"], "startup-failed")
 
+    def test_moonraker_status_uses_app_pid_and_signed_runtime(self):
+        self.write("run/fre3nder-moonraker/status", "active\n")
+        pid = self.write("home/fre3nder/.local/share/moonraker/moonraker.pid", "42\n")
+        command = self.write("proc/42/cmdline", "/usr/bin/python3\0"
+                             "/opt/fre3nder/apps-v2/moonraker/payload/source/moonraker/moonraker.py\0")
+        self.assertEqual(self.info.services()[1]["status"], "active")
+        command.write_text("unrelated-process\0")
+        self.assertEqual(self.info.services()[1]["status"], "not-running")
+        pid.unlink()
+        self.assertEqual(self.info.services()[1]["status"], "unconfirmed")
+
     def test_snapshot_only_reads_and_keeps_partial_results(self):
         self.write("home/.fre3nder/frontend/active", "fixture-web\n")
         self.write("home/.fre3nder/display/active", "fixture-screen\n")

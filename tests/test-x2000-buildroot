@@ -54,18 +54,13 @@ sources="$root/configs/x2000/sources.json"
 build_script="$root/scripts/build-x2000"
 kernel_build_script="$root/scripts/build-x2000-kernel"
 rootfs_build_script="$root/scripts/build-x2000-buildroot"
-moonraker_build_script="$root/scripts/build-x2000-moonraker"
 fre3nderscreen_build_script="$root/scripts/build-x2000-fre3nderscreen"
 fingerprint="$root/scripts/x2000-build-input-sha256"
 moonraker_service="$root/configs/x2000/rootfs-overlay/etc/init.d/S61fre3nder-moonraker"
 moonraker_default="$root/configs/x2000/rootfs-overlay/usr/share/fre3nder/defaults/moonraker.conf"
-moonraker_wheels="$root/configs/x2000/moonraker-python-wheels.json"
 streaming_package="$root/configs/x2000/buildroot-external/package/python-streaming-form-data"
-moonraker_source=${MOONRAKER_SOURCE:-$root/local/production/work/x2000/moonraker-source}
-moonraker_wheel_cache=${MOONRAKER_WHEEL_CACHE:-$root/local/production/work/x2000/moonraker-python-wheels}
 klipper_source=${KLIPPER_SOURCE:-$root/local/production/work/x2000/klipper}
 klipper_commit=$("$root/scripts/source-value" userspace.klipper.commit)
-moonraker_commit=$("$root/scripts/source-value" userspace.moonraker.commit)
 kernel_url=$("$root/scripts/source-value" kernel.source.url)
 kernel_version=$("$root/scripts/source-value" kernel.kernel_version)
 kernel_commit=$("$root/scripts/source-value" kernel.source.commit)
@@ -85,7 +80,7 @@ reuse="$root/REUSE.toml"
 kernel_wlan_patch=$root/patches/kernel/0004-ingenic-ender3-v3-ke-wlan-v6.6.157.patch
 kernel_integration_patch=$root/patches/kernel/0005-fre3nder-ender3-v3-ke-integration-v6.6.157.patch
 
-python3 - "$sources" "$klipper_commit" "$moonraker_commit" \
+python3 - "$sources" "$klipper_commit" \
 	"$buildroot_url" "$buildroot_version" "$buildroot_commit" \
 	"$buildroot_legacy_adoption_commit" <<'PY'
 import json
@@ -104,15 +99,15 @@ assert data["userspace"]["klipper"] == {
         "passive-UART patch"),
 }
 buildroot = data["buildroot"]
-assert re.fullmatch(r"[0-9]{4}\.(0[1-9]|1[0-2])\.[0-9]+", sys.argv[5])
+assert re.fullmatch(r"[0-9]{4}\.(0[1-9]|1[0-2])\.[0-9]+", sys.argv[4])
+assert re.fullmatch(r"[0-9a-f]{40}", sys.argv[5])
 assert re.fullmatch(r"[0-9a-f]{40}", sys.argv[6])
-assert re.fullmatch(r"[0-9a-f]{40}", sys.argv[7])
 assert buildroot == {
-    "version": sys.argv[5],
-    "url": sys.argv[4],
-    "commit": sys.argv[6],
+    "version": sys.argv[4],
+    "url": sys.argv[3],
+    "commit": sys.argv[5],
     "source": "upstream Buildroot",
-    "legacy_adoption_commit": sys.argv[7],
+    "legacy_adoption_commit": sys.argv[6],
 }
 greenlet = data["userspace"]["greenlet"]
 assert greenlet == {
@@ -273,13 +268,6 @@ for provenance in (
     assert provenance["migration_source_commit"] == (
         "a98c2e1f22e4263ddd4153a4eca4db4dcfd2777b")
 
-assert data["userspace"]["moonraker"] == {
-    "repository": "https://github.com/Arksine/moonraker.git",
-    "commit": sys.argv[3],
-    "license": "GPL-3.0-only",
-    "role": "qualified RootFS application baseline",
-}
-assert re.fullmatch(r"[0-9a-f]{40}", sys.argv[3])
 PY
 
 python3 - "$sources" "$kernel_url" "$kernel_version" "$kernel_commit" \
@@ -391,65 +379,6 @@ grep -Fq 'CONFIG_LOCALVERSION="$kernel_localversion"' "$entrypoint"
 
 [ ! -e \
     "$root/patches/kernel/0001-fre3nder-x2000-direct-delta-v6.6.157.patch" ]
-
-python3 - "$moonraker_wheels" <<'PY'
-import json
-import pathlib
-import re
-import sys
-
-data = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
-assert data["schema"] == 1
-assert data["target"] == {
-    "python": "3.12",
-    "platform": "any",
-    "implementation": "py",
-    "abi": "none",
-}
-assert {wheel["name"] for wheel in data["wheels"]} == {
-    "apprise",
-    "importlib-metadata",
-    "inotify-simple",
-    "ldap3",
-    "libnacl",
-    "preprocess-cancellation",
-    "pyserial",
-    "smart-open",
-    "zipp",
-}
-assert all(re.fullmatch(r"[0-9a-f]{64}", wheel["sha256"])
-           for wheel in data["wheels"])
-PY
-
-# The staged layout is a PEP 405 environment, not merely a directory named
-# "venv". Verify the same pyvenv.cfg and executable-link mechanism with the
-# host CPython; target execution remains a build/hardware qualification item.
-python3 - <<'PY'
-import pathlib
-import subprocess
-import sys
-import tempfile
-
-with tempfile.TemporaryDirectory() as tmp:
-    env = pathlib.Path(tmp) / "moonraker-env"
-    (env / "bin").mkdir(parents=True)
-    (env / "bin/python").symlink_to(sys.executable)
-    (env / "pyvenv.cfg").write_text(
-        f"home = {pathlib.Path(sys.executable).parent}\n"
-        "include-system-site-packages = true\n"
-        f"version = {sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}\n",
-        encoding="utf-8",
-    )
-    subprocess.run(
-        [
-            str(env / "bin/python"),
-            "-c",
-            "import pathlib,sys; assert pathlib.Path(sys.prefix)==pathlib.Path(sys.argv[1]); assert sys.base_prefix != sys.prefix",
-            str(env),
-        ],
-        check=True,
-    )
-PY
 
 grep -Fxq 'buildroot="$work/buildroot"' "$entrypoint"
 grep -Fxq 'buildroot_dl="$work/buildroot-dl"' "$entrypoint"
@@ -712,12 +641,10 @@ grep -Fq 'gcc.br_real' "$entrypoint"
 	grep -Fxq 'scripts/x2000-build-input-sha256'
 "$fingerprint" --list-inputs | grep -Fxq 'scripts/build-x2000-kernel'
 "$fingerprint" --list-inputs | grep -Fxq 'scripts/build-x2000-buildroot'
-"$fingerprint" --list-inputs | grep -Fxq 'scripts/build-x2000-moonraker'
 "$fingerprint" --list-inputs | grep -Fxq 'scripts/build-x2000-fre3nderscreen'
 "$fingerprint" --list-inputs | grep -Fxq 'scripts/source-value'
 grep -Fq '$0 [OPTIONS]' "$build_script"
 grep -Fq 'build-x2000-buildroot' "$build_script"
-! grep -Fq 'build-x2000-moonraker' "$build_script"
 ! grep -Fq 'build-x2000-fre3nderscreen' "$build_script"
 grep -Fq 'build-x2000-kernel' "$build_script"
 grep -Fq 'build-f005' "$build_script"
@@ -746,26 +673,10 @@ grep -Fq 'write_build_manifest "$out" buildroot.config rootfs.squashfs' \
 	"$entrypoint"
 grep -Fq '"$target/usr/share/fre3nder/DEVELOPMENT"' "$entrypoint"
 grep -Fq '[ ! -e "$target/usr/share/fre3nder/DEVELOPMENT" ]' "$entrypoint"
-grep -Fq 'moonraker_commit=$("$project/scripts/source-value" userspace.moonraker.commit)' \
-	"$entrypoint"
-grep -Fq 'prepare_moonraker_overlay()' "$entrypoint"
-[ "$(grep -Fc 'prepare_moonraker_overlay' "$entrypoint")" -eq 2 ]
 grep -Fq 'extra_overlay="$klipper_overlay"' "$entrypoint"
 ! grep -Fq 'wifi_overlay' "$entrypoint"
-! grep -Fq 'prepare_rootfs_component moonraker' "$entrypoint"
-! grep -Fq 'prepare_rootfs_component fre3nderscreen' "$entrypoint"
 grep -Fq 'input_name=${FRE3NDER_DISPLAY_INPUT_NAME:-ns2009_ts}' "$entrypoint"
 ! grep -Fq 'FRE3NDER_FRE3NDERSCREEN_' "$entrypoint"
-grep -Fq 'moonraker_root="$moonraker_overlay/opt/fre3nder/moonraker"' \
-	"$entrypoint"
-grep -Fq 'moonraker_env="$moonraker_overlay/opt/fre3nder/moonraker-env"' \
-	"$entrypoint"
-grep -Fq 'include-system-site-packages = true' "$entrypoint"
-grep -Fq 'git -C "$moonraker_root" remote get-url origin' "$entrypoint"
-grep -Fq 'git -C "$moonraker_root" rev-parse HEAD' "$entrypoint"
-grep -Fq 'git -C "$moonraker_root" read-tree HEAD' "$entrypoint"
-grep -Fq 'mv "$moonraker_root/.git" "$moonraker_root/.fre3nder-git"' \
-	"$entrypoint"
 grep -Fq 'rsync -a --exclude=.git/ "$klipper/"' "$entrypoint"
 grep -Fq '[ ! -e "$target/usr/share/klipper/.git" ]' "$entrypoint"
 ! grep -Fq 'build-moonraker-app-only' "$entrypoint"
@@ -799,7 +710,6 @@ assert authorization["trusted_clients"].split() == [
 PY
 ! grep -Fxq 'enabled: True' "$moonraker_default"
 grep -Fq 'service-start moonraker' "$moonraker_service"
-grep -Fq 'service-status moonraker' "$moonraker_service"
 ! grep -Fq 'start-stop-daemon' "$moonraker_service"
 ! grep -Fq 'moonraker-env' "$moonraker_service"
 [ ! -e "$root/configs/x2000/rootfs-overlay/usr/libexec/fre3nder/managed-app-resolve" ]
@@ -808,7 +718,6 @@ grep -Fq 'f005_target_path=/var/lib/fre3nder/firmware/f005/klipper-f005-mainline
 grep -Fq 'validate_f005_firmware "$f005_firmware"' "$entrypoint"
 grep -Fq 'validate_f005_firmware "$target$f005_target_path"' "$entrypoint"
 grep -Fq 'install -m 0644 "$f005_firmware"' "$entrypoint"
-grep -Fq 'relative.suffix in (".pyc", ".pyo")' "$entrypoint"
 
 # Development Buildroot output is reusable, so renamed/removed runtime
 # paths must be actively purged from a stale target tree.
@@ -910,81 +819,6 @@ buildroot=$tmp/buildroot-release-lightweight
 buildroot_commit=$release_commit
 if fetch_buildroot_release 2>/dev/null; then
 	echo 'Buildroot accepted a lightweight release tag' >&2
-	exit 1
-fi
-
-# Component payloads are consumed only after their identity and archive hash
-# match the current RootFS inputs.
-sed -n '/^prepare_rootfs_component() {$/,/^}$/p' "$entrypoint" > \
-	"$tmp/component-function.sh"
-. "$tmp/component-function.sh"
-component_project=$tmp/component-project
-component_artifact=$tmp/component-artifact
-component_overlay=$tmp/component-overlay
-component_stage=$tmp/component-stage
-mkdir -p "$component_project/configs/x2000" "$component_project/scripts" \
-	"$component_artifact" "$component_stage/opt/fixture"
-cp "$sources" "$component_project/configs/x2000/sources.json"
-printf '%s\n' '#!/bin/sh' 'printf "%s\\n" fixture-input' > \
-	"$component_project/scripts/x2000-build-input-sha256"
-chmod 0755 "$component_project/scripts/x2000-build-input-sha256"
-printf '%s\n' payload > "$component_stage/opt/fixture/file"
-tar -C "$component_stage" -cf "$component_artifact/rootfs-overlay.tar" .
-python3 - "$sources" "$component_artifact" <<'PY'
-import hashlib
-import json
-import pathlib
-import sys
-
-sources = json.loads(pathlib.Path(sys.argv[1]).read_text())
-directory = pathlib.Path(sys.argv[2])
-archive = directory / "rootfs-overlay.tar"
-manifest = {
-    "schema": 1,
-    "component": "moonraker",
-    "source": {
-        key: sources["userspace"]["moonraker"][key]
-        for key in ("repository", "commit", "license")
-    },
-    "artifact_mode": "development",
-    "project_commit": "fixture-commit",
-    "project_worktree_status": "dirty",
-    "build_input_sha256": "fixture-input",
-    "artifact": {
-        "name": archive.name,
-        "sha256": hashlib.sha256(archive.read_bytes()).hexdigest(),
-    },
-}
-(directory / "component-manifest.json").write_text(json.dumps(manifest) + "\n")
-PY
-project=$component_project
-artifact_mode=development
-project_commit=fixture-commit
-project_worktree_status=dirty
-prepare_rootfs_component moonraker "$component_artifact" "$component_overlay"
-grep -Fxq payload "$component_overlay/opt/fixture/file"
-cp "$component_artifact/component-manifest.json" "$tmp/component-manifest.valid"
-python3 - "$component_artifact/component-manifest.json" <<'PY'
-import json
-import pathlib
-import sys
-
-path = pathlib.Path(sys.argv[1])
-manifest = json.loads(path.read_text())
-manifest["source"]["commit"] = "0" * 40
-path.write_text(json.dumps(manifest) + "\n")
-PY
-if prepare_rootfs_component moonraker "$component_artifact" \
-	"$component_overlay.invalid" 2>/dev/null; then
-	echo 'RootFS accepted a component with the wrong source identity' >&2
-	exit 1
-fi
-cp "$tmp/component-manifest.valid" \
-	"$component_artifact/component-manifest.json"
-printf x >> "$component_artifact/rootfs-overlay.tar"
-if prepare_rootfs_component moonraker "$component_artifact" \
-	"$component_overlay.invalid" 2>/dev/null; then
-	echo 'RootFS accepted a component with the wrong artifact hash' >&2
 	exit 1
 fi
 
@@ -1334,8 +1168,6 @@ assert firmware_path.stat().st_size == firmware["size"]
 assert hashlib.sha256(firmware_path.read_bytes()).hexdigest() == firmware["sha256"]
 PY
 
-# Image Moonraker is a signed fre3app; it is no longer copied as a Git overlay.
-
 target=$tmp/target
 build_dir=$tmp/build
 ota_public_key=$tmp/ota-public.pem
@@ -1378,7 +1210,6 @@ touch "$target/etc/init.d/fre3nder-root" \
 	"$target/etc/init.d/S40fre3nder-network" \
 	"$target/etc/init.d/S50dropbear" \
 	"$target/etc/init.d/S58fre3nder-app-restore" \
-	"$target/etc/init.d/S58fre3nder-system-apps" \
 	"$target/etc/init.d/S58fre3nder-system-apps" \
 	"$target/etc/init.d/S59fre3nder-klipper-mcu" \
 	"$target/etc/init.d/S60fre3nder-klipper" \

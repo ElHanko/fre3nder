@@ -85,7 +85,7 @@ class DevelopmentOrchestrationTests(unittest.TestCase):
         shutil.copyfile(ROOT / "scripts/build-x2000", self.wrapper)
         self.wrapper.chmod(0o755)
         (self.repo / "configs/x2000/rootfs-overlay").mkdir(parents=True)
-        for command in ("build-x2000-kernel", "build-x2000-moonraker",
+        for command in ("build-x2000-kernel",
                         "build-x2000-buildroot", "build-x2000-fre3nderscreen", "build-f005"):
             executable(self.repo / "scripts" / command, FAKE_COMMAND)
         self.package_builder = self.apps / "scripts/build-fre3nderscreen-development"
@@ -136,7 +136,7 @@ else:
                 self.assertEqual(result.returncode, 0, result.stderr)
                 calls = self.calls()
                 self.assertEqual([c["command"] for c in calls], ["build-x2000-kernel",
-                    "build-x2000-moonraker", "build-x2000-buildroot", "build-x2000-buildroot"])
+                    "build-x2000-buildroot", "build-x2000-buildroot"])
                 self.assertEqual(calls[-1]["seed"], str(self.seed))
                 self.assertEqual(calls[-1]["mode"], "release")
 
@@ -153,7 +153,7 @@ else:
                     expected.append("build-x2000-kernel")
                 if "--f005-build" in scope:
                     expected.append("build-f005")
-                expected += ["build-x2000-moonraker", "build-x2000-buildroot", "build-x2000-buildroot"]
+                expected += ["build-x2000-buildroot", "build-x2000-buildroot"]
                 self.assertEqual(commands, expected)
                 self.assertEqual(calls[-2]["args"], ["--toolchain", "--develop"])
                 self.assertEqual(calls[-1]["args"], ["--assemble", "--develop"])

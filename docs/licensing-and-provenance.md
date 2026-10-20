@@ -151,20 +151,21 @@ Reference WLAN qualification does not alter either component's license or
 qualify Bluetooth. Exact integration artifacts and results are preserved in
 [build history](../research/docs/x2000-build-history.md#buildroot-maintenance-and-wlan-qualification-snapshot).
 
-## Moonraker RootFS baseline
+## Moonraker system application
 
-Moonraker is consumed from `https://github.com/Arksine/moonraker.git` at the
-commit pinned by `userspace.moonraker.commit` in
-`configs/x2000/sources.json`, under GPL-3.0-only. The RootFS stages that public
-source as a pinned Git checkout, including its license and upstream identity,
-rather than embedding an untracked vendor binary.
+Moonraker is consumed from `https://github.com/Arksine/moonraker.git`, under
+GPL-3.0-only. Its exact source commit and license are pinned in
+`fre3nder-apps/apps/moonraker/upstream.json`. The app preparer stages the public
+source, including its license, into the signed system `.fre3app` and records
+its identity in the payload's `provenance.json`.
 
 Pure-Python dependencies that are not supplied by the qualified Buildroot
-runtime are recorded in `configs/x2000/moonraker-python-wheels.json`. Each
+runtime are recorded in `fre3nder-apps/apps/moonraker/python-wheels.json`. Each
 entry records the exact package version, wheel filename, SHA256 digest,
 upstream package URL, and applicable license. The wheel files themselves are
-downloaded during the local build, verified against those hashes, and are not
-committed to the repository.
+supplied to the offline app preparer, verified against those hashes, and are not
+committed to the repository. Their contents and license notices are included
+in the signed application payload.
 
 Native Python dependencies remain reproducibly built with the Fre3nder
 Buildroot toolchain. In particular, the project-local
@@ -174,9 +175,9 @@ PyPI source URL and archive SHA256, MIT license, license-file hash, and its
 definitions record the corresponding source and license provenance where
 applicable.
 
-The pure-Python wheel contents are staged into the RootFS Moonraker environment;
-the wheels themselves remain build inputs outside Git. Source, dependency, and
-license provenance remains explicit in the source and wheel manifests.
+Fre3nder verifies and embeds the complete signed package as an image seed;
+it does not independently fetch or package Moonraker source or wheels. The
+RootFS build manifest records the embedded package hash in `system_apps`.
 
 ## Fre3nderScreen application artifact
 

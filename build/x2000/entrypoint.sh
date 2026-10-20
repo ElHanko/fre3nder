@@ -57,9 +57,6 @@ buildroot_dl="$work/buildroot-dl"
 buildroot_external="$project/configs/x2000/buildroot-external"
 klipper="$work/klipper"
 klipper_linux_config="$project/build/x2000/klipper-linux.config"
-moonraker="$work/moonraker-source"
-moonraker_wheel_manifest="$project/configs/x2000/moonraker-python-wheels.json"
-moonraker_wheel_cache="$work/moonraker-python-wheels"
 local_root="$project/local/production"
 f005_target_path=/var/lib/fre3nder/firmware/f005/klipper-f005-mainline.bin
 f005_firmware=${FRE3NDER_F005_FIRMWARE:-"$local_root/artifacts/x2000/f005/klipper-f005-mainline.bin"}
@@ -95,12 +92,8 @@ buildroot_python_patch="$project/patches/buildroot/0002-klipper-python-dependenc
 buildroot_toolchain_marker=.fre3nder-toolchain-fingerprint
 klipper_url=https://github.com/Klipper3d/klipper.git
 klipper_commit=$("$project/scripts/source-value" userspace.klipper.commit)
-moonraker_url=https://github.com/Arksine/moonraker.git
-moonraker_commit=$("$project/scripts/source-value" userspace.moonraker.commit)
 kernel_firmware_dir="$work/fre3nder-kernel-firmware"
 klipper_overlay="$work/fre3nder-klipper-overlay"
-moonraker_overlay="$work/fre3nder-moonraker-overlay"
-moonraker_component="$artifact_root/moonraker"
 development_marker="$klipper_overlay/usr/share/fre3nder/DEVELOPMENT"
 firmware_names='brcm/brcmfmac43430-sdio.bin brcm/brcmfmac43430-sdio.clm_blob brcm/brcmfmac43430-sdio.txt'
 artifact_mode=${FRE3NDER_ARTIFACT_MODE:-release}
@@ -145,7 +138,13 @@ write_build_manifest() {
 	export ARTIFACT_OUTPUT="$out"
 	export artifact_mode project_commit project_worktree_status build_input_sha256
 	export version release_year release_number release_patch release_stage release_scope
-	python3 - "$@" <<'PY'
+	f005_identity=
+	for artifact in "$@"; do
+		if [ "$artifact" = rootfs.squashfs ]; then
+			f005_identity=$(validate_f005_firmware "$brout/target$f005_target_path")
+		fi
+	done
+	python3 - "$project/configs/x2000/sources.json" "$f005_identity" "$@" <<'PY'
 import hashlib
 import json
 import os
@@ -153,8 +152,10 @@ import pathlib
 import sys
 
 out = pathlib.Path(os.environ["ARTIFACT_OUTPUT"])
-artifact_names = sys.argv[1:]
-manifest = json.loads(pathlib.Path("/project/configs/x2000/sources.json").read_text())
+artifact_names = sys.argv[3:]
+manifest = json.loads(pathlib.Path(sys.argv[1]).read_text())
+if sys.argv[2]:
+    manifest["f005_firmware"] = json.loads(sys.argv[2])
 manifest.update({
     "version": os.environ["version"],
     "release_year": int(os.environ["release_year"]),
@@ -503,223 +504,6 @@ EOF
 		"$buildroot_output/.br2-external.mk"
 }
 
-fetch_moonraker_python_wheels() {
-	export MOONRAKER_WHEEL_MANIFEST="$moonraker_wheel_manifest"
-	export MOONRAKER_WHEEL_CACHE="$moonraker_wheel_cache"
-
-	python3 - <<'PYFETCH'
-import hashlib
-import json
-import os
-import pathlib
-import re
-import shutil
-import subprocess
-import tempfile
-
-manifest_path = pathlib.Path(os.environ["MOONRAKER_WHEEL_MANIFEST"])
-cache = pathlib.Path(os.environ["MOONRAKER_WHEEL_CACHE"])
-sources_path = pathlib.Path("/project/configs/x2000/sources.json")
-
-manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-sources = json.loads(sources_path.read_text(encoding="utf-8"))
-
-if manifest.get("schema") != 1:
-    raise SystemExit("unsupported Moonraker wheel manifest schema")
-
-if manifest.get("source") != "PyPI":
-    raise SystemExit("Moonraker wheel manifest source must be PyPI")
-
-target = manifest.get("target")
-if not isinstance(target, dict):
-    raise SystemExit("Moonraker wheel manifest target is missing")
-
-for key in ("python", "platform", "implementation", "abi"):
-    if not isinstance(target.get(key), str) or not target[key]:
-        raise SystemExit(f"invalid Moonraker wheel target field: {key}")
-
-if target["platform"] != "any":
-    raise SystemExit("Moonraker wheel platform must be any")
-if target["implementation"] != "py":
-    raise SystemExit("Moonraker wheel implementation must be py")
-if target["abi"] != "none":
-    raise SystemExit("Moonraker wheel ABI must be none")
-
-system_python = sources["userspace"]["python"]["version"]
-system_python_minor = ".".join(system_python.split(".")[:2])
-
-if target["python"] != system_python_minor:
-    raise SystemExit(
-        "Moonraker wheel Python target mismatch: "
-        f"{target['python']} != {system_python_minor}"
-    )
-
-wheels = manifest.get("wheels")
-if not isinstance(wheels, list) or not wheels:
-    raise SystemExit("Moonraker wheel manifest contains no wheels")
-
-required_fields = {
-    "name",
-    "version",
-    "filename",
-    "sha256",
-    "license",
-    "source_url",
-}
-
-seen_names = set()
-seen_filenames = set()
-
-for wheel in wheels:
-    if not isinstance(wheel, dict):
-        raise SystemExit("invalid Moonraker wheel manifest entry")
-
-    missing = required_fields - wheel.keys()
-    if missing:
-        raise SystemExit(
-            "Moonraker wheel entry missing fields: "
-            + ", ".join(sorted(missing))
-        )
-
-    name = wheel["name"]
-    filename = wheel["filename"]
-    digest = wheel["sha256"]
-
-    if name in seen_names:
-        raise SystemExit(f"duplicate Moonraker wheel name: {name}")
-    if filename in seen_filenames:
-        raise SystemExit(f"duplicate Moonraker wheel filename: {filename}")
-
-    seen_names.add(name)
-    seen_filenames.add(filename)
-
-    if not filename.endswith(".whl"):
-        raise SystemExit(f"not a wheel filename: {filename}")
-
-    if not re.fullmatch(r"[0-9a-f]{64}", digest):
-        raise SystemExit(f"invalid SHA256 for {filename}")
-
-cache.parent.mkdir(parents=True, exist_ok=True)
-
-staging = pathlib.Path(
-    tempfile.mkdtemp(
-        prefix=cache.name + ".tmp.",
-        dir=cache.parent,
-    )
-)
-
-try:
-    requirements = staging / "requirements.txt"
-
-    requirements.write_text(
-        "".join(
-            f"{wheel['name']}=={wheel['version']} "
-            f"--hash=sha256:{wheel['sha256']}\n"
-            for wheel in wheels
-        ),
-        encoding="utf-8",
-    )
-
-    subprocess.run(
-        [
-            "python3",
-            "-m",
-            "pip",
-            "--isolated",
-            "download",
-            "--disable-pip-version-check",
-            "--no-cache-dir",
-            "--index-url",
-            "https://pypi.org/simple",
-            "--dest",
-            str(staging),
-            "--require-hashes",
-            "--only-binary=:all:",
-            "--no-deps",
-            "--platform",
-            target["platform"],
-            "--python-version",
-            target["python"],
-            "--implementation",
-            target["implementation"],
-            "--abi",
-            target["abi"],
-            "--requirement",
-            str(requirements),
-        ],
-        check=True,
-    )
-
-    requirements.unlink()
-
-    actual = {
-        item.name
-        for item in staging.iterdir()
-        if item.is_file()
-    }
-    expected = {
-        wheel["filename"]
-        for wheel in wheels
-    }
-
-    if actual != expected:
-        missing = sorted(expected - actual)
-        unexpected = sorted(actual - expected)
-
-        raise SystemExit(
-            "Moonraker wheel filename set mismatch; "
-            f"missing={missing}, unexpected={unexpected}"
-        )
-
-    for wheel in wheels:
-        wheel_path = staging / wheel["filename"]
-        actual_hash = hashlib.sha256(
-            wheel_path.read_bytes()
-        ).hexdigest()
-
-        if actual_hash != wheel["sha256"]:
-            raise SystemExit(
-                f"SHA256 mismatch for {wheel['filename']}: "
-                f"{actual_hash} != {wheel['sha256']}"
-            )
-
-    if cache.exists():
-        shutil.rmtree(cache)
-
-    staging.rename(cache)
-    staging = None
-
-finally:
-    if staging is not None and staging.exists():
-        shutil.rmtree(staging)
-
-print(
-    "Moonraker Python wheels: "
-    f"{len(wheels)} verified for Python {target['python']}"
-)
-
-for wheel in wheels:
-    print(
-        f"  {wheel['filename']} "
-        f"sha256={wheel['sha256']}"
-    )
-PYFETCH
-}
-
-fetch_moonraker_inputs() {
-	[ -d "$moonraker/.git" ] ||
-		git clone --filter=blob:none --no-checkout "$moonraker_url" "$moonraker"
-	[ "$(git -C "$moonraker" remote get-url origin)" = "$moonraker_url" ]
-	git -C "$moonraker" fetch origin "$moonraker_commit"
-	git -C "$moonraker" reset --hard "$moonraker_commit"
-	git -C "$moonraker" clean -fdx
-	git -C "$moonraker" checkout -B master "$moonraker_commit"
-	git -C "$moonraker" branch --set-upstream-to=origin/master master
-	[ "$(git -C "$moonraker" rev-parse HEAD)" = "$moonraker_commit" ]
-
-	fetch_moonraker_python_wheels
-}
-
 fetch_buildroot_release() {
 	[ -d "$buildroot/.git" ] ||
 		git clone --filter=blob:none --no-checkout --no-tags \
@@ -772,113 +556,6 @@ fetch_rootfs_inputs() {
 
 }
 
-prepare_rootfs_component() {
-	component=$1
-	artifact_dir=$2
-	overlay=$3
-	manifest=$artifact_dir/component-manifest.json
-	archive=$artifact_dir/rootfs-overlay.tar
-	current_build_input_sha256=$(
-		"$project/scripts/x2000-build-input-sha256" --root "$project"
-	)
-	export artifact_mode component current_build_input_sha256
-	export project_commit project_worktree_status
-	if ! python3 - "$manifest" "$archive" \
-		"$project/configs/x2000/sources.json" <<'PY'
-import hashlib
-import json
-import os
-import pathlib
-import sys
-import tarfile
-
-manifest_path, archive, sources_path = map(pathlib.Path, sys.argv[1:])
-if manifest_path.is_symlink() or not manifest_path.is_file():
-    raise SystemExit(f"missing component manifest: {manifest_path}")
-if archive.is_symlink() or not archive.is_file():
-    raise SystemExit(f"missing component artifact: {archive}")
-manifest = json.loads(manifest_path.read_text())
-if manifest.get("schema") != 1:
-    raise SystemExit("unsupported component manifest schema")
-component = os.environ["component"]
-if manifest.get("component") != component:
-    raise SystemExit(f"component identity mismatch: {component}")
-for field in ("artifact_mode", "project_commit", "project_worktree_status"):
-    if manifest.get(field) != os.environ[field]:
-        raise SystemExit(f"component {component} disagrees on {field}")
-if manifest.get("build_input_sha256") != os.environ["current_build_input_sha256"]:
-    raise SystemExit(f"component {component} has stale build inputs")
-artifact = manifest.get("artifact", {})
-if artifact.get("name") != archive.name:
-    raise SystemExit(f"component {component} artifact name mismatch")
-actual = hashlib.sha256(archive.read_bytes()).hexdigest()
-if artifact.get("sha256") != actual:
-    raise SystemExit(f"component {component} artifact SHA256 mismatch")
-with tarfile.open(archive) as tar:
-    for member in tar:
-        relative = pathlib.PurePosixPath(member.name)
-        if relative.is_absolute() or ".." in relative.parts:
-            raise SystemExit(f"unsafe component archive path: {member.name}")
-        if not (member.isfile() or member.isdir() or member.issym()):
-            raise SystemExit(f"unsupported component archive member: {member.name}")
-sources = json.loads(sources_path.read_text())
-expected = sources["userspace"][component]
-source = manifest.get("source", {})
-
-for field in ("repository", "license"):
-    if source.get(field) != expected[field]:
-        raise SystemExit(f"component {component} source {field} mismatch")
-
-if source.get("commit") != expected["commit"]:
-    raise SystemExit(f"component {component} source commit mismatch")
-if "release" in expected and source.get("release") != expected["release"]:
-    raise SystemExit(f"component {component} source release mismatch")
-PY
-	then
-		return 1
-	fi
-	rm -rf -- "$overlay"
-	mkdir -p "$overlay"
-	tar -xf "$archive" -C "$overlay"
-}
-
-record_rootfs_components() {
-	manifest=$1/build-manifest.json
-	f005_identity=$(validate_f005_firmware "$brout/target$f005_target_path")
-	python3 - "$manifest" "$f005_identity" \
-		<<'PY'
-import json
-import pathlib
-import sys
-
-output = pathlib.Path(sys.argv[1])
-manifest = json.loads(output.read_text())
-manifest["f005_firmware"] = json.loads(sys.argv[2])
-components = {}
-for path_text in sys.argv[3:]:
-    component = json.loads(pathlib.Path(path_text).read_text())
-    components[component["component"]] = {
-        "source": component["source"],
-        "build_input_sha256": component["build_input_sha256"],
-        "artifact_sha256": component["artifact"]["sha256"],
-    }
-manifest["rootfs_components"] = components
-output.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n")
-PY
-}
-
-prepare_moonraker_source() {
-	[ -d "$moonraker/.git" ]
-	[ "$(git -C "$moonraker" remote get-url origin)" = "$moonraker_url" ]
-	git -C "$moonraker" reset --hard "$moonraker_commit"
-	git -C "$moonraker" clean -fdx
-	git -C "$moonraker" checkout -B master "$moonraker_commit"
-	git -C "$moonraker" branch --set-upstream-to=origin/master master
-	[ "$(git -C "$moonraker" rev-parse HEAD)" = "$moonraker_commit" ]
-	[ -z "$(git -C "$moonraker" status --porcelain=v1)" ]
-	grep -Fxq 'GNU GENERAL PUBLIC LICENSE' "$moonraker/LICENSE"
-	[ -f "$moonraker/moonraker/moonraker.py" ]
-}
 prepare_klipper_overlay() {
 	git -C "$klipper" clean -fdx
 	git -C "$klipper" reset --hard "$klipper_commit"
@@ -922,160 +599,6 @@ prepare_klipper_overlay() {
 	fi
 }
 
-prepare_moonraker_overlay() {
-	prepare_moonraker_source
-	[ -d "$moonraker_wheel_cache" ]
-
-	rm -rf -- "$moonraker_overlay"
-	moonraker_root="$moonraker_overlay/opt/fre3nder/moonraker"
-	moonraker_env="$moonraker_overlay/opt/fre3nder/moonraker-env"
-	site_packages="$moonraker_env/lib/python3.12/site-packages"
-	install -d -m 0755 "$moonraker_root" "$moonraker_env/bin" "$site_packages"
-	rsync -a --exclude='__pycache__/' --exclude='*.pyc' \
-		"$moonraker/" "$moonraker_root/"
-
-	# Keep a real upstream Git checkout for Moonraker's own git_repo updater,
-	# while dropping transient local-clone records from the immutable baseline.
-	rm -rf -- "$moonraker_root/.git/logs"
-	rm -f -- \
-		"$moonraker_root/.git/FETCH_HEAD" \
-		"$moonraker_root/.git/ORIG_HEAD" \
-		"$moonraker_root/.git/index"
-	git -C "$moonraker_root" config core.logAllRefUpdates false
-	git -C "$moonraker_root" read-tree HEAD
-	[ "$(git -C "$moonraker_root" remote get-url origin)" = "$moonraker_url" ]
-	[ "$(git -C "$moonraker_root" rev-parse HEAD)" = "$moonraker_commit" ]
-	[ -d "$moonraker_root/.git" ]
-	[ ! -e "$moonraker_root/.fre3nder-git" ]
-	mv "$moonraker_root/.git" "$moonraker_root/.fre3nder-git"
-	[ -d "$moonraker_root/.fre3nder-git" ]
-	[ ! -e "$moonraker_root/.git" ]
-
-	printf '%s\n' \
-		'home = /usr/bin' \
-		'include-system-site-packages = true' \
-		'version = 3.12.14' \
-		'executable = /usr/bin/python3' \
-		'command = /usr/bin/python3 -m venv --system-site-packages /opt/fre3nder/moonraker-env' \
-		> "$moonraker_env/pyvenv.cfg"
-	printf '%s\n' \
-		'VIRTUAL_ENV=/opt/fre3nder/moonraker-env' \
-		'export VIRTUAL_ENV' \
-		'PATH="$VIRTUAL_ENV/bin:$PATH"' \
-		'export PATH' \
-		> "$moonraker_env/bin/activate"
-	ln -s /usr/bin/python3 "$moonraker_env/bin/python"
-	ln -s /usr/bin/python3 "$moonraker_env/bin/python3"
-	ln -s /usr/bin/pip3 "$moonraker_env/bin/pip"
-
-	export MOONRAKER_SITE_PACKAGES="$site_packages"
-	export MOONRAKER_WHEEL_MANIFEST="$moonraker_wheel_manifest"
-	export MOONRAKER_WHEEL_CACHE="$moonraker_wheel_cache"
-	python3 - <<'PYSTAGE'
-import hashlib
-import json
-import os
-import pathlib
-import stat
-import zipfile
-
-site_packages = pathlib.Path(os.environ["MOONRAKER_SITE_PACKAGES"])
-manifest_path = pathlib.Path(os.environ["MOONRAKER_WHEEL_MANIFEST"])
-wheel_cache = pathlib.Path(os.environ["MOONRAKER_WHEEL_CACHE"])
-manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-
-installed = set()
-for wheel in manifest["wheels"]:
-    path = wheel_cache / wheel["filename"]
-    digest = hashlib.sha256(path.read_bytes()).hexdigest()
-    if digest != wheel["sha256"]:
-        raise SystemExit(f"wheel SHA256 mismatch: {path.name}")
-
-    with zipfile.ZipFile(path) as archive:
-        for member in sorted(archive.infolist(), key=lambda item: item.filename):
-            relative = pathlib.PurePosixPath(member.filename)
-            if relative.is_absolute() or ".." in relative.parts:
-                raise SystemExit(f"unsafe wheel member: {member.filename}")
-            if not relative.parts:
-                continue
-            if "__pycache__" in relative.parts or relative.suffix in (".pyc", ".pyo"):
-                continue
-            file_type = (member.external_attr >> 16) & 0o170000
-            if file_type == stat.S_IFLNK:
-                raise SystemExit(f"wheel symlink is not supported: {member.filename}")
-
-            target = site_packages.joinpath(*relative.parts)
-            if member.is_dir():
-                target.mkdir(parents=True, exist_ok=True)
-                target.chmod(0o755)
-                continue
-            if relative.as_posix() in installed or target.exists():
-                raise SystemExit(f"duplicate wheel member: {member.filename}")
-            installed.add(relative.as_posix())
-            target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_bytes(archive.read(member))
-            mode = (member.external_attr >> 16) & 0o777
-            target.chmod(0o755 if mode & 0o111 else 0o644)
-PYSTAGE
-
-	if find "$site_packages" \
-		\( -type d -name __pycache__ -o -type f \( -name '*.pyc' -o -name '*.pyo' \) \) \
-		-print -quit | grep -q .; then
-		echo 'Moonraker environment contains forbidden Python bytecode/cache files' >&2
-		exit 1
-	fi
-
-	[ -f "$moonraker_root/moonraker/moonraker.py" ]
-	[ -f "$moonraker_env/bin/activate" ]
-	[ "$(readlink "$moonraker_env/bin/python")" = /usr/bin/python3 ]
-	[ "$(readlink "$moonraker_env/bin/pip")" = /usr/bin/pip3 ]
-	[ -n "$(find "$site_packages" -mindepth 1 -print -quit)" ]
-}
-
-build_moonraker_component() {
-	prepare_artifact_provenance
-	prepare_moonraker_overlay
-	build_input=$(
-		"$project/scripts/x2000-build-input-sha256" --root "$project"
-	)
-	tmp=$moonraker_component.tmp
-	rm -rf -- "$tmp"
-	mkdir -p "$tmp"
-	tar --sort=name --format=ustar --mtime='@0' --owner=0 --group=0 \
-		--numeric-owner -C "$moonraker_overlay" -cf "$tmp/rootfs-overlay.tar" .
-	export artifact_mode build_input moonraker_commit moonraker_url project_commit project_worktree_status
-	python3 - "$tmp/rootfs-overlay.tar" "$tmp/component-manifest.json" <<'PY'
-import hashlib
-import json
-import os
-import pathlib
-import sys
-
-artifact, output = map(pathlib.Path, sys.argv[1:])
-manifest = {
-    "schema": 1,
-    "component": "moonraker",
-    "source": {
-        "repository": os.environ["moonraker_url"],
-        "commit": os.environ["moonraker_commit"],
-        "license": "GPL-3.0-only",
-    },
-    "artifact_mode": os.environ["artifact_mode"],
-    "project_commit": os.environ["project_commit"],
-    "project_worktree_status": os.environ["project_worktree_status"],
-    "build_input_sha256": os.environ["build_input"],
-    "artifact": {
-        "name": artifact.name,
-        "sha256": hashlib.sha256(artifact.read_bytes()).hexdigest(),
-    },
-}
-output.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n")
-PY
-	(cd "$tmp" && sha256sum component-manifest.json rootfs-overlay.tar > SHA256SUMS)
-	(cd "$tmp" && sha256sum -c SHA256SUMS)
-	rm -rf -- "$moonraker_component"
-	mv "$tmp" "$moonraker_component"
-}
 build_klipper_chelper() {
 	buildroot_output=$1
 	cc="$buildroot_output/host/bin/mipsel-buildroot-linux-gnu-gcc"
@@ -1679,7 +1202,6 @@ check_rootfs() {
 	fi
 	moonraker_service="$target/etc/init.d/S61fre3nder-moonraker"
 	grep -Fq 'service-start moonraker' "$moonraker_service"
-	grep -Fq 'service-status moonraker' "$moonraker_service"
 	! grep -Fq 'start-stop-daemon' "$moonraker_service"
 	grep -Fxq '[include fre3nder/*.conf]' \
 		"$target/usr/share/fre3nder/defaults/moonraker.conf"
@@ -1911,7 +1433,6 @@ build() {
 		ender3-v3-ke.dtb \
 		kernel.uImage \
 		rootfs.squashfs
-	record_rootfs_components "$out"
 	(cd "$out" && sha256sum build-manifest.json buildroot.config \
 		effective-kernel-config ender3-v3-ke.dtb kernel.uImage rootfs.squashfs) \
 		> "$out/SHA256SUMS"
@@ -2000,7 +1521,6 @@ build_rootfs_only() {
 	cp "$brout/images/rootfs.squashfs" "$out/rootfs.squashfs"
 	cp "$brout/.config" "$out/buildroot.config"
 	write_build_manifest "$out" buildroot.config rootfs.squashfs
-	record_rootfs_components "$out"
 	(cd "$out" && sha256sum build-manifest.json buildroot.config \
 		rootfs.squashfs) > "$out/SHA256SUMS"
 	(cd "$out" && sha256sum -c SHA256SUMS)
@@ -2023,13 +1543,11 @@ case "${1:-build}" in
 	fetch-kernel) fetch_kernel_inputs ;;
 	fetch-rootfs) fetch_rootfs_inputs ;;
 	fetch-buildroot) fetch_buildroot_inputs ;;
-	fetch-moonraker) fetch_moonraker_inputs ;;
 	fetch-fre3nderscreen) "$project/build/x2000/fre3nderscreen-component.sh" fetch ;;
 	build) prepare_artifact_provenance; build ;;
 	build-kernel-only) prepare_artifact_provenance; build_kernel_only ;;
 	build-rootfs-only) prepare_artifact_provenance; build_rootfs_only ;;
-	build-moonraker-component) build_moonraker_component ;;
 	build-fre3nderscreen-app) "$project/build/x2000/fre3nderscreen-component.sh" build ;;
 	prepare-buildroot-toolchain) prepare_buildroot_toolchain ;;
-	*) echo 'usage: fre3nder-x2000 {fetch-kernel|fetch-rootfs|fetch-buildroot|fetch-moonraker|fetch-fre3nderscreen|build|build-kernel-only|build-rootfs-only|build-moonraker-component|build-fre3nderscreen-app|prepare-buildroot-toolchain}' >&2; exit 2 ;;
+	*) echo 'usage: fre3nder-x2000 {fetch-kernel|fetch-rootfs|fetch-buildroot|fetch-fre3nderscreen|build|build-kernel-only|build-rootfs-only|build-fre3nderscreen-app|prepare-buildroot-toolchain}' >&2; exit 2 ;;
 esac
