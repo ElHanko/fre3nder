@@ -102,7 +102,7 @@ const appsRenderInstalled = () => {
     const description = document.createElement("p");
     description.className = "section-note";
     const caps = [app.web_frontend ? "Web" : null, app.display_frontend ? "Display" : null].filter(Boolean);
-    description.textContent = `${app.publisher} · Installed · Storage: ${(app.storage || "sys").toUpperCase()} · ${caps.join(" / ") || "Service"}`;
+    description.textContent = `${app.publisher} · ${app.system_app ? "System app · Protected" : "Installed"} · Storage: ${(app.storage || "sys").toUpperCase()} · ${caps.join(" / ") || "Service"}`;
     card.append(description);
     const selection = document.createElement("p");
     selection.className = "section-note";
@@ -133,7 +133,7 @@ const appsRenderInstalled = () => {
         appsRenderVerified();
         appsEl("file").focus();
       }, appsBusy),
-      appsButton("Remove", () => appsRemove(app), appsBusy),
+      ...(app.system_app ? [] : [appsButton("Remove", () => appsRemove(app), appsBusy)]),
     );
     card.append(actions);
     const error = document.createElement("p");

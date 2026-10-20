@@ -27,6 +27,9 @@ DISPLAY_API_VERSION = 1
 MANAGEMENT_GROUP = "fre3nder-management"
 SCREEN_APP = "fre3nderscreen"
 SCREEN_PUBLISHER = "fre3nder-official"
+SYSTEM_PUBLISHER = "fre3nder-official"
+SYSTEM_APP_DIR = pathlib.Path(os.environ.get(
+    "FRE3NDER_SYSTEM_APP_DIR", "/usr/share/fre3nder/system-apps"))
 PLATFORM = "fre3nder-x2000"
 ARCH = "mipsel"
 APP_RE = re.compile(r"[a-z][a-z0-9_-]{0,63}")
@@ -525,6 +528,9 @@ def read_metadata(name: str) -> dict:
     data.setdefault("web_frontend", False)
     data.setdefault("display_frontend", False)
     data.setdefault("display_api", None)
+    data.setdefault("system_app", False)
+    if type(data["system_app"]) is not bool:
+        raise ValueError("installed system app role is invalid")
     data["storage"] = storage_role(data.get("storage", "sys"))
     if type(data["web_frontend"]) is not bool:
         raise ValueError("installed web capability is invalid")
@@ -805,6 +811,120 @@ def refresh_web() -> None:
     print(f"fre3nder package: web refresh failed ({reason}); package transaction remains complete", file=sys.stderr)
 
 
+
+def image_system_app_seeds() -> list[pathlib.Path]:
+    """Enumerate candidate image packages; validation is per package."""
+    if not SYSTEM_APP_DIR.exists() and not SYSTEM_APP_DIR.is_symlink():
+        return []
+    if SYSTEM_APP_DIR.is_symlink() or not SYSTEM_APP_DIR.is_dir():
+        raise ValueError("image system-app directory is unsafe")
+    info = SYSTEM_APP_DIR.stat()
+    if info.st_uid != os.geteuid() or info.st_mode & 0o022:
+        raise ValueError("image system-app directory is not protected")
+    return sorted(package for package in SYSTEM_APP_DIR.iterdir()
+                  if package.suffix == ".fre3app")
+
+
+def verify_image_system_app(package: pathlib.Path) -> dict:
+    """Check signature, official built-in publisher and canonical filename."""
+    regular_file(package, "image system-app package")
+    key = BUILTIN_KEYS / (SYSTEM_PUBLISHER + ".pem")
+    regular_file(key, "built-in system-app publisher key")
+    key_info = key.stat()
+    if key_info.st_uid != os.geteuid() or key_info.st_mode & 0o022:
+        raise ValueError("system-app publisher key is not protected")
+    candidate = verify_package(package)
+    if (package.name != candidate["name"] + ".fre3app"
+            or candidate["publisher"] != SYSTEM_PUBLISHER
+            or candidate["fingerprint"] != fingerprint(key)
+            or candidate["display_frontend"]):
+        raise ValueError("invalid image system-app identity: " + package.name)
+    return candidate
+
+
+def image_system_app(name: str) -> dict | None:
+    """Only consult the matching image seed for install/remove policy."""
+    if not APP_RE.fullmatch(name):
+        raise ValueError("invalid app name")
+    # Always validate immutable directory permissions even for a missing seed.
+    image_system_app_seeds()
+    package = SYSTEM_APP_DIR / (name + ".fre3app")
+    if not package.exists() and not package.is_symlink():
+        return None
+    return verify_image_system_app(package)
+
+
+def image_system_apps() -> list[tuple[pathlib.Path, dict]]:
+    """Strict inspection of the entire image for diagnostics and tests."""
+    return [(package, verify_image_system_app(package))
+            for package in image_system_app_seeds()]
+
+
+def promote_system_app(name: str) -> None:
+    """Persist required status even if a later image omits this system app."""
+    metadata = read_metadata(name)
+    if metadata["system_app"]:
+        return
+    metadata["system_app"] = True
+    destination = metadata_path(name)
+    with tempfile.NamedTemporaryFile(
+            mode="w", encoding="utf-8", dir=destination.parent,
+            prefix=".system-app.", delete=False) as stream:
+        staged = pathlib.Path(stream.name)
+        try:
+            json.dump(metadata, stream, sort_keys=True)
+            stream.write("\n")
+            stream.flush()
+            os.fsync(stream.fileno())
+            os.chmod(staged, 0o644)
+            os.replace(staged, destination)
+        finally:
+            staged.unlink(missing_ok=True)
+
+
+def reconcile_system_apps() -> int:
+    """Boot-only upgrade of newer signed image seeds; never downgrade."""
+    failed = False
+    try:
+        seeds = image_system_app_seeds()
+    except (OSError, ValueError) as exc:
+        print(f"fre3nder system apps: invalid image: {exc}", file=sys.stderr)
+        return 1
+    for package in seeds:
+        name = package.stem
+        try:
+            candidate = verify_image_system_app(package)
+            name = candidate["name"]
+            if not installed(name):
+                activate_package(package, "install", storage="sys",
+                                 start_service=False, system_app=True)
+                print(f"fre3nder system apps: installed {name}")
+                continue
+            current = read_metadata(name)
+            if (current.get("publisher") != candidate["publisher"]
+                    or current.get("fingerprint") != candidate["fingerprint"]):
+                raise ValueError("installed publisher differs from image system app")
+            current_serial = current.get("release_serial")
+            seed_serial = candidate["release_serial"]
+            if type(current_serial) is not int or current_serial < 0:
+                raise ValueError("invalid installed release serial")
+            if seed_serial > current_serial:
+                activate_package(package, "update", start_service=False,
+                                 system_app=True)
+                print(f"fre3nder system apps: updated {name}")
+            elif seed_serial == current_serial and current.get("version") != candidate["version"]:
+                if seed_serial != 0:
+                    raise ValueError("same release serial has different version")
+                # Development serial 0 has no ordering: preserve local version.
+                promote_system_app(name)
+            else:
+                promote_system_app(name)
+        except (OSError, ValueError, RuntimeError) as exc:
+            failed = True
+            print(f"fre3nder system apps: {name}: DEGRADED: {exc}", file=sys.stderr)
+    return 1 if failed else 0
+
+
 def app_user():
     try:
         account = pwd.getpwnam("fre3nder")
@@ -932,7 +1052,8 @@ def extract_runtime(package: pathlib.Path, verified: dict, target: pathlib.Path)
     chown_tree(target, uid, gid)
 
 
-def write_state(package: pathlib.Path, verified: dict, storage: str = "sys") -> None:
+def write_state(package: pathlib.Path, verified: dict, storage: str = "sys",
+                system_app: bool = False) -> None:
     storage = storage_role(storage)
     name = verified["name"]
     ensure_manager_directory(PACKAGE_STATE_ROOT)
@@ -975,6 +1096,7 @@ def write_state(package: pathlib.Path, verified: dict, storage: str = "sys") -> 
             "web_frontend": verified["web_frontend"],
             "display_frontend": verified["display_frontend"],
             "display_api": verified["display_api"],
+            "system_app": system_app,
         }
         (staged / "metadata.json").write_text(
             json.dumps(metadata, sort_keys=True) + "\n"
@@ -996,7 +1118,8 @@ def write_state(package: pathlib.Path, verified: dict, storage: str = "sys") -> 
 
 
 def activate_package(package: pathlib.Path, operation: str, allow_downgrade: bool = False,
-                     storage: str | None = None) -> dict:
+                     storage: str | None = None, start_service: bool = True,
+                     system_app: bool = False) -> dict:
     if operation == "update" and storage is not None:
         raise ValueError("updates preserve the installed app storage")
     storage = storage_role(storage if storage is not None else "sys")
@@ -1004,6 +1127,13 @@ def activate_package(package: pathlib.Path, operation: str, allow_downgrade: boo
     name = verified["name"]
     selected_before = active_frontend() if verified["web_frontend"] else None
     exists = installed(name)
+    # Only the immutable image, not the signed manifest, grants this role.
+    image_seed = image_system_app(name)
+    if image_seed is not None and (
+            verified["publisher"] != image_seed["publisher"]
+            or verified["fingerprint"] != image_seed["fingerprint"]):
+        raise ValueError("system-app name is reserved for the official publisher")
+    system_role = system_app or image_seed is not None
     display_selected = (
         exists and verified["display_frontend"] and active_display() == name
     )
@@ -1013,6 +1143,7 @@ def activate_package(package: pathlib.Path, operation: str, allow_downgrade: boo
         raise ValueError(f"app is not installed: {name}")
     if exists:
         old = read_metadata(name)
+        system_role = system_role or old.get("system_app", False)
         storage = storage_role(old.get("storage", "sys"))
         if old.get("web_frontend") != verified["web_frontend"]:
             raise ValueError("web frontend capability differs from installed app")
@@ -1063,7 +1194,7 @@ def activate_package(package: pathlib.Path, operation: str, allow_downgrade: boo
             if rc != 0:
                 raise ValueError(f"app service {action} failed: exit {rc}")
             started = False
-            if verified["autostart"]:
+            if verified["autostart"] and start_service:
                 rc = service_action(name, "start", current)
                 if rc != 0:
                     raise ValueError(f"app service start failed: exit {rc}")
@@ -1073,7 +1204,7 @@ def activate_package(package: pathlib.Path, operation: str, allow_downgrade: boo
                 if operation == "install" and verified["web_frontend"] and selected_before is None:
                     select_frontend(name)
                     selected_new = True
-                write_state(package, verified, storage)
+                write_state(package, verified, storage, system_app=system_role)
             except Exception:
                 if selected_new:
                     ACTIVE_FRONTEND.unlink(missing_ok=True)
@@ -1103,6 +1234,9 @@ def activate_package(package: pathlib.Path, operation: str, allow_downgrade: boo
 def remove_package(name: str) -> None:
     if not APP_RE.fullmatch(name) or not installed(name):
         raise ValueError(f"app is not installed: {name}")
+    if (read_metadata(name)["system_app"]
+            or image_system_app(name) is not None):
+        raise ValueError(f"system app cannot be removed: {name}")
     current = runtime_dir(name)
     was_active = active_frontend() == name
     was_display_active = active_display() == name
@@ -1183,6 +1317,7 @@ def restore_installed() -> int:
                 "display_frontend": verified["display_frontend"],
                 "display_api": verified["display_api"],
                 "storage": storage,
+                "system_app": metadata["system_app"],
             }
             if metadata != expected or verified["name"] != name:
                 raise ValueError("cached package differs from installed state")
@@ -1381,6 +1516,8 @@ def main() -> int:
         return 0 if rc == 0 else 1
     if args == ["restore-installed"]:
         return restore_installed()
+    if args == ["reconcile-system-apps"]:
+        return reconcile_system_apps()
     if args == ["start-installed"]:
         return start_installed()
     if args == ["stop-installed"]:
@@ -1393,7 +1530,8 @@ if __name__ == "__main__":
         # All callers acquire OTA first, then package, for the whole mutation.
         if sys.argv[1:2] and sys.argv[1] in (
                 "install", "update", "remove", "display-select", "display-disable",
-                "restore-installed", "start-installed", "stop-installed", "key-add", "key-remove"):
+                "restore-installed", "reconcile-system-apps",
+                "start-installed", "stop-installed", "key-add", "key-remove"):
             # Keep host fixtures isolated from the machine's global /run.
             lock_root = (PACKAGE_STATE_ROOT if "FRE3NDER_PACKAGE_STATE_ROOT" in os.environ
                          else pathlib.Path("/run"))

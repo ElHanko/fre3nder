@@ -34,6 +34,34 @@ packages marked for autostart.
 See [the package format](fre3app.md) for its trust and service
 contract.
 
+## Image system applications
+
+Official signed packages placed by the image build under
+`/usr/share/fre3nder/system-apps/<name>.fre3app` are **required system apps**.
+This directory is RootFS-owned; a manifest cannot grant itself system status.
+At boot, `S58fre3nder-system-apps` runs *after* signed-cache recovery and
+*before* services start. `package-core reconcile-system-apps` verifies each
+seed against the built-in official Ed25519 publisher key and checks its exact
+filename. It installs missing apps, updates only packages with a greater
+`release_serial`, and otherwise retains the installed version. Development
+serial zero has no ordering. No network access, downgrade or service start
+occurs during reconciliation. Ordinary manual updates remain supported.
+
+System role is persisted in root-controlled app metadata, survives SYS reset,
+image/OTA rollback and an image no longer listing the app, and cannot be
+relinquished by a manual package update. Removing a system app is denied by
+Package-Core even when called directly, including through Maintenance. The
+Maintenance UI displays the protected role and offers no Remove control.
+A matching filename belonging to a different publisher is rejected rather
+than overwritten. Verification and reconciliation errors are logged as
+DEGRADED, while the boot continues so that SSH recovery remains possible.
+
+For reproducible builds, the caller can supply
+`FRE3NDER_SYSTEM_APP_PACKAGES_DIR=<verified-seed-directory>` to the RootFS
+post-build hook. This stage copies regular `.fre3app` files into the image;
+the runtime independently verifies signatures and identities before acting.
+An image with an empty system-app directory performs no reconciliation.
+
 ## Fixed app storage roles
 
 | Local installation choice | Runtime | Platform update behavior |

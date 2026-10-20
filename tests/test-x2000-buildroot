@@ -1409,6 +1409,7 @@ touch "$target/etc/init.d/fre3nder-root" \
 	"$target/etc/init.d/S40fre3nder-network" \
 	"$target/etc/init.d/S50dropbear" \
 	"$target/etc/init.d/S58fre3nder-app-restore" \
+	"$target/etc/init.d/S58fre3nder-system-apps" \
 	"$target/etc/init.d/S59fre3nder-klipper-mcu" \
 	"$target/etc/init.d/S60fre3nder-klipper" \
 	"$target/etc/init.d/S61fre3nder-moonraker" \
@@ -1433,6 +1434,7 @@ cmp "$nvram_license" \
 [ -x "$target/usr/bin/fre3nder" ]
 [ -x "$target/usr/libexec/fre3nder/package-core" ]
 [ -x "$target/usr/libexec/fre3nder/ota-core" ]
+[ -x "$target/etc/init.d/S58fre3nder-system-apps" ]
 [ -x "$target/etc/init.d/S59fre3nder-klipper-mcu" ]
 [ -x "$target/etc/init.d/S62fre3nder-web" ]
 [ -x "$target/etc/init.d/S63fre3nder-camera" ]

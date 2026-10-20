@@ -5,6 +5,27 @@ target=$1
 ota_public_key=${FRE3NDER_OTA_PUBLIC_KEY:?FRE3NDER_OTA_PUBLIC_KEY is required}
 factory_seed=${FRE3NDER_FACTORY_FRE3NDERSCREEN_APP:?FRE3NDER_FACTORY_FRE3NDERSCREEN_APP is required}
 linux_firmware_license="$BUILD_DIR/linux-firmware-20250211/LICENCE.cypress"
+system_app_seeds=${FRE3NDER_SYSTEM_APP_PACKAGES_DIR:-}
+system_target="$target/usr/share/fre3nder/system-apps"
+# Always discard stale seeds from reused Buildroot target directories.
+rm -rf -- "$system_target"
+install -d -m 0755 "$system_target"
+if [ -n "$system_app_seeds" ]; then
+    [ -d "$system_app_seeds" ] && [ ! -L "$system_app_seeds" ] || {
+        echo 'System-app seed directory is invalid' >&2; exit 1;
+    }
+    for seed in "$system_app_seeds"/*.fre3app; do
+        [ -e "$seed" ] || continue
+        [ -f "$seed" ] && [ ! -L "$seed" ] || {
+            echo 'System-app seed must be a regular non-symlink file' >&2; exit 1;
+        }
+        case "${seed##*/}" in
+          *[!a-z0-9_.-]*|.*|*.fre3app.fre3app)
+              echo 'Invalid system-app seed filename' >&2; exit 1 ;;
+        esac
+        install -m 0644 "$seed" "$system_target/${seed##*/}"
+    done
+fi
 
 [ -f "$factory_seed" ] && [ ! -L "$factory_seed" ] || {
 	echo 'Fre3nderScreen factory app must be a regular non-symlink file' >&2
@@ -121,6 +142,7 @@ chmod 0755 \
 	"$target/etc/init.d/S50dropbear" \
 	"$target/etc/init.d/S57fre3nder-management" \
 	"$target/etc/init.d/S58fre3nder-app-restore" \
+	"$target/etc/init.d/S58fre3nder-system-apps" \
 	"$target/etc/init.d/S59fre3nder-klipper-mcu" \
 	"$target/etc/init.d/S60fre3nder-klipper" \
 	"$target/etc/init.d/S61fre3nder-moonraker" \

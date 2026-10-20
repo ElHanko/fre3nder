@@ -1,0 +1,17 @@
+#!/bin/sh
+# Reconcile official image system-app versions after S58 recovery, before
+# Klipper and the application services are started.
+core=${FRE3NDER_PACKAGE_CORE:-/usr/libexec/fre3nder/package-core}
+case "${1:-}" in
+start)
+    if "$core" reconcile-system-apps; then
+        echo 'fre3nder system apps: PASS'
+    else
+        echo 'fre3nder system apps: DEGRADED' >&2
+    fi
+    ;;
+stop) ;;
+*) echo 'usage: S58fre3nder-system-apps {start|stop}' >&2; exit 2 ;;
+esac
+# Failure must be visible but must not block SSH or Klipper recovery.
+exit 0
