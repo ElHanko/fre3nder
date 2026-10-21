@@ -70,9 +70,17 @@ For Wi-Fi/SSH provisioning, mount the newly created FAT partition on the host
 and place the required files in its root, then unmount safely and move the USB
 stick to the printer. The script does **not** create Wi-Fi credentials for you.
 
-This is only the **storage-preparation** step. The subsequent Stock-to-Fre3nder
-host deployment still needs a distinct, explicitly authorized installation
-mode in `deploy-x2000`, plus the established backup, device-identity,
-readback and post-boot checks. Do not use today's normal `--write` deployment
-from Stock: it currently requires an already-active Fre3nder SYS mount to arm
-its reset marker.
+This is only the **storage-preparation** step. Confirm that the prepared
+USB stick is connected to the Stock printer before deploying. For the qualified
+Stock A reference state, use the existing A/B deployment with `--from-stock`:
+
+```sh
+scripts/deploy-x2000 <printer-host> --from-stock
+# Only after separately authorizing installation on this printer:
+scripts/deploy-x2000 <printer-host> --from-stock --write
+```
+
+The first command is read-only; the second writes and activates the inactive
+Kernel/RootFS pair and reboots the printer. The source and USB persistence must
+pass the remote gates before any partition write. Stock p5/p7 are retained.
+No F005 MCU firmware is flashed by the host deployment itself.

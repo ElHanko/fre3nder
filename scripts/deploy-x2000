@@ -12,6 +12,7 @@ boot_poll=${X2000_DEPLOY_BOOT_POLL:-2}
 mode=preflight
 develop_mode=false
 stock_mode=false
+from_stock_mode=false
 stock_source=${X2000_DEPLOY_STOCK_DIR:-"$root/local/backup/stock/image"}
 deploy_kernel=false
 deploy_rootfs=false
@@ -69,7 +70,13 @@ stock restore:
               stage a complete Stock A p5/p7 pair
               default DIR: local/backup/stock/image
 
---stock cannot be combined with --kernel, --rootfs, --all, or --develop.
+first installation:
+  --from-stock  install the complete Fre3nder pair from verified Stock A
+                to inactive B, with pre-provisioned USB SYS/HOME; skips the
+                Fre3nder SYS reset marker (not needed for a fresh install)
+
+--stock cannot be combined with --kernel, --rootfs, --all, --develop,
+or --from-stock. --from-stock requires the full kernel + RootFS pair.
 
 execution:
   default     fail-closed read-only preflight
@@ -503,6 +510,80 @@ detect_slots() {
 	echo "active root: $active_root_device"
 	echo "selector slot: $selector_slot"
 	echo "target slot: $target_slot"
+}
+
+
+verify_from_stock_source() {
+	[ "$active_slot" = A ] && [ "$selector_slot" = A ] && [ "$target_slot" = B ] ||
+		die "--from-stock requires Stock A active and selected, with B inactive"
+
+	# A selector named STOCK_A alone does not establish the running OS identity.
+	if ! "$ssh_cmd" -o BatchMode=yes "$host" 'sh -eu' <<'REMOTE'
+fail() {
+	echo "REMOTE REFUSED: $*" >&2
+	exit 1
+}
+
+[ "$(uname -r)" = 4.4.94 ] ||
+	fail "expected qualified Stock kernel 4.4.94"
+[ -f /etc/ota_info ] && [ ! -L /etc/ota_info ] &&
+	grep -q F005 /etc/ota_info ||
+	fail "expected Stock F005 OTA identity"
+[ ! -e /run/fre3nder-root/status ] && [ ! -L /run/fre3nder-root/status ] ||
+	fail "Fre3nder root state exists; not a fresh Stock installation"
+
+# Only observe filesystem metadata; never mount or modify the USB stick here.
+output=$(blkid 2>/dev/null) || fail "cannot enumerate storage labels"
+sys_count=0
+home_count=0
+sys_device=
+home_device=
+while IFS= read -r line; do
+	device=${line%%:*}
+	[ "$device" != "$line" ] || continue
+	case " $line " in
+	*' LABEL="FRE3NDERSYS" '*)
+		case " $line " in *' TYPE="ext4" '*) : ;;
+			*) fail "FRE3NDERSYS is not ext4" ;; esac
+		sys_count=$((sys_count + 1))
+		sys_device=$device
+		;;
+	*' LABEL="FRE3NDERHOME" '*)
+		case " $line " in *' TYPE="ext4" '*) : ;;
+			*) fail "FRE3NDERHOME is not ext4" ;; esac
+		home_count=$((home_count + 1))
+		home_device=$device
+		;;
+	esac
+done <<EOF
+$output
+EOF
+[ "$sys_count" -eq 1 ] && [ "$home_count" -eq 1 ] &&
+[ "$sys_device" != "$home_device" ] ||
+	fail "expected unique, distinct FRE3NDERSYS and FRE3NDERHOME ext4 filesystems"
+
+# The labels must belong to two partitions on one USB mass-storage device.
+# A valid label on internal eMMC or on two separate sticks is not sufficient.
+sys_base=$(printf '%s\n' "$sys_device" |
+    sed -n 's#^/dev/\(sd[a-z]\)[1-9][0-9]*$#\1#p')
+home_base=$(printf '%s\n' "$home_device" |
+    sed -n 's#^/dev/\(sd[a-z]\)[1-9][0-9]*$#\1#p')
+[ -n "$sys_base" ] && [ "$sys_base" = "$home_base" ] ||
+    fail "SYS and HOME must belong to the same USB disk"
+
+usb_device=$(readlink -f "/sys/class/block/$sys_base/device") ||
+    fail "cannot resolve USB mass-storage sysfs identity"
+case "$usb_device" in
+/sys/devices/*/usb[0-9]*/*) : ;;
+*) fail "SYS/HOME disk is not connected through USB" ;;
+esac
+
+echo STOCK_INSTALL=PASS
+echo USB_PERSISTENCE=PASS
+REMOTE
+then
+		die "Stock source or USB persistence verification failed on $host"
+	fi
 }
 
 
@@ -994,6 +1075,10 @@ preflight() {
 
 	verify_target_metadata
 
+	if [ "$from_stock_mode" = true ]; then
+		verify_from_stock_source
+	fi
+
 	echo
 
 	if [ "$stock_mode" = true ]; then
@@ -1027,6 +1112,10 @@ deploy_write() {
 	fi
 
 	verify_target_metadata
+
+	if [ "$from_stock_mode" = true ]; then
+		verify_from_stock_source
+	fi
 
 	mapfile -t before_hashes < <(
 		active_hashes |
@@ -1083,7 +1172,7 @@ deploy_write() {
 		return
 	fi
 
-	if selected "$deploy_rootfs"; then
+	if selected "$deploy_rootfs" && [ "$from_stock_mode" = false ]; then
 		arm_system_persistence_reset
 	fi
 
@@ -1115,6 +1204,13 @@ main() {
 				usage
 
 			mode=write
+			;;
+
+		--from-stock)
+			[ "$from_stock_mode" = false ] ||
+				usage
+
+			from_stock_mode=true
 			;;
 
 		--stock)
@@ -1181,6 +1277,10 @@ main() {
 		shift
 	done
 
+	if [ "$stock_mode" = true ] && [ "$from_stock_mode" = true ]; then
+		die "--stock and --from-stock are mutually exclusive"
+	fi
+
 	if [ "$stock_mode" = true ]; then
 		[ "$develop_mode" = false ] ||
 			die "--stock cannot be combined with --develop"
@@ -1197,6 +1297,11 @@ main() {
 
 		deploy_kernel=true
 		deploy_rootfs=true
+	fi
+
+	if [ "$from_stock_mode" = true ] &&
+		{ [ "$deploy_kernel" != true ] || [ "$deploy_rootfs" != true ]; }; then
+		die "--from-stock requires kernel + RootFS"
 	fi
 
 	if [ "$stock_mode" = false ] &&
@@ -1216,6 +1321,8 @@ main() {
 	if [ "$stock_mode" = true ]; then
 		echo "SOURCE=STOCK"
 		echo "STOCK_SOURCE=$stock_source"
+	elif [ "$from_stock_mode" = true ]; then
+		echo "SOURCE=STOCK_TO_FRE3NDER"
 	else
 		echo "SOURCE=FRE3NDER"
 	fi
@@ -1269,12 +1376,16 @@ main() {
 		echo "REBOOT=NOT_PERFORMED"
 		echo "DEPLOY_X2000_STAGE=PASS"
 	else
-		echo "STAGING_KIND=FRE3NDER_UPDATE"
-
-		if selected "$deploy_rootfs"; then
-			echo "SYSTEM_PERSISTENCE_RESET=PASS"
+		if [ "$from_stock_mode" = true ]; then
+			echo "STAGING_KIND=FRE3NDER_FIRST_INSTALL"
+			echo "SYSTEM_PERSISTENCE_RESET=NOT_REQUIRED"
 		else
-			echo "SYSTEM_PERSISTENCE_RESET=SKIPPED"
+			echo "STAGING_KIND=FRE3NDER_UPDATE"
+			if selected "$deploy_rootfs"; then
+				echo "SYSTEM_PERSISTENCE_RESET=PASS"
+			else
+				echo "SYSTEM_PERSISTENCE_RESET=SKIPPED"
+			fi
 		fi
 
 		echo "ACTIVATION=PASS"

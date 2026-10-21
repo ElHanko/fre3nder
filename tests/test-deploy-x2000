@@ -261,6 +261,22 @@ case "$command" in
 			"ACTIVE_ROOT=$(root_for_slot "$active_slot")"
 
 	elif printf '%s\n' "$body" |
+		grep -Fq 'STOCK_INSTALL=PASS'; then
+
+		# Check the embedded remote stock and USB guards, not just a marker.
+		printf '%s\n' "$body" | grep -Fq 'uname -r' || exit 1
+		printf '%s\n' "$body" | grep -Fq '/etc/ota_info' || exit 1
+		printf '%s\n' "$body" | grep -Fq 'FRE3NDERSYS' || exit 1
+		printf '%s\n' "$body" | grep -Fq 'FRE3NDERHOME' || exit 1
+		printf '%s\n' "$body" | grep -Fq 'SYS and HOME must belong to the same USB disk' || exit 1
+		printf '%s\n' "$body" | grep -Fq '/sys/class/block/$sys_base/device' || exit 1
+
+		[ "${X2000_TEST_STOCK_OS:-true}" = true ] || exit 1
+		[ "${X2000_TEST_USB_STORAGE_READY:-true}" = true ] || exit 1
+		printf '%s\n' stock-verified >> "$X2000_TEST_LOG"
+		printf '%s\n' STOCK_INSTALL=PASS USB_PERSISTENCE=PASS
+
+	elif printf '%s\n' "$body" |
 		grep -Fq 'HOST_RUNTIME=PASS'; then
 
 		printf '%s\n' "$body" |
@@ -465,6 +481,8 @@ reset_case() {
 		X2000_TEST_BOOT_STUCK \
 		X2000_TEST_CONSUME_MARKER \
 		X2000_TEST_RUNTIME_FAIL \
+		X2000_TEST_STOCK_OS \
+		X2000_TEST_USB_STORAGE_READY \
 		X2000_TEST_ACTIVE_HASH_CHANGED \
 		X2000_TEST_READBACK_BAD_P5 \
 		X2000_TEST_READBACK_BAD_P6 \
@@ -507,6 +525,8 @@ run_deploy() {
 	X2000_TEST_BOOT_STUCK="${X2000_TEST_BOOT_STUCK:-false}" \
 	X2000_TEST_CONSUME_MARKER="${X2000_TEST_CONSUME_MARKER:-true}" \
 	X2000_TEST_RUNTIME_FAIL="${X2000_TEST_RUNTIME_FAIL:-false}" \
+	X2000_TEST_STOCK_OS="${X2000_TEST_STOCK_OS:-true}" \
+	X2000_TEST_USB_STORAGE_READY="${X2000_TEST_USB_STORAGE_READY:-true}" \
 	X2000_TEST_ACTIVE_HASH_CHANGED="${X2000_TEST_ACTIVE_HASH_CHANGED:-false}" \
 	X2000_TEST_READBACK_BAD_P5="${X2000_TEST_READBACK_BAD_P5:-false}" \
 	X2000_TEST_READBACK_BAD_P6="${X2000_TEST_READBACK_BAD_P6:-false}" \
@@ -1063,6 +1083,88 @@ assert_called select-b
 assert_called reboot
 assert_not_called runtime-pass
 [ -e "$marker" ]
+
+
+echo '=== FROM-STOCK A -> B PREFLIGHT ==='
+reset_case A
+run_deploy --from-stock > "$tmp/from-stock-preflight.out"
+grep -Fxq 'SOURCE=STOCK_TO_FRE3NDER' "$tmp/from-stock-preflight.out"
+grep -Fxq 'STOCK_INSTALL=PASS' "$tmp/from-stock-preflight.out"
+grep -Fxq 'USB_PERSISTENCE=PASS' "$tmp/from-stock-preflight.out"
+assert_not_called write-p6
+assert_not_called write-p8
+assert_not_called select-b
+assert_not_called reboot
+
+
+echo '=== FROM-STOCK A -> B INSTALL ==='
+reset_case A
+run_deploy --from-stock --write > "$tmp/from-stock-write.out"
+assert_called stock-verified
+assert_called write-p6
+assert_called readback-p6
+assert_called write-p8
+assert_called readback-p8
+assert_not_called arm-reset-p8
+assert_called select-b
+assert_called reboot
+assert_called runtime-pass
+assert_before stock-verified write-p6
+assert_before readback-p8 select-b
+assert_before select-b reboot
+[ "$(cat "$active")" = B ]
+[ "$(cat "$selector")" = B ]
+[ ! -e "$marker" ]
+grep -Fxq 'STAGING_KIND=FRE3NDER_FIRST_INSTALL' "$tmp/from-stock-write.out"
+grep -Fxq 'SYSTEM_PERSISTENCE_RESET=NOT_REQUIRED' "$tmp/from-stock-write.out"
+grep -Fxq 'DEPLOY_X2000=PASS' "$tmp/from-stock-write.out"
+
+
+echo '=== FROM-STOCK REFUSES FRE3NDER SOURCE ==='
+reset_case A
+X2000_TEST_STOCK_OS=false
+must_refuse run_deploy --from-stock --write
+assert_not_called write-p6
+assert_not_called write-p8
+assert_not_called select-b
+assert_not_called reboot
+
+
+echo '=== FROM-STOCK REQUIRES USB PERSISTENCE ==='
+reset_case A
+X2000_TEST_USB_STORAGE_READY=false
+must_refuse run_deploy --from-stock --write
+assert_not_called write-p6
+assert_not_called write-p8
+assert_not_called select-b
+assert_not_called reboot
+
+
+echo '=== FROM-STOCK REQUIRES A ACTIVE ==='
+reset_case B
+must_refuse run_deploy --from-stock --write
+assert_not_called write-p5
+assert_not_called write-p7
+assert_not_called select-a
+assert_not_called reboot
+
+
+echo '=== FROM-STOCK REQUIRES COMPLETE PAIR ==='
+reset_case A
+must_refuse run_deploy --from-stock --kernel --write
+assert_not_called write-p6
+assert_not_called write-p8
+assert_not_called select-b
+assert_not_called reboot
+
+
+echo '=== FROM-STOCK CANNOT BE STOCK RESTORE ==='
+reset_case A
+must_refuse run_deploy --from-stock --stock --write
+assert_not_called write-p5
+assert_not_called write-p7
+assert_not_called select-a
+assert_not_called reboot
 
 
 echo '=== STOCK REQUIRES INACTIVE A ==='

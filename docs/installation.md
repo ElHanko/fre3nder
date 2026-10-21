@@ -11,6 +11,15 @@ For the first-installation external USB stick, use the read-only preflight and
 explicitly authorized preparation in [USB storage setup](first-install-storage.md).
 The internal Stock p9/p10 partitions are not changed by that operation.
 
+For a first installation from the qualified Stock A reference state, first
+prepare the USB stick using [USB storage setup](first-install-storage.md) and
+verify both persistence labels on the running Stock printer. Use
+`scripts/deploy-x2000 <printer-host> --from-stock` for read-only preflight.
+An explicitly authorized `--from-stock --write` uses the existing verified
+A/B deployment to install Fre3nder to inactive B, without attempting the
+Fre3nder-only SYS reset marker. It validates the first Fre3nder boot using the
+existing runtime checks. Do not use this mode for Fre3nder-to-Fre3nder updates.
+
 For a normal Kernel-and-RootFS `--write`, the active host must already run
 Fre3nder with `/run/fre3nder-root/status` reporting `active`: after staging,
 `deploy-x2000` arms the SYS reset on that runtime before selecting the new
