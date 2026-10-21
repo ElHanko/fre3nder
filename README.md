@@ -163,6 +163,7 @@ Want to work on Fre3nder itself?
 
 → [Development](docs/development.md)\
 → [Build guide](docs/build.md)\
+→ [Quick Start: build a release](docs/quick-start.md)\
 → [Repository rules](AGENTS.md)
 
 Want to understand how the hardware was reverse engineered and qualified?

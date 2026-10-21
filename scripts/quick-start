@@ -1,0 +1,183 @@
+#!/bin/sh
+# Build the signed X2000 release from sibling Fre3nder repositories.
+set -eu
+
+root=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd -P)
+caller_dir=$(pwd -P)
+apps_repo=$root/../fre3nder-apps
+production=$root/local/production
+firmware=$production/artifacts/x2000/f005/klipper-f005-mainline.bin
+firmware_supplied=false
+check_only=false
+
+fail() {
+    printf 'quick-start: %s\n' "$*" >&2
+    exit 1
+}
+
+usage() {
+    cat <<'EOF'
+Usage: scripts/quick-start [--firmware PATH] [--check]
+
+Build a signed Fre3nder X2000 release and its Moonraker, Fre3nderScreen,
+and Fluidd apps. No printer is accessed. Supply a qualified F005 firmware
+file if it is not at the default local/production artifact path.
+
+  --firmware PATH  Qualified F005 firmware to embed in the RootFS
+  --check          Check local prerequisites without building or creating keys
+EOF
+}
+
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        --firmware)
+            [ "$#" -ge 2 ] && [ -n "$2" ] || fail '--firmware requires a path'
+            firmware=$2
+            firmware_supplied=true
+            shift 2
+            ;;
+        --check)
+            check_only=true
+            shift
+            ;;
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        *)
+            usage >&2
+            fail "unknown option: $1"
+            ;;
+    esac
+done
+
+if [ "$firmware_supplied" = true ]; then
+    case "$firmware" in
+        /*) ;;
+        *) firmware=$caller_dir/$firmware ;;
+    esac
+fi
+
+step() {
+    printf '\nquick-start: === %s ===\n' "$*"
+}
+
+command -v git >/dev/null 2>&1 || fail 'git is required'
+command -v python3 >/dev/null 2>&1 || fail 'python3 is required'
+command -v openssl >/dev/null 2>&1 || fail 'openssl is required'
+command -v sha256sum >/dev/null 2>&1 || fail 'sha256sum is required'
+command -v "${X2000_BUILD_DOCKER:-docker}" >/dev/null 2>&1 || fail 'Docker is required'
+
+[ -d "$apps_repo/.git" ] || fail "sibling fre3nder-apps clone not found: $apps_repo"
+[ -x "$root/scripts/build-x2000" ] || fail 'missing X2000 build script'
+[ -x "$root/scripts/build-x2000-buildroot" ] || fail 'missing Buildroot script'
+[ -x "$root/scripts/build-x2000-fre3nderscreen-release" ] || fail 'missing Screen release wrapper'
+[ -x "$apps_repo/scripts/fetch-moonraker-inputs" ] || fail 'missing Moonraker fetch script'
+[ -x "$apps_repo/scripts/prepare-moonraker" ] || fail 'missing Moonraker preparation script'
+[ -x "$apps_repo/scripts/prepare-fluidd" ] || fail 'missing Fluidd preparation script'
+[ -x "$apps_repo/scripts/build-fre3app" ] || fail 'missing fre3app builder'
+[ -f "$firmware" ] && [ ! -L "$firmware" ] || fail "missing qualified F005 firmware: $firmware (use --firmware PATH)"
+
+# The existing F005 validator checks the qualified release's size and SHA-256.
+step 'Preflight: qualified F005 firmware'
+python3 "$root/build/x2000/f005_firmware.py" \
+    --root "$root" --firmware "$firmware" \
+    --mode qualified --artifact-mode release
+
+# A release must represent committed sources, not an unreviewed worktree.
+for repo in "$root" "$apps_repo"; do
+    [ -z "$(git -C "$repo" status --porcelain=v1)" ] || fail "dirty repository: $repo (commit or clean changes before a release)"
+done
+
+if [ "$check_only" = true ]; then
+    step 'Preflight PASS (no keys generated; no builds started)'
+    printf '%s\n' 'Build order: keys, Moonraker, Fluidd, Buildroot toolchain, Fre3nderScreen, X2000 release.'
+    exit 0
+fi
+
+step 'Signing keys'
+"$root/scripts/generate-app-keypair"
+ota_dir=$production/keys/ota
+if [ ! -e "$ota_dir/private.pem" ] && [ ! -e "$ota_dir/public.pem" ]; then
+    "$root/scripts/generate-ota-keypair"
+elif [ ! -f "$ota_dir/private.pem" ] || [ -L "$ota_dir/private.pem" ] || \
+     [ ! -f "$ota_dir/public.pem" ] || [ -L "$ota_dir/public.pem" ]; then
+    fail 'incomplete or unsafe OTA signing keypair; refusing to rotate keys'
+else
+    printf 'quick-start: using existing OTA signing keypair\n'
+fi
+
+app_key=$production/keys/apps/private.pem
+moonraker_seed=$production/system-apps/moonraker.fre3app
+
+step 'Moonraker: verified inputs, payload, signed system app'
+(
+    cd "$apps_repo"
+    scripts/fetch-moonraker-inputs
+    scripts/prepare-moonraker --source local/moonraker/source --wheels local/moonraker/wheels
+    scripts/build-fre3app apps/moonraker --key "$app_key" --output "$moonraker_seed"
+)
+
+step 'Fluidd: verified payload, signed app'
+fluidd_package=$(
+    cd "$apps_repo"
+    scripts/prepare-fluidd
+    scripts/build-fre3app apps/fluidd --key "$app_key"
+)
+case "$fluidd_package" in
+    dist/*.fre3app) fluidd_package=$apps_repo/$fluidd_package ;;
+    *) fail "unexpected Fluidd package path: $fluidd_package" ;;
+esac
+[ -f "$fluidd_package" ] && [ ! -L "$fluidd_package" ] || fail 'Fluidd package was not produced'
+
+step 'Prepare X2000 Buildroot toolchain for Fre3nderScreen'
+"$root/scripts/build-x2000-buildroot" --toolchain
+
+step 'Fre3nderScreen: build and sign factory app'
+"$root/scripts/build-x2000-fre3nderscreen-release"
+
+step 'X2000: Kernel, RootFS and signed OTA release'
+FRE3NDER_F005_FIRMWARE="$firmware" "$root/scripts/build-x2000"
+
+step 'Verify signed Moonraker, Fre3nderScreen and Fluidd packages'
+PYTHONDONTWRITEBYTECODE=1 python3 - "$root" "$moonraker_seed" \
+    "$production/factory-apps/fre3nderscreen.fre3app" "$fluidd_package" <<'PY_VERIFY'
+import importlib.machinery
+import importlib.util
+from pathlib import Path
+import sys
+
+root = Path(sys.argv[1])
+core_path = root / "configs/x2000/rootfs-overlay/usr/libexec/fre3nder/package-core"
+loader = importlib.machinery.SourceFileLoader("quick_start_package_core", str(core_path))
+spec = importlib.util.spec_from_loader(loader.name, loader)
+core = importlib.util.module_from_spec(spec)
+loader.exec_module(core)
+core.BUILTIN_KEYS = root / "local/production/keys/apps"
+for name, path in zip(("moonraker", "fre3nderscreen", "fluidd"), sys.argv[2:]):
+    info = core.verify_package(Path(path))
+    if (info["name"] != name or info["publisher"] != "fre3nder-official"
+            or info["release_serial"] < 1):
+        raise SystemExit(f"Invalid release package: {name}")
+    if name == "fre3nderscreen" and (not info["display_frontend"] or info["display_api"] != 1):
+        raise SystemExit("Invalid Fre3nderScreen display contract")
+    if name == "moonraker" and info["autostart"]:
+        raise SystemExit("Invalid Moonraker service contract")
+    if name == "fluidd" and not info["web_frontend"]:
+        raise SystemExit("Invalid Fluidd web contract")
+    print(f"PASS {name}: {info['version']}")
+PY_VERIFY
+
+step 'Verify final release checksums'
+full=$production/artifacts/x2000/full
+(cd "$full" && sha256sum -c SHA256SUMS)
+version=$(cat "$root/VERSION")
+ota=$full/fre3nder-$version-ender3-v3-ke.ota
+[ -f "$ota" ] && [ ! -L "$ota" ] || fail "missing signed OTA: $ota"
+
+printf '\n%s\n' '=== Fre3nder Quick Start: PASS ==='
+printf 'OTA:           %s\n' "$ota"
+printf 'Moonraker:     %s\n' "$moonraker_seed"
+printf 'Fre3nderScreen: %s\n' "$production/factory-apps/fre3nderscreen.fre3app"
+printf 'Fluidd:        %s\n' "$fluidd_package"
+printf '%s\n' 'No printer deployment was performed.'
