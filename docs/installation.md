@@ -7,6 +7,10 @@ preflight does not authorize a printer write. Persistent staging, selector
 changes, and reboots require a separately authorized concrete operation under
 [`AGENTS.md`](../AGENTS.md).
 
+For the first-installation external USB stick, use the read-only preflight and
+explicitly authorized preparation in [USB storage setup](first-install-storage.md).
+The internal Stock p9/p10 partitions are not changed by that operation.
+
 For a normal Kernel-and-RootFS `--write`, the active host must already run
 Fre3nder with `/run/fre3nder-root/status` reporting `active`: after staging,
 `deploy-x2000` arms the SYS reset on that runtime before selecting the new

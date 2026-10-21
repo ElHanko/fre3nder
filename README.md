@@ -150,6 +150,7 @@ research/    Hardware research, qualification and project history
 Want to run Fre3nder?
 
 → [Installation](docs/installation.md)
+→ [Prepare first-install USB storage](docs/first-install-storage.md)
 
 Want to see what Fre3nder can do and how to configure it?
 

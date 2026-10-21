@@ -1,0 +1,201 @@
+#!/usr/bin/env python3
+"""Provision a removable USB disk for Fre3nder's first installation.
+
+Read-only by default. Does not contact a printer or change internal eMMC.
+"""
+
+import argparse
+import json
+import os
+from pathlib import Path
+import re
+import shutil
+import stat
+import subprocess
+import sys
+
+MIB = 1024 * 1024
+SYS_MIB = 300
+HOME_MIB = 6 * 1024
+MIN_FAT_MIB = 128
+SECTORS_PER_MIB = MIB // 512
+
+
+class Refused(Exception):
+    pass
+
+
+def run(argv, *, input_text=None):
+    return subprocess.run(
+        argv, input=input_text, text=True, check=True,
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+    ).stdout
+
+
+def require_tools(commands):
+    for command in commands:
+        if shutil.which(command) is None:
+            raise Refused(f"missing required tool: {command}")
+
+
+def inspect_disk(device):
+    """Check whole-disk identity, size and that nothing on it is in use."""
+    try:
+        metadata = os.stat(device)
+    except OSError as exc:
+        raise Refused(f"cannot inspect {device}: {exc}") from exc
+    if not stat.S_ISBLK(metadata.st_mode):
+        raise Refused(f"not a block device: {device}")
+
+    raw = run([
+        "lsblk", "-J", "-b", "-T", "-o",
+        "PATH,TYPE,TRAN,SIZE,LOG-SEC,RO,MOUNTPOINTS,PARTN,MODEL,SERIAL",
+        device,
+    ])
+    records = json.loads(raw).get("blockdevices", [])
+    if len(records) != 1:
+        raise Refused("expected exactly one disk")
+    disk = records[0]
+    if disk.get("path") != device or disk.get("type") != "disk":
+        raise Refused("target is not a whole disk")
+    if disk.get("tran") != "usb":
+        raise Refused("only USB transport is supported; refusing internal storage")
+    if int(disk.get("ro", 1)) != 0:
+        raise Refused("target disk is read-only")
+    if int(disk.get("log-sec", 0)) != 512:
+        raise Refused("only 512-byte logical sectors are supported")
+
+    size = int(disk.get("size", 0))
+    min_size = (1 + SYS_MIB + HOME_MIB + MIN_FAT_MIB + 1) * MIB
+    if size < min_size:
+        raise Refused(f"USB stick too small: minimum {min_size // MIB} MiB")
+
+    def check_unused(item):
+        if any(item.get("mountpoints") or []):
+            raise Refused(f"mounted filesystem found: {item.get('path')}")
+        if item.get("type") not in ("disk", "part"):
+            raise Refused(f"mapped or unexpected block device: {item.get('path')}")
+        for child in item.get("children") or []:
+            check_unused(child)
+
+    check_unused(disk)
+    return {"path": device, "size": size, "device_id": metadata.st_rdev,
+            "model": disk.get("model") or "unknown",
+            "serial": disk.get("serial") or "unknown",
+            "children": disk.get("children") or []}
+
+
+def partition_script():
+    """Three MBR partitions, aligned to MiB boundaries."""
+    return ("label: dos\nunit: sectors\n\n"
+            f"start=2048, size={SYS_MIB * SECTORS_PER_MIB}, type=83\n"
+            f"size={HOME_MIB * SECTORS_PER_MIB}, type=83\n"
+            "type=c\n")
+
+
+def verify_partition_layout(info):
+    children = info["children"]
+    if len(children) != 3:
+        raise Refused("partitioning did not produce exactly three partitions")
+    partitions = {}
+    for child in children:
+        if child.get("type") != "part":
+            raise Refused("unexpected device after partitioning")
+        number = int(child.get("partn") or 0)
+        path = child.get("path")
+        if number in partitions or number not in (1, 2, 3) or not isinstance(path, str):
+            raise Refused("invalid partition numbering")
+        partitions[number] = (path, int(child.get("size") or 0))
+    if set(partitions) != {1, 2, 3}:
+        raise Refused("missing or duplicate partition")
+    if partitions[1][1] != SYS_MIB * MIB or partitions[2][1] != HOME_MIB * MIB:
+        raise Refused("SYS/HOME sizes do not match planned layout")
+    if partitions[3][1] < MIN_FAT_MIB * MIB:
+        raise Refused("FAT partition is too small")
+    return {number: partitions[number][0] for number in (1, 2, 3)}
+
+
+def verify_filesystems(partitions):
+    for number, filesystem, label in (
+        (1, "ext4", "FRE3NDERSYS"),
+        (2, "ext4", "FRE3NDERHOME"),
+        (3, "vfat", "X2000DEV"),
+    ):
+        path = partitions[number]
+        actual_type = run(["blkid", "-o", "value", "-s", "TYPE", path]).strip()
+        actual_label = run(["blkid", "-o", "value", "-s", "LABEL", path]).strip()
+        if (actual_type, actual_label) != (filesystem, label):
+            raise Refused(f"filesystem verification failed on {path}")
+        print(f"PASS {path}: {actual_type} {actual_label}")
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--device", required=True,
+                        help="USB whole disk, e.g. /dev/sdc (not a partition)")
+    parser.add_argument("--write", action="store_true",
+                        help="destroy/repartition the USB disk after typed confirmation")
+    args = parser.parse_args(argv)
+    device = os.path.realpath(args.device)
+    if not re.fullmatch(r"/dev/sd[a-z]+", device):
+        raise Refused("expected a USB whole disk like /dev/sdc; no partition or internal eMMC")
+    require_tools(["lsblk"])
+    original = inspect_disk(device)
+    free_mib = original["size"] // MIB - 1 - SYS_MIB - HOME_MIB
+    print(f"USB device: {device} | {original['model']} | {original['serial']}")
+    print(f"Disk capacity: {original['size'] / (1000 ** 3):.2f} GB")
+    print(f"1. ext4 FRE3NDERSYS:  {SYS_MIB} MiB")
+    print(f"2. ext4 FRE3NDERHOME: {HOME_MIB} MiB (6 GiB)")
+    print(f"3. FAT32 X2000DEV:   remaining ~{free_mib} MiB")
+    print("Existing partition table and ALL DATA on this USB disk will be destroyed.")
+
+    if not args.write:
+        print("USB_STORAGE_PREFLIGHT=PASS (read-only; no changes)")
+        return 0
+
+    if os.geteuid() != 0:
+        raise Refused("--write requires root; use sudo only after reviewing the preflight")
+    require_tools(["sfdisk", "partprobe", "udevadm", "mkfs.ext4", "mkfs.vfat", "blkid"])
+    print("WARNING: this cannot be undone by the installer.")
+    try:
+        answer = input(f"Type 'ERASE {device}' to authorize destruction: ")
+    except EOFError as exc:
+        raise Refused("interactive confirmation required") from exc
+    if answer != f"ERASE {device}":
+        raise Refused("confirmation did not match; nothing written")
+
+    # Verify the disk was not swapped or mounted during the confirmation.
+    current = inspect_disk(device)
+    if (current["device_id"], current["size"], current["serial"]) != (
+            original["device_id"], original["size"], original["serial"]):
+        raise Refused("USB device changed; refusing to write")
+
+    print("Partitioning USB disk...")
+    run(["sfdisk", "--wipe", "always", "--wipe-partitions", "always", device],
+        input_text=partition_script())
+    run(["partprobe", device])
+    run(["udevadm", "settle"])
+
+    current = inspect_disk(device)
+    if (current["device_id"], current["size"], current["serial"]) != (
+            original["device_id"], original["size"], original["serial"]):
+        raise Refused("USB device identity changed after partitioning; refusing to format")
+    partitions = verify_partition_layout(current)
+
+    # Never format guessed partition names: use lsblk's verified descendants.
+    run(["mkfs.ext4", "-F", "-m", "0", "-L", "FRE3NDERSYS", partitions[1]])
+    run(["mkfs.ext4", "-F", "-m", "0", "-L", "FRE3NDERHOME", partitions[2]])
+    run(["mkfs.vfat", "-F", "32", "-n", "X2000DEV", partitions[3]])
+    os.sync()
+    verify_filesystems(partitions)
+    print("USB_STORAGE_PREPARE=PASS")
+    print("No printer partitions, boot selector, or firmware were changed.")
+    return 0
+
+
+if __name__ == "__main__":
+    try:
+        sys.exit(main())
+    except (Refused, subprocess.CalledProcessError, ValueError, json.JSONDecodeError) as exc:
+        print(f"REFUSED: {exc}", file=sys.stderr)
+        sys.exit(1)
