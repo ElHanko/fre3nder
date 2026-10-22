@@ -64,7 +64,7 @@ scripts/build-x2000 --develop
 | `scripts/build-x2000 --fre3nderscreen-app` | Invalid | Requires `--develop` |
 
 The optional app path first runs `scripts/build-x2000-fre3nderscreen --develop`,
-then `../fre3nder-apps/scripts/build-fre3nderscreen-development` with the neutral
+then `../fre3nder-apps/apps/fre3nderscreen/scripts/build-fre3nderscreen-development` with the neutral
 artifact and the existing `local/production/keys/apps/private.pem`. The sibling
 apps development wrapper uses the current recipe, including pending tracked
 changes, and reports `Recipe worktree: dirty` when applicable. The release
@@ -149,7 +149,7 @@ scripts/build-x2000-fre3nderscreen-release
 ```
 
 This release-only pipeline runs `scripts/build-x2000-fre3nderscreen`, then the
-existing `../fre3nder-apps/scripts/build-fre3nderscreen-release` importer/package
+existing `../fre3nder-apps/apps/fre3nderscreen/scripts/build-fre3nderscreen-release` importer/package
 wrapper. It takes the package path from that wrapper's PASS block and atomically
 copies the package to `local/production/factory-apps/fre3nderscreen.fre3app` with
 mode `0644`, checking byte equality and SHA256. Defaults are the sibling

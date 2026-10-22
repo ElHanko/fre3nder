@@ -72,9 +72,9 @@ command -v "${X2000_BUILD_DOCKER:-docker}" >/dev/null 2>&1 || fail 'Docker is re
 [ -x "$root/scripts/build-x2000" ] || fail 'missing X2000 build script'
 [ -x "$root/scripts/build-x2000-buildroot" ] || fail 'missing Buildroot script'
 [ -x "$root/scripts/build-x2000-fre3nderscreen-release" ] || fail 'missing Screen release wrapper'
-[ -x "$apps_repo/scripts/fetch-moonraker-inputs" ] || fail 'missing Moonraker fetch script'
-[ -x "$apps_repo/scripts/prepare-moonraker" ] || fail 'missing Moonraker preparation script'
-[ -x "$apps_repo/scripts/prepare-fluidd" ] || fail 'missing Fluidd preparation script'
+[ -x "$apps_repo/apps/moonraker/scripts/fetch-moonraker-inputs" ] || fail 'missing Moonraker fetch script'
+[ -x "$apps_repo/apps/moonraker/scripts/prepare-moonraker" ] || fail 'missing Moonraker preparation script'
+[ -x "$apps_repo/apps/fluidd/scripts/prepare-fluidd" ] || fail 'missing Fluidd preparation script'
 [ -x "$apps_repo/scripts/build-fre3app" ] || fail 'missing fre3app builder'
 [ -f "$firmware" ] && [ ! -L "$firmware" ] || fail "missing qualified F005 firmware: $firmware (use --firmware PATH)"
 
@@ -113,16 +113,16 @@ moonraker_seed=$production/system-apps/moonraker.fre3app
 step 'Moonraker: verified inputs, payload, signed system app'
 (
     cd "$apps_repo"
-    scripts/fetch-moonraker-inputs
-    scripts/prepare-moonraker --source local/moonraker/source --wheels local/moonraker/wheels
-    scripts/build-fre3app apps/moonraker --key "$app_key" --output "$moonraker_seed"
+    apps/moonraker/scripts/fetch-moonraker-inputs
+    apps/moonraker/scripts/prepare-moonraker --source local/moonraker/source --wheels local/moonraker/wheels
+    scripts/build-fre3app local/moonraker/package --key "$app_key" --output "$moonraker_seed"
 )
 
 step 'Fluidd: verified payload, signed app'
 fluidd_package=$(
     cd "$apps_repo"
-    scripts/prepare-fluidd
-    scripts/build-fre3app apps/fluidd --key "$app_key"
+    apps/fluidd/scripts/prepare-fluidd
+    scripts/build-fre3app local/fluidd/package --key "$app_key"
 )
 case "$fluidd_package" in
     dist/*.fre3app) fluidd_package=$apps_repo/$fluidd_package ;;

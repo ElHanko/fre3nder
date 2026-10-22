@@ -199,7 +199,7 @@ if [ "$fre3nderscreen_app" = true ]; then
 	apps_repo="$root/../fre3nder-apps"
 	[ -d "$apps_repo" ] || fail 'missing fre3nder-apps repository'
 	apps_repo=$(CDPATH='' cd -- "$apps_repo" && pwd -P)
-	package_builder="$apps_repo/scripts/build-fre3nderscreen-development"
+	package_builder="$apps_repo/apps/fre3nderscreen/scripts/build-fre3nderscreen-development"
 	[ -x "$package_builder" ] || fail 'missing Fre3nderScreen development package wrapper'
 	"$root/scripts/build-x2000-fre3nderscreen" --develop
 	artifact="$artifact_root/fre3nderscreen/app"

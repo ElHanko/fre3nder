@@ -2,7 +2,7 @@
 
 Moonraker is an **image-seeded, mandatory system fre3app**. The source pin and
 pure-Python wheel lock live in `fre3nder-apps/apps/moonraker/`. That repository's
-`scripts/prepare-moonraker` stages a supplied pinned source checkout and locked
+`apps/moonraker/scripts/prepare-moonraker` prepares an explicit package source under `local/moonraker/package/` from a pinned source checkout and locked
 wheels offline; its package builder signs the payload with the official
 Fre3nder app signing key. Fre3nder supplies the native Python dependencies
 and libraries through Buildroot.

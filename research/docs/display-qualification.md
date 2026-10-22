@@ -120,7 +120,7 @@ Platform and app release modes are independent. Both `scripts/build-x2000` and
 rebuilding Screen. Only `scripts/build-x2000 --develop --fre3nderscreen-app`
 (also with `--rootfs-only`, optionally `--f005-build`) builds current remote
 Screen `main` through the existing cross-builder's `--develop` path. The sibling
-`fre3nder-apps/scripts/build-fre3nderscreen-development` imports and signs it as
+`fre3nder-apps/apps/fre3nderscreen/scripts/build-fre3nderscreen-development` imports and signs it as
 `<artifact.source.release>-fre3nder.0.<apps-commit>`, using the apps commit's short
 Git identity and `release_serial = 0`. Tracked apps changes block this path;
 generated untracked/ignored files do not.

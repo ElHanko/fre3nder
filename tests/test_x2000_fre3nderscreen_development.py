@@ -88,7 +88,7 @@ class DevelopmentOrchestrationTests(unittest.TestCase):
         for command in ("build-x2000-kernel",
                         "build-x2000-buildroot", "build-x2000-fre3nderscreen", "build-f005"):
             executable(self.repo / "scripts" / command, FAKE_COMMAND)
-        self.package_builder = self.apps / "scripts/build-fre3nderscreen-development"
+        self.package_builder = self.apps / "apps/fre3nderscreen/scripts/build-fre3nderscreen-development"
         executable(self.package_builder, FAKE_COMMAND)
         self.seed = self.repo / "local/production/factory-apps/fre3nderscreen.fre3app"
         self.seed.parent.mkdir(parents=True)

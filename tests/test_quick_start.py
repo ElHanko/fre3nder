@@ -81,19 +81,19 @@ mkdir -p "$out"
 printf 'ota' > "$out/fre3nder-2026.5.a-ender3-v3-ke.ota"
 (cd "$out" && sha256sum fre3nder-2026.5.a-ender3-v3-ke.ota > SHA256SUMS)
 """)
-        self.write(self.apps, "scripts/fetch-moonraker-inputs", """#!/bin/sh
+        self.write(self.apps, "apps/moonraker/scripts/fetch-moonraker-inputs", """#!/bin/sh
 printf 'fetch-moonraker\\n' >> "$QUICK_START_TEST_LOG"
 """)
-        self.write(self.apps, "scripts/prepare-moonraker", """#!/bin/sh
+        self.write(self.apps, "apps/moonraker/scripts/prepare-moonraker", """#!/bin/sh
 printf 'prepare-moonraker:%s\\n' "$*" >> "$QUICK_START_TEST_LOG"
 """)
-        self.write(self.apps, "scripts/prepare-fluidd", """#!/bin/sh
+        self.write(self.apps, "apps/fluidd/scripts/prepare-fluidd", """#!/bin/sh
 printf 'prepare-fluidd\\n' >> "$QUICK_START_TEST_LOG"
 """)
         self.write(self.apps, "scripts/build-fre3app", """#!/bin/sh
 set -eu
 printf 'package:%s\\n' "$*" >> "$QUICK_START_TEST_LOG"
-if [ "$1" = apps/fluidd ]; then
+if [ "$1" = local/fluidd/package ]; then
     mkdir -p dist
     touch dist/fluidd-test-x2000.fre3app
     printf 'dist/fluidd-test-x2000.fre3app\\n'
@@ -142,8 +142,8 @@ fi
         self.assertEqual(self.log.read_text().splitlines(), [
             "app-key", "ota-key", "fetch-moonraker",
             "prepare-moonraker:--source local/moonraker/source --wheels local/moonraker/wheels",
-            f"package:apps/moonraker --key {self.root}/local/production/keys/apps/private.pem --output {self.root}/local/production/system-apps/moonraker.fre3app",
-            "prepare-fluidd", f"package:apps/fluidd --key {self.root}/local/production/keys/apps/private.pem",
+            f"package:local/moonraker/package --key {self.root}/local/production/keys/apps/private.pem --output {self.root}/local/production/system-apps/moonraker.fre3app",
+            "prepare-fluidd", f"package:local/fluidd/package --key {self.root}/local/production/keys/apps/private.pem",
             "buildroot:--toolchain", "screen", f"platform:{self.firmware}",
         ])
         self.log.unlink()

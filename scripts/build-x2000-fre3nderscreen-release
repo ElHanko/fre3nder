@@ -31,7 +31,7 @@ case "$apps_repo" in /*) ;; *) apps_repo=$caller_dir/$apps_repo ;; esac
 case "$key" in /*) ;; *) key=$caller_dir/$key ;; esac
 apps_repo=$(CDPATH='' cd -- "$apps_repo" && pwd -P)
 [ -x "$root/scripts/build-x2000-fre3nderscreen" ] || fail 'missing Fre3nderScreen cross-builder'
-[ -x "$apps_repo/scripts/build-fre3nderscreen-release" ] || fail 'missing apps release wrapper'
+[ -x "$apps_repo/apps/fre3nderscreen/scripts/build-fre3nderscreen-release" ] || fail 'missing apps release wrapper'
 git -C "$apps_repo" diff --quiet -- &&
 	git -C "$apps_repo" diff --cached --quiet -- ||
 	fail 'fre3nder-apps has tracked worktree changes'
@@ -41,7 +41,7 @@ factory_seed=$seed_dir/fre3nderscreen.fre3app
 
 cd "$root"
 "$root/scripts/build-x2000-fre3nderscreen"
-package_output=$("$apps_repo/scripts/build-fre3nderscreen-release" \
+package_output=$("$apps_repo/apps/fre3nderscreen/scripts/build-fre3nderscreen-release" \
 	--artifact "$artifact" --key "$key")
 package=$(printf '%s\n' "$package_output" | awk '
 $0 == "=== Fre3nderScreen release package: PASS ===" { passes++; in_pass = 1; next }

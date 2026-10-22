@@ -86,7 +86,7 @@ class ReleasePipelineTests(unittest.TestCase):
         shutil.copyfile(WRAPPER, self.wrapper)
         self.wrapper.chmod(0o755)
         for command in (scripts / "build-x2000-fre3nderscreen",
-                        self.apps_repo / "scripts/build-fre3nderscreen-release"):
+                        self.apps_repo / "apps/fre3nderscreen/scripts/build-fre3nderscreen-release"):
             command.parent.mkdir(parents=True, exist_ok=True)
             command.write_text(FAKE_COMMAND)
             command.chmod(0o755)
