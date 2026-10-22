@@ -76,17 +76,20 @@ clean_rootfs_python_cache() {
 clean_rootfs_python_cache
 
 git -C "$root" check-ignore -q local/production
+inputs=$(mktemp -d)
+trap 'rm -rf -- "$inputs"' EXIT HUP INT TERM
 
 if [ "$phase" = --toolchain ]; then
-	"$docker_cmd" build -t "$image" "$root/build/x2000"
+	python3 "$root/scripts/x2000-build-input-sha256" --root "$root" --snapshot "$inputs/project"
+	"$docker_cmd" build -t "$image" "$inputs/project/build/x2000"
 	mkdir -p "$work_root"
 	"$docker_cmd" run --rm --user "$runtime_user" \
-		-v "$root:/project" \
+		-v "$inputs/project:/project:ro" \
 		-v "$work_root:/work" \
 		"$image" fetch-buildroot
 	"$docker_cmd" run --rm --network none --user "$runtime_user" \
 		-e "FRE3NDER_ARTIFACT_MODE=$artifact_mode" \
-		-v "$root:/project" \
+		-v "$inputs/project:/project:ro" \
 		-v "$work_root:/work" \
 		"$image" prepare-buildroot-toolchain
 	exit 0
@@ -107,8 +110,8 @@ openssl pkey -pubin -in "$app_public_key" -text -noout 2>/dev/null |
 }
 
 # Package-Core resolves built-in keys by publisher filename.
-app_keys=$(mktemp -d)
-trap 'rm -rf -- "$app_keys"' EXIT HUP INT TERM
+app_keys=$inputs/app-keys
+mkdir "$app_keys"
 install -m 0644 "$app_public_key" "$app_keys/fre3nder-official.pem"
 
 [ -f "$factory_seed" ] && [ ! -L "$factory_seed" ] || {
@@ -185,18 +188,28 @@ python3 "$root/build/x2000/f005_firmware.py" --root "$root" \
 	--firmware "$f005_firmware" --mode "$f005_firmware_mode" \
 	--artifact-mode "$artifact_mode" >/dev/null
 
-"$docker_cmd" build -t "$image" "$root/build/x2000"
-mkdir -p "$work_root"
+python3 "$root/scripts/x2000-build-input-sha256" --root "$root" --snapshot "$inputs/project"
+"$docker_cmd" build -t "$image" "$inputs/project/build/x2000"
+artifact_root="$local_root/artifacts/x2000"
+mkdir -p "$work_root" "$artifact_root" "$inputs/system-app-seeds"
+# Expose only package inputs, never the producer's whole directory.
+for seed in "$system_app_seeds"/*.fre3app; do
+	[ -f "$seed" ] && [ ! -L "$seed" ] || {
+		echo 'system-app seed must be a regular package' >&2; exit 1;
+	}
+	cp -- "$seed" "$inputs/system-app-seeds/"
+done
 
 container_f005_firmware=/f005-firmware
 set -- -v "$f005_firmware:$container_f005_firmware:ro"
 if [ "$f005_firmware_mode" = candidate ]; then
 	container_f005_firmware=/f005-candidate/klipper-f005-mainline.bin
-	set -- -v "$(dirname -- "$f005_firmware"):/f005-candidate:ro"
+	set -- -v "$f005_firmware:$container_f005_firmware:ro" \
+		-v "$(dirname -- "$f005_firmware")/build-manifest.json:/f005-candidate/build-manifest.json:ro"
 fi
 
 "$docker_cmd" run --rm --user "$runtime_user" \
-	-v "$root:/project" \
+	-v "$inputs/project:/project:ro" \
 	-v "$work_root:/work" \
 	"$image" fetch-rootfs
 "$docker_cmd" run --rm --network none --user "$runtime_user" \
@@ -212,7 +225,8 @@ fi
 	-v "$ota_public_key:/ota-public-key:ro" \
 	-v "$app_public_key:/app-public-key:ro" \
 	-v "$factory_seed:/factory-fre3nderscreen-app:ro" \
-	-v "$system_app_seeds:/system-app-seeds:ro" \
-	-v "$root:/project" \
+	-v "$inputs/system-app-seeds:/system-app-seeds:ro" \
+	-v "$inputs/project:/project:ro" \
 	-v "$work_root:/work" \
+	-v "$artifact_root:/artifacts" \
 	"$image" build-rootfs-only

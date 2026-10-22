@@ -34,24 +34,30 @@ elif [ "$artifact_mode" = development ] && [ -d "$root/../fre3nderscreen/.git" ]
 	exit 1
 fi
 
-# An explicit read-only source mount; all preparation happens in /work.
+# Local sources are copied explicitly; their repository is never mounted.
+git -C "$root" check-ignore -q local/production
+inputs=$(mktemp -d)
+trap 'rm -rf -- "$inputs"' EXIT HUP INT TERM
+python3 "$root/scripts/x2000-build-input-sha256" --root "$root" --snapshot "$inputs/project"
+artifact_root="$root/local/production/artifacts/x2000"
+mkdir -p "$work_root" "$artifact_root"
 set --
 if [ -n "$local_source" ]; then
-	set -- -v "$local_source:/screen-local:ro" -e FRE3NDER_SCREEN_LOCAL_SOURCE=/screen-local
+	python3 "$root/build/x2000/snapshot-fre3nderscreen.py" "$local_source" "$work_root/fre3nderscreen-source"
+	set -- -e FRE3NDER_SCREEN_LOCAL_SOURCE=prepared
 fi
 
-git -C "$root" check-ignore -q local/production
-"$docker_cmd" build -t "$image" "$root/build/x2000"
-mkdir -p "$work_root"
+"$docker_cmd" build -t "$image" "$inputs/project/build/x2000"
 "$docker_cmd" run --rm --user "$runtime_user" \
 	-e "FRE3NDER_ARTIFACT_MODE=$artifact_mode" \
-	-v "$root:/project" \
+	-v "$inputs/project:/project:ro" \
 	-v "$work_root:/work" \
 	"$@" "$image" fetch-fre3nderscreen
 "$docker_cmd" run --rm --network none --user "$runtime_user" \
 	-e "FRE3NDER_ARTIFACT_MODE=$artifact_mode" \
-	-v "$root:/project" \
+	-v "$inputs/project:/project:ro" \
 	-v "$work_root:/work" \
+	-v "$artifact_root:/artifacts" \
 	"$@" "$image" build-fre3nderscreen-app
 
 artifact_dir="$root/local/production/artifacts/x2000/fre3nderscreen"

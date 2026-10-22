@@ -5,7 +5,10 @@ import hashlib
 import json
 import os
 import pathlib
+import re
+import shutil
 import stat
+import subprocess
 
 
 BUILD_INPUTS = (
@@ -23,6 +26,92 @@ BUILD_INPUTS = (
     "scripts/source-value",
     "scripts/x2000-build-input-sha256",
 )
+
+# Additional versioned inputs checked by the F005 candidate validator.
+SNAPSHOT_INPUTS = BUILD_INPUTS + (
+    "build/klipper-f005",
+    "scripts/build-f005",
+    "scripts/package_f005_firmware.py",
+)
+PROVENANCE = ".fre3nder-project.json"
+PRIVATE_KEY = re.compile(rb"^[ \t]*-----BEGIN (?:[A-Z0-9]+ )?PRIVATE KEY-----[ \t]*\r?$", re.MULTILINE)
+
+
+def git(root, *args):
+    return subprocess.check_output(["git", "-C", str(root), *args])
+
+
+def project_provenance(root):
+    if (root / ".git").exists():
+        return {
+            "project_commit": git(root, "rev-parse", "HEAD").decode().strip(),
+            "project_worktree_status": "dirty" if git(root, "status", "--porcelain=v1").strip() else "clean",
+        }
+    record = json.loads((root / PROVENANCE).read_text())
+    if (not re.fullmatch(r"[0-9a-f]{40}", str(record.get("project_commit", "")))
+            or record.get("project_worktree_status") not in ("clean", "dirty")):
+        raise ValueError("invalid project snapshot provenance")
+    return record
+
+
+def snapshot(root, destination):
+    if destination.exists() or destination.is_symlink():
+        raise ValueError("project snapshot destination already exists")
+    if destination.resolve().is_relative_to(root):
+        raise ValueError("project snapshot must be outside the source checkout")
+    provenance = project_provenance(root)
+    for relative in ("local/production/work/x2000", "local/production/artifacts/x2000"):
+        path = root
+        for part in relative.split("/"):
+            path /= part
+            if path.is_symlink() or path.exists() and not path.is_dir():
+                raise ValueError(f"build mount directory must be a real directory: {relative}")
+
+    def selected(name):
+        return any(name == prefix or name.startswith(prefix + "/") for prefix in SNAPSHOT_INPUTS)
+
+    def files(repository, prefix="", expected_commit=None):
+        if expected_commit and git(repository, "rev-parse", "HEAD").decode().strip() != expected_commit:
+            raise ValueError(f"project submodule is not initialized at its recorded commit: {prefix}")
+        for entry in git(repository, "ls-files", "--stage", "-z").split(b"\0"):
+            if not entry:
+                continue
+            info, raw_name = entry.split(b"\t", 1)
+            mode, commit, stage = info.decode().split()
+            name = prefix + os.fsdecode(raw_name)
+            if not selected(name):
+                continue
+            if stage != "0":
+                raise ValueError(f"unmerged project input: {name}")
+            relative = pathlib.PurePosixPath(name)
+            if relative.is_absolute() or "\\" in name or any(p in ("", ".", "..", ".git") for p in name.split("/")):
+                raise ValueError(f"unsafe project input: {name!r}")
+            source = root
+            for part in relative.parts:
+                source /= part
+                if source.is_symlink():
+                    raise ValueError(f"symlink in project input: {name}")
+            if mode == "160000":
+                yield from files(source, name + "/", commit)
+            else:
+                if not stat.S_ISREG(source.lstat().st_mode):
+                    raise ValueError(f"project input is not a regular file: {name}")
+                yield name, source
+
+    entries = list(files(root))
+    for prefix in SNAPSHOT_INPUTS:
+        if not any(name == prefix or name.startswith(prefix + "/") for name, _ in entries):
+            raise ValueError(f"missing tracked project input: {prefix}")
+    destination.mkdir(parents=True)
+    for name, source in entries:
+        data = source.read_bytes()
+        if PRIVATE_KEY.search(data):
+            raise ValueError(f"private key in project input: {name}")
+        target = destination / name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(data)
+        shutil.copymode(source, target)
+    (destination / PROVENANCE).write_text(json.dumps(provenance, sort_keys=True) + "\n")
 
 
 def file_sha256(path):
@@ -93,7 +182,21 @@ def main():
         help=argparse.SUPPRESS,
     )
     parser.add_argument("--list-inputs", action="store_true")
+    parser.add_argument("--snapshot", type=pathlib.Path, metavar="DIR",
+                        help="copy only selected tracked inputs, without Git or production data")
+    parser.add_argument("--provenance", choices=("project_commit", "project_worktree_status"))
     args = parser.parse_args()
+
+    if args.snapshot is not None or args.provenance:
+        try:
+            root = args.root.resolve()
+            if args.snapshot is not None:
+                snapshot(root, args.snapshot)
+            else:
+                print(project_provenance(root)[args.provenance])
+        except (OSError, ValueError, subprocess.CalledProcessError) as exc:
+            parser.exit(1, f"x2000-build-input-sha256: {exc}\n")
+        return
 
     if args.list_inputs:
         print("\n".join(BUILD_INPUTS))

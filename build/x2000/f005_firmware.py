@@ -76,9 +76,12 @@ def validate(root, firmware, mode, artifact_mode, candidate_manifest=None):
         sources = json.loads((root / "configs/x2000/sources.json").read_text())
         if upstream["commit"] != sources["userspace"]["klipper"]["commit"]:
             raise ValueError("F005 candidate Klipper upstream commit mismatch")
-        current_commit = subprocess.check_output(
-            ["git", "-C", str(root), "rev-parse", "HEAD"], text=True
-        ).strip()
+        if (root / ".git").exists():
+            current_commit = subprocess.check_output(
+                ["git", "-C", str(root), "rev-parse", "HEAD"], text=True
+            ).strip()
+        else:
+            current_commit = json.loads((root / ".fre3nder-project.json").read_text())["project_commit"]
         if candidate.get("project_commit") != current_commit:
             raise ValueError("F005 candidate project commit mismatch")
         inputs = candidate["inputs"]

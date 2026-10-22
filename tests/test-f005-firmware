@@ -334,18 +334,24 @@ class FirmwareFixtures(unittest.TestCase):
         docker.write_text('#!/bin/sh\nprintf "%s\\n" "$*" >> "$docker_log"\n')
         docker.chmod(0o755)
         log = self.directory / "docker.log"
+        inputs = self.directory / "inputs"
+        inputs.mkdir()
+        (self.directory / "moonraker.fre3app").write_bytes(b"selected package fixture")
         env = dict(os.environ, root=str(ROOT), f005_firmware=str(self.firmware),
                    f005_firmware_mode="candidate", artifact_mode="development",
                    docker_cmd=str(docker), docker_log=str(log), runtime_user="fixture",
                    work_root=str(self.directory), image="fixture", ota_public_key="fixture",
-                   app_public_key="fixture",
+                   app_public_key="fixture", inputs=str(inputs),
+                   local_root=str(self.directory / "production"),
                    factory_seed="fixture")
         env["system_app_seeds"] = str(self.directory)
         result = subprocess.run(["sh", "-eu"], input=command, text=True, env=env,
                                 capture_output=True)
         self.assertEqual(result.returncode, 0, result.stderr)
         calls = log.read_text()
-        self.assertIn(f"{self.directory}:/f005-candidate:ro", calls)
+        self.assertIn(f"{self.firmware}:/f005-candidate/{FIRMWARE_NAME}:ro", calls)
+        self.assertIn(f"{self.sidecar}:/f005-candidate/build-manifest.json:ro", calls)
+        self.assertNotIn(f"{self.directory}:/f005-candidate:ro", calls)
         self.assertIn("FRE3NDER_F005_FIRMWARE=/f005-candidate/" + FIRMWARE_NAME, calls)
         self.assertIn("FRE3NDER_F005_FIRMWARE_MODE=candidate", calls)
         self.assertIn("--network none", calls)

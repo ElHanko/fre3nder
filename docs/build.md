@@ -37,6 +37,80 @@ command. Source versions, toolchains, licenses, and exact patch identities are
 recorded in the [source manifest](../configs/x2000/sources.json) and
 [licensing record](licensing-and-provenance.md).
 
+## Container inputs and outputs
+
+The X2000 Kernel, Buildroot and Screen wrappers and the sibling OctoApp native
+builder use `scripts/x2000-build-input-sha256 --snapshot <new-directory>` to
+prepare a temporary project input tree. The existing fingerprint tool copies
+only tracked files from this explicit selection:
+
+- `VERSION`, `build/x2000`, `configs/x2000`, `configs/klipper-f005`;
+- `patches/buildroot`, `patches/kernel`, `patches/klipper`;
+- `scripts/build-x2000`, `scripts/build-x2000-buildroot`,
+  `scripts/build-x2000-fre3nderscreen`, `scripts/build-x2000-kernel`,
+  `scripts/source-value`, `scripts/x2000-build-input-sha256`;
+- `build/klipper-f005`, `scripts/build-f005` and
+  `scripts/package_f005_firmware.py`, needed for F005 candidate verification.
+
+Current edits to tracked inputs are included. New inputs must be added to the
+Git index; ignored and untracked files are excluded, including files inside the
+Docker build context. Selected submodules must be initialized at their recorded
+commits; only their tracked content is copied. Missing inputs, symlinks,
+non-regular files, merge conflicts and PEM private-key headers stop preparation.
+The source checkout and its `.git`, local configuration, credentials and
+`local/production/` tree are never mounted as project inputs. Review tracked
+inputs before use: positive selection does not identify arbitrary secrets
+deliberately placed inside a versioned source file.
+
+| Container path | Host input/output | Access |
+| --- | --- | --- |
+| `/project` | Temporary selected project snapshot | Read-only |
+| `/work` | `local/production/work/x2000` | Read/write |
+| `/artifacts` | `local/production/artifacts/x2000` | Read/write, artifact-producing steps only |
+| RootFS public keys, factory app and F005 firmware | Explicit individual files | Read-only |
+| `/system-app-seeds` | Temporary copy of selected regular `*.fre3app` files | Read-only |
+
+F005 candidate mode additionally mounts only its `build-manifest.json` file,
+not the containing directory. Work/artifact mount paths must not contain
+symlinks. OctoApp retains its selected Buildroot output's parent as `/work`,
+but rejects a parent that includes the project or production key directory.
+No private signing key is an input to these containers. The Docker image context
+also comes from the snapshot. Fetch/build targets, offline compilation and host
+artifact locations stay unchanged.
+
+The snapshot stores the original project commit and clean/dirty state in
+`.fre3nder-project.json`. Existing artifact manifests and F005 candidate checks
+consume this record without exposing Git metadata; development fingerprints
+still hash the actual selected inputs with the existing algorithm. Snapshots
+are removed when the host wrapper exits.
+
+The shared Buildroot work tree and X2000 artifact tree remain writable. Existing
+collectors replace artifact subdirectories atomically, so `/artifacts` mounts
+their parent; older component artifacts are writable through it as well. Treat
+these trees as build outputs requiring validation before signing. This phase does not isolate
+builds from each other, remove host execution of tools from that work tree, or
+make arbitrary upstream code safe for unattended builds. Doom's host build and
+the later validation/signing boundary need separate work. No Docker socket or
+additional privileged container options are introduced.
+
+The additional mount audit found a full writable project mount in
+`research/scripts/build-x2000-prototype`. Phase 1 is explicitly limited to the
+productive builders; this historical path remains unchanged. Its complete
+project mount and its provisioned variants' access to local WLAN credentials
+remain documented risks outside this phase. The productive wrappers above do
+not invoke it.
+
+Host-only mount regression checks use synthetic Docker/OpenSSL executables and
+temporary source fixtures, without containers, builds or signing keys:
+
+```sh
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests -p test_x2000_mounts.py -v
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests \
+  -p test_x2000_fre3nderscreen_development.py -k LocalScreenSource -v
+# From the sibling fre3nder-apps repository, with both changes present:
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s apps/octoapp/tests -p test_native_mounts.py -v
+```
+
 ## Complete X2000 build
 
 ```sh
@@ -81,11 +155,16 @@ FRE3NDER_FRE3NDERSCREEN_SOURCE=../fre3nderscreen \
 ```
 
 This requires the already prepared Buildroot host toolchain used by the Screen
-cross-builder. The variable is accepted only in development mode. The checkout
-is mounted read-only; its tracked and non-ignored new files, edits, and deletions
-are copied into the isolated build source. Initialized, clean submodules must
-match the local recorded Git links; existing source patches are applied to their
-copies. The artifact's `source` records `origin: local-worktree`, the baseline
+cross-builder. The variable is accepted only in development mode. The host
+prepares a copy under `/work`; the local checkout is never mounted. Tracked
+files, edits and deletions are preserved. Non-ignored new C/C++ sources, headers,
+CMake fragments, patches and `themes/*.json` are included; add other intended
+inputs to the Git index explicitly. Arbitrary untracked files, ignored files,
+local Git configuration/hooks and old Git history are excluded. Symlinks,
+PEM private keys and credential-bearing origin URLs are rejected. Initialized,
+clean submodules must match the local recorded Git links; existing source
+patches are applied to their copies. The artifact's `source` records
+`origin: local-worktree`, the baseline
 commit, `worktree_status`, and `worktree_sha256`. The current local repository is
 never reset or cleaned. Without the variable, development keeps the remote
 `main` path but refuses to proceed if the conventional sibling Screen repository

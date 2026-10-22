@@ -57,11 +57,10 @@ buildroot_dl="$work/buildroot-dl"
 buildroot_external="$project/configs/x2000/buildroot-external"
 klipper="$work/klipper"
 klipper_linux_config="$project/build/x2000/klipper-linux.config"
-local_root="$project/local/production"
+artifact_root=/artifacts
 f005_target_path=/var/lib/fre3nder/firmware/f005/klipper-f005-mainline.bin
-f005_firmware=${FRE3NDER_F005_FIRMWARE:-"$local_root/artifacts/x2000/f005/klipper-f005-mainline.bin"}
+f005_firmware=${FRE3NDER_F005_FIRMWARE:-"$artifact_root/f005/klipper-f005-mainline.bin"}
 f005_firmware_mode=${FRE3NDER_F005_FIRMWARE_MODE:-qualified}
-artifact_root="$local_root/artifacts/x2000"
 full_out="$artifact_root/full"
 kernel_out="$artifact_root/kernel-only"
 rootfs_out="$artifact_root/rootfs-only"
@@ -107,12 +106,8 @@ release|development) ;;
 esac
 
 prepare_artifact_provenance() {
-	project_commit=$(git -C "$project" rev-parse HEAD)
-	if [ -n "$(git -C "$project" status --porcelain=v1)" ]; then
-		project_worktree_status=dirty
-	else
-		project_worktree_status=clean
-	fi
+	project_commit=$("$project/scripts/x2000-build-input-sha256" --root "$project" --provenance project_commit)
+	project_worktree_status=$("$project/scripts/x2000-build-input-sha256" --root "$project" --provenance project_worktree_status)
 
 	if [ "$artifact_mode" = development ]; then
 		build_input_sha256=$(

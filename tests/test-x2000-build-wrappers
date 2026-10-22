@@ -5,7 +5,6 @@ root=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
 orchestrator="$root/scripts/build-x2000"
 kernel_builder="$root/scripts/build-x2000-kernel"
 buildroot_builder="$root/scripts/build-x2000-buildroot"
-fre3nderscreen_builder="$root/scripts/build-x2000-fre3nderscreen"
 fre3nderscreen_component="$root/build/x2000/fre3nderscreen-component.sh"
 key_generator="$root/scripts/generate-ota-keypair"
 tmp=$(mktemp -d)
@@ -50,13 +49,13 @@ X2000_BUILD_DOCKER="$fake_docker" X2000_TEST_DOCKER_LOG="$docker_log" \
 grep -Fq 'FRE3NDER_ARTIFACT_MODE=development' "$docker_log"
 
 screen_fixture="$tmp/fre3nderscreen-wrapper-project"
-mkdir -p "$screen_fixture/scripts" "$screen_fixture/local/production"
-cp "$fre3nderscreen_builder" \
-	"$screen_fixture/scripts/build-x2000-fre3nderscreen"
-chmod 0755 "$screen_fixture/scripts/build-x2000-fre3nderscreen"
+python3 "$root/scripts/x2000-build-input-sha256" --root "$root" --snapshot "$screen_fixture"
 printf 'fixture\n' > "$screen_fixture/VERSION"
 printf '/local/\n' > "$screen_fixture/.gitignore"
 git -C "$screen_fixture" init -q
+git -C "$screen_fixture" add .
+git -C "$screen_fixture" -c user.name=Fixture -c user.email=fixture@example.invalid \
+	commit -qm fixture
 
 : > "$docker_log"
 if X2000_BUILD_DOCKER="$fake_docker" X2000_TEST_DOCKER_LOG="$docker_log" \
@@ -92,6 +91,7 @@ grep -Fq 'SOURCE_DATE_EPOCH="$source_date_epoch" \' \
 
 # RootFS wrapper fixtures verify signed packages with the real Package-Core.
 rootfs_fixture="$tmp/rootfs-project"
+python3 "$root/scripts/x2000-build-input-sha256" --root "$root" --snapshot "$rootfs_fixture"
 core_dir="$rootfs_fixture/configs/x2000/rootfs-overlay/usr/libexec/fre3nder"
 mkdir -p "$rootfs_fixture/scripts" "$rootfs_fixture/build/x2000" "$core_dir" \
     "$rootfs_fixture/local/production/system-apps" \
@@ -103,6 +103,9 @@ cp "$root/configs/x2000/f005-mcu-release.json" "$rootfs_fixture/configs/x2000/"
 cp "$root/VERSION" "$rootfs_fixture/"
 printf '/local/\n' > "$rootfs_fixture/.gitignore"
 git -C "$rootfs_fixture" init -q
+git -C "$rootfs_fixture" add .
+git -C "$rootfs_fixture" -c user.name=Fixture -c user.email=fixture@example.invalid \
+	commit -qm fixture
 chmod 0755 "$rootfs_fixture/local/production/system-apps"
 cp "$root/configs/x2000/rootfs-overlay/usr/libexec/fre3nder/package-core" "$core_dir/"
 app_public_key="$rootfs_fixture/local/production/keys/apps/fre3nder-official.pem"
@@ -292,7 +295,8 @@ for serial in 0 1; do
             "$buildroot_builder" "$@" > "$release_log" 2>&1; then
             [ "$mode" = development ] || [ "$serial" -ge 1 ]
             grep -Fq 'build-rootfs-only' "$docker_log"
-            grep -Fq -- "-v $rootfs_fixture/local/production/system-apps:/system-app-seeds:ro" "$docker_log"
+            grep -Eq -- '-v [^ ]+/system-app-seeds:/system-app-seeds:ro' "$docker_log"
+            ! grep -Fq -- "-v $rootfs_fixture/local/production/system-apps:" "$docker_log"
             grep -Fq -- "-v $app_public_key:/app-public-key:ro" "$docker_log"
             grep -Fq 'FRE3NDER_APP_PUBLIC_KEY=/app-public-key' "$docker_log"
         else

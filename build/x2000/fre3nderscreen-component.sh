@@ -4,7 +4,7 @@ set -eu
 project=/project
 work=/work
 source_dir=$work/fre3nderscreen-source
-artifact_dir=$project/local/production/artifacts/x2000/fre3nderscreen
+artifact_dir=/artifacts/fre3nderscreen
 buildroot_output=$work/buildroot-output-fre3nder
 artifact_mode=${FRE3NDER_ARTIFACT_MODE:-release}
 
@@ -38,8 +38,7 @@ fi
 fetch() {
 	if [ -n "${FRE3NDER_SCREEN_LOCAL_SOURCE:-}" ]; then
 		[ "$artifact_mode" = development ] || return 1
-		python3 "$project/build/x2000/snapshot-fre3nderscreen.py" \
-			"$FRE3NDER_SCREEN_LOCAL_SOURCE" "$source_dir"
+		[ -d "$source_dir/.git" ] && [ -f "$source_dir.snapshot.json" ]
 		return
 	fi
 	rm -f -- "$source_dir.snapshot.json"
@@ -203,10 +202,8 @@ build_app() {
 	install -m 0644 "$source_dir/licenses/MATERIAL-DESIGN-ICONS-LICENSE.txt" \
 		"$tmp/app/licenses/MATERIAL-DESIGN-ICONS-LICENSE"
 
-	project_commit=$(git -C "$project" rev-parse HEAD)
-	project_worktree_status=clean
-	[ -z "$(git -C "$project" status --porcelain=v1)" ] ||
-		project_worktree_status=dirty
+	project_commit=$("$project/scripts/x2000-build-input-sha256" --root "$project" --provenance project_commit)
+	project_worktree_status=$("$project/scripts/x2000-build-input-sha256" --root "$project" --provenance project_worktree_status)
 	build_input_sha256=$(
 		"$project/scripts/x2000-build-input-sha256" --root "$project"
 	)

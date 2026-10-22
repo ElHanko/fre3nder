@@ -23,14 +23,19 @@ case "${1:-}" in
 esac
 
 git -C "$root" check-ignore -q local/production
-"$docker_cmd" build -t "$image" "$root/build/x2000"
-mkdir -p "$work_root"
+inputs=$(mktemp -d)
+trap 'rm -rf -- "$inputs"' EXIT HUP INT TERM
+python3 "$root/scripts/x2000-build-input-sha256" --root "$root" --snapshot "$inputs/project"
+artifact_root="$root/local/production/artifacts/x2000"
+"$docker_cmd" build -t "$image" "$inputs/project/build/x2000"
+mkdir -p "$work_root" "$artifact_root"
 "$docker_cmd" run --rm --user "$runtime_user" \
-	-v "$root:/project" \
+	-v "$inputs/project:/project:ro" \
 	-v "$work_root:/work" \
 	"$image" fetch-kernel
 "$docker_cmd" run --rm --network none --user "$runtime_user" \
 	-e "FRE3NDER_ARTIFACT_MODE=$artifact_mode" \
-	-v "$root:/project" \
+	-v "$inputs/project:/project:ro" \
 	-v "$work_root:/work" \
+	-v "$artifact_root:/artifacts" \
 	"$image" build-kernel-only

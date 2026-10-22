@@ -320,6 +320,61 @@ class LocalScreenSourceTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("requires --develop", result.stderr)
 
+    def test_snapshot_excludes_local_configuration_and_old_history(self):
+        snapshot = runpy.run_path(str(ROOT / "build/x2000/snapshot-fre3nderscreen.py"))["snapshot"]
+        old_commit = self.git("rev-parse", "HEAD").decode().strip()
+        self.git("-c", "core.hooksPath=/dev/null", "commit", "-qam", "new baseline")
+        self.git("config", "credential.helper", "fixture-local-secret")
+        (self.source / ".git/hooks/local-secret").write_text("fixture hook")
+        (self.source / ".env").write_text("fixture untracked secret")
+        destination = self.root / "work/source"
+        snapshot(self.source, destination)
+        self.assertFalse((destination / ".env").exists())
+        self.assertFalse((destination / ".git/hooks/local-secret").exists())
+        self.assertNotIn("fixture-local-secret", (destination / ".git/config").read_text())
+        absent = subprocess.run(["git", "-C", str(destination), "cat-file", "-e", old_commit],
+                                capture_output=True)
+        self.assertNotEqual(absent.returncode, 0)
+
+    def test_snapshot_rejects_symlinks_private_keys_and_credential_urls(self):
+        snapshot = runpy.run_path(str(ROOT / "build/x2000/snapshot-fre3nderscreen.py"))["snapshot"]
+        destination = self.root / "work/source"
+        pending = self.source / "new.cpp"
+        pending.unlink()
+        pending.symlink_to(self.source / "main.cpp")
+        with self.assertRaisesRegex(ValueError, "symlink"):
+            snapshot(self.source, destination)
+        pending.unlink()
+        pending.write_bytes(b"-----BEGIN " + b"PRIVATE KEY-----\nfixture, not a key\n")
+        with self.assertRaisesRegex(ValueError, "private key"):
+            snapshot(self.source, destination)
+        pending.unlink()
+        self.git("remote", "set-url", "origin", "https://fixture:secret@example.invalid/screen.git")
+        with self.assertRaisesRegex(ValueError, "credential-bearing"):
+            snapshot(self.source, destination)
+        self.assertFalse(destination.exists())
+
+    def test_snapshot_keeps_selected_submodule_without_local_metadata(self):
+        snapshot = runpy.run_path(str(ROOT / "build/x2000/snapshot-fre3nderscreen.py"))["snapshot"]
+        module = self.root / "module"
+        module.mkdir()
+        subprocess.run(["git", "init", "-q", str(module)], check=True)
+        (module / "source.h").write_text("/* module fixture */\n")
+        subprocess.run(["git", "-C", str(module), "add", "."], check=True)
+        subprocess.run(["git", "-C", str(module), "-c", "user.name=Fixture", "-c",
+                        "user.email=fixture@example.invalid", "commit", "-qm", "fixture"], check=True)
+        self.git("-c", "protocol.file.allow=always", "submodule", "add", str(module), "module")
+        self.git("commit", "-qam", "module baseline")
+        local_config = self.source / ".git/modules/module/config"
+        with local_config.open("a") as config:
+            config.write("\n[fixture]\n\tsecret = local-only\n")
+        destination = self.root / "work/source"
+        snapshot(self.source, destination)
+        self.assertEqual((destination / "module/source.h").read_bytes(), (module / "source.h").read_bytes())
+        self.assertNotIn("local-only", (destination / "module/.git/config").read_text())
+        status = subprocess.check_output(["git", "-C", str(destination), "submodule", "status"], text=True)
+        self.assertTrue(status.startswith(" "), status)
+
 
 if __name__ == "__main__":
     unittest.main()
