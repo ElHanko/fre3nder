@@ -413,7 +413,7 @@ access these routes even with Maintenance Web disabled. Port 80 has no Apps rout
 
 | Method / suffix | Input / response |
 | --- | --- |
-| `GET status` | Installed metadata including `storage`, web/display selections, staged packages, volatile execution, HOME upload capacity and Core-reported SYS/HOME runtime capacity |
+| `GET status` | Installed metadata including `storage`, web/display selections, staged packages, volatile execution, HOME upload capacity, Core-reported SYS/HOME runtime capacity and informational `repository` update availability |
 | `GET detail?name=<app>` | Package-Core status of one installed app (service status may have side effects) |
 | `POST upload` | Streaming binary `.fre3app`, `Content-Length`, URL-encoded `X-Fre3nder-Filename`; automatically begins Verify, not installation |
 | `POST verify` | `{ "package_id": "<id>" }` |
@@ -468,3 +468,98 @@ reboot; installed caches and HOME runtimes are separate. Restarting Maintenance
 does not clear uploads. OTA's `/ota/packages/`, transaction state and 96 MiB
 limit retain their existing lifecycle. Operation errors appear beside the
 affected upload, package, app or frontend controls; session/API errors may be global.
+
+### Informational repository updates
+
+`GET /fre3nder/api/v1/apps/status` adds `apps.repository` to the existing
+`200 apps-status` response. All previous fields, operations and authorization
+requirements retain their meaning. No additional route or service is involved.
+Management reads installed metadata from Package-Core and schema 1 of the
+optional `fre3nder-app-update` client's
+`/home/fre3nder/.local/share/fre3nder-app-update/status.json`.
+The input contract is documented in
+[`fre3nder-apps/apps/fre3nder-app-update/README.md`](https://github.com/ElHanko/fre3nder-apps/blob/main/apps/fre3nder-app-update/README.md#persistent-output-schema-1).
+The status request performs no network request, package download or installation.
+
+| `apps.repository` field | Meaning |
+| --- | --- |
+| `client_installed` | Whether Package-Core lists `fre3nder-app-update`; retained app data is ignored when it is absent |
+| `configuration` | Client's `unconfigured`, `configured` or `invalid`; `unknown` when no usable status is available |
+| `check` | Client's `disabled`, `ok` or `error`; `unavailable` when no usable status is available |
+| `availability` | `checked`: last reported check succeeded; `cached`: last reported check failed but an earlier successful snapshot exists; `unavailable`: no usable configured repository snapshot |
+| `identity` | Repository `{name, key_fingerprint, base_url}`, or `null`; name and fingerprint may be `null` before the first successful check |
+| `revision` | Positive index revision of the successful snapshot, or `null` |
+| `last_attempt` | Client's last attempt time (UTC ISO 8601), or `null` |
+| `last_success` | Client's last successful check time (UTC ISO 8601), or `null`; retained unchanged after a failed check |
+| `updates` | List of matching installed apps with a newer positive release serial; empty when no usable repository snapshot exists |
+| `error` | `null` or `{code, message}` explaining missing client/status, invalid/unreadable status or a failed repository check |
+
+Example `apps.repository` after a successful check:
+
+```json
+{
+  "client_installed": true,
+  "configuration": "configured",
+  "check": "ok",
+  "availability": "checked",
+  "identity": {
+    "name": "Example repository",
+    "key_fingerprint": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    "base_url": "https://repository.example.invalid/"
+  },
+  "revision": 7,
+  "last_attempt": "2026-10-20T10:00:00+00:00",
+  "last_success": "2026-10-20T10:00:00+00:00",
+  "updates": [
+    {
+      "name": "sample",
+      "publisher": {
+        "id": "trusted",
+        "key_fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "installed": {"version": "1.2.0", "release_serial": 2},
+      "offered": {"version": "1.3.0", "release_serial": 3, "channel": "stable"}
+    }
+  ],
+  "error": null
+}
+```
+
+Management compares only installed Core metadata against offers with the exact
+same app name, publisher ID and publisher fingerprint, for the current
+`fre3nder-x2000` / `mipsel` target. It selects the highest offered
+`release_serial` greater than the installed serial, one entry per app sorted by
+name. Version strings are display data; there is no semantic version comparison.
+Equal or lower positive serials are not updates. Development (`0`) has no version
+ordering: different Development versions are never reported as newer. A positive
+release serial may replace installed Development; a Development offer cannot
+replace an installed positive serial. `offered.channel` preserves `stable` or
+`testing`; this endpoint applies no additional channel preference. Incomplete
+installed version/serial/publisher metadata is not used to infer an update.
+
+An absent client yields `client-not-installed`; a missing status file yields
+`status-missing`. Unsafe/unreadable paths yield `status-unavailable`, malformed,
+oversized or unsupported status yields `status-invalid`. These cases report
+`configuration: unknown`, `check: unavailable`, `availability: unavailable`,
+null identity/revision/times and no updates, while the existing Apps response
+remains available. An unconfigured client reports `unconfigured` / `disabled`
+with no error and no updates. Client configuration or check errors use
+`repository-check-failed` with the client's error message.
+
+After a network or validation error, `check: error` and
+`availability: cached` explicitly qualify any updates derived from the retained
+snapshot. An error before any successful check yields `availability: unavailable`.
+An empty `updates` list with `cached` or `unavailable` never confirms that apps
+are current. Even `checked` describes only the client's last reported check at
+`last_success`, not live reachability or signed freshness; old status files are
+not automatically aged into a different state. Consult the timestamps.
+
+All repository fields are **informational, unprivileged app data**. The reader
+accepts at most 2 MiB, requires a regular file, and opens every parent directory
+and the file using directory descriptors and `O_NOFOLLOW` to avoid symlink
+traversal and path-replacement races. Invalid status never blocks normal app
+management. Management does not independently authenticate this summary.
+Repository identity, fingerprint and offers cannot establish publisher trust,
+mark staged packages as verified, authorize installation, or replace
+Package-Core's signature, identity and release-serial checks. Package-Core
+remains authoritative for all manual update/install operations.

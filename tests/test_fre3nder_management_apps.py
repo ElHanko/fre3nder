@@ -31,6 +31,12 @@ def load_module():
 IDENTITY = {"name": "sample", "version": "1.2.0", "release_serial": 2,
             "publisher": "trusted", "fingerprint": "a" * 64,
             "web_frontend": False, "display_frontend": False, "display_api": None}
+REPOSITORY_CLIENT = {"name": "fre3nder-app-update"}
+OFFER = {"name": "sample", "version": "1.3.0", "release_serial": 3,
+         "publisher": {"id": "trusted", "key_fingerprint": "a" * 64},
+         "channel": "stable", "target": {"platform": "fre3nder-x2000", "arch": "mipsel"},
+         "sha256": "b" * 64, "size": 1024,
+         "path": "packages/sample/sample-1.3.0-" + "b" * 12 + ".fre3app"}
 
 
 class AppsAdapterTests(unittest.TestCase):
@@ -41,16 +47,18 @@ class AppsAdapterTests(unittest.TestCase):
         self.mod = load_module()
         self.mod.STAGING = root / "home/.tmp/fre3nder/uploads"
         self.mod.EXECUTION_FILE = root / "run/apps-execution.json"
+        self.mod.REPOSITORY_STATUS = root / "home/fre3nder/.local/share/fre3nder-app-update/status.json"
         self.mod.STAGING.parent.mkdir(mode=0o700, parents=True)
         self.mod.EXECUTION_FILE.parent.mkdir(mode=0o700, parents=True)
         self.calls = []
+        self.installed_apps = []
 
         def fake_core(operation, *args):
             self.calls.append((operation, args))
             if operation == "verify":
                 return {"api_version": 1, "operation": "verify", "ok": True, "package": dict(IDENTITY)}
             if operation == "list":
-                return {"apps": []}
+                return {"apps": self.installed_apps}
             if operation == "display-list":
                 return {"active": None, "apps": []}
             if operation == "frontend-status":
@@ -145,6 +153,190 @@ class AppsAdapterTests(unittest.TestCase):
         result = self.mod.overview()
         self.assertEqual(result["storage"]["sys"]["available_bytes"], 100)
         self.assertEqual(result["storage"]["home"]["available_bytes"], 200)
+
+    def write_repository(self, offers=None, **changes):
+        value = {"schema": 1, "configuration": "configured", "check": "ok", "error": None,
+                 "repository": {"name": "Fixture repository", "key_fingerprint": "c" * 64,
+                                "base_url": "https://repository.example.invalid/"},
+                 "revision": 7, "last_attempt": "2026-10-20T10:00:00+00:00",
+                 "last_success": "2026-10-20T10:00:00+00:00",
+                 "packages": [dict(OFFER)] if offers is None else offers, **changes}
+        path = self.mod.REPOSITORY_STATUS
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(value))
+        return value
+
+    def test_repository_selects_highest_matching_release_and_preserves_channel(self):
+        self.installed_apps = [dict(IDENTITY), dict(REPOSITORY_CLIENT)]
+        value = self.write_repository([
+            {**OFFER, "version": "9.0", "release_serial": 3},
+            {**OFFER, "version": "0.1", "release_serial": 5, "channel": "testing"},
+            {**OFFER, "version": "10.0", "release_serial": 4},
+            {**OFFER, "name": "not-installed", "release_serial": 99},
+            {**OFFER, "release_serial": 100, "publisher": {**OFFER["publisher"], "id": "other"}}])
+        result = self.mod.overview()
+        repository = result["repository"]
+        self.assertEqual(repository, {
+            "client_installed": True, "configuration": "configured", "check": "ok",
+            "availability": "checked", "identity": value["repository"], "revision": 7,
+            "last_attempt": value["last_attempt"], "last_success": value["last_success"],
+            "error": None, "updates": [{
+                "name": "sample", "publisher": OFFER["publisher"],
+                "installed": {"version": "1.2.0", "release_serial": 2},
+                "offered": {"version": "0.1", "release_serial": 5, "channel": "testing"}}]})
+        self.assertEqual(result["installed"], self.installed_apps)
+        self.assertEqual([op for op, _ in self.calls], ["list", "display-list", "frontend-status", "storage-status"])
+        self.assertEqual(self.mod._verified, {})
+
+    def test_repository_equal_or_lower_serial_is_not_an_update(self):
+        self.installed_apps = [dict(IDENTITY), dict(REPOSITORY_CLIENT)]
+        for serial in (1, 2):
+            with self.subTest(serial=serial):
+                self.write_repository([{**OFFER, "version": "999.0", "release_serial": serial}])
+                repository = self.mod.overview()["repository"]
+                self.assertEqual(repository["availability"], "checked")
+                self.assertEqual(repository["updates"], [])
+
+    def test_repository_requires_exact_name_publisher_and_fingerprint(self):
+        self.installed_apps = [dict(IDENTITY), dict(REPOSITORY_CLIENT)]
+        for change in ({"name": "other"}, {"publisher": {**OFFER["publisher"], "id": "other"}},
+                       {"publisher": {**OFFER["publisher"], "key_fingerprint": "d" * 64}}):
+            with self.subTest(change=change):
+                self.write_repository([{**OFFER, **change}])
+                self.assertEqual(self.mod.overview()["repository"]["updates"], [])
+
+    def test_repository_development_has_no_version_order(self):
+        cases = ((2, 0, "testing", False), (0, 0, "testing", False),
+                 (0, 3, "stable", True), (0, 3, "testing", True), (2, 3, "stable", True))
+        for installed_serial, offered_serial, channel, expected in cases:
+            with self.subTest(installed=installed_serial, offered=offered_serial, channel=channel):
+                self.installed_apps = [{**IDENTITY, "version": "1.0-dev-old", "release_serial": installed_serial},
+                                       dict(REPOSITORY_CLIENT)]
+                self.write_repository([{**OFFER, "version": "999.0-dev-new", "release_serial": offered_serial,
+                                        "channel": channel}])
+                updates = self.mod.overview()["repository"]["updates"]
+                self.assertEqual(bool(updates), expected)
+                if expected:
+                    self.assertEqual(updates[0]["offered"]["channel"], channel)
+
+    def test_repository_does_not_guess_missing_or_invalid_core_serial(self):
+        for serial in (None, "2", True, -1):
+            with self.subTest(serial=serial):
+                self.installed_apps = [{**IDENTITY, "release_serial": serial}, dict(REPOSITORY_CLIENT)]
+                self.write_repository()
+                self.assertEqual(self.mod.overview()["repository"]["updates"], [])
+
+    def test_repository_client_not_installed_does_not_read_retained_status(self):
+        self.installed_apps = [dict(IDENTITY)]
+        self.write_repository()
+        with patch.object(self.mod, "read_repository_status", side_effect=AssertionError("must not read")):
+            repository = self.mod.overview()["repository"]
+        self.assertFalse(repository["client_installed"])
+        self.assertEqual(repository["availability"], "unavailable")
+        self.assertEqual(repository["check"], "unavailable")
+        self.assertEqual(repository["error"]["code"], "client-not-installed")
+        self.assertEqual(repository["updates"], [])
+
+    def test_repository_missing_status_keeps_installed_apps_available(self):
+        self.installed_apps = [dict(IDENTITY), dict(REPOSITORY_CLIENT)]
+        result = self.mod.overview()
+        self.assertEqual(result["installed"], self.installed_apps)
+        self.assertEqual(result["repository"]["availability"], "unavailable")
+        self.assertEqual(result["repository"]["error"]["code"], "status-missing")
+
+    def test_repository_invalid_status_keeps_apps_available(self):
+        self.installed_apps = [dict(IDENTITY), dict(REPOSITORY_CLIENT)]
+        valid = self.write_repository()
+        invalid = [b"{", b"\xff", b"[]", json.dumps({**valid, "schema": 2}).encode(),
+                   json.dumps({**valid, "schema": True}).encode(),
+                   json.dumps({**valid, "packages": {}}).encode(),
+                   json.dumps({**valid, "last_success": None}).encode(),
+                   json.dumps({**valid, "repository": {}}).encode(),
+                   json.dumps({**valid, "packages": [{**OFFER, "release_serial": True}]}).encode(),
+                   json.dumps({**valid, "packages": [{**OFFER, "channel": "other"}]}).encode(),
+                   json.dumps({**valid, "packages": [{**OFFER, "target": {"arch": "other"}}]}).encode()]
+        for raw in invalid:
+            with self.subTest(raw=raw[:80]):
+                self.mod.REPOSITORY_STATUS.write_bytes(raw)
+                result = self.mod.overview()
+                self.assertEqual(result["installed"], self.installed_apps)
+                self.assertEqual(result["repository"]["availability"], "unavailable")
+                self.assertEqual(result["repository"]["error"]["code"], "status-invalid")
+                self.assertEqual(result["repository"]["updates"], [])
+
+    def test_repository_disabled_and_invalid_configuration_offer_no_updates(self):
+        self.installed_apps = [dict(IDENTITY), dict(REPOSITORY_CLIENT)]
+        for configuration, check, error in (("unconfigured", "disabled", None),
+                                             ("invalid", "error", "Invalid repository URL")):
+            with self.subTest(configuration=configuration):
+                self.write_repository([], configuration=configuration, check=check, error=error,
+                                      repository=None, revision=None, last_attempt=None, last_success=None)
+                repository = self.mod.overview()["repository"]
+                self.assertEqual(repository["configuration"], configuration)
+                self.assertEqual(repository["check"], check)
+                self.assertEqual(repository["availability"], "unavailable")
+                self.assertEqual(repository["updates"], [])
+                self.assertEqual(repository["error"]["message"] if repository["error"] else None, error)
+
+    def test_repository_network_error_preserves_cache_without_claiming_success(self):
+        self.installed_apps = [dict(IDENTITY), dict(REPOSITORY_CLIENT)]
+        for offers in ([dict(OFFER)], []):
+            with self.subTest(offers=bool(offers)):
+                self.write_repository(offers, check="error", error="Network unreachable",
+                                      last_attempt="2026-10-21T10:00:00+00:00")
+                repository = self.mod.overview()["repository"]
+                self.assertEqual(repository["check"], "error")
+                self.assertEqual(repository["availability"], "cached")
+                self.assertEqual(repository["last_success"], "2026-10-20T10:00:00+00:00")
+                self.assertEqual(repository["last_attempt"], "2026-10-21T10:00:00+00:00")
+                self.assertEqual(repository["error"], {"code": "repository-check-failed", "message": "Network unreachable"})
+                self.assertEqual(bool(repository["updates"]), bool(offers))
+        self.write_repository([], check="error", error="Network unreachable", revision=None, last_success=None)
+        repository = self.mod.overview()["repository"]
+        self.assertEqual(repository["availability"], "unavailable")
+        self.assertEqual(repository["updates"], [])
+
+    def test_repository_read_rejects_symlinks_including_parent_directories(self):
+        self.installed_apps = [dict(IDENTITY), dict(REPOSITORY_CLIENT)]
+        self.write_repository()
+        path = self.mod.REPOSITORY_STATUS
+        real_file = path.with_name("real.json")
+        path.rename(real_file)
+        path.symlink_to(real_file)
+        self.assertEqual(self.mod.overview()["repository"]["error"]["code"], "status-unavailable")
+        path.unlink()
+        real_file.rename(path)
+        directory = path.parent
+        real_directory = directory.with_name("real-client")
+        directory.rename(real_directory)
+        directory.symlink_to(real_directory, target_is_directory=True)
+        self.assertEqual(self.mod.overview()["repository"]["error"]["code"], "status-unavailable")
+
+    def test_repository_read_is_bounded_and_does_not_block_on_fifo(self):
+        self.installed_apps = [dict(IDENTITY), dict(REPOSITORY_CLIENT)]
+        self.write_repository()
+        path = self.mod.REPOSITORY_STATUS
+        path.write_bytes(b" " * (self.mod.REPOSITORY_STATUS_LIMIT + 1))
+        self.assertEqual(self.mod.overview()["repository"]["error"]["code"], "status-invalid")
+        # Enforce the actual read limit even if the file grows after fstat.
+        with patch.object(self.mod.os, "fstat", return_value=types.SimpleNamespace(st_mode=0o100600, st_size=0)):
+            self.assertEqual(self.mod.overview()["repository"]["error"]["code"], "status-invalid")
+        path.unlink()
+        os.mkfifo(path)
+        self.assertEqual(self.mod.overview()["repository"]["error"]["code"], "status-invalid")
+
+    def test_overview_without_repository_preserves_all_existing_fields(self):
+        self.installed_apps = [dict(IDENTITY)]
+        capacity = {"available_bytes": 500, "max_package_bytes": self.mod.LIMIT,
+                    "reserve_bytes": self.mod.RESERVE, "proxy_copy_reserved": True, "cache_copy_reserved": True}
+        with patch.object(self.mod, "storage", return_value=capacity):
+            result = self.mod.overview()
+        repository = result.pop("repository")
+        self.assertEqual(result, {
+            "installed": [IDENTITY], "web": {"active": None}, "display": {"active": None, "apps": []},
+            "packages": [], "verified_packages": [], "execution": None,
+            "storage": {**capacity, "sys": {"available_bytes": 100}, "home": {"available_bytes": 200}}})
+        self.assertEqual(repository["availability"], "unavailable")
 
     def test_overview_does_not_pair_completed_removal_with_older_installed_list(self):
         job = {"id": "a" * 32, "operation": "remove", "name": "sample", "state": "running"}

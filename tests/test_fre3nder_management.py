@@ -920,6 +920,46 @@ class ManagementApiTests(unittest.TestCase):
         self.assertEqual(status, 401)
         self.assertFalse(any(op in self.daemon.apps.OPERATIONS for op, _ in self.app_calls))
 
+    def test_apps_status_adds_informational_repository_without_changing_envelope(self):
+        headers = self.setup_apps()
+        status, body, _ = self.request_full("GET", "/fre3nder/api/v1/apps/status", headers=headers)
+        self.assertEqual(status, 200, body)
+        result = json.loads(body)
+        self.assertEqual((result["api_version"], result["ok"], result["operation"]), (1, True, "apps-status"))
+        previous = result["apps"]
+        self.assertEqual(previous.pop("repository")["error"]["code"], "client-not-installed")
+
+        apps = self.daemon.apps
+        apps.REPOSITORY_STATUS = self.root / "repository/status.json"
+        apps.REPOSITORY_STATUS.parent.mkdir()
+        apps.REPOSITORY_STATUS.write_text(json.dumps({
+            "schema": 1, "configuration": "configured", "check": "ok", "error": None,
+            "repository": {"name": "Fixture", "key_fingerprint": "b" * 64,
+                           "base_url": "https://repository.example.invalid/"},
+            "revision": 1, "last_attempt": "2026-10-20T10:00:00+00:00",
+            "last_success": "2026-10-20T10:00:00+00:00",
+            "packages": [{"name": "sample", "version": "3.0", "release_serial": 3,
+                          "publisher": {"id": "trusted", "key_fingerprint": "a" * 64},
+                          "channel": "stable", "target": {"platform": "fre3nder-x2000", "arch": "mipsel"}}]}))
+        client = {"name": "fre3nder-app-update"}
+        with patch.object(apps, "installed", return_value=[self.app_identity, client]):
+            status, body, _ = self.request_full("GET", "/fre3nder/api/v1/apps/status", headers=headers)
+        self.assertEqual(status, 200, body)
+        result = json.loads(body)
+        self.assertEqual((result["api_version"], result["ok"], result["operation"]), (1, True, "apps-status"))
+        current = result["apps"]
+        repository = current.pop("repository")
+        self.assertEqual(repository["availability"], "checked")
+        self.assertEqual(repository["updates"][0]["installed"], {"version": "2.0", "release_serial": 2})
+        self.assertEqual(repository["updates"][0]["offered"], {"version": "3.0", "release_serial": 3, "channel": "stable"})
+        self.assertEqual(current.pop("installed"), [self.app_identity, client])
+        self.assertEqual(previous.pop("installed"), [self.app_identity])
+        # Available filesystem bytes can change between requests.
+        current["storage"].pop("available_bytes")
+        previous["storage"].pop("available_bytes")
+        self.assertEqual(current, previous)
+        self.assertFalse(any(op in apps.OPERATIONS for op, _ in self.app_calls))
+
     def test_apps_http_upload_update_identity_and_explicit_mutations(self):
         headers = self.setup_apps()
         status, body, _ = self.app_upload(headers)

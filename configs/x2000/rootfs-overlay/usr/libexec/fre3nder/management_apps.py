@@ -1,7 +1,7 @@
 """Manual signed .fre3app workflow for the Fre3nder Management daemon.
 
 The package core remains authoritative for trust, lifecycle and selection.
-This module only owns staged browser uploads and volatile execution receipts.
+Repository offers from unprivileged app data are informational only.
 """
 
 import json
@@ -17,6 +17,8 @@ import threading
 PACKAGE_CORE = pathlib.Path(__file__).with_name("package-core")
 STAGING = pathlib.Path("/home/.tmp/fre3nder/uploads")
 EXECUTION_FILE = pathlib.Path("/run/fre3nder-management/apps-execution.json")
+REPOSITORY_STATUS = pathlib.Path("/home/fre3nder/.local/share/fre3nder-app-update/status.json")
+REPOSITORY_STATUS_LIMIT = 2 * 1024 * 1024
 LIMIT = 256 * 1024 * 1024
 RESERVE = 64 * 1024 * 1024
 APP_NAME = re.compile(r"[a-z][a-z0-9_-]{0,63}\Z")
@@ -118,6 +120,132 @@ def installed():
     return result["apps"]
 
 
+def read_repository_status():
+    # Pin every directory with openat/O_NOFOLLOW: checking paths before opening
+    # would race with the unprivileged app UID replacing a parent with a link.
+    flags = os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC
+    directory = os.open("/", flags | os.O_DIRECTORY)
+    try:
+        for part in REPOSITORY_STATUS.parts[1:-1]:
+            child = os.open(part, flags | os.O_DIRECTORY, dir_fd=directory)
+            os.close(directory)
+            directory = child
+        fd = os.open(REPOSITORY_STATUS.name, flags | os.O_NONBLOCK, dir_fd=directory)
+    finally:
+        os.close(directory)
+    with os.fdopen(fd, "rb") as source:
+        metadata = os.fstat(source.fileno())
+        if not stat.S_ISREG(metadata.st_mode) or metadata.st_size > REPOSITORY_STATUS_LIMIT:
+            raise ValueError("Repository status must be a bounded regular file")
+        raw = source.read(REPOSITORY_STATUS_LIMIT + 1)
+    if len(raw) > REPOSITORY_STATUS_LIMIT:
+        raise ValueError("Repository status exceeds the read limit")
+    value = json.loads(raw.decode("utf-8"))
+    validate_repository_status(value)
+    return value
+
+
+def validate_repository_status(value):
+    # Validate only the summary contract used here, not signatures or package
+    # download paths. Those never become installation authority in Management.
+    if (not isinstance(value, dict) or type(value.get("schema")) is not int or value["schema"] != 1
+            or (value.get("configuration"), value.get("check")) not in (
+                ("unconfigured", "disabled"), ("invalid", "error"),
+                ("configured", "ok"), ("configured", "error"))):
+        raise ValueError("Unsupported repository status")
+    for key in ("last_attempt", "last_success", "error"):
+        if value[key] is not None and (not isinstance(value[key], str) or not value[key] or len(value[key]) > 256):
+            raise ValueError("Invalid repository status text")
+    identity, revision = value["repository"], value["revision"]
+    if identity is not None:
+        if not isinstance(identity, dict):
+            raise ValueError("Invalid repository identity")
+        for key in ("name", "key_fingerprint", "base_url"):
+            if identity[key] is not None and not isinstance(identity[key], str):
+                raise ValueError("Invalid repository identity")
+    if revision is not None and (type(revision) is not int or revision < 1):
+        raise ValueError("Invalid repository revision")
+    packages = value["packages"]
+    if not isinstance(packages, list) or len(packages) > 4096:
+        raise ValueError("Invalid repository offers")
+    if value["last_success"] is not None:
+        if (identity is None or not identity["name"] or not identity["key_fingerprint"]
+                or revision is None):
+            raise ValueError("Incomplete successful repository check")
+    elif packages or revision is not None or value["check"] == "ok":
+        raise ValueError("Repository offers have no successful check")
+    if value["check"] == "ok" and value["error"] is not None:
+        raise ValueError("Successful repository check has an error")
+    for offer in packages:
+        if not isinstance(offer, dict):
+            raise ValueError("Invalid repository offer")
+        publisher, serial = offer.get("publisher"), offer.get("release_serial")
+        if (not isinstance(offer.get("name"), str) or not APP_NAME.fullmatch(offer["name"])
+                or not isinstance(offer.get("version"), str) or not 0 < len(offer["version"]) <= 128
+                or type(serial) is not int or serial < 0
+                or not isinstance(publisher, dict) or not isinstance(publisher.get("id"), str)
+                or not publisher["id"] or len(publisher["id"]) > 64
+                or not isinstance(publisher.get("key_fingerprint"), str)
+                or re.fullmatch(r"[0-9a-f]{64}", publisher["key_fingerprint"]) is None
+                or offer.get("channel") not in ("stable", "testing")
+                or serial == 0 and offer["channel"] != "testing"
+                or offer.get("target") != {"platform": "fre3nder-x2000", "arch": "mipsel"}):
+            raise ValueError("Invalid repository offer metadata")
+
+
+def repository_updates(apps, offers):
+    by_name = {app["name"]: app for app in apps}
+    selected = {}
+    for offer in offers:
+        app = by_name.get(offer["name"])
+        if (app is None or type(app.get("release_serial")) is not int or app["release_serial"] < 0
+                or not isinstance(app.get("version"), str)
+                or app.get("publisher") != offer["publisher"]["id"]
+                or app.get("fingerprint") != offer["publisher"]["key_fingerprint"]
+                or offer["release_serial"] <= app["release_serial"]):
+            continue
+        # A positive serial also supersedes Development (0); Development offers
+        # never supersede anything, regardless of their version text.
+        previous = selected.get(app["name"])
+        if previous is None or offer["release_serial"] > previous["offered"]["release_serial"]:
+            selected[app["name"]] = {
+                "name": app["name"], "publisher": dict(offer["publisher"]),
+                "installed": {"version": app["version"], "release_serial": app["release_serial"]},
+                "offered": {key: offer[key] for key in ("version", "release_serial", "channel")}}
+    return [selected[name] for name in sorted(selected)]
+
+
+def repository_status(apps):
+    result = {"client_installed": any(app["name"] == "fre3nder-app-update" for app in apps),
+              "configuration": "unknown", "check": "unavailable", "availability": "unavailable",
+              "identity": None, "revision": None, "last_attempt": None, "last_success": None,
+              "updates": [], "error": None}
+    if not result["client_installed"]:
+        result["error"] = {"code": "client-not-installed", "message": "Repository client is not installed"}
+        return result
+    try:
+        value = read_repository_status()
+    except FileNotFoundError:
+        result["error"] = {"code": "status-missing", "message": "Repository status is not available yet"}
+        return result
+    except OSError:
+        result["error"] = {"code": "status-unavailable", "message": "Repository status cannot be read safely"}
+        return result
+    except (ValueError, KeyError, TypeError, RecursionError):
+        result["error"] = {"code": "status-invalid", "message": "Repository status is invalid or unsupported"}
+        return result
+    for key in ("configuration", "check", "revision", "last_attempt", "last_success"):
+        result[key] = value[key]
+    identity = value["repository"]
+    result["identity"] = {key: identity[key] for key in ("name", "key_fingerprint", "base_url")} if identity else None
+    if value["check"] == "error":
+        result["error"] = {"code": "repository-check-failed", "message": value["error"] or "Repository check failed"}
+    if value["configuration"] == "configured" and value["last_success"] is not None:
+        result["availability"] = "checked" if value["check"] == "ok" else "cached"
+        result["updates"] = repository_updates(apps, value["packages"])
+    return result
+
+
 def overview():
     # Snapshot the receipt before reading Core state. A worker finishing during
     # those reads must leave this response running so the browser polls again.
@@ -139,7 +267,8 @@ def overview():
     return {"installed": apps, "web": web["frontend"],
             "display": {"active": display["active"], "apps": display["apps"]},
             "packages": packages, "verified_packages": verified_packages,
-            "execution": execution, "storage": {**storage(), **capacity}}
+            "execution": execution, "storage": {**storage(), **capacity},
+            "repository": repository_status(apps)}
 
 
 def details(name):
