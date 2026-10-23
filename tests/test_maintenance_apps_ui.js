@@ -12,6 +12,15 @@ const declarations = new Map(Array.from(markup.matchAll(/<([a-z][a-z0-9-]*)\b([^
 const packageId = "a".repeat(32);
 const copy = (value) => JSON.parse(JSON.stringify(value));
 const identity = (name) => ({ name, version: "2.0", release_serial: 2, publisher: "trusted", web_frontend: true, display_frontend: false });
+const repository = (changes = {}) => ({
+  client_installed: true, configuration: "configured", check: "ok", availability: "checked",
+  identity: {name: "Fixture repository", key_fingerprint: "c".repeat(64), base_url: "https://repository.example.invalid/"},
+  revision: 7, last_success: "2026-10-20T10:00:00+00:00", error: null,
+  updates: [{name: "fluidd", installed: {version: "1.0", release_serial: 1},
+    offered: {version: "2.0", release_serial: 2, channel: "stable"},
+    publisher: {id: "trusted", key_fingerprint: "a".repeat(64)}}],
+  ...changes,
+});
 
 class Element {
   constructor(tag = "div") {
@@ -179,6 +188,91 @@ async function testMatchingUpdate() {
   assert.deepEqual(ui.api.calls[1], { operation: "update", package_id: packageId, name: "fluidd" });
   assert.equal(ui.call("appsSelectedUpdate"), null);
   assert.equal(ui.get("apps-cancel-update").hidden, true);
+}
+
+const installedText = (ui, name) => ui.get("apps-installed").children
+  .find((card) => card.children[0].textContent.startsWith(name + " ·"))
+  .children.map((child) => child.textContent || "").join("\n");
+
+async function testRepositoryUpdateDisplayAndManualUpdate() {
+  const ui = browser();
+  ui.api.state.repository = repository();
+  await ui.load();
+  assert.match(installedText(ui, "fluidd"), /Update: 2\.0 \(stable\)/);
+  assert.doesNotMatch(installedText(ui, "octoapp"), /Update:/);
+  const status = ui.get("apps-repository").textContent;
+  assert.match(status, /check succeeded/);
+  assert.match(status, /Fixture repository.*Index revision: 7.*Last successful check: 2026-10-20/);
+  assert.equal(ui.api.reads, 1);
+  assert.deepEqual(ui.api.calls, []);
+  ui.select("fluidd");
+  assert.deepEqual(ui.api.calls, [], "manual Update must still ask for a local package");
+  assert.match(ui.get("apps-message").textContent, /choose its new signed \.fre3app package/);
+  await ui.upload("fluidd");
+  await ui.confirm();
+  assert.deepEqual(ui.api.calls, [{operation: "upload", filename: "fluidd.fre3app"},
+    {operation: "update", package_id: packageId, name: "fluidd"}]);
+}
+
+async function testRepositoryCheckedWithoutUpdates() {
+  const ui = browser();
+  ui.api.state.repository = repository({updates: []});
+  await ui.load();
+  assert.match(ui.get("apps-repository").textContent, /check succeeded\. No updates offered\./);
+  assert.doesNotMatch(installedText(ui, "fluidd"), /Update:/);
+  assert.deepEqual(ui.api.calls, []);
+  ui.api.state.installed = [];
+  await ui.load();
+  assert.equal(ui.get("apps-installed").textContent, "No apps installed.");
+  assert.match(ui.get("apps-repository").textContent, /No updates offered/);
+}
+
+async function testRepositoryCachedOffersRemainExplicit() {
+  const ui = browser();
+  const value = repository({availability: "cached", check: "error",
+    error: {code: "repository-check-failed", message: "Network unreachable"}});
+  value.updates[0].offered = {version: "0.5", release_serial: 2, channel: "testing"};
+  ui.api.state.repository = value;
+  await ui.load();
+  assert.match(installedText(ui, "fluidd"), /Update: 0\.5 \(testing\) · Cached information/);
+  assert.match(ui.get("apps-repository").textContent, /check failed\. Showing cached information\./);
+  assert.match(ui.get("apps-repository").textContent, /Last successful check: 2026-10-20.*Network unreachable/);
+  ui.api.state.repository.updates = [];
+  await ui.load();
+  assert.match(ui.get("apps-repository").textContent, /cached information/);
+  assert.doesNotMatch(ui.get("apps-repository").textContent, /No updates offered|check succeeded|up.to.date/i);
+  assert.deepEqual(ui.api.calls, []);
+}
+
+async function testRepositoryUnavailableAndOlderApi() {
+  const ui = browser();
+  for (const value of [repository({availability: "unavailable", check: "error",
+    error: {message: "Network unreachable"}, last_success: null, revision: null, updates: []}),
+    repository({availability: "unavailable", configuration: "unconfigured", check: "disabled", updates: []}), undefined]) {
+    if (value) ui.api.state.repository = value;
+    else delete ui.api.state.repository;
+    await ui.load();
+    assert.match(ui.get("apps-repository").textContent, /availability is unknown/);
+    assert.doesNotMatch(ui.get("apps-repository").textContent, /No updates offered|check succeeded|up.to.date/i);
+    assert.doesNotMatch(installedText(ui, "fluidd"), /Update:/);
+    assert.deepEqual(ui.api.calls, []);
+  }
+  ui.select("fluidd");
+  assert.equal(ui.call("appsSelectedUpdate"), "fluidd");
+}
+
+async function testRepositoryTextUsesSafeDomOutput() {
+  const ui = browser();
+  const value = repository();
+  const text = '<img src="x" onerror="bad()">';
+  value.updates[0].offered.version = text;
+  value.identity.name = text;
+  ui.api.state.repository = value;
+  await ui.load();
+  assert.ok(installedText(ui, "fluidd").includes(`Update: ${text} (stable)`));
+  assert.ok(ui.get("apps-repository").textContent.includes(text));
+  assert.equal(ui.get("apps-repository").children.length, 0);
+  assert.deepEqual(ui.api.calls, []);
 }
 
 async function testForeignPackage() {
@@ -620,7 +714,9 @@ async function testLateDisplayStatusCannotChangeNewSelection() {
 }
 
 (async () => {
-  for (const test of [testMatchingUpdate, testForeignPackage, testGeneralUpload, testCancelAndRestart,
+  for (const test of [testRepositoryUpdateDisplayAndManualUpdate, testRepositoryCheckedWithoutUpdates,
+    testRepositoryCachedOffersRemainExplicit, testRepositoryUnavailableAndOlderApi, testRepositoryTextUsesSafeDomOutput,
+    testMatchingUpdate, testForeignPackage, testGeneralUpload, testCancelAndRestart,
     testDeclinedConfirmationAndDiscard, testStagedVerificationRespectsNewSelection,
     testInstallationStorageSelectionAndUpdatePreservation, testUploadErrorIsLocalAndKeepsFileSelection,
     testPackageFailuresAreLocal, testRemovalAndDisplayFailuresAreLocal, testSessionFailureRemainsGlobal,

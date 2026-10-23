@@ -260,8 +260,66 @@ DISPLAY_BUTTONS_SCENARIO = r'''
 '''
 
 
+REPOSITORY_SCENARIOS = r'''
+(async () => {
+  const assert = (condition, message) => { if (!condition) throw new Error(message); };
+  const el = (name) => document.getElementById("apps-" + name);
+  const card = () => el("installed").querySelector(".app-entry");
+  document.getElementById("apps-view").hidden = false;
+  await appsLoad();
+  assert(el("repository").textContent.includes("availability is unknown"), "older API must leave availability unknown");
+  state.repository = {
+    availability: "checked", configuration: "configured", check: "ok", error: null,
+    identity: {name: "Fixture repository"}, revision: 7, last_success: "2026-10-20T10:00:00+00:00",
+    updates: [{name: "doom", installed: {version: "1.0", release_serial: 1},
+      offered: {version: "0.5", release_serial: 2, channel: "testing"}, publisher: {id: "trusted"}}]
+  };
+  await appsLoad();
+  assert(card().textContent.includes("Update: 0.5 (testing)"), "API-selected version and channel must be shown without comparison");
+  assert(el("repository").textContent.includes("check succeeded"), "successful check must be explicit");
+  assert(el("repository").textContent.includes("Fixture repository"), "repository identity must be visible");
+  assert(el("repository").textContent.includes("Last successful check: 2026-10-20"), "snapshot time must be visible");
+  assert(card().querySelectorAll("button").length === 3, "repository offers must not add actions");
+  Array.from(card().querySelectorAll("button")).find((button) => button.textContent === "Update").click();
+  assert(posts === 0 && el("message").textContent.includes("choose its new signed .fre3app"), "manual Update must still request a local package");
+  state.repository.availability = "cached";
+  state.repository.check = "error";
+  state.repository.error = {message: "Network unreachable"};
+  await appsLoad();
+  assert(card().textContent.includes("Cached information"), "cached offer must be marked beside the app");
+  assert(el("repository").textContent.includes("check failed. Showing cached information"), "cached data must not claim success");
+  assert(el("repository").textContent.includes("Network unreachable"), "check failure must be visible");
+  state.repository.updates = [];
+  await appsLoad();
+  assert(!el("repository").textContent.includes("No updates offered"), "empty cache must not confirm no updates");
+  state.repository.availability = "unavailable";
+  await appsLoad();
+  assert(el("repository").textContent.includes("availability is unknown"), "unavailable repository must remain unknown");
+  assert(!card().textContent.includes("Update:"), "unavailable repository must not show offers");
+  state.repository.availability = "checked";
+  state.repository.check = "ok";
+  state.repository.error = null;
+  await appsLoad();
+  assert(el("repository").textContent.includes("check succeeded. No updates offered."), "empty successful check must be distinguishable");
+  const literal = '<img src="x" onerror="window.bad=true">';
+  state.repository.identity.name = literal;
+  state.repository.updates = [{name: "doom", offered: {version: literal, channel: "stable"}}];
+  await appsLoad();
+  assert(el("repository").textContent.includes(literal) && card().textContent.includes(literal), "repository text must be displayed literally");
+  assert(!el("installed").querySelector("img") && !el("repository").querySelector("img"), "repository data must not become markup");
+  assert(posts === 0 && !el("operation").open, "repository rendering must never start an operation");
+  document.getElementById("browser-result").textContent = "PASS";
+})().catch((error) => { document.getElementById("browser-result").textContent = "FAIL: " + error.stack; });
+'''
+
+
 @unittest.skipUnless(CHROMIUM, "Chromium is required for the DOM/CSS regression")
 class MaintenanceAppsBrowserTests(unittest.TestCase):
+    def test_repository_updates_and_optional_availability(self):
+        for size in ("900,650", "360,480"):
+            with self.subTest(window_size=size):
+                self.run_browser(REPOSITORY_SCENARIOS, size)
+
     def test_confirmed_removal_and_local_messages(self):
         self.run_browser(SCENARIOS)
 

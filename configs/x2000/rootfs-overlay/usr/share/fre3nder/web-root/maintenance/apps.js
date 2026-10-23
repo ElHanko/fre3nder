@@ -93,12 +93,35 @@ const appsFormat = (size) => size == null ? "unavailable" : `${(size / (1024 * 1
 const appsRenderInstalled = () => {
   const list = appsEl("installed");
   list.replaceChildren();
+  const repository = appsState.repository;
+  const availability = repository?.availability;
+  const updates = ["checked", "cached"].includes(availability) && Array.isArray(repository.updates)
+    ? repository.updates : [];
+  let repositoryStatus = "Repository update information unavailable. Update availability is unknown.";
+  if (availability === "checked") repositoryStatus = updates.length
+    ? "Repository check succeeded. Update offers are listed below." : "Repository check succeeded. No updates offered.";
+  else if (availability === "cached") repositoryStatus = "Repository check failed. Showing cached information.";
+  else if (repository?.configuration === "unconfigured") repositoryStatus = "Repository not configured. Update availability is unknown.";
+  else if (repository?.check === "error") repositoryStatus = "Repository check failed. Update availability is unknown.";
+  const repositoryDetails = [repositoryStatus];
+  if (repository?.identity?.name) repositoryDetails.push(repository.identity.name);
+  if (repository?.revision != null) repositoryDetails.push(`Index revision: ${repository.revision}`);
+  if (repository?.last_success) repositoryDetails.push(`Last successful check: ${repository.last_success}`);
+  if (repository?.error?.message) repositoryDetails.push(repository.error.message);
+  appsEl("repository").textContent = repositoryDetails.join(" · ");
   for (const app of appsState.installed) {
     const card = document.createElement("section");
     card.className = "app-entry";
     const title = document.createElement("h3");
     title.textContent = `${app.name} · ${app.version}`;
     card.append(title);
+    const update = updates.find((item) => item.name === app.name);
+    if (update?.offered) {
+      const offer = document.createElement("p");
+      offer.className = "section-note";
+      offer.textContent = `Update: ${update.offered.version} (${update.offered.channel})${availability === "cached" ? " · Cached information" : ""}`;
+      card.append(offer);
+    }
     const description = document.createElement("p");
     description.className = "section-note";
     const caps = [app.web_frontend ? "Web" : null, app.display_frontend ? "Display" : null].filter(Boolean);
