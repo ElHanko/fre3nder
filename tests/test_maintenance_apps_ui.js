@@ -81,6 +81,12 @@ function browser() {
       return;
     }
     const item = identity(job.name);
+    if (job.operation === "repository-download") {
+      api.state.packages.push({id: job.package_id, size: 12});
+      api.state.verified_packages.push(job.package_id);
+      api.state.execution = {...job, state: "succeeded", result: {package: item}};
+      return;
+    }
     const result = job.operation === "remove" ? { name: job.name } : { package: item };
     api.state.execution = { ...job, state: "succeeded", result };
     if (!api.noEffect) {
@@ -120,6 +126,7 @@ function browser() {
         } else {
           api.state.execution = { id: String(++api.counter), operation: operation.replace("/", "-"), ...payload,
             name: payload.name || api.uploadedApp, state: "running" };
+          if (operation === "repository/download") api.state.execution.package_id = packageId;
           if (api.deferOperation !== operation) api.complete();
         }
         return { execution: { ...api.state.execution, state: "running" } };
@@ -273,6 +280,95 @@ async function testRepositoryTextUsesSafeDomOutput() {
   assert.ok(ui.get("apps-repository").textContent.includes(text));
   assert.equal(ui.get("apps-repository").children.length, 0);
   assert.deepEqual(ui.api.calls, []);
+}
+
+const downloadButton = (ui) => ui.get("apps-installed").children[0].children
+  .find((element) => element.className === "app-actions").children
+  .find((button) => button.textContent === "Download & verify");
+
+async function testRepositoryDownloadRequiresTwoSeparateConfirmations() {
+  const ui = browser();
+  ui.api.state.repository = repository();
+  ui.api.deferOperation = "repository/download";
+  await ui.load();
+  ui.api.approve = false;
+  await downloadButton(ui).listeners.click();
+  assert.deepEqual(ui.api.calls, []);
+  assert.match(ui.api.confirmations[0], /fluidd 2\.0 \(stable\).*\nInstallation requires a separate confirmation/);
+  ui.api.approve = true;
+  await downloadButton(ui).listeners.click();
+  assert.deepEqual(ui.api.calls, [{operation: "repository/download", name: "fluidd", release_serial: 2}]);
+  assert.equal(ui.get("apps-operation").dataset.state, "running");
+  assert.match(ui.get("apps-operation-title").textContent, /Downloading and verifying fluidd/);
+  assert.ok(ui.api.timers.size);
+  const installed = copy(ui.api.state.installed);
+  ui.api.complete();
+  await poll(ui);
+  assert.deepEqual(ui.api.state.installed, installed);
+  assert.equal(ui.get("apps-operation").dataset.state, "success");
+  assert.match(ui.get("apps-operation-title").textContent, /signature verified.*Installation has not started/);
+  assert.equal(ui.call("appsSelectedUpdate"), "fluidd");
+  assert.equal(ui.call("appsVerified.id"), packageId);
+  assert.equal(ui.confirmations()[0].textContent, "Confirm update");
+  assert.equal(ui.api.calls.length, 1);
+  await ui.load();
+  assert.equal(ui.api.calls.length, 1);
+  ui.cancel();
+  await ui.load();
+  assert.equal(ui.call("appsVerified"), null, "consumed receipt must not restore a cancelled selection");
+  ui.api.state.execution = null;
+  await ui.load();
+  await downloadButton(ui).listeners.click();
+  ui.api.complete(); await poll(ui);
+  await ui.confirm();
+  assert.equal(ui.api.confirmations.length, 4, "installation must have its own confirmation");
+  assert.deepEqual(ui.api.calls.at(-1), {operation: "update", package_id: packageId, name: "fluidd"});
+}
+
+async function testRepositoryDownloadCachedUnavailableFailureAndUnknown() {
+  const ui = browser();
+  ui.api.state.repository = repository({availability: "cached", check: "error"});
+  await ui.load();
+  ui.api.approve = false;
+  await downloadButton(ui).listeners.click();
+  assert.match(ui.api.confirmations[0], /older cached repository check/);
+  ui.api.state.repository.availability = "unavailable";
+  await ui.load();
+  assert.equal(downloadButton(ui), undefined);
+  ui.api.state.repository = repository();
+  ui.api.failRequest = "repository/download";
+  ui.api.approve = true;
+  await ui.load();
+  await downloadButton(ui).listeners.click();
+  assert.equal(ui.get("apps-operation").dataset.state, "error");
+  assert.match(ui.get("apps-operation-result").textContent, /repository\/download rejection/);
+  await ui.upload("octoapp");
+  assert.equal(ui.confirmations()[0].textContent, "Confirm update", "failed download must not constrain manual uploads");
+  ui.api.state.execution = {id: "unknown-download", operation: "repository-download", state: "unknown",
+    name: "fluidd", error: {message: "Completion unknown"}};
+  await ui.load();
+  assert.equal(downloadButton(ui).disabled, true);
+  assert.equal(ui.get("apps-acknowledge").hidden, false);
+  const count = ui.api.calls.length;
+  await ui.load();
+  assert.equal(ui.api.calls.length, count);
+}
+
+async function testRepositoryDownloadRejectsUnconfirmedStaging() {
+  for (const missing of ["package", "verified", "identity"]) {
+    const ui = browser();
+    ui.api.state.repository = repository();
+    ui.api.deferOperation = "repository/download";
+    await ui.load(); await downloadButton(ui).listeners.click();
+    ui.api.complete();
+    if (missing === "package") ui.api.state.packages = [];
+    if (missing === "verified") ui.api.state.verified_packages = [];
+    if (missing === "identity") ui.api.state.execution.result.package.name = "octoapp";
+    await poll(ui);
+    assert.equal(ui.call("appsVerified"), null);
+    assert.equal(ui.get("apps-operation").dataset.state, "error");
+    assert.equal(ui.api.calls.length, 1);
+  }
 }
 
 async function testForeignPackage() {
@@ -716,6 +812,8 @@ async function testLateDisplayStatusCannotChangeNewSelection() {
 (async () => {
   for (const test of [testRepositoryUpdateDisplayAndManualUpdate, testRepositoryCheckedWithoutUpdates,
     testRepositoryCachedOffersRemainExplicit, testRepositoryUnavailableAndOlderApi, testRepositoryTextUsesSafeDomOutput,
+    testRepositoryDownloadRequiresTwoSeparateConfirmations, testRepositoryDownloadCachedUnavailableFailureAndUnknown,
+    testRepositoryDownloadRejectsUnconfirmedStaging,
     testMatchingUpdate, testForeignPackage, testGeneralUpload, testCancelAndRestart,
     testDeclinedConfirmationAndDiscard, testStagedVerificationRespectsNewSelection,
     testInstallationStorageSelectionAndUpdatePreservation, testUploadErrorIsLocalAndKeepsFileSelection,

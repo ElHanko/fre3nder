@@ -46,7 +46,7 @@ const appsError = (message, target = "error") => {
 const appsErrorTarget = (operation, name) => operation === "upload" ? "upload-error"
   : operation === "remove" ? `remove-error-${name}`
   : operation.startsWith("display") ? "frontend-error"
-  : ["verify", "install", "update", "discard"].includes(operation) ? "package-error" : "error";
+  : ["verify", "install", "update", "discard", "repository/download", "repository-download"].includes(operation) ? "package-error" : "error";
 const appsFailure = (error, target, context = "") => {
   appsInfo("");
   const message = context ? `${context}: ${error.message}` : error.message;
@@ -65,7 +65,8 @@ const appsClearMessages = (keepOperation = false) => {
   if (!keepOperation) appsCloseOperation();
 };
 const appsContext = (operation, name) => name ? `${operation} app "${name}"` : operation;
-const appsProgress = (operation, name) => `${({install: "Installing", update: "Updating", remove: "Removing"})[operation] || operation}${name ? ` ${name}` : ""}…`;
+const appsProgress = (operation, name) => `${({install: "Installing", update: "Updating", remove: "Removing",
+  "repository/download": "Downloading and verifying", "repository-download": "Downloading and verifying"})[operation] || operation}${name ? ` ${name}` : ""}…`;
 const appsCompletionError = (execution, name) => {
   const app = appsState.installed.find((item) => item.name === name);
   if (execution.operation === "remove") return app
@@ -89,6 +90,15 @@ const appsPost = (path, payload) => requestJson(appsRoot + path, {
   body: JSON.stringify(payload),
 });
 const appsFormat = (size) => size == null ? "unavailable" : `${(size / (1024 * 1024)).toFixed(1)} MiB`;
+
+const appsDownload = (app, update, cached) => {
+  if (!csrfToken || appsBusy) return;
+  const warning = cached ? "\nThis offer comes from an older cached repository check." : "";
+  if (!window.confirm(`Download and verify ${app.name} ${update.offered.version} (${update.offered.channel})?${warning}\nInstallation requires a separate confirmation.`)) return;
+  appsVerified = null;
+  appsSelectedUpdate = null;
+  return appsAction("repository/download", {name: app.name, release_serial: update.offered.release_serial});
+};
 
 const appsRenderInstalled = () => {
   const list = appsEl("installed");
@@ -156,6 +166,7 @@ const appsRenderInstalled = () => {
         appsRenderVerified();
         appsEl("file").focus();
       }, appsBusy),
+      ...(update?.offered ? [appsButton("Download & verify", () => appsDownload(app, update, availability === "cached"), appsBusy)] : []),
       ...(app.system_app ? [] : [appsButton("Remove", () => appsRemove(app), appsBusy)]),
     );
     card.append(actions);
@@ -299,7 +310,24 @@ const appsRender = () => {
         appsVerified = {id: execution.package_id, package: execution.result.package};
         appsEl("install-storage").value = "sys";
       }
-      if (execution.state === "succeeded" && ["install", "update", "remove"].includes(execution.operation)) {
+      if (execution.state === "succeeded" && execution.operation === "repository-download") {
+        const item = execution.result?.package;
+        const id = execution.package_id;
+        if (!item || item.name !== name || item.release_serial !== execution.release_serial
+          || !appsState.installed.some((app) => app.name === name)
+          || !appsState.packages.some((pkg) => pkg.id === id) || !appsState.verified_packages.includes(id)) {
+          state = "unconfirmed";
+          appsFailure({message: "Downloaded package is not confirmed as verified staging for this app. Installation is not ready."}, "package-error");
+        } else {
+          appsVerified = {id, package: item};
+          appsSelectedUpdate = name;
+          appsEl("staged").value = id;
+          const message = `Download complete for ${name} ${item.version}. Package signature verified; ready to install. Installation has not started.`;
+          appsEl("package-success").textContent = message;
+          appsEl("package-success").hidden = false;
+          appsShowOperation(message, "success");
+        }
+      } else if (execution.state === "succeeded" && ["install", "update", "remove"].includes(execution.operation)) {
         const failure = appsCompletionError(execution, name);
         if (failure) {
           state = "unconfirmed";

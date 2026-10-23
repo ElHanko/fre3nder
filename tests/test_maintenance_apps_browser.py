@@ -15,6 +15,8 @@ FIXTURE = r'''
 let csrfToken = "fixture-csrf";
 let rejectRemoval = true;
 let posts = 0;
+const postCalls = [];
+let rejectDownload = false;
 let displayRunning = true;
 let rejectDisplayStatus = false;
 let displayStatusReads = 0;
@@ -30,9 +32,12 @@ const requestJson = async (url, options = {}) => {
     posts++;
     const operation = url.split("/apps/")[1];
     const payload = JSON.parse(options.body);
+    postCalls.push({operation, ...payload});
     if (rejectRemoval && operation === "remove") throw new Error("service uninstall failed");
+    if (rejectDownload && operation === "repository/download") throw new Error("repository download rejected");
     state.execution = {id: String(posts), operation: operation.replace("/", "-"), ...payload,
       name: payload.name || appsVerified?.package?.name, state: "running"};
+    if (operation === "repository/download") state.execution.package_id = "a".repeat(32);
     return {execution: {...state.execution}};
   }
   if (url.includes("/apps/detail?name=")) {
@@ -279,7 +284,7 @@ REPOSITORY_SCENARIOS = r'''
   assert(el("repository").textContent.includes("check succeeded"), "successful check must be explicit");
   assert(el("repository").textContent.includes("Fixture repository"), "repository identity must be visible");
   assert(el("repository").textContent.includes("Last successful check: 2026-10-20"), "snapshot time must be visible");
-  assert(card().querySelectorAll("button").length === 3, "repository offers must not add actions");
+  assert(card().querySelectorAll("button").length === 4, "repository offers must add only the download action");
   Array.from(card().querySelectorAll("button")).find((button) => button.textContent === "Update").click();
   assert(posts === 0 && el("message").textContent.includes("choose its new signed .fre3app"), "manual Update must still request a local package");
   state.repository.availability = "cached";
@@ -313,8 +318,115 @@ REPOSITORY_SCENARIOS = r'''
 '''
 
 
+DOWNLOAD_SCENARIOS = r'''
+(async () => {
+  const assert = (condition, message) => { if (!condition) throw new Error(message); };
+  const el = (name) => document.getElementById("apps-" + name);
+  const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
+  const button = () => Array.from(el("installed").querySelectorAll("button")).find((item) => item.textContent === "Download & verify");
+  document.getElementById("apps-view").hidden = false;
+  state.repository = {availability: "checked", check: "ok", updates: [{name: "doom",
+    offered: {version: "2.0", release_serial: 2, channel: "stable"}}]};
+  await appsLoad();
+  const confirmations = [];
+  window.confirm = (message) => { confirmations.push(message); return false; };
+  button().click(); await tick();
+  assert(posts === 0, "declined download must not reach the API");
+  assert(confirmations[0].includes("doom 2.0 (stable)") && confirmations[0].includes("separate confirmation"), "confirmation must name offer and separate installation");
+  window.confirm = (message) => { confirmations.push(message); return true; };
+  button().click(); await tick();
+  assert(posts === 1 && postCalls[0].operation === "repository/download" && postCalls[0].name === "doom" && postCalls[0].release_serial === 2, "download must use the existing endpoint and exact offer");
+  assert(el("operation").matches(":modal") && el("operation").dataset.state === "running", "download must use the existing running modal");
+  assert(el("operation-title").textContent.includes("Downloading and verifying doom"), "operation title must identify the download");
+  assert(button().disabled, "running download must block competing actions");
+  const id = state.execution.package_id;
+  const item = {...app, version: "2.0", release_serial: 2};
+  state.packages = [{id, size: 1024}]; state.verified_packages = [id];
+  state.execution = {...state.execution, state: "succeeded", result: {package: item}};
+  await new Promise((resolve) => setTimeout(resolve, 1400));
+  assert(appsVerified.id === id && appsSelectedUpdate === "doom", "polling must select the verified package and app");
+  assert(el("operation").dataset.state === "success", "completed download must show success");
+  assert(el("operation-title").textContent.includes("signature verified") && el("operation-title").textContent.includes("Installation has not started"), "download completion must not claim installation");
+  assert(el("verified").querySelector("button").textContent === "Confirm update", "existing update dialog must be available");
+  await appsLoad(); await appsLoad();
+  assert(posts === 1 && state.installed[0].version === "1.0", "repeated polling must never install or repeat the download");
+  el("operation-close").click();
+  el("verified").querySelector("button").click(); await tick();
+  assert(confirmations.length === 3 && confirmations[2].includes("Update doom to 2.0"), "installation must have a distinct confirmation");
+  assert(posts === 2 && postCalls[1].operation === "update" && postCalls[1].package_id === id && postCalls[1].name === "doom", "installation must use the existing update action");
+  document.getElementById("browser-result").textContent = "PASS";
+})().catch((error) => { document.getElementById("browser-result").textContent = "FAIL: " + error.stack; });
+'''
+
+DOWNLOAD_FAILURE_SCENARIOS = r'''
+(async () => {
+  const assert = (condition, message) => { if (!condition) throw new Error(message); };
+  const el = (name) => document.getElementById("apps-" + name);
+  const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
+  const button = () => Array.from(el("installed").querySelectorAll("button")).find((item) => item.textContent === "Download & verify");
+  document.getElementById("apps-view").hidden = false;
+  state.repository = {availability: "cached", check: "error", updates: [{name: "doom",
+    offered: {version: "2.0", release_serial: 2, channel: "testing"}}]};
+  await appsLoad();
+  let prompt = "";
+  window.confirm = (message) => { prompt = message; return false; };
+  button().click(); await tick();
+  assert(prompt.includes("older cached repository check") && posts === 0, "cached offer must require a warning and explicit approval");
+  state.repository.availability = "unavailable";
+  await appsLoad(); assert(!button(), "unavailable repository must have no download action");
+  state.repository.availability = "checked";
+  window.confirm = () => true;
+  rejectDownload = true;
+  await appsLoad(); button().click(); await tick();
+  assert(el("operation").dataset.state === "error" && el("operation-result").textContent.includes("download rejected"), "request failure must use the existing error popup");
+  await appsLoad(); assert(posts === 1, "request failure must not automatically retry");
+  rejectDownload = false;
+  button().click(); await tick();
+  state.execution = {...state.execution, state: "failed", error: {message: "SHA-256 mismatch"}};
+  await appsLoad();
+  assert(el("operation").dataset.state === "error" && el("operation-title").textContent.includes("SHA-256 mismatch"), "failed receipt must show the download error");
+  for (const missing of ["verified", "identity", "package"]) {
+    button().click(); await tick();
+    const id = state.execution.package_id;
+    state.packages = missing === "package" ? [] : [{id, size: 12}];
+    state.verified_packages = missing === "verified" ? [] : [id];
+    state.execution = {...state.execution, state: "succeeded", result: {package: {...app,
+      name: missing === "identity" ? "other" : "doom", version: "2.0", release_serial: 2}}};
+    await appsLoad();
+    assert(!appsVerified && el("operation").dataset.state === "error", "unconfirmed staging must not reach the update dialog");
+  }
+  button().click(); await tick();
+  const id = state.execution.package_id;
+  state.packages = [{id, size: 12}]; state.verified_packages = [id];
+  state.execution = {...state.execution, state: "succeeded", result: {package: {...app, version: "2.0", release_serial: 2}}};
+  await appsLoad();
+  appsCancelUpdate(); await appsLoad();
+  assert(!appsVerified && !el("operation").open, "consumed receipt must not overwrite cancellation or reopen the dialog");
+  Array.from(el("installed").querySelectorAll("button")).find((item) => item.textContent === "Update").click();
+  await appsLoad();
+  assert(!appsVerified && appsSelectedUpdate === "doom", "manual upload selection must remain functional");
+  button().click(); await tick();
+  state.execution = {...state.execution, state: "unknown", error: {message: "Completion unknown"}};
+  await appsLoad();
+  const count = posts;
+  assert(button().disabled && !el("acknowledge").hidden, "unknown result must block downloads and expose existing acknowledgement");
+  await appsLoad(); assert(posts === count, "unknown result must not trigger a retry");
+  assert(postCalls.every((call) => call.operation === "repository/download"), "download tests must never invoke installation automatically");
+  document.getElementById("browser-result").textContent = "PASS";
+})().catch((error) => { document.getElementById("browser-result").textContent = "FAIL: " + error.stack; });
+'''
+
+
 @unittest.skipUnless(CHROMIUM, "Chromium is required for the DOM/CSS regression")
 class MaintenanceAppsBrowserTests(unittest.TestCase):
+    def test_repository_download_requires_separate_installation_confirmation(self):
+        for size in ("900,650", "360,480"):
+            with self.subTest(window_size=size):
+                self.run_browser(DOWNLOAD_SCENARIOS, size)
+
+    def test_repository_download_cache_failures_unknown_and_repeated_receipts(self):
+        self.run_browser(DOWNLOAD_FAILURE_SCENARIOS)
+
     def test_repository_updates_and_optional_availability(self):
         for size in ("900,650", "360,480"):
             with self.subTest(window_size=size):
