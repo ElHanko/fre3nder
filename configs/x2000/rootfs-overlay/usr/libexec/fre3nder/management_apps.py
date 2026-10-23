@@ -4,9 +4,12 @@ The package core remains authoritative for trust, lifecycle and selection.
 Repository offers from unprivileged app data are informational only.
 """
 
+import fcntl
+import hashlib
 import json
 import os
 import pathlib
+import pwd
 import re
 import secrets
 import stat
@@ -19,6 +22,10 @@ STAGING = pathlib.Path("/home/.tmp/fre3nder/uploads")
 EXECUTION_FILE = pathlib.Path("/run/fre3nder-management/apps-execution.json")
 REPOSITORY_STATUS = pathlib.Path("/home/fre3nder/.local/share/fre3nder-app-update/status.json")
 REPOSITORY_STATUS_LIMIT = 2 * 1024 * 1024
+CLIENT_RUNTIMES = {"sys": pathlib.Path("/opt/fre3nder/apps-v2"),
+                   "home": pathlib.Path("/home/.fre3nder-runtime/apps-v2")}
+APP_OTA_LOCK = pathlib.Path("/run/fre3nder/ota/write.lock")
+DOWNLOAD_TIMEOUT = 16 * 60
 LIMIT = 256 * 1024 * 1024
 RESERVE = 64 * 1024 * 1024
 APP_NAME = re.compile(r"[a-z][a-z0-9_-]{0,63}\Z")
@@ -72,13 +79,14 @@ def staged(package_id):
     return path
 
 
-def storage(remaining=0, cache_bytes=0):
+def storage(remaining=0, cache_bytes=0, *, proxy_copy=True):
     fs = os.statvfs(stage_dir())
     available = fs.f_bavail * fs.f_frsize
-    if remaining and available < 2 * remaining + cache_bytes + RESERVE:
-        raise AppError(507, "insufficient-space", "Not enough HOME space for upload, proxy buffer and package cache")
+    if remaining and available < (2 if proxy_copy else 1) * remaining + cache_bytes + RESERVE:
+        raise AppError(507, "insufficient-space", "Not enough HOME space for upload, proxy buffer and package cache"
+                       if proxy_copy else "Not enough HOME space for download staging and package cache")
     return {"available_bytes": available, "max_package_bytes": LIMIT,
-            "reserve_bytes": RESERVE, "proxy_copy_reserved": True, "cache_copy_reserved": True}
+            "reserve_bytes": RESERVE, "proxy_copy_reserved": proxy_copy, "cache_copy_reserved": True}
 
 
 def run_core(operation, *args):
@@ -327,7 +335,7 @@ def restore():
             store_execution(value)
         else:
             _execution = value
-    for part in stage_dir().glob(".upload-*.part"):
+    for part in (*stage_dir().glob(".upload-*.part"), *stage_dir().glob(".download-*.part")):
         st = part.lstat()
         if stat.S_ISREG(st.st_mode) and st.st_uid == os.geteuid():
             part.unlink()
@@ -338,8 +346,8 @@ def execute(job, args):
     try:
         operation = job["operation"]
         # Package Core owns cross-process OTA/app exclusion for CLI and web alike.
-        result = run_core(operation, *args)
-        if operation == "verify":
+        result = download_package(job) if operation == "repository-download" else run_core(operation, *args)
+        if operation in ("verify", "repository-download"):
             identity = result.get("package")
             if (not isinstance(identity, dict) or not isinstance(identity.get("name"), str)
                     or not APP_NAME.fullmatch(identity["name"]) or not isinstance(identity.get("publisher"), str)
@@ -405,6 +413,146 @@ def start(operation, payload, *, reserved=False):
         store_execution(job)
         threading.Thread(target=execute, args=(job, args), daemon=True).start()
         return job
+
+
+def start_download(payload):
+    if set(payload) != {"name", "release_serial"}:
+        raise AppError(400, "invalid-request", "Expected name and release_serial")
+    require_name(payload["name"])
+    if type(payload["release_serial"]) is not int or payload["release_serial"] <= 0:
+        raise AppError(400, "invalid-release", "Expected a positive release serial")
+    with _lock:
+        ensure_idle()
+        job = {"id": secrets.token_hex(16), "state": "running", "operation": "repository-download",
+               "package_id": secrets.token_hex(16), **payload}
+        store_execution(job)
+        threading.Thread(target=execute, args=(job, ()), daemon=True).start()
+        return job
+
+
+def download_package(job):
+    # Same lock as Package-Core/OTA CLI mutations, held through verification.
+    APP_OTA_LOCK.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    safe_dir(APP_OTA_LOCK.parent)
+    fd = os.open(APP_OTA_LOCK, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600)
+    with os.fdopen(fd, "r+") as lock:
+        info = os.fstat(lock.fileno())
+        if not stat.S_ISREG(info.st_mode) or info.st_uid != os.geteuid() or info.st_mode & 0o077:
+            raise AppError(409, "storage-unsafe", "Unsafe OTA/app operation lock")
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError as exc:
+            raise AppError(409, "apps-busy", "Another OTA/app operation is active") from exc
+        apps = installed()
+        repository = repository_status(apps)
+        offer = next((item for item in repository["updates"] if item["name"] == job["name"]
+                      and item["offered"]["release_serial"] == job["release_serial"]), None)
+        if offer is None:
+            issue = repository["error"]
+            raise AppError(409, "update-not-offered", issue["message"] if issue else "Requested release is not offered as an update")
+        client = next(item for item in apps if item["name"] == "fre3nder-app-update")
+        runtime = CLIENT_RUNTIMES.get(client.get("storage", "sys"))
+        if runtime is None:
+            raise AppError(502, "client-unavailable", "Repository client runtime is unavailable")
+        entrypoint = runtime / "fre3nder-app-update/payload/client.py"
+        try:
+            account = pwd.getpwnam("fre3nder")
+        except KeyError as exc:
+            raise AppError(502, "client-unavailable", "App runtime user is unavailable") from exc
+        if account.pw_uid == 0:
+            raise AppError(502, "client-unavailable", "Repository client requires an unprivileged app user")
+        return stream_download(job, offer, entrypoint, account)
+
+
+def stream_download(job, offer, entrypoint, account):
+    temporary = None
+    published = None
+    try:
+        read_fd, write_fd = os.pipe()
+        with os.fdopen(read_fd, "rb") as metadata_pipe, tempfile.TemporaryFile(dir=stage_dir()) as errors:
+            try:
+                process = subprocess.Popen([
+                    "/usr/bin/python3", "-I", str(entrypoint), "--data", str(REPOSITORY_STATUS.parent),
+                    "--download", job["name"], "--release-serial", str(job["release_serial"]),
+                    "--metadata-fd", str(write_fd)],
+                    stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=errors,
+                    pass_fds=(write_fd,), user=account.pw_uid, group=account.pw_gid, extra_groups=(),
+                    cwd="/", env={"PATH": "/usr/bin:/bin", "HOME": "/home/fre3nder",
+                                  "USER": "fre3nder", "LOGNAME": "fre3nder"})
+            finally:
+                os.close(write_fd)
+            timer = threading.Timer(DOWNLOAD_TIMEOUT, process.kill)
+            timer.daemon = True
+            timer.start()
+            try:
+                raw = metadata_pipe.readline(4097)
+                if not raw:
+                    process.wait(timeout=10)
+                    errors.seek(0)
+                    message = errors.read(4096).decode("utf-8", errors="replace").strip()
+                    raise AppError(502, "download-failed", message or "Repository client supplied no signed offer")
+                try:
+                    metadata = json.loads(raw.decode("utf-8"))
+                    if (len(raw) > 4096 or not isinstance(metadata, dict)
+                            or metadata.get("name") != job["name"]
+                            or metadata.get("publisher") != offer["publisher"]
+                            or {key: metadata[key] for key in ("version", "release_serial", "channel")} != offer["offered"]
+                            or type(metadata.get("size")) is not int or not 0 < metadata["size"] <= LIMIT
+                            or not isinstance(metadata.get("sha256"), str)
+                            or re.fullmatch(r"[0-9a-f]{64}", metadata["sha256"]) is None):
+                        raise ValueError("Signed offer does not match the request")
+                except (ValueError, KeyError, TypeError, RecursionError) as exc:
+                    raise AppError(502, "download-invalid", "Repository client returned inconsistent offer metadata") from exc
+                size = metadata["size"]
+                storage(size, size, proxy_copy=False)
+                with tempfile.NamedTemporaryFile("wb", dir=stage_dir(), prefix=".download-", suffix=".part", delete=False) as output:
+                    temporary = pathlib.Path(output.name)
+                    length, digest = 0, hashlib.sha256()
+                    while True:
+                        chunk = process.stdout.read(min(65536, size + 1 - length))
+                        if not chunk:
+                            break
+                        length += len(chunk)
+                        if length > size:
+                            raise AppError(502, "download-size", "Download exceeds the signed package size")
+                        storage(size - length, size, proxy_copy=False)
+                        digest.update(chunk)
+                        output.write(chunk)
+                    if process.wait(timeout=10) != 0:
+                        errors.seek(0)
+                        message = errors.read(4096).decode("utf-8", errors="replace").strip()
+                        raise AppError(502, "download-failed", message or "Repository download failed")
+                    if length != size or digest.hexdigest() != metadata["sha256"]:
+                        raise AppError(502, "download-integrity", "Download size or SHA-256 does not match the signed offer")
+                    output.flush()
+                    os.fsync(output.fileno())
+            finally:
+                timer.cancel()
+                if process.poll() is None:
+                    process.kill()
+                process.wait()
+                process.stdout.close()
+        result = run_core("verify", str(temporary))
+        identity = result.get("package", {})
+        expected = {"name": metadata["name"], "version": metadata["version"],
+                    "release_serial": metadata["release_serial"], "publisher": metadata["publisher"]["id"],
+                    "fingerprint": metadata["publisher"]["key_fingerprint"]}
+        if not isinstance(identity, dict) or any(identity.get(key) != value for key, value in expected.items()):
+            raise AppError(409, "identity-mismatch", "Verified package does not match the requested repository offer")
+        destination = stage_dir() / (job["package_id"] + ".fre3app")
+        os.link(temporary, destination)
+        published = destination
+        temporary.unlink()
+        temporary = None
+        return {**result, "package_id": job["package_id"]}
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise AppError(507 if getattr(exc, "errno", None) == 28 else 502,
+                       "download-failed", "Repository download could not be staged") from exc
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
+            if published is not None:
+                published.unlink(missing_ok=True)
 
 
 def upload(stream, length, filename):

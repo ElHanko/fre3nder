@@ -3,6 +3,7 @@
 import importlib.util
 import contextlib
 import fcntl
+import hashlib
 import io
 import os
 import runpy
@@ -48,6 +49,7 @@ class AppsAdapterTests(unittest.TestCase):
         self.mod.STAGING = root / "home/.tmp/fre3nder/uploads"
         self.mod.EXECUTION_FILE = root / "run/apps-execution.json"
         self.mod.REPOSITORY_STATUS = root / "home/fre3nder/.local/share/fre3nder-app-update/status.json"
+        self.mod.APP_OTA_LOCK = root / "run/ota/write.lock"
         self.mod.STAGING.parent.mkdir(mode=0o700, parents=True)
         self.mod.EXECUTION_FILE.parent.mkdir(mode=0o700, parents=True)
         self.calls = []
@@ -338,6 +340,148 @@ class AppsAdapterTests(unittest.TestCase):
             "storage": {**capacity, "sys": {"available_bytes": 100}, "home": {"available_bytes": 200}}})
         self.assertEqual(repository["availability"], "unavailable")
 
+    def prepare_download(self):
+        self.installed_apps = [dict(IDENTITY), {**REPOSITORY_CLIENT, "storage": "home"}]
+        self.download_bytes = b"fre3app-fixture" * 6000
+        self.download_metadata = {**OFFER, "size": len(self.download_bytes),
+                                  "sha256": hashlib.sha256(self.download_bytes).hexdigest()}
+        self.download_exit = 0
+        self.download_pause = 0
+        self.previous_stages = set()
+        self.verify_error = None
+        self.verify_identity = {**IDENTITY, "version": OFFER["version"], "release_serial": OFFER["release_serial"]}
+        self.write_repository([self.download_metadata])
+        original_core = self.mod.run_core.side_effect
+
+        def core(operation, *args):
+            result = original_core(operation, *args)
+            if operation == "verify":
+                path = Path(args[0])
+                self.assertEqual(path.parent, self.mod.STAGING)
+                self.assertTrue(path.name.startswith(".download-"))
+                self.assertEqual(path.read_bytes(), self.download_bytes)
+                self.assertEqual(set(self.mod.STAGING.glob("*.fre3app")), self.previous_stages)
+                if self.verify_error:
+                    raise self.mod.AppError(409, "package-rejected", self.verify_error)
+                result["package"] = dict(self.verify_identity)
+            return result
+
+        self.mod.run_core.side_effect = core
+        patcher = patch.object(self.mod.pwd, "getpwnam", return_value=types.SimpleNamespace(pw_uid=12345, pw_gid=12346))
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        real_popen = subprocess.Popen
+
+        def popen(command, **kwargs):
+            self.assertEqual((kwargs.pop("user"), kwargs.pop("group"), kwargs.pop("extra_groups")), (12345, 12346, ()))
+            self.assertEqual(command[:4], ["/usr/bin/python3", "-I",
+                                          str(self.mod.CLIENT_RUNTIMES["home"] / "fre3nder-app-update/payload/client.py"), "--data"])
+            self.assertEqual(command[command.index("--download") + 1], "sample")
+            self.assertEqual(command[command.index("--release-serial") + 1], "3")
+            self.assertEqual(kwargs["env"], {"PATH": "/usr/bin:/bin", "HOME": "/home/fre3nder",
+                                            "USER": "fre3nder", "LOGNAME": "fre3nder"})
+            metadata_fd = command[-1]
+            code = ("import os, sys, time\n"
+                    f"os.write({metadata_fd}, {json.dumps(self.download_metadata).encode()!r} + b'\\n')\n"
+                    f"time.sleep({self.download_pause})\n"
+                    f"sys.stdout.buffer.write({self.download_bytes!r})\n"
+                    "sys.stdout.buffer.flush()\n"
+                    "sys.stderr.write('fixture transfer interrupted' if " + str(self.download_exit) + " else '')\n"
+                    f"sys.exit({self.download_exit})\n")
+            return real_popen([sys.executable, "-c", code], **kwargs)
+
+        patcher = patch.object(self.mod.subprocess, "Popen", side_effect=popen)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_repository_download_streams_verifies_and_becomes_normal_staged_update(self):
+        self.prepare_download()
+        job = self.mod.start_download({"name": "sample", "release_serial": 3})
+        receipt = self.wait()
+        self.assertEqual(receipt["state"], "succeeded", receipt)
+        path = self.mod.staged(job["package_id"])
+        self.assertEqual(path.read_bytes(), self.download_bytes)
+        self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+        self.assertEqual(self.mod._verified[job["package_id"]], self.verify_identity)
+        self.assertEqual(receipt["result"]["package_id"], job["package_id"])
+        self.assertFalse(list(path.parent.glob("*.part")))
+        self.assertFalse(any(op in ("install", "update") for op, _ in self.calls))
+        self.mod.start("update", {"package_id": job["package_id"], "name": "sample"})
+        self.assertEqual(self.wait()["state"], "succeeded")
+        self.assertIn(("update", (str(path),)), self.calls)
+
+    def test_repository_download_integrity_and_core_failures_clean_staging(self):
+        self.prepare_download()
+        original_metadata = dict(self.download_metadata)
+        retained = self.mod.stage_dir() / ("f" * 32 + ".fre3app")
+        retained.write_bytes(b"already verified package")
+        retained.chmod(0o600)
+        self.previous_stages = {retained}
+        for failure in ("sha256", "size", "oversized", "process", "verify", "identity", "metadata"):
+            with self.subTest(failure=failure):
+                self.download_metadata = dict(original_metadata)
+                self.download_exit = 1 if failure == "process" else 0
+                self.verify_error = "fixture publisher not trusted" if failure == "verify" else None
+                self.verify_identity["version"] = "other" if failure == "identity" else OFFER["version"]
+                if failure == "sha256":
+                    self.download_metadata["sha256"] = "0" * 64
+                if failure == "size":
+                    self.download_metadata["size"] += 1
+                if failure == "oversized":
+                    self.download_metadata["size"] -= 1
+                if failure == "metadata":
+                    self.download_metadata["version"] = "other"
+                self.mod._verified["f" * 32] = dict(IDENTITY)
+                self.mod.start_download({"name": "sample", "release_serial": 3})
+                receipt = self.wait()
+                self.assertEqual(receipt["state"], "failed", receipt)
+                self.assertEqual(list(self.mod.stage_dir().iterdir()), [retained])
+                self.assertEqual(retained.read_bytes(), b"already verified package")
+                self.assertEqual(self.mod._verified, {"f" * 32: IDENTITY})
+        self.assertFalse(any(op in ("install", "update") for op, _ in self.calls))
+
+    def test_repository_download_timeout_kills_client_and_removes_partial_file(self):
+        self.prepare_download()
+        self.download_pause = 2
+        self.mod.DOWNLOAD_TIMEOUT = 0.1
+        self.mod.start_download({"name": "sample", "release_serial": 3})
+        receipt = self.wait()
+        self.assertEqual(receipt["state"], "failed", receipt)
+        self.assertEqual(list(self.mod.stage_dir().iterdir()), [])
+        self.assertEqual(self.mod._verified, {})
+
+    def test_repository_download_rejects_parameters_and_unoffered_or_missing_client(self):
+        for payload in ({}, {"name": "../sample", "release_serial": 3},
+                        {"name": "sample", "release_serial": 0}, {"name": "sample", "release_serial": True},
+                        {"name": "sample", "release_serial": "3"},
+                        {"name": "sample", "release_serial": 3, "url": "https://example.invalid/"}):
+            with self.subTest(payload=payload), self.assertRaises(self.mod.AppError):
+                self.mod.start_download(payload)
+        self.installed_apps = [dict(IDENTITY)]
+        self.mod.start_download({"name": "sample", "release_serial": 3})
+        self.assertEqual(self.wait()["error"]["code"], "update-not-offered")
+        self.prepare_download()
+        for serial in (2, 4):
+            self.mod.start_download({"name": "sample", "release_serial": serial})
+            self.assertEqual(self.wait()["error"]["code"], "update-not-offered")
+
+    def test_repository_download_capacity_omits_only_proxy_buffer(self):
+        self.prepare_download()
+        size = len(self.download_bytes)
+        directory = self.mod.stage_dir()
+        for free, accepted in ((self.mod.RESERVE + 2 * size - 1, False), (self.mod.RESERVE + 2 * size, True)):
+            with patch.object(self.mod.os, "statvfs", return_value=types.SimpleNamespace(f_bavail=free, f_frsize=1)):
+                if accepted:
+                    self.assertFalse(self.mod.storage(size, size, proxy_copy=False)["proxy_copy_reserved"])
+                    with self.assertRaises(self.mod.AppError):
+                        self.mod.storage(size, size)
+                self.mod.start_download({"name": "sample", "release_serial": 3})
+                receipt = self.wait()
+                self.assertEqual(receipt["state"], "succeeded" if accepted else "failed", receipt)
+                if not accepted:
+                    self.assertEqual(receipt["error"]["code"], "insufficient-space")
+                    self.assertEqual(list(directory.iterdir()), [])
+
     def test_overview_does_not_pair_completed_removal_with_older_installed_list(self):
         job = {"id": "a" * 32, "operation": "remove", "name": "sample", "state": "running"}
         self.mod.store_execution(job)
@@ -474,6 +618,7 @@ class AppCoreLockTests(unittest.TestCase):
         self.mod.STAGING = self.root / "home/.tmp/fre3nder/uploads"
         self.mod.STAGING.parent.mkdir(mode=0o700, parents=True)
         self.mod.EXECUTION_FILE = self.root / "apps-execution.json"
+        self.mod.APP_OTA_LOCK = self.state / "ota/write.lock"
 
     def cli_run(self, *args):
         return subprocess.run([str(self.core), *args], env={**os.environ, **self.env},
@@ -549,6 +694,38 @@ class AppCoreLockTests(unittest.TestCase):
             thread.join(3)
         self.assertFalse(thread.is_alive())
         self.assertEqual(self.cli_run("display-disable").returncode, 0)
+
+    def test_repository_download_and_cli_share_existing_ota_app_lock(self):
+        with self.active_cli():
+            self.mod.start_download({"name": "sample", "release_serial": 3})
+            receipt = self.wait_apps()
+            self.assertEqual(receipt["state"], "failed", receipt)
+            self.assertEqual(receipt["error"]["code"], "apps-busy")
+        entered, release = threading.Event(), threading.Event()
+        identity = {**IDENTITY, "version": OFFER["version"], "release_serial": 3}
+
+        def stream(job, *args):
+            entered.set()
+            release.wait(3)
+            return {"package": identity, "package_id": job["package_id"]}
+
+        with patch.object(self.mod, "installed", return_value=[IDENTITY, REPOSITORY_CLIENT]), \
+                patch.object(self.mod, "repository_status", return_value={"error": None,
+                    "updates": self.mod.repository_updates([IDENTITY], [OFFER])}), \
+                patch.object(self.mod.pwd, "getpwnam", return_value=types.SimpleNamespace(pw_uid=12345, pw_gid=12346)), \
+                patch.object(self.mod, "stream_download", side_effect=stream):
+            self.mod.start_download({"name": "sample", "release_serial": 3})
+            try:
+                self.assertTrue(entered.wait(1))
+                result = self.cli_run("display-disable")
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("another OTA/app operation is active", result.stdout)
+                self.assertTrue(self.ota_status()["busy"])
+            finally:
+                release.set()
+                receipt = self.wait_apps()
+        self.assertEqual(receipt["state"], "succeeded", receipt)
+        self.assertFalse(self.ota_status()["busy"])
 
     def test_cli_blocks_all_ota_transitions_but_not_status(self):
         with self.active_cli():

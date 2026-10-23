@@ -884,7 +884,7 @@ class ManagementApiTests(unittest.TestCase):
     def test_apps_mutations_require_session_csrf_origin_and_web_peer(self):
         headers = self.setup_apps()
         operations = ("verify", "install", "update", "remove", "display/select",
-                      "display/disable", "discard", "acknowledge", "upload")
+                      "display/disable", "discard", "acknowledge", "upload", "repository/download")
         for operation in operations:
             for extra, expected in [
                 ({"Cookie": ""}, 401), ({"Cookie": "fre3nder_admin=invalid"}, 401),
@@ -919,6 +919,56 @@ class ManagementApiTests(unittest.TestCase):
         status, _, _ = self.app_upload(headers)
         self.assertEqual(status, 401)
         self.assertFalse(any(op in self.daemon.apps.OPERATIONS for op, _ in self.app_calls))
+
+    def test_repository_download_http_is_async_and_uses_existing_receipts_and_locks(self):
+        headers = self.setup_apps()
+        entered, release = threading.Event(), threading.Event()
+        self.addCleanup(release.set)
+        identity = {**self.app_identity, "version": "3.0", "release_serial": 3}
+
+        def download(job):
+            entered.set()
+            release.wait(3)
+            return {"api_version": 1, "ok": True, "operation": "verify", "package": identity,
+                    "package_id": job["package_id"]}
+
+        with patch.object(self.daemon.apps, "download_package", side_effect=download):
+            status, body, _ = self.app_request("repository/download", {"name": "sample", "release_serial": 3}, headers)
+            self.assertEqual(status, 202, body)
+            answer = json.loads(body)
+            job = answer["execution"]
+            self.assertEqual(answer["operation"], "apps-accepted")
+            self.assertEqual((job["state"], job["operation"], job["name"], job["release_serial"]),
+                             ("running", "repository-download", "sample", 3))
+            self.assertTrue(entered.wait(1))
+            status, body, _ = self.request_full("GET", "/fre3nder/api/v1/apps/status", headers=headers)
+            self.assertEqual(status, 200, body)
+            self.assertEqual(json.loads(body)["apps"]["execution"]["state"], "running")
+            self.assertEqual(self.app_request("repository/download", {"name": "sample", "release_serial": 3}, headers)[0], 409)
+            self.assertEqual(self.app_request("remove", {"name": "sample"}, headers)[0], 409)
+            self.assertEqual(self.ota_request("verify", {"package_id": "a" * 32}, headers)[0], 409)
+            release.set()
+            receipt = self.wait_app_execution()
+        self.assertEqual(receipt["state"], "succeeded", receipt)
+        self.assertEqual(receipt["result"]["package_id"], job["package_id"])
+        self.assertEqual(self.daemon.apps._verified[job["package_id"]], identity)
+        self.assertFalse(any(op in self.daemon.apps.OPERATIONS for op, _ in self.app_calls))
+
+    def test_repository_download_http_parameters_runtime_and_screen_authorization(self):
+        headers = self.setup_apps()
+        for payload in ({}, {"name": "../bad", "release_serial": 2}, {"name": "sample", "release_serial": False},
+                        {"name": "sample", "release_serial": -1}, {"name": "sample", "release_serial": "2"},
+                        {"name": "sample", "release_serial": 2, "url": "https://example.invalid/"}):
+            self.assertEqual(self.app_request("repository/download", payload, headers)[0], 400)
+        self.root_status.write_text("inactive\n")
+        self.assertEqual(self.app_request("repository/download", {"name": "sample", "release_serial": 2}, headers)[0], 409)
+        self.root_status.write_text("active\n")
+        with patch.object(self.daemon.Handler, "is_screen_peer", return_value=True), \
+                patch.object(self.daemon, "maintenance_enabled", return_value=False), \
+                patch.object(self.daemon.apps, "download_package", side_effect=self.daemon.apps.AppError(409, "update-not-offered", "fixture")):
+            status, body, _ = self.app_request("repository/download", {"name": "sample", "release_serial": 2}, {})
+            self.assertEqual(status, 202, body)
+            self.assertEqual(self.wait_app_execution()["error"]["code"], "update-not-offered")
 
     def test_apps_status_adds_informational_repository_without_changing_envelope(self):
         headers = self.setup_apps()

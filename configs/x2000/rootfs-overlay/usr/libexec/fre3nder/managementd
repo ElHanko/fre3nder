@@ -900,7 +900,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     "upload": None, "verify": "verify", "install": "install",
                     "update": "update", "remove": "remove",
                     "display/select": "display-select", "display/disable": "display-disable",
-                    "discard": None, "acknowledge": None,
+                    "discard": None, "acknowledge": None, "repository/download": None,
                 }
                 if operation not in operations:
                     raise ManagementError(404, "not-found", "Apps endpoint does not exist")
@@ -927,7 +927,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                             apps.acknowledge()
                             self.send_json(200, response("apps-acknowledge"))
                             return
-                        job = apps.start(operations[operation], payload)
+                        job = apps.start_download(payload) if operation == "repository/download" else apps.start(operations[operation], payload)
                 self.send_json(202, response("apps-accepted", execution=job))
                 return
             prefix = "/fre3nder/api/v1/ota/"

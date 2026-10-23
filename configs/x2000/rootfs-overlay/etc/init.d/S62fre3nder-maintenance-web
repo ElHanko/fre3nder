@@ -132,7 +132,7 @@ try:
         f'server.document-root = "{maintenance_root}"',
         f'include "{base}"',
         f'server.upload-dirs := ( "{upload_buffer}" )',
-        '$HTTP["url"] =~ "^/fre3nder/api/v1/(system(/details)?|maintenance|auth/(session|unlock|lock)|ota/(status|upload|verify|preflight|backup-plan|backup|confirm|write|readback|prepare-activation|reboot)|apps/(status|detail|upload|verify|install|update|remove|discard|acknowledge|display/(select|disable)))$" {',
+        '$HTTP["url"] =~ "^/fre3nder/api/v1/(system(/details)?|maintenance|auth/(session|unlock|lock)|ota/(status|upload|verify|preflight|backup-plan|backup|confirm|write|readback|prepare-activation|reboot)|apps/(status|detail|upload|verify|install|update|remove|discard|acknowledge|repository/download|display/(select|disable)))$" {',
         f'    proxy.server = ( "" => (( "host" => "{management_socket}" )) )',
         '}',
     ]

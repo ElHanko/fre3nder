@@ -416,6 +416,7 @@ access these routes even with Maintenance Web disabled. Port 80 has no Apps rout
 | `GET status` | Installed metadata including `storage`, web/display selections, staged packages, volatile execution, HOME upload capacity, Core-reported SYS/HOME runtime capacity and informational `repository` update availability |
 | `GET detail?name=<app>` | Package-Core status of one installed app (service status may have side effects) |
 | `POST upload` | Streaming binary `.fre3app`, `Content-Length`, URL-encoded `X-Fre3nder-Filename`; automatically begins Verify, not installation |
+| `POST repository/download` | `{ "name": "<app>", "release_serial": <positive-serial> }`; asynchronously download the currently offered update and verify it into normal staging |
 | `POST verify` | `{ "package_id": "<id>" }` |
 | `POST install` | `{ "package_id": "<id>", "storage": "sys" }`; optional `storage` accepts only `sys` or `home`, defaults to `sys`; requires a successful staged verification |
 | `POST update` | `{ "package_id": "<id>", "name": "<app>" }`; exact app identity, no downgrade option |
@@ -563,3 +564,80 @@ Repository identity, fingerprint and offers cannot establish publisher trust,
 mark staged packages as verified, authorize installation, or replace
 Package-Core's signature, identity and release-serial checks. Package-Core
 remains authoritative for all manual update/install operations.
+
+### Explicit repository package download
+
+`POST /fre3nder/api/v1/apps/repository/download` uses the same protected Screen
+peer or paired Maintenance session, CSRF/Origin checks, active Fre3nder runtime
+requirement and App/OTA exclusion as the existing Apps mutations. It accepts
+exactly an installed app name and positive integer release serial; no URL, path,
+publisher override, storage selection or downgrade flag is accepted.
+
+```json
+{"name":"fluidd","release_serial":2}
+```
+
+Acceptance returns HTTP **202** immediately, using the existing execution model:
+
+```json
+{"api_version":1,"ok":true,"operation":"apps-accepted","execution":{"id":"<execution-id>","state":"running","operation":"repository-download","package_id":"<package-id>","name":"fluidd","release_serial":2}}
+```
+
+Poll `GET /fre3nder/api/v1/apps/status` for that execution. The worker rereads
+installed Core metadata and checks the request against the same centrally
+selected `repository.updates` used by status. Cached offers may be requested
+explicitly; unavailable or no longer offered releases fail. It holds the
+existing `/run/fre3nder/ota/write.lock` throughout the download and verification,
+so CLI App/OTA mutations also conflict. There is no queue or automatic retry.
+
+Management launches the installed `fre3nder-app-update/payload/client.py` from
+its Core-reported SYS/HOME runtime, as UID/GID `fre3nder` with no supplementary
+groups or management capability. The client rereads configuration and re-verifies
+the persistent signed index with the configured repository public key. It
+selects exactly the requested name/serial and reports the signed offer through
+a bounded metadata pipe, then writes only package bytes to stdout. Management
+requires the offer to match the originally selected version/serial/channel and
+publisher. No network or signature implementation is duplicated in Management.
+
+The binary stream is written in bounded chunks directly to one Root-owned
+`0600` `.download-*.part` in `/home/.tmp/fre3nder/uploads/`. Both client and
+Management check declared size and SHA-256; Management also requires a zero
+client exit code. Package-Core then independently verifies that file's package
+signature, trusted publisher and contents. Its verified name, version, serial,
+publisher ID and fingerprint must match the requested offer. The file is
+published atomically without overwrite as `<package_id>.fre3app` using the same
+inode, then entered in the existing verified-package map. No second complete
+package is buffered or stored by the client/management workflow.
+
+On success, `apps.execution.state` is `succeeded`; `result` contains the normal
+Core `verify` response plus `package_id`. `apps.packages` lists the normal staged
+file and `apps.verified_packages` includes its ID. After separate confirmation,
+the existing update endpoint accepts it unchanged:
+
+```json
+{"package_id":"<package-id>","name":"fluidd"}
+```
+
+**Download and package verification are not installation confirmation.** The
+download never calls Core `install` or `update`, changes selections, or adds
+publisher trust. `status.json` remains informational and cannot substitute for
+the client's signed-index checks or Core verification. Installation/update
+still independently enforces all existing Core rules and preserves storage.
+
+HOME capacity reserves one compressed staging copy, one future persistent cache
+copy and the existing 64 MiB reserve: initially `2 × signed size + reserve`.
+There is no browser/proxy copy for this path. The existing upload calculation
+(`3 × size + reserve`) and 256 MiB maximum are unchanged. Core retains its own
+runtime/cache/extraction capacity checks at installation. The client has a
+15-minute package-body deadline; Management bounds the subprocess to 16 minutes.
+
+Invalid request arguments return `400`; competing Management operations return
+`409`. Once accepted, missing/unconfigured clients, unavailable or changed
+offers, network/process failures, insufficient storage, size/hash mismatch and
+Core rejection appear as `failed` execution receipts with `{code,message}`.
+Incomplete or rejected downloads are removed, never exposed as verified staged
+packages, and never disturb other staged packages or installed apps. A daemon
+restart retains the existing `unknown` acknowledgement behavior and removes
+abandoned `.download-*.part` files. The existing `/home/.tmp` boot cleanup is
+unchanged. Neither UI starts downloads yet; adding an explicit UI download action
+is separate work.

@@ -113,7 +113,7 @@ while True:
         self.assertIn(f'include "{BASE_CONFIG}"', generated)
         self.assertIn(str(self.management_socket), generated)
         self.assertIn(
-            '^/fre3nder/api/v1/(system(/details)?|maintenance|auth/(session|unlock|lock)|ota/(status|upload|verify|preflight|backup-plan|backup|confirm|write|readback|prepare-activation|reboot)|apps/(status|detail|upload|verify|install|update|remove|discard|acknowledge|display/(select|disable)))$',
+            '^/fre3nder/api/v1/(system(/details)?|maintenance|auth/(session|unlock|lock)|ota/(status|upload|verify|preflight|backup-plan|backup|confirm|write|readback|prepare-activation|reboot)|apps/(status|detail|upload|verify|install|update|remove|discard|acknowledge|repository/download|display/(select|disable)))$',
             generated,
         )
         self.assertNotIn('/maintenance/', generated)
