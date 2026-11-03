@@ -435,6 +435,30 @@ run_orchestrator() {
 	X2000_WRAPPER_LOG="$tmp/wrapper.log" "$fixture/scripts/build-x2000" "$@"
 }
 
+check_ota_report() {
+	python3 - "$1" "$fixture/local/production/artifacts/x2000/full" <<'PY'
+import json
+import pathlib
+import sys
+
+output = pathlib.Path(sys.argv[1]).read_text()
+directory = pathlib.Path(sys.argv[2])
+manifest = json.loads((directory / "build-manifest.json").read_text())
+package = directory / f'fre3nder-{manifest["version"]}-ender3-v3-ke.ota'
+assert output.count("X2000 composition: PASS") == 1
+for line in (
+    "=== Fre3nder OTA ===", "Status:   PASS",
+    f'Version:  {manifest["version"]}', f'Mode:     {manifest["artifact_mode"]}',
+    f"OTA:      {package}", f'SHA-256:  {manifest["artifacts"][package.name]}',
+    f'Kernel:   {manifest["artifacts"]["kernel.uImage"]}',
+    f'RootFS:   {manifest["artifacts"]["rootfs.squashfs"]}',
+):
+    assert line in output.splitlines(), line
+size = package.stat().st_size
+assert f"Size:     {size / 1024**2:.2f} MiB ({size} bytes)" in output.splitlines()
+PY
+}
+
 help_output=$("$fixture/scripts/build-x2000" --help)
 printf '%s\n' "$help_output" | grep -Fq 'Build Fre3nder X2000 platform artifacts.'
 printf '%s\n' "$help_output" | grep -Fq -- '--kernel-only'
@@ -443,7 +467,8 @@ printf '%s\n' "$help_output" | grep -Fq -- '--compose-only'
 printf '%s\n' "$help_output" | grep -Fq -- '--develop'
 
 # Default scope is a complete release build.
-run_orchestrator
+run_orchestrator > "$tmp/full-output.log" 2>&1
+check_ota_report "$tmp/full-output.log"
 printf '%s\n' \
 	'kernel ' \
 	'buildroot --toolchain default' \
@@ -455,7 +480,11 @@ full="$fixture/local/production/artifacts/x2000/full"
 [ -f "$full/fre3nder-2026.4.a-ender3-v3-ke.ota" ]
 
 # --develop changes provenance mode, not build scope.
-run_orchestrator --develop
+run_orchestrator --develop > "$tmp/develop-output.log" 2>&1
+check_ota_report "$tmp/develop-output.log"
+development_log=$(sed -n '/^Log: /{s/^Log: //;p;q;}' "$tmp/develop-output.log")
+[ -f "$development_log" ]
+cmp -s "$tmp/develop-output.log" "$development_log"
 printf '%s\n' \
 	'kernel --develop' \
 	'buildroot --toolchain --develop default' \

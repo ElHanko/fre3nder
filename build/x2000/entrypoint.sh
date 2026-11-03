@@ -1515,11 +1515,13 @@ build() {
 
 build_kernel_only() {
 	jobs=${JOBS:-4}
+	[ "$artifact_mode" != development ] || printf '[fre3nder-toolchain] START %s\n' "$(date +%s)"
 	prepare_buildroot
 	brout="$work/buildroot-output-fre3nder"
 	configure_buildroot "$brout"
 	make -C "$buildroot" O="$brout" -j"$jobs" toolchain
 	write_buildroot_toolchain_fingerprint "$brout"
+	[ "$artifact_mode" != development ] || printf '[fre3nder-toolchain] END %s\n' "$(date +%s)"
 	make -C "$buildroot" O="$brout" -j"$jobs" linux-firmware
 	stage_kernel_firmware "$brout"
 	kernel_cross_compile="$brout/host/bin/mipsel-buildroot-linux-gnu-"

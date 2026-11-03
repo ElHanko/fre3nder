@@ -17,6 +17,9 @@ develop=false
 fre3nderscreen_app=false
 factory_seed=${FRE3NDER_FACTORY_FRE3NDERSCREEN_APP:-"$root/local/production/factory-apps/fre3nderscreen.fre3app"}
 factory_mode=release
+development_logging=false
+development_phase=
+development_dir=
 
 fail() {
 	printf 'build-x2000: %s\n' "$*" >&2
@@ -24,14 +27,106 @@ fail() {
 }
 
 compose_exit_report() {
-	rc=$?
+	build_exit_code=$?
 	trap - EXIT
-	if [ "$compose_only" = true ] && [ "$rc" -ne 0 ]; then
+	if [ "$compose_only" = true ] && [ "$build_exit_code" -ne 0 ]; then
 		printf '\nX2000 composition: FAIL\n' >&2
 	fi
-	exit "$rc"
+	if [ "$development_logging" = true ]; then
+		trap '' INT TERM
+		development_finish "$build_exit_code" || :
+	fi
+	[ -z "$development_dir" ] || rm -rf -- "$development_dir"
+	exit "$build_exit_code"
 }
 trap compose_exit_report EXIT
+
+development_begin() {
+	development_started=$(date +%s)
+	development_dir=$(mktemp -d /tmp/fre3nder-build.XXXXXX)
+	# Keep the builders umask unchanged while enforcing private log access.
+	development_log=$(mktemp "/tmp/fre3nder-build-$(date +%Y%m%d-%H%M%S).XXXXXX.log")
+	chmod 600 "$development_log"
+	: > "$development_dir/phases"
+	mkfifo -m 600 "$development_dir/output"
+	exec 3>&1 4>&2
+	# Keep tee alive on terminal interrupts so it can drain the final output.
+	(trap '' INT TERM; exec tee "$development_log" < "$development_dir/output") &
+	development_tee=$!
+	exec > "$development_dir/output" 2>&1
+	development_logging=true
+	trap 'exit 130' INT
+	trap 'exit 143' TERM
+	printf '=== Fre3nder Development Build ===\nLog: %s\n\n' "$development_log"
+}
+
+begin_phase() {
+	[ "$develop" = true ] || return 0
+	development_phase=$1
+	printf 'BEGIN %s %s\n' "$development_phase" "$(date +%s)" >> "$development_dir/phases"
+}
+
+end_phase() {
+	[ "$develop" = true ] || return 0
+	printf 'END %s %s PASS\n' "$development_phase" "$(date +%s)" >> "$development_dir/phases"
+	development_phase=
+}
+
+development_finish() {
+	development_finished=$(date +%s)
+	if [ -n "$development_phase" ]; then
+		printf 'END %s %s FAIL\n' "$development_phase" "$development_finished" >> "$development_dir/phases"
+	fi
+	# The build itself never runs in a pipeline. Restore the terminal and
+	# drain tee before reading its log; its status cannot replace the build's.
+	exec 1>&3 2>&4 3>&- 4>&-
+	wait "$development_tee" || :
+	awk -v log_path="$development_log" -v started="$development_started" \
+		-v finished="$development_finished" -v result="$1" \
+		-v f005="$f005_build" -v screen="$fre3nderscreen_app" '
+		function duration(seconds) {
+			if (seconds < 0) seconds = 0
+			return sprintf("%02d:%02d:%02d", int(seconds / 3600), int(seconds / 60) % 60, seconds % 60)
+		}
+		function row(phase) {
+			printf "%-16s %8s    %s\n", phase, (status[phase] ? duration(elapsed[phase]) : "--:--:--"), (status[phase] ? status[phase] : "SKIP")
+		}
+		FILENAME == ARGV[1] {
+			if ($1 == "BEGIN") beginning[$2] = $3
+			if ($1 == "END") {
+				elapsed[$2] += $3 - beginning[$2]
+				ending[$2] = $3
+				status[$2] = $4
+			}
+			next
+		}
+		$1 == "[fre3nder-toolchain]" && $2 == "START" { toolchain_start = $3 }
+		$1 == "[fre3nder-toolchain]" && $2 == "END" {
+			toolchain_elapsed += $3 - toolchain_start
+			toolchain_start = 0
+			toolchain_status = "PASS"
+		}
+		END {
+			if (toolchain_start) {
+				toolchain_elapsed += ending["Kernel"] - toolchain_start
+				toolchain_status = "FAIL"
+				status["Kernel"] = "ABORT"
+			}
+			# The kernel wrapper includes toolchain work. Count it once,
+			# and add any separate RootFS toolchain preparation/reuse.
+			elapsed["Kernel"] -= toolchain_elapsed
+			elapsed["Toolchain"] += toolchain_elapsed
+			if (toolchain_status && status["Toolchain"] != "FAIL") status["Toolchain"] = toolchain_status
+			printf "\n=== Fre3nder Development Build ===\nLog: %s\n\n", log_path
+			printf "%-16s %8s    %s\n", "Phase", "Dauer", "Status"
+			row("Kernel"); row("Toolchain"); row("RootFS"); row("OTA")
+			if (f005 == "true") row("F005")
+			if (screen == "true") row("Fre3nderScreen")
+			print "------------------------------------"
+			printf "%-16s %8s    %s\n", "Gesamt", duration(finished - started), (result == 0 ? "PASS" : "FAIL")
+		}
+	' "$development_dir/phases" "$development_log" | tee -a "$development_log"
+}
 
 show_help() {
 	cat <<EOF
@@ -48,6 +143,7 @@ Build scope:
 
 Build mode:
   --develop          Allow a development build from the current worktree
+                     Write a live /tmp log and phase timing summary
 
 Additional components:
   --f005-build       Rebuild the F005 firmware candidate before RootFS assembly
@@ -131,6 +227,10 @@ if [ "$f005_build" = true ] && [ "$develop" != true ]; then
 	fail '--f005-build requires --develop; release uses qualified F005 firmware'
 fi
 
+if [ "$develop" = true ]; then
+	development_begin
+fi
+
 clean_rootfs_python_cache() {
 	overlay="$root/configs/x2000/rootfs-overlay"
 
@@ -196,6 +296,7 @@ if [ "$build_scope" = full ] || [ "$build_scope" = compose ]; then
 fi
 
 if [ "$fre3nderscreen_app" = true ]; then
+	begin_phase Fre3nderScreen
 	apps_repo="$root/../fre3nder-apps"
 	[ -d "$apps_repo" ] || fail 'missing fre3nder-apps repository'
 	apps_repo=$(CDPATH='' cd -- "$apps_repo" && pwd -P)
@@ -203,8 +304,16 @@ if [ "$fre3nderscreen_app" = true ]; then
 	[ -x "$package_builder" ] || fail 'missing Fre3nderScreen development package wrapper'
 	"$root/scripts/build-x2000-fre3nderscreen" --develop
 	artifact="$artifact_root/fre3nderscreen/app"
-	package_output=$("$package_builder" --artifact "$artifact" \
-		--key "$root/local/production/keys/apps/private.pem")
+	# This option is Development-only. Stream the receipt while retaining it
+	# for the existing validation, without putting the producer in a pipeline.
+	mkfifo -m 600 "$development_dir/package-output"
+	(trap '' INT TERM; exec tee "$development_dir/package-receipt" \
+		< "$development_dir/package-output") &
+	package_tee=$!
+	"$package_builder" --artifact "$artifact" \
+		--key "$root/local/production/keys/apps/private.pem" > "$development_dir/package-output"
+	wait "$package_tee"
+	package_output=$(cat "$development_dir/package-receipt")
 	factory_seed=$(printf '%s\n' "$package_output" | awk '
 		$0 == "=== Fre3nderScreen development package: PASS ===" { passes++; in_pass = 1; next }
 		/^Package:/ {
@@ -221,24 +330,32 @@ if [ "$fre3nderscreen_app" = true ]; then
 	[ -f "$factory_seed" ] && [ ! -L "$factory_seed" ] \
 		|| fail 'development package is not a regular non-symlink file'
 	factory_mode=development
+	end_phase
 fi
 
 if [ "$build_scope" = full ] || [ "$build_scope" = kernel ]; then
+	begin_phase Kernel
 	"$kernel_builder" $component_args
+	end_phase
 fi
 
 if [ "$build_scope" = full ] || [ "$build_scope" = rootfs ]; then
 	f005_firmware=
 	export FRE3NDER_F005_FIRMWARE_MODE=qualified
 	if [ "$f005_build" = true ]; then
+		begin_phase F005
 		"$f005_builder"
+		end_phase
 		f005_firmware="$root/local/production/artifacts/f005/candidate/klipper-f005-mainline.bin"
 		export FRE3NDER_F005_FIRMWARE_MODE=candidate
 	fi
 
 	export FRE3NDER_FACTORY_FRE3NDERSCREEN_APP="$factory_seed"
 	export FRE3NDER_FACTORY_FRE3NDERSCREEN_MODE="$factory_mode"
+	begin_phase Toolchain
 	"$buildroot_builder" --toolchain $component_args
+	end_phase
+	begin_phase RootFS
 	if [ -n "$f005_firmware" ]; then
 		FRE3NDER_F005_FIRMWARE="$f005_firmware" \
 		FRE3NDER_OTA_PUBLIC_KEY="$ota_public_key" \
@@ -247,9 +364,11 @@ if [ "$build_scope" = full ] || [ "$build_scope" = rootfs ]; then
 		FRE3NDER_OTA_PUBLIC_KEY="$ota_public_key" \
 			"$buildroot_builder" --assemble $component_args
 	fi
+	end_phase
 fi
 
 if [ "$build_scope" = full ] || [ "$build_scope" = compose ]; then
+	begin_phase OTA
 	python3 - "$artifact_root/kernel-only" "$artifact_root/rootfs-only" \
 		"$artifact_root/full" "$ota_private_key" "$ota_public_key" \
 		"$compose_only" "$root" <<'PY'
@@ -518,14 +637,21 @@ try:
     stage.rename(full_dir)
     stage = None
 
-    if compose_only:
-        print("X2000 composition: PASS")
-        print(f"Mode:     {ota_manifest['artifact_mode']}")
-        print(f"OTA:      {full_dir / package_name}")
-        print(f"Kernel:   {payload_hashes['kernel.uImage']}")
-        print(f"RootFS:   {payload_hashes['rootfs.squashfs']}")
+    package_path = full_dir / package_name
+    package_size = package_path.stat().st_size
+    print("=== Fre3nder OTA ===")
+    print("X2000 composition: PASS")
+    print("Status:   PASS")
+    print(f"Version:  {ota_manifest['version']}")
+    print(f"Mode:     {ota_manifest['artifact_mode']}")
+    print(f"OTA:      {package_path}")
+    print(f"Size:     {package_size / 1024**2:.2f} MiB ({package_size} bytes)")
+    print(f"SHA-256:  {manifest['artifacts'][package_name]}")
+    print(f"Kernel:   {payload_hashes['kernel.uImage']}")
+    print(f"RootFS:   {payload_hashes['rootfs.squashfs']}")
 finally:
     if stage is not None:
         shutil.rmtree(stage)
 PY
+	end_phase
 fi

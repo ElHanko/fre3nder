@@ -165,6 +165,13 @@ ota="$full/fre3nder-2026.4.a-ender3-v3-ke.ota"
 [ -f "$ota" ]
 [ -f "$full/build-manifest.json" ]
 [ -f "$full/SHA256SUMS" ]
+ota_sha=$(awk -v name="${ota##*/}" '$2 == name { print $1 }' "$full/SHA256SUMS")
+ota_size=$(stat -c '%s' "$ota")
+printf '%s\n' "$compose_output" | grep -Fxq '=== Fre3nder OTA ==='
+printf '%s\n' "$compose_output" | grep -Fxq 'Status:   PASS'
+printf '%s\n' "$compose_output" | grep -Fxq 'Version:  2026.4.a'
+printf '%s\n' "$compose_output" | grep -Fq "($ota_size bytes)"
+printf '%s\n' "$compose_output" | grep -Fxq "SHA-256:  $ota_sha"
 
 python3 - "$ota" "$full/build-manifest.json" "$fixture_commit" <<'VERIFY_PY'
 import json
@@ -255,12 +262,17 @@ BAD_VERSION_PY
 if failure_output=$("$fixture/scripts/build-x2000" --compose-only 2>&1); then
 	echo 'compose-only accepted mismatched component versions' >&2
 	exit 1
+else
+	failure_code=$?
 fi
 
+[ "$failure_code" -eq 1 ]
 printf '%s\n' "$failure_output" |
 	grep -Fq 'component manifests disagree on version'
 printf '%s\n' "$failure_output" |
 	grep -Fq 'X2000 composition: FAIL'
+! printf '%s\n' "$failure_output" | grep -Fq 'X2000 composition: PASS'
+! printf '%s\n' "$failure_output" | grep -Fq '=== Fre3nder OTA ==='
 
 cp "$tmp/kernel-manifest.json" "$kernel_dir/build-manifest.json"
 
