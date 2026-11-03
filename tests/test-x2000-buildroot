@@ -314,7 +314,7 @@ assert [
     (
         1,
         "patches/kernel/0001-ingenic-x2000-platform-v6.6.157.patch",
-        "df0ab5b4f8041faf8aa715500dd9f3c4aa4c6e34360bdf03836c4a1487da072e",
+        "30aeaf27aeb5c34cc803ef6e09495b90234112ed7d02ce51902a06719d2caf11",
     ),
     (
         2,

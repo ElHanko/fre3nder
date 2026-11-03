@@ -32010,7 +32010,7 @@ index 91915d351e1235f8fb79391b7c993f4508e1477e..d039111e5a0c444f2e7eb47a8eacf04d
 +			return virt_to_page(ret);
 +
  	if (force_dma_unencrypted(dev) && dma_direct_use_pool(dev, gfp))
- 		return dma_direct_alloc_from_pool(dev, size, dma_handle, gfp);
+ 		return dma_direct_alloc_from_pool(dev, size, dma_handle, &ret, gfp);
  
 @@ -386,6 +391,10 @@ void dma_direct_free_pages(struct device *dev, size_t size,
  {

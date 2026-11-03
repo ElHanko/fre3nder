@@ -11,23 +11,23 @@
     "source": {
       "role": "productive upstream Linux baseline",
       "url": "https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git",
-      "commit": "79643295eba17affbd16ca97f3ef04c90266b28c",
-      "tree": "e2963aecbdc92c10a52434a5ae11a82522dc38d5"
+      "commit": "b5a1dc3ad4822c6edfb53429e9a3759c9b0ac2be",
+      "tree": "c68569af81eac9a9d9d3b8b201afa7b456244cd6"
     },
-    "kernel_version": "6.6.157",
+    "kernel_version": "6.6.161",
     "kernel_localversion": "-fre3nder",
     "preemption_model": "PREEMPT",
     "preempt_rt_enabled": false,
     "patch_series": {
       "role": "productive ordered Fre3nder X2000 kernel patch series on the pinned upstream Linux baseline",
       "baseline_ref": "kernel.source.commit",
-      "result_tree": "aab0f34f008edcdaaa36595d7b3565713d5314b2",
+      "result_tree": "75cd07dbbde866717a9eb1ad2b8780a6f8dabdf2",
       "patches": [
         {
           "order": 1,
           "role": "retained Ingenic-derived X2000 platform support after Fre3nder pruning and upstream forward-porting",
           "patch": "patches/kernel/0001-ingenic-x2000-platform-v6.6.157.patch",
-          "patch_sha256": "df0ab5b4f8041faf8aa715500dd9f3c4aa4c6e34360bdf03836c4a1487da072e",
+          "patch_sha256": "30aeaf27aeb5c34cc803ef6e09495b90234112ed7d02ce51902a06719d2caf11",
           "derived_from_repository": "https://github.com/Llixuma/ingenic-linux-kernel6.6-x2000-v1.0-20250221",
           "derived_from_commit": "a98c2e1f22e4263ddd4153a4eca4db4dcfd2777b"
         },
@@ -120,9 +120,9 @@
     }
   },
   "buildroot": {
-    "version": "2025.02.18",
+    "version": "2025.02.19",
     "url": "https://gitlab.com/buildroot.org/buildroot.git",
-    "commit": "d030e36bbc9669230c015be971b14b6e062cfdde",
+    "commit": "4f924fd52841608d68ac3dcb83fccee8b8c90316",
     "source": "upstream Buildroot",
     "legacy_adoption_commit": "d030e36bbc9669230c015be971b14b6e062cfdde"
   },
