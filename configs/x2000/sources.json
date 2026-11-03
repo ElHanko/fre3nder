@@ -160,31 +160,31 @@
       }
     },
     "wpa_supplicant": {
-      "version": "2.12",
       "license": "BSD-3-Clause",
       "source": "upstream Buildroot package"
     },
     "dropbear": {
-      "version": "2026.93",
       "license": "MIT, BSD-2-Clause, Public domain, Unlicense, WTFPL",
       "source": "upstream Buildroot package"
     },
     "mjpg_streamer": {
       "repository": "https://github.com/jacksonliam/mjpg-streamer.git",
-      "commit": "5a6e0a2db163e6ae9461552b59079870d0959340",
       "license": "GPL-2.0-or-later",
       "source": "upstream Buildroot package",
       "role": "USB-UVC V4L2 to localhost MJPEG streamer"
     },
     "busybox": {
-      "version": "1.37.0",
       "license": "GPL-2.0, bzip2-1.0.6",
       "source": "upstream Buildroot package"
     },
     "python": {
-      "version": "3.12.14",
       "license": "Python-2.0, others",
       "source": "upstream Buildroot package"
+    },
+    "streaming_form_data": {
+      "version": "2.1.0",
+      "license": "MIT",
+      "source": "Fre3nder external Buildroot package"
     },
     "greenlet": {
       "version": "3.3.2",

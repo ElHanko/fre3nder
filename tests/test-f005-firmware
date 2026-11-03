@@ -277,8 +277,23 @@ class FirmwareFixtures(unittest.TestCase):
         entrypoint = (ROOT / "build/x2000/entrypoint.sh").read_text()
         functions = "\n".join(re.search(
             rf"^{name}\(\) \{{\n.*?^\}}(?=\n\n[a-z_]+\(\))", entrypoint, re.M | re.S
-        )[0] for name in ("validate_f005_firmware", "write_build_manifest"))
+        )[0] for name in ("buildroot_metadata", "validate_f005_firmware", "write_build_manifest"))
         staged_root = self.directory / "buildroot/target"
+        staged_root.parent.mkdir()
+        (staged_root.parent / ".config").write_text("# metadata fixture\n")
+        metadata_source = self.directory / "buildroot-source"
+        metadata_source.mkdir()
+        package_versions = {
+            "GCC_VERSION": "77.3.1", "BINUTILS_VERSION": "9.2",
+            "GLIBC_VERSION": "2.99-7-gfixture", "LINUX_HEADERS_VERSION": "6.6.999",
+            "WPA_SUPPLICANT_VERSION": "9.1", "DROPBEAR_VERSION": "2099.1",
+            "BUSYBOX_VERSION": "9.2.1", "PYTHON3_VERSION": "3.99.1",
+            "MJPG_STREAMER_VERSION": "f" * 40,
+        }
+        (metadata_source / "Makefile").write_text(
+            "\n".join(f"{key}={value}" for key, value in package_versions.items())
+            + "\n.PHONY: printvars\nprintvars:\n"
+            + "\t$(foreach V,$(VARS),$(info $(V)='$($(V))'))\n\t@:\n")
         staged = staged_root / TARGET_PATH.lstrip("/")
         staged.parent.mkdir(parents=True)
         shutil.copyfile(self.firmware, staged)
@@ -299,6 +314,7 @@ class FirmwareFixtures(unittest.TestCase):
         env = dict(os.environ, project=str(ROOT), f005_firmware=str(self.firmware),
                    f005_target_path=TARGET_PATH, f005_firmware_mode="candidate",
                    artifact_mode="development", brout=str(staged_root.parent),
+                   buildroot=str(metadata_source),
                    target=str(staged_root), output=str(output),
                    version="2026.5.a", release_year="2026", release_number="5",
                    release_patch="0", release_stage="alpha", release_scope="managed-platform",
@@ -313,6 +329,14 @@ class FirmwareFixtures(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         manifest = json.loads((output / "build-manifest.json").read_text())
         self.assertEqual(manifest["f005_firmware"], self.candidate_identity())
+        self.assertEqual(manifest["userspace_toolchain"]["gcc"], package_versions["GCC_VERSION"])
+        self.assertEqual(manifest["kernel_toolchain"]["glibc"], package_versions["GLIBC_VERSION"])
+        self.assertEqual(manifest["userspace_toolchain"]["kernel_headers"],
+                         package_versions["LINUX_HEADERS_VERSION"])
+        self.assertEqual(manifest["userspace"]["python"]["version"], package_versions["PYTHON3_VERSION"])
+        self.assertEqual(manifest["userspace"]["mjpg_streamer"]["commit"],
+                         package_versions["MJPG_STREAMER_VERSION"])
+        self.assertFalse(manifest["userspace_toolchain"]["hardware_validated"])
         target = json.loads(runtime_path.read_text())
         self.assertEqual(target, runtime_target(ROOT, self.firmware, "candidate", "development"))
         target["fre3nder_release"]["version"] = "wrong-runtime"

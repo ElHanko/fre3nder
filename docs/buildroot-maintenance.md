@@ -22,6 +22,24 @@ Release builds never adopt old output. The separate
 `buildroot.legacy_adoption_commit` records the qualified adoption basis; later
 pins do not inherit that qualification.
 
+Package versions and exact build directories are read with Buildroot's
+metadata-only `printvars` target from the prepared pinned source and effective
+configuration. This covers GCC, binutils, glibc, Linux headers, Python, BusyBox,
+Dropbear, and the linux-firmware license path. Toolchain completion still
+requires the exact package stamps, compiler/linker identities, MIPS ABI,
+wrapper flags, glibc identity, and the libstdc++ filename derived from the
+expected GCC source's libtool version. Cache fingerprints retain the Buildroot
+commit, architecture defconfig, and XBurst II patch as their inputs.
+
+The `userspace_toolchain` and `kernel_toolchain` records in `sources.json`
+preserve the qualified Buildroot 2025.02.18 reference. They do not select
+productive package versions. Generated build manifests replace those versions
+and the Buildroot-owned userspace package versions with the actual metadata;
+they do not carry the old hardware qualification over to a new release.
+Explicit Fre3nder package pins remain in `sources.json`, including Greenlet,
+CFFI, and the external streaming-form-data package. Their recipes and source
+hashes must agree with those pins.
+
 ## WLAN firmware and NVRAM ownership
 
 Retain the regular Buildroot/linux-firmware path. The pinned Buildroot selects

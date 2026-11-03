@@ -20,7 +20,13 @@ openssl pkey -pubin -in "$app_public_key" -text -noout 2>/dev/null |
 }
 install -D -m 0644 "$app_public_key" \
 	"$target/usr/share/fre3nder/app-keys/fre3nder-official.pem"
-linux_firmware_license="$BUILD_DIR/linux-firmware-20250211/LICENCE.cypress"
+# Ask the configured Buildroot output for the exact package directory.
+# Do not select an arbitrary older firmware tree from a reused output.
+firmware_metadata=$(make -s --no-print-directory -C "$(dirname -- "$BUILD_DIR")" \
+	printvars VARS=LINUX_FIRMWARE_DIR QUOTED_VARS=YES)
+unset LINUX_FIRMWARE_DIR
+eval "$firmware_metadata"
+linux_firmware_license="${LINUX_FIRMWARE_DIR:?}/LICENCE.cypress"
 system_app_seeds=${FRE3NDER_SYSTEM_APP_PACKAGES_DIR:-}
 system_target="$target/usr/share/fre3nder/system-apps"
 # Always discard stale seeds from reused Buildroot target directories.

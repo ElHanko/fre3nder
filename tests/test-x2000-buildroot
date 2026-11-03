@@ -110,18 +110,31 @@ assert buildroot == {
     "legacy_adoption_commit": sys.argv[6],
 }
 greenlet = data["userspace"]["greenlet"]
+assert re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", greenlet["version"])
 assert greenlet == {
-    "version": "3.3.2",
+    "version": greenlet["version"],
     "license": "MIT, PSF-2.0",
     "source": "Fre3nder package-version patch against upstream Buildroot 2025.02.18",
     "required_by": "Klipper for Python >= 3.12",
 }
-assert data["userspace"]["cffi"] == {
-    "version": "2.1.1",
+cffi = data["userspace"]["cffi"]
+assert re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", cffi["version"])
+assert cffi == {
+    "version": cffi["version"],
     "license": "MIT-0",
     "source": "Fre3nder package-version patch against upstream Buildroot 2025.02.18",
     "required_by": "Klipper for Python >= 3.12",
 }
+for name in ("wpa_supplicant", "dropbear", "busybox", "python", "mjpg_streamer"):
+    package = data["userspace"][name]
+    assert package["source"] == "upstream Buildroot package"
+    assert "version" not in package and "commit" not in package
+streaming = data["userspace"]["streaming_form_data"]
+assert re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", streaming["version"])
+archive = f'streaming_form_data-{streaming["version"]}.tar.gz'
+hash_file = pathlib.Path(sys.argv[1]).parent / (
+    "buildroot-external/package/python-streaming-form-data/python-streaming-form-data.hash")
+assert archive in hash_file.read_text()
 assert data["klipper_patch_set"]["source_ref"] == "userspace.klipper.commit"
 assert "source_commit" not in data["klipper_patch_set"]
 assert data["userspace_toolchain"] == {
@@ -386,13 +399,13 @@ grep -Fq '"refs/tags/$buildroot_version:refs/tags/$buildroot_version"' \
 	"$entrypoint"
 grep -Fq '"refs/tags/${buildroot_version}^{}"' "$entrypoint"
 ! grep -Fq '2025.02.17-113-gd030e36bbc-dirty' "$entrypoint"
-grep -Fq 'expected_compiler_version="mipsel-buildroot-linux-gnu-gcc.br_real (Buildroot ${buildroot_version}-dirty) 13.4.0"' \
+grep -Fq 'expected_compiler_version="mipsel-buildroot-linux-gnu-gcc.br_real (Buildroot ${buildroot_version}-dirty) $GCC_VERSION"' \
 	"$entrypoint"
 grep -Fq 'config BR2_mips_xburst2' "$entrypoint"
 grep -Fq 'BR_FP_CONTRACT_OFF' "$entrypoint"
 grep -Fq -- '-ffp-contract=off' "$entrypoint"
-grep -Fq 'PYTHON_GREENLET_VERSION = 3.3.2' "$entrypoint"
-grep -Fq 'PYTHON_CFFI_VERSION = 2.1.1' "$entrypoint"
+grep -Fq 'userspace.greenlet.version)' "$entrypoint"
+grep -Fq 'userspace.cffi.version)' "$entrypoint"
 grep -Fq '0002-klipper-python-dependencies.patch' "$entrypoint"
 grep -Fq 'klipper_commit=$("$project/scripts/source-value" userspace.klipper.commit)' "$entrypoint"
 grep -Fq 'describe --always --tags --long --abbrev=9 "$klipper_commit"' "$entrypoint"
@@ -403,7 +416,7 @@ grep -Fq 'BR2_EXTERNAL="$buildroot_external"' "$entrypoint"
 grep -Fxq 'name: FRE3NDER' "$root/configs/x2000/buildroot-external/external.desc"
 grep -Fq 'python-streaming-form-data' \
 	"$root/configs/x2000/buildroot-external/Config.in"
-grep -Fxq 'PYTHON_STREAMING_FORM_DATA_VERSION = 2.1.0' \
+grep -Fq 'scripts/source-value userspace.streaming_form_data.version)' \
 	"$streaming_package/python-streaming-form-data.mk"
 grep -Fq '2c5c81fc9c451ea133083bc6da959f87e9b91fba3effe99411f1f90461ea7c5b' \
 	"$streaming_package/python-streaming-form-data.hash"
@@ -411,8 +424,8 @@ grep -Fq 'BR2_GCC_TARGET_ARCH="mips32r2"' "$entrypoint"
 grep -Fq 'BR2_GCC_TARGET_ABI="32"' "$entrypoint"
 grep -Fq 'BR2_GCC_TARGET_FP32_MODE="xx"' "$entrypoint"
 grep -Fq 'BR2_GCC_TARGET_NAN="2008"' "$entrypoint"
-grep -Fq 'BR2_BINUTILS_VERSION="2.43.1"' "$entrypoint"
-grep -Fq 'BR2_GCC_VERSION="13.4.0"' "$entrypoint"
+grep -Fq 'printvars VARS="$2" QUOTED_VARS=YES' "$entrypoint"
+! grep -Eq 'host-gcc-final-[0-9]|host-binutils-[0-9]|glibc-[0-9]|linux-headers-[0-9]|libstdc\+\+\.so\.6\.0\.[0-9]' "$entrypoint"
 grep -Fq "! grep -Eq '^BR2_TOOLCHAIN_EXTERNAL(=|_)'" "$entrypoint"
 grep -Fq 'FP ABI: Hard float (32-bit CPU, Any FPU)' "$entrypoint"
 grep -Fq 'build_klipper_mcu()' "$entrypoint"
@@ -432,7 +445,7 @@ grep -Fxq 'BR2_PACKAGE_LINUX_FIRMWARE=y' "$fragment"
 grep -Fxq 'BR2_PACKAGE_LINUX_FIRMWARE_CYPRESS_CYW43XXX=y' "$fragment"
 grep -Fq "grep -Fxq 'BR2_PACKAGE_PYTHON_NUMPY=y' \"\$brout/.config\"" \
 	"$entrypoint"
-grep -Fq 'numpy_dir="$target/usr/lib/python3.12/site-packages/numpy"' \
+grep -Fq 'numpy_dir="$target/usr/lib/python${PYTHON3_VERSION_MAJOR:?}/site-packages/numpy"' \
 	"$entrypoint"
 grep -Fq -- "-name '_multiarray_umath*.so'" "$entrypoint"
 ! grep -Fq 'stage_byof_firmware()' "$entrypoint"
@@ -835,6 +848,8 @@ printf '%s\n' 'rootfs fixture' > \
 	"$cache_project/configs/x2000/rootfs-overlay/etc/fixture"
 
 for function_name in \
+	buildroot_metadata \
+	buildroot_toolchain_metadata \
 	buildroot_toolchain_fingerprint \
 	read_buildroot_toolchain_fingerprint \
 	buildroot_toolchain_ready \
@@ -851,6 +866,33 @@ buildroot_commit=$("$root/scripts/source-value" buildroot.commit)
 buildroot_patch=$cache_project/patches/buildroot/0001-mips-add-ingenic-xburst2-target.patch
 buildroot_toolchain_marker=.fre3nder-toolchain-fingerprint
 
+# These are deliberately synthetic package versions, independent of any
+# productive pin. The fixture uses Buildroot's printvars interface.
+buildroot=$tmp/toolchain-buildroot
+mkdir -p "$buildroot"
+fixture_gcc_version=14.7.9
+fixture_binutils_version=2.49.3
+fixture_glibc_version=2.43-17-gfixture
+fixture_headers_version=6.6.999
+fixture_libstdcxx_version=6.0.45
+cat > "$buildroot/versions.mk" <<EOF
+GCC_VERSION=$fixture_gcc_version
+BINUTILS_VERSION=$fixture_binutils_version
+GLIBC_VERSION=$fixture_glibc_version
+LINUX_HEADERS_VERSION=$fixture_headers_version
+EOF
+cat > "$buildroot/Makefile" <<'EOF'
+include versions.mk
+HOST_GCC_FINAL_DIR=$(O)/build/host-gcc-final-$(GCC_VERSION)
+HOST_BINUTILS_DIR=$(O)/build/host-binutils-$(BINUTILS_VERSION)
+GLIBC_DIR=$(O)/build/glibc-$(GLIBC_VERSION)
+LINUX_HEADERS_DIR=$(O)/build/linux-headers-$(LINUX_HEADERS_VERSION)
+.PHONY: printvars
+printvars:
+	$(foreach V,$(VARS),$(info $(V)='$($(V))'))
+	@:
+EOF
+
 create_toolchain_fixture() {
 	prefix="$cache_output/host/bin/mipsel-buildroot-linux-gnu-"
 	sysroot="$cache_output/host/mipsel-buildroot-linux-gnu/sysroot"
@@ -858,10 +900,12 @@ create_toolchain_fixture() {
 		"$sysroot/usr/lib" \
 		"$cache_output/build/toolchain" \
 		"$cache_output/build/toolchain-buildroot" \
-		"$cache_output/build/host-gcc-final-13.4.0" \
-		"$cache_output/build/host-binutils-2.43.1" \
-		"$cache_output/build/glibc-2.41-161-g5dd252cf1d113644b3679f5a158e9ef20217865e" \
-		"$cache_output/build/linux-headers-6.6.156"
+		"$cache_output/build/host-gcc-final-$fixture_gcc_version/libstdc++-v3" \
+		"$cache_output/build/host-binutils-$fixture_binutils_version" \
+		"$cache_output/build/glibc-$fixture_glibc_version" \
+		"$cache_output/build/linux-headers-$fixture_headers_version"
+	printf '%s\n' 'libtool_VERSION=6:45:0' > \
+		"$cache_output/build/host-gcc-final-$fixture_gcc_version/libstdc++-v3/acinclude.m4"
 	printf '%s\n' '#!/bin/sh' 'exit 0' '-ffp-contract=off' > \
 		"$cache_output/host/bin/toolchain-wrapper"
 	chmod +x "$cache_output/host/bin/toolchain-wrapper"
@@ -871,10 +915,10 @@ create_toolchain_fixture() {
 #!/bin/sh
 case "\$1" in
 -dumpmachine) printf '%s\n' mipsel-buildroot-linux-gnu ;;
--dumpfullversion) printf '%s\n' 13.4.0 ;;
+-dumpfullversion) printf '%s\n' '$fixture_gcc_version' ;;
 --version)
 	printf '%s\n' \
-		'mipsel-buildroot-linux-gnu-gcc.br_real (Buildroot ${buildroot_version}-dirty) 13.4.0'
+		'mipsel-buildroot-linux-gnu-gcc.br_real (Buildroot ${buildroot_version}-dirty) $fixture_gcc_version'
 	;;
 -Q)
 	printf '%s\n' \
@@ -888,25 +932,25 @@ case "\$1" in
 *) exit 2 ;;
 esac
 EOF
-	cat > "${prefix}ld" <<'EOF'
+	cat > "${prefix}ld" <<EOF
 #!/bin/sh
-printf '%s\n' 'GNU ld (GNU Binutils) 2.43.1'
+printf '%s\n' 'GNU ld (GNU Binutils) $fixture_binutils_version'
 EOF
 	printf '%s\n' '#!/bin/sh' 'exit 0' > "${prefix}strip"
 	chmod +x "${prefix}gcc.br_real" "${prefix}ld" "${prefix}strip"
 	: > "$sysroot/lib/ld-linux-mipsn8.so.1"
-	printf '%s\n' 'GNU C Library (Buildroot) stable release version 2.41.' > \
+	printf '%s\n' "GNU C Library (Buildroot) stable release version ${fixture_glibc_version%%-*}." > \
 		"$sysroot/lib/libc.so.6"
 	: > "$sysroot/usr/include/stdio.h"
-	: > "$sysroot/usr/lib/libstdc++.so.6.0.32"
-	ln -s libstdc++.so.6.0.32 "$sysroot/usr/lib/libstdc++.so"
+	: > "$sysroot/usr/lib/libstdc++.so.$fixture_libstdcxx_version"
+	ln -s "libstdc++.so.$fixture_libstdcxx_version" "$sysroot/usr/lib/libstdc++.so"
 	touch \
 		"$cache_output/build/toolchain/.stamp_target_installed" \
 		"$cache_output/build/toolchain-buildroot/.stamp_target_installed" \
-		"$cache_output/build/host-gcc-final-13.4.0/.stamp_host_installed" \
-		"$cache_output/build/host-binutils-2.43.1/.stamp_host_installed" \
-		"$cache_output/build/glibc-2.41-161-g5dd252cf1d113644b3679f5a158e9ef20217865e/.stamp_staging_installed" \
-		"$cache_output/build/linux-headers-6.6.156/.stamp_staging_installed"
+		"$cache_output/build/host-gcc-final-$fixture_gcc_version/.stamp_host_installed" \
+		"$cache_output/build/host-binutils-$fixture_binutils_version/.stamp_host_installed" \
+		"$cache_output/build/glibc-$fixture_glibc_version/.stamp_staging_installed" \
+		"$cache_output/build/linux-headers-$fixture_headers_version/.stamp_staging_installed"
 	cat > "$cache_output/.config" <<EOF
 # Buildroot ${buildroot_version}-dirty Configuration
 BR2_mipsel=y
@@ -924,8 +968,8 @@ BR2_TOOLCHAIN_BUILDROOT=y
 BR2_TOOLCHAIN_BUILDROOT_GLIBC=y
 BR2_TOOLCHAIN_BUILDROOT_LIBC="glibc"
 BR2_KERNEL_HEADERS_6_6=y
-BR2_BINUTILS_VERSION="2.43.1"
-BR2_GCC_VERSION="13.4.0"
+BR2_BINUTILS_VERSION="$fixture_binutils_version"
+BR2_GCC_VERSION="$fixture_gcc_version"
 BR2_TOOLCHAIN_BUILDROOT_CXX=y
 EOF
 }
@@ -940,6 +984,62 @@ create_cached_toolchain() {
 # The exact release identity is accepted; the observed previous-tag fallback is not.
 create_toolchain_fixture
 buildroot_toolchain_contract_matches "$cache_output"
+# Every expected completion stamp is mandatory, even if other old package
+# directories and a matching compiler are present.
+for stamp in \
+	"host-gcc-final-$fixture_gcc_version/.stamp_host_installed" \
+	"host-binutils-$fixture_binutils_version/.stamp_host_installed" \
+	"glibc-$fixture_glibc_version/.stamp_staging_installed" \
+	"linux-headers-$fixture_headers_version/.stamp_staging_installed"
+do
+	rm "$cache_output/build/$stamp"
+	if buildroot_toolchain_ready "$cache_output"; then
+		echo "Buildroot accepted missing stamp: $stamp" >&2
+		exit 1
+	fi
+	touch "$cache_output/build/$stamp"
+done
+# Different package metadata must not accept the old complete output.
+cp "$buildroot/versions.mk" "$tmp/versions.mk"
+printf '%s\n' 'GLIBC_VERSION=2.43-18-gupdated' >> "$buildroot/versions.mk"
+if buildroot_toolchain_ready "$cache_output"; then
+	echo 'Buildroot accepted stale glibc package stamps' >&2
+	exit 1
+fi
+cp "$tmp/versions.mk" "$buildroot/versions.mk"
+# The installed library must match the libtool version from this GCC source.
+ln -sf libstdc++.so.6.0.1 "$sysroot/usr/lib/libstdc++.so"
+if buildroot_toolchain_ready "$cache_output"; then
+	echo 'Buildroot accepted a different libstdc++' >&2
+	exit 1
+fi
+ln -sf "libstdc++.so.$fixture_libstdcxx_version" "$sysroot/usr/lib/libstdc++.so"
+buildroot_toolchain_ready "$cache_output"
+# Reported compiler, linker, libc, wrapper and ABI contracts remain strict.
+for mismatch in gcc binutils glibc wrapper abi; do
+	case "$mismatch" in
+	gcc) contract_file=${prefix}gcc.br_real; old_value=$fixture_gcc_version; new_value=1.0.0 ;;
+	binutils) contract_file=${prefix}ld; old_value=$fixture_binutils_version; new_value=1.0 ;;
+	glibc) contract_file=$sysroot/lib/libc.so.6; old_value=${fixture_glibc_version%%-*}; new_value=1.0 ;;
+	wrapper) contract_file=$cache_output/host/bin/toolchain-wrapper; old_value=-ffp-contract=off; new_value=-ffp-contract=fast ;;
+	abi) contract_file=${prefix}gcc.br_real; old_value=mips32r2; new_value=mips64 ;;
+	esac
+	cp "$contract_file" "$tmp/contract.before"
+	sed -i "s/$old_value/$new_value/g" "$contract_file"
+	if buildroot_toolchain_contract_matches "$cache_output"; then
+		echo "Buildroot accepted incompatible $mismatch" >&2
+		exit 1
+	fi
+	cp "$tmp/contract.before" "$contract_file"
+done
+buildroot_toolchain_contract_matches "$cache_output"
+# Missing metadata must fail closed rather than use values from a prior call.
+printf '%s\n' 'GCC_VERSION=' >> "$buildroot/versions.mk"
+if buildroot_toolchain_ready "$cache_output"; then
+	echo 'Buildroot accepted missing GCC metadata' >&2
+	exit 1
+fi
+cp "$tmp/versions.mk" "$buildroot/versions.mk"
 sed -i "s/Buildroot ${buildroot_version}-dirty/Buildroot 2025.02.17-113-gd030e36bbc-dirty/" \
 	"$cache_output/host/bin/mipsel-buildroot-linux-gnu-gcc.br_real"
 if buildroot_toolchain_contract_matches "$cache_output"; then
@@ -988,6 +1088,16 @@ cache_log=$(prepare_buildroot_output "$cache_output")
 [ "$cache_log" = \
 	'Buildroot development cache: MISS (toolchain fingerprint changed)' ]
 [ ! -e "$cache_output" ]
+
+# A stable-update commit invalidates even an otherwise complete cache.
+create_cached_toolchain
+previous_buildroot_commit=$buildroot_commit
+buildroot_commit=1111111111111111111111111111111111111111
+cache_log=$(prepare_buildroot_output "$cache_output")
+[ "$cache_log" = \
+	'Buildroot development cache: MISS (toolchain fingerprint changed)' ]
+[ ! -e "$cache_output" ]
+buildroot_commit=$previous_buildroot_commit
 
 # 5. buildroot.fragment is deliberately outside the toolchain fingerprint.
 fingerprint_before=$(buildroot_toolchain_fingerprint)
@@ -1057,6 +1167,15 @@ cache_log=$(prepare_buildroot_output "$cache_output")
 # 11-12. A compatible markerless output is adopted and receives the fingerprint.
 artifact_mode=development
 create_toolchain_fixture
+# The historical adoption fixtures explicitly simulate a qualified pin. The
+# current productive pin must not inherit the previous release's qualification.
+if [ "$buildroot_commit" != "$buildroot_legacy_adoption_commit" ]; then
+	if buildroot_legacy_toolchain_adoptable "$cache_output"; then
+		echo 'Buildroot adopted output for the unqualified productive pin' >&2
+		exit 1
+	fi
+fi
+buildroot_legacy_adoption_commit=$buildroot_commit
 cache_log=$(prepare_buildroot_output "$cache_output")
 [ "$cache_log" = \
 	'Buildroot development cache: ADOPTED (legacy output without fingerprint)' ]
@@ -1183,9 +1302,14 @@ export FRE3NDER_FACTORY_FRE3NDERSCREEN_APP="$factory_seed"
 mkdir -p "$tmp/system-app-seeds"
 printf '%s\n' 'signed moonraker seed fixture' > "$tmp/system-app-seeds/moonraker.fre3app"
 export FRE3NDER_SYSTEM_APP_PACKAGES_DIR="$tmp/system-app-seeds"
-mkdir -p "$build_dir/linux-firmware-20250211"
+mkdir -p "$build_dir/linux-firmware-fixture"
 printf '%s\n' 'fixture Cypress license' > \
-	"$build_dir/linux-firmware-20250211/LICENCE.cypress"
+	"$build_dir/linux-firmware-fixture/LICENCE.cypress"
+cat > "$tmp/Makefile" <<'EOF'
+.PHONY: printvars
+printvars:
+	@echo "LINUX_FIRMWARE_DIR='$(CURDIR)/build/linux-firmware-fixture'"
+EOF
 export BUILD_DIR="$build_dir"
 mkdir -p "$target/etc/init.d" "$target/usr/libexec/fre3nder" "$target/usr/bin"
 printf '%s\n' 'input/event[0-9]+ root:root 640' > "$target/etc/mdev.conf"
@@ -1244,7 +1368,7 @@ cmp "$ota_public_key" "$target/ota/keys/public.pem"
 installed_app_key="$target/usr/share/fre3nder/app-keys/fre3nder-official.pem"
 cmp "$app_public_key" "$installed_app_key"
 [ "$(stat -c '%a' "$installed_app_key")" = 644 ]
-cmp "$build_dir/linux-firmware-20250211/LICENCE.cypress" \
+cmp "$build_dir/linux-firmware-fixture/LICENCE.cypress" \
 	"$target/usr/share/licenses/linux-firmware/LICENCE.cypress"
 cmp "$nvram" "$target/lib/firmware/brcm/brcmfmac43430-sdio.txt"
 cmp "$nvram_license" \

@@ -89,7 +89,7 @@ buildroot_legacy_adoption_commit=$("$project/scripts/source-value" buildroot.leg
 buildroot_patch="$project/patches/buildroot/0001-mips-add-ingenic-xburst2-target.patch"
 buildroot_python_patch="$project/patches/buildroot/0002-klipper-python-dependencies.patch"
 buildroot_toolchain_marker=.fre3nder-toolchain-fingerprint
-klipper_url=https://github.com/Klipper3d/klipper.git
+klipper_url=$("$project/scripts/source-value" userspace.klipper.repository)
 klipper_commit=$("$project/scripts/source-value" userspace.klipper.commit)
 kernel_firmware_dir="$work/fre3nder-kernel-firmware"
 klipper_overlay="$work/fre3nder-klipper-overlay"
@@ -133,6 +133,9 @@ write_build_manifest() {
 	export ARTIFACT_OUTPUT="$out"
 	export artifact_mode project_commit project_worktree_status build_input_sha256
 	export version release_year release_number release_patch release_stage release_scope
+	buildroot_versions=$(buildroot_metadata "$brout" \
+		'GCC_VERSION BINUTILS_VERSION GLIBC_VERSION LINUX_HEADERS_VERSION WPA_SUPPLICANT_VERSION DROPBEAR_VERSION BUSYBOX_VERSION PYTHON3_VERSION MJPG_STREAMER_VERSION')
+	export buildroot_versions
 	f005_identity=
 	for artifact in "$@"; do
 		if [ "$artifact" = rootfs.squashfs ]; then
@@ -144,11 +147,27 @@ import hashlib
 import json
 import os
 import pathlib
+import shlex
 import sys
 
 out = pathlib.Path(os.environ["ARTIFACT_OUTPUT"])
 artifact_names = sys.argv[3:]
 manifest = json.loads(pathlib.Path(sys.argv[1]).read_text())
+packages = dict(item.split("=", 1) for item in shlex.split(os.environ["buildroot_versions"]))
+source = f'upstream Buildroot {manifest["buildroot"]["version"]}'
+for key in ("userspace_toolchain", "kernel_toolchain"):
+    record = manifest[key]
+    # Keep historical qualification in sources.json; a new source release
+    # does not inherit it merely because the architecture stayed the same.
+    record["hardware_validated"] = record["hardware_validated"] and record["source"] == source
+    record.update(source=source, gcc=packages["GCC_VERSION"],
+                  binutils=packages["BINUTILS_VERSION"], glibc=packages["GLIBC_VERSION"],
+                  kernel_headers=packages["LINUX_HEADERS_VERSION"])
+for name, variable in (("wpa_supplicant", "WPA_SUPPLICANT_VERSION"),
+                       ("dropbear", "DROPBEAR_VERSION"), ("busybox", "BUSYBOX_VERSION"),
+                       ("python", "PYTHON3_VERSION"), ("mjpg_streamer", "MJPG_STREAMER_VERSION")):
+    manifest["userspace"][name]["commit" if name == "mjpg_streamer" else "version"] = packages[variable]
+    manifest["userspace"][name]["source"] = source + " package"
 if sys.argv[2]:
     manifest["f005_firmware"] = json.loads(sys.argv[2])
 manifest.update({
@@ -240,10 +259,31 @@ prepare_buildroot() {
 		"$buildroot/toolchain/toolchain-wrapper.mk"
 	grep -Fq '"-ffp-contract=off",' \
 		"$buildroot/toolchain/toolchain-wrapper.c"
-	grep -Fxq 'PYTHON_GREENLET_VERSION = 3.3.2' \
+	grep -Fxq "PYTHON_GREENLET_VERSION = $("$project/scripts/source-value" userspace.greenlet.version)" \
 		"$buildroot/package/python-greenlet/python-greenlet.mk"
-	grep -Fxq 'PYTHON_CFFI_VERSION = 2.1.1' \
+	grep -Fxq "PYTHON_CFFI_VERSION = $("$project/scripts/source-value" userspace.cffi.version)" \
 		"$buildroot/package/python-cffi/python-cffi.mk"
+}
+
+buildroot_metadata() {
+	# printvars is a metadata-only Buildroot target. Its quoted output is
+	# suitable for eval; package versions and paths come from the prepared
+	# pinned source and this output's effective configuration, never a glob.
+	[ -f "$1/.config" ] && [ ! -L "$1/.config" ] || return 1
+	make -s --no-print-directory -C "$buildroot" O="$1" \
+		printvars VARS="$2" QUOTED_VARS=YES
+}
+
+buildroot_toolchain_metadata() {
+	unset GCC_VERSION BINUTILS_VERSION GLIBC_VERSION HOST_GCC_FINAL_DIR \
+		HOST_BINUTILS_DIR GLIBC_DIR LINUX_HEADERS_DIR
+	metadata=$(buildroot_metadata "$1" \
+		'GCC_VERSION BINUTILS_VERSION GLIBC_VERSION HOST_GCC_FINAL_DIR HOST_BINUTILS_DIR GLIBC_DIR LINUX_HEADERS_DIR') || return 1
+	eval "$metadata"
+	[ -n "${GCC_VERSION:-}" ] && [ -n "${BINUTILS_VERSION:-}" ] &&
+		[ -n "${GLIBC_VERSION:-}" ] && [ -n "${HOST_GCC_FINAL_DIR:-}" ] &&
+		[ -n "${HOST_BINUTILS_DIR:-}" ] && [ -n "${GLIBC_DIR:-}" ] &&
+		[ -n "${LINUX_HEADERS_DIR:-}" ]
 }
 
 validate_f005_firmware() {
@@ -286,9 +326,24 @@ read_buildroot_toolchain_fingerprint() {
 
 buildroot_toolchain_ready() {
 	buildroot_output=$1
+	buildroot_toolchain_metadata "$buildroot_output" || return 1
 	prefix="$buildroot_output/host/bin/mipsel-buildroot-linux-gnu-"
 	sysroot="$buildroot_output/host/mipsel-buildroot-linux-gnu/sysroot"
 	wrapper="$buildroot_output/host/bin/toolchain-wrapper"
+	# GCC's Linux libtool version determines the exact libstdc++ filename.
+	# Requiring its source also ties this check to the expected GCC package.
+	libstdcxx_name=$(awk -F= '
+		/^libtool_VERSION=[0-9]+:[0-9]+:[0-9]+$/ {
+			split($2, v, ":")
+			printf "libstdc++.so.%d.%d.%d\n", v[1] - v[3], v[3], v[2]
+			found++
+		}
+		END { if (found != 1) exit 1 }
+	' "$HOST_GCC_FINAL_DIR/libstdc++-v3/acinclude.m4") || return 1
+	case "$libstdcxx_name" in
+	libstdc++.so.6.*) ;;
+	*) return 1 ;;
+	esac
 	[ -f "$wrapper" ] && [ ! -L "$wrapper" ] && [ -x "$wrapper" ] &&
 		[ -L "${prefix}gcc" ] &&
 		[ "$(readlink "${prefix}gcc")" = toolchain-wrapper ] &&
@@ -303,33 +358,34 @@ buildroot_toolchain_ready() {
 		[ -f "$sysroot/usr/include/stdio.h" ] &&
 		[ -L "$sysroot/usr/lib/libstdc++.so" ] &&
 		[ "$(readlink "$sysroot/usr/lib/libstdc++.so")" = \
-			libstdc++.so.6.0.32 ] &&
-		[ -f "$sysroot/usr/lib/libstdc++.so.6.0.32" ] &&
+			"$libstdcxx_name" ] &&
+		[ -f "$sysroot/usr/lib/$libstdcxx_name" ] &&
 		[ -f "$buildroot_output/build/toolchain/.stamp_target_installed" ] &&
 		[ -f "$buildroot_output/build/toolchain-buildroot/.stamp_target_installed" ] &&
-		[ -f "$buildroot_output/build/host-gcc-final-13.4.0/.stamp_host_installed" ] &&
-		[ -f "$buildroot_output/build/host-binutils-2.43.1/.stamp_host_installed" ] &&
-		[ -f "$buildroot_output/build/glibc-2.41-161-g5dd252cf1d113644b3679f5a158e9ef20217865e/.stamp_staging_installed" ] &&
-		[ -f "$buildroot_output/build/linux-headers-6.6.156/.stamp_staging_installed" ]
+		[ -f "$HOST_GCC_FINAL_DIR/.stamp_host_installed" ] &&
+		[ -f "$HOST_BINUTILS_DIR/.stamp_host_installed" ] &&
+		[ -f "$GLIBC_DIR/.stamp_staging_installed" ] &&
+		[ -f "$LINUX_HEADERS_DIR/.stamp_staging_installed" ]
 }
 
 buildroot_toolchain_contract_matches() {
 	buildroot_output=$1
+	buildroot_toolchain_metadata "$buildroot_output" || return 1
 	prefix="$buildroot_output/host/bin/mipsel-buildroot-linux-gnu-"
 	compiler="${prefix}gcc.br_real"
 	wrapper="$buildroot_output/host/bin/toolchain-wrapper"
 	sysroot="$buildroot_output/host/mipsel-buildroot-linux-gnu/sysroot"
 
 	[ "$("$compiler" -dumpmachine)" = mipsel-buildroot-linux-gnu ] || return 1
-	[ "$("$compiler" -dumpfullversion)" = 13.4.0 ] || return 1
+	[ "$("$compiler" -dumpfullversion)" = "$GCC_VERSION" ] || return 1
 	compiler_version=$("$compiler" --version) || return 1
-	expected_compiler_version="mipsel-buildroot-linux-gnu-gcc.br_real (Buildroot ${buildroot_version}-dirty) 13.4.0"
+	expected_compiler_version="mipsel-buildroot-linux-gnu-gcc.br_real (Buildroot ${buildroot_version}-dirty) $GCC_VERSION"
 	printf '%s\n' "$compiler_version" |
 		grep -Fx "$expected_compiler_version" >/dev/null ||
 		return 1
 	linker_version=$("${prefix}ld" --version) || return 1
 	printf '%s\n' "$linker_version" |
-		grep -Fx 'GNU ld (GNU Binutils) 2.43.1' >/dev/null || return 1
+		grep -Fx "GNU ld (GNU Binutils) $BINUTILS_VERSION" >/dev/null || return 1
 	target_options=$("$compiler" -Q --help=target 2>/dev/null) || return 1
 	for option in \
 		'-mabi=ABI[[:space:]]+32' \
@@ -345,7 +401,7 @@ buildroot_toolchain_contract_matches() {
 	strings "$wrapper" | grep -Fx -- '-ffp-contract=off' >/dev/null ||
 		return 1
 	strings "$sysroot/lib/libc.so.6" |
-		grep -Fx 'GNU C Library (Buildroot) stable release version 2.41.' \
+		grep -Fx "GNU C Library (Buildroot) stable release version ${GLIBC_VERSION%%-*}." \
 		>/dev/null ||
 		return 1
 }
@@ -358,6 +414,7 @@ buildroot_legacy_toolchain_adoptable() {
 	[ "$buildroot_commit" = "$buildroot_legacy_adoption_commit" ] ||
 		return 1
 	[ -f "$config" ] && [ ! -L "$config" ] || return 1
+	buildroot_toolchain_metadata "$buildroot_output" || return 1
 	grep -Fxq "# Buildroot ${buildroot_version}-dirty Configuration" "$config" ||
 		return 1
 	for setting in \
@@ -376,8 +433,8 @@ buildroot_legacy_toolchain_adoptable() {
 		'BR2_TOOLCHAIN_BUILDROOT_GLIBC=y' \
 		'BR2_TOOLCHAIN_BUILDROOT_LIBC="glibc"' \
 		'BR2_KERNEL_HEADERS_6_6=y' \
-		'BR2_BINUTILS_VERSION="2.43.1"' \
-		'BR2_GCC_VERSION="13.4.0"' \
+		"BR2_BINUTILS_VERSION=\"$BINUTILS_VERSION\"" \
+		"BR2_GCC_VERSION=\"$GCC_VERSION\"" \
 		'BR2_TOOLCHAIN_BUILDROOT_CXX=y'; do
 		grep -Fxq "$setting" "$config" || return 1
 	done
@@ -470,6 +527,7 @@ BR2_GLOBAL_PATCH_DIR="$project/patches"
 BR2_ROOTFS_OVERLAY="$rootfs_overlay"
 EOF
 	make -C "$buildroot" O="$buildroot_output" olddefconfig
+	buildroot_toolchain_metadata "$buildroot_output"
 	grep -Fxq 'BR2_mipsel=y' "$buildroot_output/.config"
 	grep -Fxq 'BR2_mips_xburst2=y' "$buildroot_output/.config"
 	grep -Fxq 'BR2_MIPS_CPU_MIPS32R5=y' "$buildroot_output/.config"
@@ -485,8 +543,8 @@ EOF
 	grep -Fxq 'BR2_TOOLCHAIN_BUILDROOT=y' "$buildroot_output/.config"
 	grep -Fxq 'BR2_TOOLCHAIN_BUILDROOT_GLIBC=y' "$buildroot_output/.config"
 	grep -Fxq 'BR2_KERNEL_HEADERS_6_6=y' "$buildroot_output/.config"
-	grep -Fxq 'BR2_BINUTILS_VERSION="2.43.1"' "$buildroot_output/.config"
-	grep -Fxq 'BR2_GCC_VERSION="13.4.0"' "$buildroot_output/.config"
+	grep -Fxq "BR2_BINUTILS_VERSION=\"$BINUTILS_VERSION\"" "$buildroot_output/.config"
+	grep -Fxq "BR2_GCC_VERSION=\"$GCC_VERSION\"" "$buildroot_output/.config"
 	grep -Fxq 'BR2_TOOLCHAIN_BUILDROOT_CXX=y' "$buildroot_output/.config"
 	grep -Fxq 'BR2_PACKAGE_LINUX_FIRMWARE=y' "$buildroot_output/.config"
 	grep -Fxq 'BR2_PACKAGE_LINUX_FIRMWARE_CYPRESS_CYW43XXX=y' \
@@ -920,8 +978,12 @@ check_rootfs() {
 	brout=$1
 	target="$brout/target"
 	inittab="$target/etc/inittab"
-	busybox_config=$(find "$brout/build" -maxdepth 2 -path '*/busybox-*/.config' -print -quit)
-	dropbear_options=$(find "$brout/build" -maxdepth 2 -path '*/dropbear-*/localoptions.h' -print -quit)
+	metadata=$(buildroot_metadata "$brout" \
+		'BUSYBOX_DIR DROPBEAR_DIR PYTHON3_VERSION_MAJOR')
+	unset BUSYBOX_DIR DROPBEAR_DIR PYTHON3_VERSION_MAJOR
+	eval "$metadata"
+	busybox_config="${BUSYBOX_DIR:?}/.config"
+	dropbear_options="${DROPBEAR_DIR:?}/localoptions.h"
 
 	if find "$project/configs/x2000/rootfs-overlay" \
 		\( -type d -name __pycache__ -o -type f \( -name '*.pyc' -o -name '*.pyo' \) \) \
@@ -1088,7 +1150,7 @@ check_rootfs() {
 	[ -x "$target/usr/sbin/dropbear" ]
 	[ -x "$target/usr/bin/dropbearkey" ]
 	[ -x "$target/usr/bin/python3" ]
-	numpy_dir="$target/usr/lib/python3.12/site-packages/numpy"
+	numpy_dir="$target/usr/lib/python${PYTHON3_VERSION_MAJOR:?}/site-packages/numpy"
 	[ -d "$numpy_dir" ]
 	find "$numpy_dir" -maxdepth 2 -type f \
 		\( -name '__init__.py' -o -name '__init__*.pyc' \) \
