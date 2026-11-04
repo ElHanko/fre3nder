@@ -116,9 +116,9 @@ The productive X2000 kernel build carries display and touch support through the
 ordered kernel patch series, specifically:
 
 ~~~text
-patches/kernel/0002-ender3-v3-ke-display-v6.6.157.patch
-patches/kernel/0003-ns2009-touch-v6.6.157.patch
-patches/kernel/0005-fre3nder-ender3-v3-ke-integration-v6.6.157.patch
+patches/kernel/0002-x2000-display.patch
+patches/kernel/0003-x2000-touchscreen.patch
+patches/kernel/0005-x2000-board.patch
 configs/x2000/kernel-fre3nder.defconfig
 configs/x2000/kernel.fragment
 ~~~

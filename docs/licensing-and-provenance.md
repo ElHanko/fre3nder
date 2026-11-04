@@ -52,17 +52,17 @@ baseline tree under `kernel.source` in `configs/x2000/sources.json`.
 Fre3nder applies an ordered five-patch hardware-support series from
 `patches/kernel/`:
 
-1. `0001-ingenic-x2000-platform-v6.6.157.patch` contains the retained
+1. `0001-x2000-platform.patch` contains the retained
    Ingenic-derived X2000 platform support after Fre3nder pruning and
    forward-porting.
-2. `0002-ender3-v3-ke-display-v6.6.157.patch` contains the Ender-3 V3 KE
+2. `0002-x2000-display.patch` contains the Ender-3 V3 KE
    display integration derived from the public NebulaOS/OpenKE implementation.
-3. `0003-ns2009-touch-v6.6.157.patch` contains the NS2009 touchscreen
+3. `0003-x2000-touchscreen.patch` contains the NS2009 touchscreen
    integration derived from the public NebulaOS/OpenKE implementation.
-4. `0004-ingenic-ender3-v3-ke-wlan-v6.6.157.patch` contains the retained
+4. `0004-x2000-wlan.patch` contains the retained
    Ingenic-derived WLAN power/reset/detect integration required by the
    qualified Ender-3 V3 KE path.
-5. `0005-fre3nder-ender3-v3-ke-integration-v6.6.157.patch` contains
+5. `0005-x2000-board.patch` contains
    Fre3nder's board integration and the concrete forward-port adaptations
    required for Linux `v6.6.157`.
 

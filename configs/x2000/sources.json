@@ -26,7 +26,7 @@
         {
           "order": 1,
           "role": "retained Ingenic-derived X2000 platform support after Fre3nder pruning and upstream forward-porting",
-          "patch": "patches/kernel/0001-ingenic-x2000-platform-v6.6.157.patch",
+          "patch": "patches/kernel/0001-x2000-platform.patch",
           "patch_sha256": "30aeaf27aeb5c34cc803ef6e09495b90234112ed7d02ce51902a06719d2caf11",
           "derived_from_repository": "https://github.com/Llixuma/ingenic-linux-kernel6.6-x2000-v1.0-20250221",
           "derived_from_commit": "a98c2e1f22e4263ddd4153a4eca4db4dcfd2777b"
@@ -34,7 +34,7 @@
         {
           "order": 2,
           "role": "Ender-3 V3 KE display support derived from the NebulaOS/OpenKE implementation and Fre3nder hardware analysis",
-          "patch": "patches/kernel/0002-ender3-v3-ke-display-v6.6.157.patch",
+          "patch": "patches/kernel/0002-x2000-display.patch",
           "patch_sha256": "50e4ff298bea856a91183482ef8ed4d6578c6860e50833986601d9072f9c6516",
           "derived_from_repository": "https://github.com/coreflake1/NebulaOS-kernel",
           "derived_from_commit": "88a0e1ecc6ace7c9e4ad99d6fa49e272180fd5a9"
@@ -42,7 +42,7 @@
         {
           "order": 3,
           "role": "NS2009 touchscreen support derived from the NebulaOS/OpenKE kernel integration",
-          "patch": "patches/kernel/0003-ns2009-touch-v6.6.157.patch",
+          "patch": "patches/kernel/0003-x2000-touchscreen.patch",
           "patch_sha256": "121c9ed5f0123864c21077a7dfb207d9b1f366bb783df8dd18916eff0fa04ac5",
           "derived_from_repository": "https://github.com/coreflake1/NebulaOS-kernel",
           "derived_from_commit": "88a0e1ecc6ace7c9e4ad99d6fa49e272180fd5a9"
@@ -50,7 +50,7 @@
         {
           "order": 4,
           "role": "Ender-3 V3 KE WLAN power/reset/detect integration derived from the public Ingenic X2000 kernel source",
-          "patch": "patches/kernel/0004-ingenic-ender3-v3-ke-wlan-v6.6.157.patch",
+          "patch": "patches/kernel/0004-x2000-wlan.patch",
           "patch_sha256": "01a8a472de7235f06630e599ade5645aed9c803c0a2e7c516a97362eb2578085",
           "derived_from_repository": "https://github.com/Llixuma/ingenic-linux-kernel6.6-x2000-v1.0-20250221",
           "derived_from_commit": "a98c2e1f22e4263ddd4153a4eca4db4dcfd2777b"
@@ -58,7 +58,7 @@
         {
           "order": 5,
           "role": "Fre3nder Ender-3 V3 KE board integration and Linux v6.6.157 forward-port fixes",
-          "patch": "patches/kernel/0005-fre3nder-ender3-v3-ke-integration-v6.6.157.patch",
+          "patch": "patches/kernel/0005-x2000-board.patch",
           "patch_sha256": "678f962a0bdfab4f22f1df44586e670b90226b36a4138c987956e49bf0dee1e5"
         }
       ]
@@ -221,7 +221,7 @@
   },
   "wlan_kernel_source_provenance": {
     "identity": "fre3nder-x2000-ke-wlan-v1",
-    "carried_in": "patches/kernel/0004-ingenic-ender3-v3-ke-wlan-v6.6.157.patch",
+    "carried_in": "patches/kernel/0004-x2000-wlan.patch",
     "basis": "hardware-validated 2026.1.a KE WLAN power/reset/detect sequence",
     "migration_source_commit": "a98c2e1f22e4263ddd4153a4eca4db4dcfd2777b",
     "license": "GPL-2.0-only"
@@ -367,7 +367,7 @@
   "selector_write": false,
   "display_source_provenance": {
     "identity": "fre3nder-x2000-ender3-v3-ke-display-v1",
-    "carried_in": "patches/kernel/0002-ender3-v3-ke-display-v6.6.157.patch",
+    "carried_in": "patches/kernel/0002-x2000-display.patch",
     "migration_source_commit": "a98c2e1f22e4263ddd4153a4eca4db4dcfd2777b",
     "license": "GPL-2.0-only",
     "derived_from": {
@@ -380,7 +380,7 @@
   },
   "touch_source_provenance": {
     "identity": "fre3nder-x2000-ender3-v3-ke-touch-v1",
-    "carried_in": "patches/kernel/0003-ns2009-touch-v6.6.157.patch",
+    "carried_in": "patches/kernel/0003-x2000-touchscreen.patch",
     "migration_source_commit": "a98c2e1f22e4263ddd4153a4eca4db4dcfd2777b",
     "license": "GPL-2.0-or-later",
     "derived_from": {

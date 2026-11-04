@@ -12,7 +12,7 @@ The source PNG and its kernel-carried derivative are classified as
 
 The prepared 480x272 RGB PNG is carried as a binary replacement of
 `module_drivers/drivers/video/logo-ingenic/logo.png` in
-`patches/kernel/0005-fre3nder-ender3-v3-ke-integration-v6.6.157.patch`.
+`patches/kernel/0005-x2000-board.patch`.
 Its SHA256 is:
 
 ```text

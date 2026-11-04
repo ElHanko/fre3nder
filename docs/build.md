@@ -471,8 +471,10 @@ Active Kernel and Buildroot source values are defined in
 Kernel tag and release are derived from `kernel.kernel_version` and
 `kernel.kernel_localversion`; `kernel.patch_series.baseline_ref` points to
 `kernel.source.commit`. The ordered patch paths and SHA256 digests come from
-`kernel.patch_series.patches`. Versioned patch filenames identify their
-maintained baseline and are preserved along with historical qualification.
+`kernel.patch_series.patches`. Productive X2000 patch filenames must use
+`NNNN-x2000-<component>.patch`, with a functional component name independent
+of source provenance and kernel version. Historical qualification retains its
+recorded versions.
 Buildroot's annotated release tag is derived from `buildroot.version` and
 must dereference to `buildroot.commit`. This centralization changes no source
 version, commit, patch content, or expected source tree.

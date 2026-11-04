@@ -77,8 +77,8 @@ post_build="$root/configs/x2000/rootfs-post-build.sh"
 nvram="$root/configs/x2000/rootfs-overlay/lib/firmware/brcm/brcmfmac43430-sdio.txt"
 nvram_license="$root/configs/x2000/rootfs-overlay/usr/share/licenses/radxa-rkwifibt/LICENSE"
 reuse="$root/REUSE.toml"
-kernel_wlan_patch=$root/patches/kernel/0004-ingenic-ender3-v3-ke-wlan-v6.6.157.patch
-kernel_integration_patch=$root/patches/kernel/0005-fre3nder-ender3-v3-ke-integration-v6.6.157.patch
+kernel_wlan_patch=$root/patches/kernel/0004-x2000-wlan.patch
+kernel_integration_patch=$root/patches/kernel/0005-x2000-board.patch
 
 python3 - "$sources" "$klipper_commit" \
 	"$buildroot_url" "$buildroot_version" "$buildroot_commit" \
@@ -268,11 +268,11 @@ assert "display_patch_set" not in data
 assert "touch_patch_set" not in data
 
 assert data["wlan_kernel_source_provenance"]["carried_in"] == (
-    "patches/kernel/0004-ingenic-ender3-v3-ke-wlan-v6.6.157.patch")
+    "patches/kernel/0004-x2000-wlan.patch")
 assert data["display_source_provenance"]["carried_in"] == (
-    "patches/kernel/0002-ender3-v3-ke-display-v6.6.157.patch")
+    "patches/kernel/0002-x2000-display.patch")
 assert data["touch_source_provenance"]["carried_in"] == (
-    "patches/kernel/0003-ns2009-touch-v6.6.157.patch")
+    "patches/kernel/0003-x2000-touchscreen.patch")
 
 for provenance in (
         data["wlan_kernel_source_provenance"],
@@ -326,27 +326,27 @@ assert [
 ] == [
     (
         1,
-        "patches/kernel/0001-ingenic-x2000-platform-v6.6.157.patch",
+        "patches/kernel/0001-x2000-platform.patch",
         "30aeaf27aeb5c34cc803ef6e09495b90234112ed7d02ce51902a06719d2caf11",
     ),
     (
         2,
-        "patches/kernel/0002-ender3-v3-ke-display-v6.6.157.patch",
+        "patches/kernel/0002-x2000-display.patch",
         "50e4ff298bea856a91183482ef8ed4d6578c6860e50833986601d9072f9c6516",
     ),
     (
         3,
-        "patches/kernel/0003-ns2009-touch-v6.6.157.patch",
+        "patches/kernel/0003-x2000-touchscreen.patch",
         "121c9ed5f0123864c21077a7dfb207d9b1f366bb783df8dd18916eff0fa04ac5",
     ),
     (
         4,
-        "patches/kernel/0004-ingenic-ender3-v3-ke-wlan-v6.6.157.patch",
+        "patches/kernel/0004-x2000-wlan.patch",
         "01a8a472de7235f06630e599ade5645aed9c803c0a2e7c516a97362eb2578085",
     ),
     (
         5,
-        "patches/kernel/0005-fre3nder-ender3-v3-ke-integration-v6.6.157.patch",
+        "patches/kernel/0005-x2000-board.patch",
         "678f962a0bdfab4f22f1df44586e670b90226b36a4138c987956e49bf0dee1e5",
     ),
 ]
@@ -356,11 +356,11 @@ for item in series["patches"]:
 PY
 
 for patch in \
-    0001-ingenic-x2000-platform-v6.6.157.patch \
-    0002-ender3-v3-ke-display-v6.6.157.patch \
-    0003-ns2009-touch-v6.6.157.patch \
-    0004-ingenic-ender3-v3-ke-wlan-v6.6.157.patch \
-    0005-fre3nder-ender3-v3-ke-integration-v6.6.157.patch
+    0001-x2000-platform.patch \
+    0002-x2000-display.patch \
+    0003-x2000-touchscreen.patch \
+    0004-x2000-wlan.patch \
+    0005-x2000-board.patch
 do
     grep -Fq "$patch" "$sources"
     [ -f "$root/patches/kernel/$patch" ]
