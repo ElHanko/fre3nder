@@ -50,14 +50,18 @@ development_begin() {
 	: > "$development_dir/phases"
 	mkfifo -m 600 "$development_dir/output"
 	exec 3>&1 4>&2
-	# Keep tee alive on terminal interrupts so it can drain the final output.
-	(trap '' INT TERM; exec tee "$development_log" < "$development_dir/output") &
-	development_tee=$!
-	exec > "$development_dir/output" 2>&1
+	development_log_output
 	development_logging=true
 	trap 'exit 130' INT
 	trap 'exit 143' TERM
 	printf '=== Fre3nder Development Build ===\nLog: %s\n\n' "$development_log"
+}
+
+development_log_output() {
+	# Keep tee alive on terminal interrupts so it can drain the final output.
+	(trap '' INT TERM; exec tee -a "$development_log" < "$development_dir/output") &
+	development_tee=$!
+	exec > "$development_dir/output" 2>&1
 }
 
 begin_phase() {
@@ -69,20 +73,18 @@ begin_phase() {
 end_phase() {
 	[ "$develop" = true ] || return 0
 	printf 'END %s %s PASS\n' "$development_phase" "$(date +%s)" >> "$development_dir/phases"
+	# Drain the log before reusing its embedded toolchain timestamps.
+	exec 1>&3 2>&4
+	wait "$development_tee" || :
+	development_report "$development_phase" 0 || :
+	development_log_output
 	development_phase=
 }
 
-development_finish() {
-	development_finished=$(date +%s)
-	if [ -n "$development_phase" ]; then
-		printf 'END %s %s FAIL\n' "$development_phase" "$development_finished" >> "$development_dir/phases"
-	fi
-	# The build itself never runs in a pipeline. Restore the terminal and
-	# drain tee before reading its log; its status cannot replace the build's.
-	exec 1>&3 2>&4 3>&- 4>&-
-	wait "$development_tee" || :
+development_report() {
 	awk -v log_path="$development_log" -v started="$development_started" \
-		-v finished="$development_finished" -v result="$1" \
+		-v finished="${development_finished:-0}" -v result="$2" \
+		-v summary_phase="$1" -v scope="$build_scope" -v screen_package="$factory_seed" \
 		-v f005="$f005_build" -v screen="$fre3nderscreen_app" '
 		function duration(seconds) {
 			if (seconds < 0) seconds = 0
@@ -90,6 +92,11 @@ development_finish() {
 		}
 		function row(phase) {
 			printf "%-16s %8s    %s\n", phase, (status[phase] ? duration(elapsed[phase]) : "--:--:--"), (status[phase] ? status[phase] : "SKIP")
+		}
+		function summary(phase) {
+			print "\n========================================"
+			printf "  %s: %s (%s)\n", phase, status[phase], duration(elapsed[phase])
+			print "========================================"
 		}
 		FILENAME == ARGV[1] {
 			if ($1 == "BEGIN") beginning[$2] = $3
@@ -117,6 +124,15 @@ development_finish() {
 			elapsed["Kernel"] -= toolchain_elapsed
 			elapsed["Toolchain"] += toolchain_elapsed
 			if (toolchain_status && status["Toolchain"] != "FAIL") status["Toolchain"] = toolchain_status
+			if (summary_phase) {
+				if (summary_phase == "Kernel" && scope == "kernel" && toolchain_status == "PASS") summary("Toolchain")
+				summary(summary_phase)
+				if (summary_phase == "Kernel") print "  Device Tree: ender3-v3-ke.dtb"
+				if (summary_phase == "RootFS") print "  Manifest und Integrität: OK"
+				if (summary_phase == "Fre3nderScreen") printf "  Package: %s\n", screen_package
+				print ""
+				exit
+			}
 			printf "\n=== Fre3nder Development Build ===\nLog: %s\n\n", log_path
 			printf "%-16s %8s    %s\n", "Phase", "Dauer", "Status"
 			row("Kernel"); row("Toolchain"); row("RootFS"); row("OTA")
@@ -126,6 +142,18 @@ development_finish() {
 			printf "%-16s %8s    %s\n", "Gesamt", duration(finished - started), (result == 0 ? "PASS" : "FAIL")
 		}
 	' "$development_dir/phases" "$development_log" | tee -a "$development_log"
+}
+
+development_finish() {
+	development_finished=$(date +%s)
+	if [ -n "$development_phase" ]; then
+		printf 'END %s %s FAIL\n' "$development_phase" "$development_finished" >> "$development_dir/phases"
+	fi
+	# The build itself never runs in a pipeline. Restore the terminal and
+	# drain tee before reading its log; its status cannot replace the build's.
+	exec 1>&3 2>&4 3>&- 4>&-
+	wait "$development_tee" || :
+	development_report "" "$1"
 }
 
 show_help() {

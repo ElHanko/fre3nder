@@ -144,6 +144,15 @@ printf 'Package:  %s/factory.fre3app\n' "$FIXTURE_DIR"
         self.assertIsNotNone(match, output)
         return match.groups()
 
+    def assert_phase_summary(self, output, phase):
+        elapsed, status = self.row(output, phase)
+        block = ("\n========================================\n"
+                 f"  {phase}: {status} ({elapsed})\n"
+                 "========================================\n")
+        self.assertEqual(status, "PASS")
+        self.assertEqual(output.count(block), 1, output)
+        return output.index(block)
+
     def test_full_success_and_exclusive_toolchain_time(self):
         result = self.run_build("--develop")
         self.assertEqual(result.returncode, 0, result.stdout)
@@ -154,6 +163,22 @@ printf 'Package:  %s/factory.fre3app\n' "$FIXTURE_DIR"
         self.assertEqual(self.row(result.stdout, "Kernel"), ("00:00:04", "PASS"))
         self.assertEqual(self.row(result.stdout, "Toolchain"), ("00:00:04", "PASS"))
         self.assertEqual(self.row(result.stdout, "Gesamt"), ("00:00:22", "PASS"))
+        phases = ("Kernel", "Toolchain", "RootFS", "OTA")
+        for index, phase in enumerate(phases):
+            position = self.assert_phase_summary(result.stdout, phase)
+            self.assertLess(result.stdout.index(f"\n{phase} stderr\n"), position)
+            if index + 1 < len(phases):
+                self.assertLess(position, result.stdout.index(f"\n{phases[index + 1]} stdout\n"))
+        self.assertIn("  Device Tree: ender3-v3-ke.dtb\n", result.stdout)
+        self.assertIn("  Manifest und Integrität: OK\n", result.stdout)
+        self.assertTrue(result.stdout.endswith(
+            "Phase               Dauer    Status\n"
+            "Kernel           00:00:04    PASS\n"
+            "Toolchain        00:00:04    PASS\n"
+            "RootFS           00:00:02    PASS\n"
+            "OTA              00:00:02    PASS\n"
+            "------------------------------------\n"
+            "Gesamt           00:00:22    PASS\n"), result.stdout)
 
     def test_scopes_and_optional_components(self):
         for scope, passed, skipped in (
@@ -166,14 +191,18 @@ printf 'Package:  %s/factory.fre3app\n' "$FIXTURE_DIR"
                 self.assert_log(result)
                 for phase in passed:
                     self.assertEqual(self.row(result.stdout, phase)[1], "PASS")
+                    self.assert_phase_summary(result.stdout, phase)
                 for phase in skipped:
                     self.assertEqual(self.row(result.stdout, phase), ("--:--:--", "SKIP"))
+                    self.assertNotIn(f"  {phase}:", result.stdout)
         result = self.run_build("--develop", "--rootfs-only", "--f005-build",
                                 "--fre3nderscreen-app")
         self.assertEqual(result.returncode, 0, result.stdout)
         self.assert_log(result)
         for phase in ("F005", "Fre3nderScreen"):
             self.assertEqual(self.row(result.stdout, phase), ("00:00:02", "PASS"))
+            self.assert_phase_summary(result.stdout, phase)
+        self.assertIn(f"  Package: {self.directory}/factory.fre3app\n", result.stdout)
         self.assertIn("ScreenPackage stdout", result.stdout)
         self.assertIn("ScreenPackage stderr", result.stdout)
         result = self.run_build("--develop", "--f005-build", "--fre3nderscreen-app")
@@ -181,6 +210,7 @@ printf 'Package:  %s/factory.fre3app\n' "$FIXTURE_DIR"
         self.assert_log(result)
         for phase in ("Kernel", "Toolchain", "RootFS", "OTA", "F005", "Fre3nderScreen"):
             self.assertEqual(self.row(result.stdout, phase)[1], "PASS")
+            self.assert_phase_summary(result.stdout, phase)
 
     def test_phase_failure_keeps_exit_code_log_and_completed_times(self):
         result = self.run_build("--develop", FAIL_PHASE="RootFS", FAIL_CODE="37")
@@ -188,10 +218,13 @@ printf 'Package:  %s/factory.fre3app\n' "$FIXTURE_DIR"
         self.assert_log(result)
         for phase in ("Kernel", "Toolchain"):
             self.assertEqual(self.row(result.stdout, phase), ("00:00:04", "PASS"))
+            self.assert_phase_summary(result.stdout, phase)
         self.assertEqual(self.row(result.stdout, "RootFS"), ("00:00:02", "FAIL"))
         self.assertEqual(self.row(result.stdout, "OTA")[1], "SKIP")
         self.assertNotIn("OTA", (self.directory / "events").read_text())
         self.assertEqual(self.row(result.stdout, "Gesamt")[1], "FAIL")
+        self.assertNotIn("  RootFS:", result.stdout)
+        self.assertNotIn("  OTA:", result.stdout)
 
     def test_embedded_toolchain_failure_is_identified(self):
         result = self.run_build("--develop", "--kernel-only",
@@ -201,6 +234,7 @@ printf 'Package:  %s/factory.fre3app\n' "$FIXTURE_DIR"
         self.assertEqual(self.row(result.stdout, "Toolchain")[1], "FAIL")
         self.assertEqual(self.row(result.stdout, "Kernel")[1], "ABORT")
         self.assertEqual(self.row(result.stdout, "RootFS")[1], "SKIP")
+        self.assertNotIn("========================================", result.stdout)
 
     def test_early_abort_before_any_phase(self):
         (self.project / "local/production/keys/ota/private.pem").unlink()
@@ -227,6 +261,7 @@ printf 'Package:  %s/factory.fre3app\n' "$FIXTURE_DIR"
         self.assertEqual(release.returncode, 0, release.stdout)
         self.assertFalse(self.log_paths(release.stdout))
         self.assertNotIn("Development Build", release.stdout)
+        self.assertNotIn("========================================", release.stdout)
         release_mode = stat.S_IMODE((self.directory / "mode-test").stat().st_mode)
         first = self.run_build("--develop", "--kernel-only")
         second = self.run_build("--develop", "--kernel-only")
@@ -294,6 +329,7 @@ printf 'Package:  %s/factory.fre3app\n' "$FIXTURE_DIR"
             self.assertIsNone(process.poll())
             self.assertIn(b"RootFS stdout\n", captured)
             self.assertIn(b"RootFS stderr\n", captured)
+            self.assertIn(b"  Toolchain: PASS (00:00:02)\n", captured)
             path = self.log_paths(captured.decode()).pop()
             self.assertIn("RootFS stderr", path.read_text())
             os.killpg(process.pid, signal.SIGTERM)
