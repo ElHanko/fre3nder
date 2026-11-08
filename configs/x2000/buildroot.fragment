@@ -1,5 +1,6 @@
 # Fre3nder X2000 credential-free immutable RootFS.
 BR2_TARGET_GENERIC_HOSTNAME="fre3nder"
+BR2_TARGET_GENERIC_ISSUE="Welcome to FRE3NDER"
 BR2_PACKAGE_BUSYBOX_CONFIG_FRAGMENT_FILES="/project/configs/x2000/busybox.fragment"
 # BR2_PACKAGE_ALSA_LIB is not set
 # BR2_PACKAGE_ALSA_UTILS is not set

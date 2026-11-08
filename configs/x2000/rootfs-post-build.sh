@@ -27,6 +27,26 @@ firmware_metadata=$(make -s --no-print-directory -C "$(dirname -- "$BUILD_DIR")"
 unset LINUX_FIRMWARE_DIR
 eval "$firmware_metadata"
 linux_firmware_license="${LINUX_FIRMWARE_DIR:?}/LICENCE.cypress"
+# Set the OS identity after Buildroot's target-finalize and overlay assembly.
+# VERSION is staged from the canonical project VERSION by the existing builder.
+# Replace both paths on every pass, including stale files/symlinks in reused output.
+os_version=$(cat "$target/usr/share/fre3nder/VERSION")
+install -d -m 0755 "$target/usr/lib" "$target/etc"
+rm -f -- "$target/etc/os-release" "$target/usr/lib/os-release"
+cat > "$target/usr/lib/os-release" <<EOF
+NAME=FRE3NDER
+VERSION="$os_version"
+ID=fre3nder
+VERSION_ID="$os_version"
+PRETTY_NAME="FRE3NDER $os_version"
+EOF
+chmod 0644 "$target/usr/lib/os-release"
+ln -s ../usr/lib/os-release "$target/etc/os-release"
+rm -f -- "$target/etc/issue" "$target/etc/issue.net"
+printf 'Welcome to FRE3NDER %s\n' "$os_version" > "$target/etc/issue"
+chmod 0644 "$target/etc/issue"
+ln -s issue "$target/etc/issue.net"
+
 system_app_seeds=${FRE3NDER_SYSTEM_APP_PACKAGES_DIR:-}
 system_target="$target/usr/share/fre3nder/system-apps"
 # Always discard stale seeds from reused Buildroot target directories.

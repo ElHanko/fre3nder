@@ -45,6 +45,7 @@ class SystemInformationTests(unittest.TestCase):
         self.write("proc/meminfo", "MemTotal: 262144 kB\nMemFree: 16384 kB\n"
                    "MemAvailable: 196608 kB\nCached: 180224 kB\nSwapTotal: 32768 kB\nSwapFree: 24576 kB\n")
         platform = self.info.platform(self.version)
+        self.assertEqual(platform["version"], self.version.read_text().strip())
         self.assertEqual(platform["hardware_model"], "Fixture board")
         self.assertEqual(platform["cpu_model"], "Fixture CPU")
         self.assertEqual(platform["hostname"], "printer.test")

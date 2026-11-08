@@ -47,6 +47,7 @@ do
 done
 
 python3 "$root/tests/test-f005-firmware"
+python3 "$root/tests/test_x2000_identity.py"
 grep -Fq 'f005-runtime-target.json' "$entrypoint"
 base="$root/configs/x2000/buildroot.defconfig"
 fragment="$root/configs/x2000/buildroot.fragment"
@@ -1312,6 +1313,7 @@ printvars:
 EOF
 export BUILD_DIR="$build_dir"
 mkdir -p "$target/etc/init.d" "$target/usr/libexec/fre3nder" "$target/usr/bin"
+install -D -m 0644 "$root/VERSION" "$target/usr/share/fre3nder/VERSION"
 printf '%s\n' 'input/event[0-9]+ root:root 640' > "$target/etc/mdev.conf"
 install -D -m 0644 "$nvram" \
 	"$target/lib/firmware/brcm/brcmfmac43430-sdio.txt"

@@ -47,6 +47,29 @@ independently of the platform build commit. The exact installed package is
 cached under `/home/.fre3nder/packages/` for offline recovery; see the
 [application contract](fre3app.md).
 
+## Operating-system identity
+
+The RootFS post-build hook writes `NAME=FRE3NDER`, `ID=fre3nder`, and
+`PRETTY_NAME="FRE3NDER <version>"` to `/usr/lib/os-release`;
+`/etc/os-release` is a relative symlink to it. Both `VERSION` and `VERSION_ID`
+use the canonical project version already staged at `/usr/share/fre3nder/VERSION`.
+The hook regenerates these paths and the versioned `/etc/issue` banner on every
+assembly, replacing stale Buildroot identity in reused target directories.
+`/etc/issue.net` points to the same banner. Dropbear does not enable a separate
+pre-authentication banner.
+
+Interactive login shells use `/etc/profile.d/fre3nder.sh` to display the OS
+`NAME` with BusyBox's standard username and privilege escapes:
+`root@FRE3NDER# ` or `<user>@FRE3NDER$ `. The actual hostname remains `fre3nder`;
+network configuration, SSH aliases and deployment host arguments are unchanged.
+The runtime `fre3nder` service account remains locked with `/bin/false`.
+
+Buildroot's own version and commit remain in `configs/x2000/sources.json` and
+build manifests as technical build provenance. Linux keeps its independent
+kernel version and `-fre3nder` suffix; component and app versions remain
+independent. The Management API, Maintenance UI and OTA continue to consume
+`/usr/share/fre3nder/VERSION` for the OS version, without API changes.
+
 ## 2026.4 managed-platform line
 
 `2026.4`, scope ID `managed-platform`, titled **Managed Platform**, builds on
