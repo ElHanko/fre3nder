@@ -35,6 +35,11 @@ _system_spec = importlib.util.spec_from_file_location("fre3nder_management_syste
 system_info = importlib.util.module_from_spec(_system_spec)
 _system_spec.loader.exec_module(system_info)
 
+_backup_source = pathlib.Path(__file__).with_name("management_backup.py")
+_backup_spec = importlib.util.spec_from_file_location("fre3nder_management_backup", _backup_source)
+backups = importlib.util.module_from_spec(_backup_spec)
+_backup_spec.loader.exec_module(backups)
+
 API_VERSION = 1
 SOCKET_PATH = pathlib.Path(
     os.environ.get("FRE3NDER_MANAGEMENT_SOCKET", "/run/fre3nder-management/api.sock")
@@ -820,7 +825,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         return state
 
     def fail(self, exc):
-        if isinstance(exc, apps.AppError):
+        if isinstance(exc, (apps.AppError, backups.BackupError)):
             self.send_json(exc.status, error(exc.code, exc.message))
             return
         if isinstance(exc, ManagementError):
@@ -831,6 +836,40 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
     def do_GET(self):
         try:
+            if self.path == "/fre3nder/api/v1/backup/status":
+                self.require_screen_or_web_session()
+                self.send_json(200, response("backup-status", backup=backups.status()))
+                return
+            if urllib.parse.urlsplit(self.path).path == "/fre3nder/api/v1/backup/download":
+                self.require_screen_or_web_session()
+                try:
+                    query = urllib.parse.parse_qsl(urllib.parse.urlsplit(self.path).query,
+                                                  keep_blank_values=True, strict_parsing=True)
+                except ValueError as exc:
+                    raise ManagementError(400, "invalid-request", "Invalid backup download query") from exc
+                if len(query) != 1 or query[0][0] != "id":
+                    raise ManagementError(400, "invalid-request", "Expected exactly one backup job ID")
+                stream, filename, size = backups.open_download(query[0][1])
+                with stream:
+                    self.send_response(200)
+                    self.send_header("Content-Type", "application/x-tar")
+                    self.send_header("Content-Disposition", f'attachment; filename="{filename}"')
+                    self.send_header("Content-Length", str(size))
+                    self.send_header("Cache-Control", "no-store")
+                    self.send_header("X-Content-Type-Options", "nosniff")
+                    try:
+                        self.end_headers()
+                        remaining = size
+                        while remaining:
+                            chunk = stream.read(min(64 * 1024, remaining))
+                            if not chunk:
+                                break
+                            self.wfile.write(chunk)
+                            remaining -= len(chunk)
+                    except (OSError, TimeoutError):
+                        # A disconnected reader leaves the verified archive intact.
+                        pass
+                return
             if self.path == "/fre3nder/api/v1/system/details":
                 if self.peer_uid() not in mutation_uids():
                     self.require_screen_or_web_session()
@@ -888,11 +927,30 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 )
                 return
             raise ManagementError(404, "not-found", "management endpoint does not exist")
-        except (ManagementError, apps.AppError, OSError, ValueError, RuntimeError) as exc:
+        except (ManagementError, apps.AppError, backups.BackupError, OSError, ValueError, RuntimeError) as exc:
             self.fail(exc)
 
     def do_POST(self):
         try:
+            backup_prefix = "/fre3nder/api/v1/backup/"
+            if self.path.startswith(backup_prefix):
+                operation = self.path[len(backup_prefix):]
+                if operation not in ("create", "discard"):
+                    raise ManagementError(404, "not-found", "Backup endpoint does not exist")
+                self.require_screen_or_web_admin()
+                require_active_root()
+                payload = self.read_json_body()
+                with _ota_lock:
+                    if operation == "discard":
+                        backups.discard(payload)
+                        self.send_json(200, response("backup-discard", discarded=payload["id"]))
+                        return
+                    require_ota_idle()
+                    if apps.running():
+                        raise ManagementError(409, "apps-busy", "An app operation is active or its outcome is unknown")
+                    execution = backups.start(payload)
+                self.send_json(202, response("backup-accepted", execution=execution))
+                return
             app_prefix = "/fre3nder/api/v1/apps/"
             if self.path.startswith(app_prefix):
                 operation = self.path[len(app_prefix):]
@@ -907,6 +965,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 self.require_screen_or_web_admin()
                 require_active_root()
                 with _ota_lock:
+                    if backups.running():
+                        raise ManagementError(409, "backup-busy", "A backup is running")
                     require_ota_idle()
                     if operation == "upload":
                         if self.headers.get_content_type() != "application/octet-stream":
@@ -938,6 +998,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 self.require_screen_or_web_admin()
                 require_active_root()
                 with _ota_lock:
+                    if backups.running():
+                        raise ManagementError(409, "backup-busy", "A backup is running")
                     if apps.running():
                         raise ManagementError(409, "apps-busy", "An app operation is active or its outcome is unknown")
                     if operation == "upload":
@@ -1036,7 +1098,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 "not-found",
                 "management endpoint does not exist",
             )
-        except (ManagementError, apps.AppError, OSError, ValueError, RuntimeError) as exc:
+        except (ManagementError, apps.AppError, backups.BackupError, OSError, ValueError, RuntimeError) as exc:
             self.fail(exc)
 
     def upload_ota(self):
@@ -1116,6 +1178,7 @@ def serve():
     prepare_socket()
     restore_execution()
     apps.restore()
+    backups.restore()
     try:
         group = grp.getgrnam(MANAGEMENT_GROUP)
     except KeyError as exc:

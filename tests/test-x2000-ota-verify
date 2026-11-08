@@ -541,6 +541,7 @@ def test_backup_execution():
         response = module.backup_response(
             package,
             ["--home", "--sys", "usb"],
+            staging_directory=home_source / ".tmp/backup",
             home_source=home_source,
             sys_source=sys_source,
             home_backup_directory=home_backup_directory,
@@ -771,6 +772,7 @@ def test_backup_execution():
         response = module.backup_response(
             package,
             ["--no-home", "--sys", "home"],
+            staging_directory=home_source / ".tmp/backup",
             home_source=home_source,
             sys_source=sys_source,
             home_backup_directory=home_backup_directory,
@@ -2558,6 +2560,27 @@ def expect_preflight_invalid(package, public_key, runtime, text):
         raise AssertionError("preflight unexpectedly succeeded")
 
 
+def test_download_is_never_an_ota_safety_backup():
+    for arguments in (["--home", "download", "--no-sys"], ["--no-home", "--sys", "download"]):
+        for invoke in (lambda: module.backup_plan(arguments), lambda: module.backup_execute("fixture", arguments)):
+            try:
+                invoke()
+            except ValueError as exc:
+                assert "not valid for OTA" in str(exc)
+            else:
+                raise AssertionError("OTA accepted a temporary download target")
+    for role, target in (("home", "download"), ("sys", "download"), ("home", "home")):
+        selection = {"complete": True, "home": {"selected": False, "target": None},
+                     "sys": {"selected": False, "target": None}}
+        selection[role] = {"selected": True, "target": target}
+        try:
+            module.verify_pending_backup_result({"backup_selection": selection, "backup_result": selection})
+        except ValueError as exc:
+            assert "backup target is invalid" in str(exc)
+        else:
+            raise AssertionError("OTA accepted an invalid stored backup target")
+
+
 def test_status_and_transition_lock():
     with tempfile.TemporaryDirectory() as directory:
         directory = Path(directory)
@@ -2621,6 +2644,7 @@ def test_status_and_transition_lock():
 
 
 def main():
+    test_download_is_never_an_ota_safety_backup()
     test_status_and_transition_lock()
     assert "BR2_PACKAGE_LIBOPENSSL_BIN=y\n" in BUILDROOT_FRAGMENT.read_text()
     test_backup_execution()

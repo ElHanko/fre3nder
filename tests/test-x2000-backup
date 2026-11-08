@@ -1,6 +1,9 @@
 #!/usr/bin/python3
 """Offline fixtures for the Fre3nder backup engine."""
 
+import errno
+import fcntl
+from unittest.mock import patch
 import importlib.machinery
 import importlib.util
 import json
@@ -272,11 +275,11 @@ def test_offer_plan_and_execute():
 
         assert offer["backup_offer"]["home"][
             "targets"
-        ] == ["usb"]
+        ] == ["download", "usb"]
 
         assert offer["backup_offer"]["sys"][
             "targets"
-        ] == ["usb", "home"]
+        ] == ["download", "usb", "home"]
 
         plan = module.backup_plan_response(
             (
@@ -308,6 +311,7 @@ def test_offer_plan_and_execute():
                 "--sys",
                 "home",
             ),
+            staging=home / ".tmp/backup",
             home_source=home,
             sys_source=sys_upper,
             home_backup_directory=home_backup,
@@ -399,6 +403,7 @@ def test_execute_rejects_changed_usb():
                     "--home",
                     "--no-sys",
                 ),
+                staging=home / ".tmp/backup",
                 home_source=home,
                 sys_source=sys_upper,
                 usb_backup_directory=usb_backup,
@@ -445,11 +450,11 @@ def test_vfat_offer_rejects_backup():
 
         assert response["backup_offer"][
             "home"
-        ]["offered"] is False
+        ]["offered"] is True
 
         assert response["backup_offer"][
             "sys"
-        ]["targets"] == ["home"]
+        ]["targets"] == ["download", "home"]
 
 
 def test_execute_response_version_source():
@@ -535,13 +540,13 @@ if operation == "offer":
                 "role": "HOME",
                 "offered": True,
                 "required": False,
-                "targets": ["usb"],
+                "targets": ["download", "usb"],
             },
             "sys": {
                 "role": "SYS",
                 "offered": True,
                 "required": False,
-                "targets": ["usb", "home"],
+                "targets": ["download", "usb", "home"],
             },
         },
     }
@@ -832,7 +837,202 @@ def test_verify_rejects_tampering():
         )
 
 
+def test_role_target_matrix_and_download_pipeline():
+    for available in (False, True):
+        offer = module.build_backup_offer({"backup_available": available})
+        for role in ("home", "sys"):
+            for target in ("download", "usb", "home", "none", "other"):
+                args = (["--home", target, "--no-sys"] if role == "home" else
+                        ["--no-home", "--sys", target])
+                valid = target == "download" or (target == "usb" and available) or (target == "home" and role == "sys")
+                try:
+                    selection = module.parse_backup_plan_args(args, offer)
+                except ValueError:
+                    assert not valid, (role, target)
+                else:
+                    assert valid, (role, target)
+                    assert selection[role]["target"] == target
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        home = root / "home"
+        home.mkdir()
+        (home / "data").write_text("valuable data")
+        (home / ".tmp").mkdir(mode=0o711)
+        (home / ".tmp/ignored").write_text("temporary data")
+        (home / "Fre3nderBackup").mkdir()
+        (home / "Fre3nderBackup/old.tar").write_text("old backup")
+        stage = home / ".tmp/backup"
+        upper = root / "upper"
+        upper.mkdir()
+        (upper / "config").write_text("system config")
+        helper = make_usb_helper(root / "usb-helper", status="absent")
+        with patch.object(module, "create_backup_archive", wraps=module.create_backup_archive) as create, \
+                patch.object(module, "verify_backup_archive", wraps=module.verify_backup_archive) as verify:
+            result = module.execute_backup("fixture", ["--home", "download", "--sys", "download"],
+                home_source=home, sys_source=upper, staging=stage, usb_helper=helper)
+        assert result["backup_result"]["complete"] is True
+        archive = result["backup_result"]["home"]
+        assert Path(archive["archive"]).parent.parent == stage
+        assert archive["target"] == "download" and archive["verified"] is True
+        assert create.call_args.args[1].parent == stage
+        assert verify.call_count == 2
+        assert result["backup_result"]["sys"]["target"] == "download"
+        with tarfile.open(result["backup_result"]["sys"]["archive"]) as tar:
+            assert set(tar.getnames()) == {"sys", "sys/config"}
+        with tarfile.open(archive["archive"]) as tar:
+            assert set(tar.getnames()) == {"home", "home/data"}
+        assert stage.stat().st_mode & 0o777 == 0o700
+
+
+def test_delivery_and_failures():
+    for target, failure in (("home", None), ("usb", None), ("download", "space"),
+            ("home", "stage-checksum"), ("usb", "write"), ("usb", "checksum"),
+            ("usb", "usb-change"), ("usb", "usb-remount"), ("home", "final-checksum")):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            home, upper, usb = (root / name for name in ("home", "upper", "usb"))
+            for directory in (home, upper, usb):
+                directory.mkdir()
+            (upper / "data").write_text("fixture")
+            stage = home / ".tmp/backup"
+            helper = make_usb_helper(root / "helper")
+            events = []
+            original_create, original_verify = module.create_backup_archive, module.verify_backup_archive
+            original_copy = module.shutil.copyfileobj
+            def create(*args, **kwargs):
+                assert args[1].parent == stage
+                events.append("stage-create")
+                result = original_create(*args, **kwargs)
+                if failure == "usb-remount":
+                    (usb / "Fre3nderBackup").rename(usb / "previous-volume")
+                    (usb / "Fre3nderBackup").mkdir()
+                return result
+            def verify(path, size, digest):
+                path = Path(path)
+                in_stage = stage in path.parents
+                events.append("stage-verify" if in_stage else "target-verify")
+                if (failure == "stage-checksum" and in_stage or
+                        failure == "final-checksum" and path.resolve().parent == home / "Fre3nderBackup"):
+                    raise ValueError("fixture checksum mismatch")
+                return original_verify(path, size, digest)
+            def copy(stream, output, length):
+                assert target != "home", "same-filesystem HOME must rename"
+                assert "stage-verify" in events
+                assert not list((usb / "Fre3nderBackup").glob("*.tar"))
+                if failure == "write":
+                    output.write(b"partial")
+                    raise OSError(errno.ENOSPC, "fixture full")
+                original_copy(stream, output, length)
+                if failure == "checksum":
+                    output.write(b"corrupt")
+                if failure == "usb-change":
+                    make_usb_helper(helper, source="/dev/changed")
+            space = patch.object(module, "require_space", side_effect=ValueError("insufficient backup space")) if failure == "space" else patch.object(module, "require_space", wraps=module.require_space)
+            with patch.object(module, "create_backup_archive", side_effect=create), \
+                    patch.object(module, "verify_backup_archive", side_effect=verify), \
+                    patch.object(module.shutil, "copyfileobj", side_effect=copy), space:
+                try:
+                    result = module.execute_backup("fixture", ["--no-home", "--sys", target],
+                        home_source=home, sys_source=upper, home_backup_directory=home / "Fre3nderBackup",
+                        usb_backup_directory=usb / "Fre3nderBackup", staging=stage, usb_helper=helper)
+                except (ValueError, OSError):
+                    assert failure is not None, (target, failure)
+                    assert not list(root.rglob("*.tar")), (target, failure)
+                else:
+                    assert failure is None, (target, failure)
+                    assert result["backup_result"]["complete"] is True
+                    assert result["backup_result"]["sys"]["verified"] is True
+                    assert "target-verify" in events
+            assert not list(stage.iterdir())
+            assert not list(root.rglob("*.part"))
+
+
+def test_publication_never_replaces_a_competing_archive():
+    for move in (False, True):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source, work, target = (root / name for name in ("source", "work", "target"))
+            source.mkdir()
+            work.mkdir()
+            target.mkdir()
+            (source / "config").write_text("new backup data")
+            created = module.create_backup_archive(source, work, "SYS", "fixture")
+            destination = target / Path(created["archive"]).name
+            publish = module.rename_no_replace
+            def competing_publish(src, dst):
+                destination.write_bytes(b"existing archive must survive")
+                return publish(src, dst)
+            with patch.object(module, "rename_no_replace", side_effect=competing_publish):
+                try:
+                    module.publish_backup(created, target, move=move)
+                except FileExistsError:
+                    pass
+                else:
+                    raise AssertionError("concurrent publication replaced an existing archive")
+            assert destination.read_bytes() == b"existing archive must survive"
+            assert Path(created["archive"]).is_file()
+            assert list(target.iterdir()) == [destination]
+
+    # Filesystem/kernel rejection must fail closed, never use an overwriting rename.
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        source, target = root / "source", root / "target"
+        source.mkdir()
+        (source / "data").write_text("fixture")
+        with patch.object(module, "rename_no_replace", side_effect=OSError(errno.EOPNOTSUPP, "fixture unsupported")):
+            try:
+                module.create_backup_archive(source, target, "SYS", "fixture")
+            except OSError as exc:
+                assert exc.errno == errno.EOPNOTSUPP
+            else:
+                raise AssertionError("unsupported no-replace publication was accepted")
+        assert not list(target.iterdir())
+
+
+def test_space_reserve():
+    class Capacity:
+        f_bavail = module.SPACE_RESERVE + 100
+        f_frsize = 1
+    with patch.object(module.os, "statvfs", return_value=Capacity()):
+        module.require_space(Path("/fixture"), 100)
+        try:
+            module.require_space(Path("/fixture"), 101)
+        except ValueError as exc:
+            assert "operating reserve" in str(exc)
+        else:
+            raise AssertionError("backup consumed its reserve")
+
+
+def test_shared_operation_lock():
+    with tempfile.TemporaryDirectory() as temporary:
+        path = Path(temporary) / "write.lock"
+        with patch.object(module, "OPERATION_LOCK", path):
+            with module.operation_lock():
+                try:
+                    with module.operation_lock():
+                        raise AssertionError("concurrent backup lock accepted")
+                except ValueError as exc:
+                    assert "another OTA/app/backup" in str(exc)
+            with path.open("r+") as held:
+                fcntl.flock(held, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                with patch.dict(os.environ, {"FRE3NDER_BACKUP_LOCK_FD": str(held.fileno())}):
+                    with module.operation_lock():
+                        pass  # An inherited description must not deadlock or unlock its owner.
+                with path.open("r+") as other:
+                    try:
+                        fcntl.flock(other, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    except BlockingIOError:
+                        pass
+                    else:
+                        raise AssertionError("backup released its OTA owner's lock")
+
+
 def main():
+    test_role_target_matrix_and_download_pipeline()
+    test_delivery_and_failures()
+    test_shared_operation_lock()
+    test_space_reserve()
+    test_publication_never_replaces_a_competing_archive()
     test_public_backup_create()
     test_archive_primitive()
     test_offer_plan_and_execute()

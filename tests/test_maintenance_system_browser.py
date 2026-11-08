@@ -78,12 +78,17 @@ class MaintenanceSystemBrowserTests(unittest.TestCase):
     def test_locked_missing_data_and_expired_session(self):
         self.run_browser("access", authenticated=False)
 
+    def test_backup_selection_download_discard_and_errors(self):
+        for size in ("1100,800", "360,640"):
+            with self.subTest(window_size=size):
+                self.run_browser("backup", size)
+
     def run_browser(self, mode, window_size="1100,800", authenticated=True):
         with tempfile.TemporaryDirectory(prefix="fre3nder-system-browser-") as tmp:
             root = Path(tmp)
-            for name in ("maintenance.js", "apps.js", "system.js", "maintenance.css"):
+            for name in ("maintenance.js", "apps.js", "system.js", "backup.js", "maintenance.css"):
                 shutil.copyfile(WEB / name, root / name)
-            shutil.copyfile(ROOT / "tests/test_maintenance_system_ui.js", root / "tests.js")
+            shutil.copyfile(ROOT / "tests" / ("test_maintenance_backup_ui.js" if mode == "backup" else "test_maintenance_system_ui.js"), root / "tests.js")
             state = {"mode": mode, "authenticated": authenticated, "data": system_fixture()}
             (root / "fixture.js").write_text("const fixture = " + json.dumps(state) + ";\n" + FIXTURE)
             html = (WEB / "index.html").read_text().replace(
@@ -93,7 +98,7 @@ class MaintenanceSystemBrowserTests(unittest.TestCase):
             result = subprocess.run([
                 CHROMIUM, "--headless", "--no-sandbox", "--disable-gpu", "--disable-background-networking",
                 f"--window-size={window_size}", f"--user-data-dir={root / 'profile'}",
-                "--virtual-time-budget=5000", "--dump-dom", (root / "index.html").as_uri() + "#system",
+                "--virtual-time-budget=5000", "--dump-dom", (root / "index.html").as_uri() + ("#backups" if mode == "backup" else "#system"),
             ], capture_output=True, text=True, timeout=30)
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertIn('<pre id="browser-result">PASS</pre>', result.stdout, result.stdout[-6000:] + result.stderr[-2000:])

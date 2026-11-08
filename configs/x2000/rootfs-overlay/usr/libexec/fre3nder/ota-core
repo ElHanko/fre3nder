@@ -654,16 +654,7 @@ def preflight_response(
     }
 
 
-BACKUP_ENVIRONMENT_KEYS = (
-    "FRE3NDER_BACKUP_VERSION",
-    "FRE3NDER_BACKUP_HOME_SOURCE",
-    "FRE3NDER_BACKUP_SYS_SOURCE",
-    "FRE3NDER_BACKUP_USB_HELPER",
-    "FRE3NDER_BACKUP_HOME_DIRECTORY",
-    "FRE3NDER_BACKUP_USB_DIRECTORY",
-    "FRE3NDER_BACKUP_EXPECTED_USB_SOURCE",
-    "FRE3NDER_BACKUP_EXPECTED_USB_FILESYSTEM",
-)
+_backup_operation_lock = None
 
 
 def backup_environment(
@@ -674,6 +665,7 @@ def backup_environment(
     home_backup_directory=None,
     usb_backup_directory=None,
     expected_usb=None,
+    staging_directory=None,
 ):
     values = {
         "FRE3NDER_BACKUP_VERSION": version,
@@ -682,6 +674,7 @@ def backup_environment(
         "FRE3NDER_BACKUP_USB_HELPER": usb_helper,
         "FRE3NDER_BACKUP_HOME_DIRECTORY": home_backup_directory,
         "FRE3NDER_BACKUP_USB_DIRECTORY": usb_backup_directory,
+        "FRE3NDER_BACKUP_STAGING_DIRECTORY": staging_directory,
     }
 
     if isinstance(expected_usb, dict):
@@ -720,11 +713,19 @@ def run_backup_core(
 
     # Caller environment must never redirect privileged backup
     # paths implicitly. Only explicit adapter values below apply.
-    for key in BACKUP_ENVIRONMENT_KEYS:
-        child_environment.pop(key, None)
+    for key in list(child_environment):
+        if key.startswith("FRE3NDER_BACKUP_"):
+            child_environment.pop(key)
 
     if environment:
         child_environment.update(environment)
+
+    pass_fds = ()
+    if operation == "execute" and _backup_operation_lock is not None:
+        lock_fd, lock_path = _backup_operation_lock
+        child_environment["FRE3NDER_BACKUP_LOCK_FD"] = str(lock_fd)
+        child_environment["FRE3NDER_BACKUP_LOCK_PATH"] = str(lock_path)
+        pass_fds = (lock_fd,)
 
     try:
         result = subprocess.run(
@@ -738,6 +739,7 @@ def run_backup_core(
             text=True,
             check=False,
             env=child_environment,
+            pass_fds=pass_fds,
         )
     except OSError as exc:
         raise ValueError(
@@ -778,7 +780,20 @@ def run_backup_core(
 
         raise ValueError(error)
 
+    # Download archives are temporary and cannot protect an OTA transaction.
+    offer = response.get("backup_offer")
+    if isinstance(offer, dict):
+        for role in ("home", "sys"):
+            allowed = ("usb",) if role == "home" else ("usb", "home")
+            offer[role]["targets"] = [target for target in offer[role]["targets"] if target in allowed]
+            offer[role]["offered"] = bool(offer[role]["targets"])
+        offer.get("targets", {}).pop("download", None)
     return response
+
+
+def require_persistent_backup_targets(arguments):
+    if "download" in arguments:
+        raise ValueError("temporary download backups are not valid for OTA")
 
 
 def backup_offer(
@@ -816,6 +831,7 @@ def backup_plan(
     usb_helper=None,
     backup_core=BACKUP_CORE,
 ):
+    require_persistent_backup_targets(arguments)
     response = run_backup_core(
         "plan",
         arguments,
@@ -850,7 +866,9 @@ def backup_execute(
     usb_backup_directory=None,
     usb_helper=None,
     backup_core=BACKUP_CORE,
+    staging_directory=None,
 ):
+    require_persistent_backup_targets(arguments)
     response = run_backup_core(
         "execute",
         arguments,
@@ -863,6 +881,7 @@ def backup_execute(
             home_backup_directory=home_backup_directory,
             usb_backup_directory=usb_backup_directory,
             expected_usb=expected_usb,
+            staging_directory=staging_directory,
         ),
     )
 
@@ -1131,7 +1150,7 @@ def verify_pending_backup_result(state, backup_core=BACKUP_CORE):
             )
 
         if is_selected:
-            if target not in ("usb", "home"):
+            if target not in (("usb",) if role == "home" else ("usb", "home")):
                 raise ValueError(
                     f"pending OTA {role.upper()} backup target is invalid"
                 )
@@ -1311,6 +1330,7 @@ def transaction_operation(function):
     """Serialize whole transitions, including CLI callers and state validation."""
     @functools.wraps(function)
     def locked(*args, **kwargs):
+        global _backup_operation_lock
         pending = pathlib.Path(kwargs.get("pending_transaction_path", PENDING_TRANSACTION))
         path = pathlib.Path(kwargs.get("write_lock_path", pending.parent / "write.lock"))
         path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
@@ -1325,7 +1345,12 @@ def transaction_operation(function):
                 fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
             except BlockingIOError as exc:
                 raise ValueError("another OTA operation is active") from exc
-            return function(*args, **kwargs)
+            previous = _backup_operation_lock
+            _backup_operation_lock = (fd, path)
+            try:
+                return function(*args, **kwargs)
+            finally:
+                _backup_operation_lock = previous
     return locked
 
 
@@ -3959,6 +3984,7 @@ def backup_response(
     pending_transaction_path=PENDING_TRANSACTION,
     activation_record_path=ACTIVATION_RECORD,
     backup_core=BACKUP_CORE,
+    staging_directory=None,
     **kwargs,
 ):
     pending_transaction_path = pathlib.Path(
@@ -3988,6 +4014,7 @@ def backup_response(
             "usb_helper"
         ),
         backup_core=backup_core,
+        staging_directory=staging_directory,
     )
 
     verify_pending_backup_result(execution, backup_core=backup_core)

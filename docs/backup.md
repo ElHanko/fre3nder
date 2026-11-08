@@ -2,11 +2,29 @@
 
 ## Create and check a backup
 
+Maintenance Web has an independent **Backups** area. Unlock the browser with
+its existing pairing flow, choose HOME or SYS, and select a destination from
+the API offer. Web defaults to `download`; USB is optional, and HOME storage
+is available for SYS. After creation, use the download link to save the verified
+archive. Downloads can be repeated. **Discard temporary backup** removes the
+printer's temporary copy, as does the next system start. Browser closure and
+an interrupted download do not remove the archive.
+
+Backup archives can contain private data and credentials. Maintenance downloads
+use unencrypted HTTP on port 8081: pairing and CSRF checks do not encrypt the
+archive in transit. Use a trusted LAN or an operator-provided protected transport
+for access to Maintenance.
+
+Fre3nderScreen uses the same [Management API](api/management.md#standalone-backup-endpoints),
+with USB preferred when available and HOME optional for SYS. It offers no
+browser download destination. The CLI retains its existing permanent choices.
+
 Run the public CLI on an active Fre3nder runtime with mounted persistence.
 For HOME, connect writable runtime USB storage formatted as exFAT, ext4, or
 NTFS3; VFAT is usable for other USB purposes but cannot hold a HOME backup.
 SYS may instead be stored in preserved `/home`. Ensure the selected target has
-enough free space for an uncompressed archive.
+enough free space for an uncompressed archive, and that HOME also has space
+for its temporary staging copy.
 
 For interactive selection:
 
@@ -74,7 +92,7 @@ runtime USB / storage
         |
         +--> fre3nder CLI
         +--> OTA
-        +--> future display / web frontends
+        +--> Management API --> Maintenance Web / Fre3nderScreen
 ```
 
 The backup layer owns backup availability, target policy, selection
@@ -139,7 +157,8 @@ The active HOME backup source is:
 /home
 ```
 
-A HOME backup may be written only to backup-capable runtime USB storage.
+A HOME backup may be downloaded through Management or delivered to
+backup-capable runtime USB storage.
 
 The backup directory is:
 
@@ -152,8 +171,8 @@ The backup directory is:
 A HOME backup is an additional recovery measure and does not replace that
 persistence contract.
 
-The HOME backup directory itself is excluded when HOME is archived so that
-backups stored below HOME cannot recursively include themselves.
+Both `/home/.tmp/` and `/home/Fre3nderBackup/` are excluded when HOME is archived,
+so temporary files and permanent SYS backups cannot recursively enter the archive.
 
 ### SYS
 
@@ -167,13 +186,14 @@ Only the active OverlayFS `upper/` tree is backup content.
 
 `<SYS_SOURCE>/ota/packages/` is excluded using the existing archive exclusion
 mechanism. It contains reconstructible staged OTA packages and Maintenance
-proxy buffers, not system customizations. Other SYS content and HOME traversal
-remain unchanged; HOME's existing `Fre3nderBackup/` exclusion still applies.
+proxy buffers, not system customizations. Other SYS content remains included.
+HOME excludes `.tmp/` and `Fre3nderBackup/`.
 
 OverlayFS `work/` state, reset markers, and other runtime implementation state
 are not included.
 
-SYS may be backed up either to runtime USB or to preserved HOME:
+SYS may be downloaded through Management, or delivered to runtime USB or
+preserved HOME:
 
 ```text
 /run/fre3nder/usb/Fre3nderBackup/
@@ -225,35 +245,25 @@ backup execution fails rather than writing to an unexpected volume.
 Backup targets are derived from the logical backup role and currently
 available storage.
 
-HOME has exactly one possible backup destination:
+| Role | Destinations |
+|---|---|
+| HOME | `download`, `usb` |
+| SYS | `download`, `usb`, `home` |
+
+USB appears only when runtime storage reports a writable backup-capable volume.
+No arbitrary destination path is part of the interface. Core sets no frontend
+preference. Web chooses `download` initially; Screen prefers USB; CLI retains
+USB for HOME and USB/HOME for SYS.
+
+`download` retains the verified archive in a private job directory below
+`/home/.tmp/backup/`. Management maps a random server-generated job ID to that
+archive. It does not expose the staging tree as static web content.
+
+Permanent destinations remain:
 
 ```text
-USB
-```
-
-SYS has two possible backup destinations:
-
-```text
-USB
-HOME
-```
-
-No arbitrary destination path is part of the backup interface.
-
-All archives are stored below a fixed `Fre3nderBackup/` directory at the root
-of the selected logical target.
-
-The resulting locations are:
-
-```text
-HOME -> USB:
-    /run/fre3nder/usb/Fre3nderBackup/
-
-SYS -> USB:
-    /run/fre3nder/usb/Fre3nderBackup/
-
-SYS -> HOME:
-    /home/Fre3nderBackup/
+HOME or SYS -> USB: /run/fre3nder/usb/Fre3nderBackup/
+SYS -> HOME:        /home/Fre3nderBackup/
 ```
 
 ## Archive format
@@ -261,15 +271,37 @@ SYS -> HOME:
 The initial backup archive format is uncompressed POSIX tar using the PAX
 format.
 
-Backup traversal:
+Every target uses one pipeline:
 
-* does not cross filesystem boundaries below the selected source;
-* archives symbolic links as symbolic links rather than following them;
-* excludes the HOME backup directory when archiving HOME;
-* writes to a temporary file in the destination directory;
-* flushes the completed archive before publication;
-* publishes the completed archive by rename;
-* rereads the final archive to determine its size and SHA-256.
+1. Validate the explicit selection and current USB identity, if selected.
+2. Estimate the uncompressed TAR size using the same source traversal. Check
+   staging and destination capacity, with 5% estimation headroom and a 32 MiB
+   operating reserve. Reserve both copies when copying on the same filesystem.
+3. Create the PAX-TAR using `create_backup_archive()` in a private job directory
+   below `/home/.tmp/backup/`; flush and fsync the complete archive.
+4. Reread it with `verify_backup_archive()` before delivery.
+5. For `download`, retain the staged archive. For USB, copy to a hidden `.part`
+   file, flush/fsync, verify, recheck the selected volume, then rename to its
+   final name with Linux `renameat2(RENAME_NOREPLACE)`. A concurrent existing
+   name causes failure and is never replaced. A pinned directory descriptor keeps writes and cleanup on the
+   selected filesystem if USB changes. For HOME on the same filesystem, rename
+   the verified staged archive atomically with the same no-replace rule;
+   otherwise use the verified-copy path. Unsupported no-replace publication
+   fails closed, without an overwriting fallback.
+6. Verify each final permanent file, fsync its directory and recheck USB identity.
+7. Remove temporary job data once no longer needed. Failed copies and failed
+   final verification never produce a successful result.
+
+The staging directory is root-controlled, mode `0700`, and created when needed.
+The existing boot cleanup of `/home/.tmp/` remains responsible for leftovers;
+there is no new cleanup service. Space checks do not reserve blocks against
+unrelated writers. ENOSPC or other write errors fail the operation and clean its
+temporary files. A source which changes during traversal can fail creation;
+this is a filesystem archive, not a point-in-time snapshot.
+
+Traversal does not cross filesystem boundaries and preserves symbolic links
+without following them. HOME excludes `.tmp/` and `Fre3nderBackup/`; SYS excludes
+`ota/packages/`.
 
 A successful archive result contains at least:
 
@@ -279,28 +311,15 @@ size
 SHA-256
 ```
 
-Archive creation is separate from archive verification.
-
-This allows higher-level consumers to decide when verification must occur.
+Archive creation and verification remain separate primitives. The complete
+`execute` pipeline always verifies staging and final delivery; callers can
+add later integrity checks using `verify`.
 
 ## Selection policy
 
-HOME has the following choices:
-
-```text
-USB
-none
-```
-
-`USB` is available only when backup-capable runtime USB is present.
-
-SYS has the following choices:
-
-```text
-USB
-HOME
-none
-```
+Core accepts `download` or `usb` for HOME and `download`, `usb`, or `home`
+for SYS. Each role may also be explicitly declined. The public CLI and OTA
+retain their narrower permanent choices: HOME `usb|none`, SYS `usb|home|none`.
 
 A selection must be explicit.
 
@@ -309,8 +328,8 @@ There is no implicit default that silently creates or skips a backup.
 Selecting no backup at all is not a useful standalone backup operation and is
 rejected by the public CLI.
 
-Other consumers, such as OTA, may use the same backup-core selection policy as
-part of a larger workflow.
+OTA additionally rejects temporary `download` targets on the server. It does
+not inherit new defaults from the expanded standalone offer.
 
 ## Backup execution
 
@@ -524,11 +543,12 @@ HOME is processed before SYS.
 The operation returns the actual archive path, size, and SHA-256 for each
 selected role.
 
-Archive verification remains a separate internal operation so callers can
-control when verification occurs.
-
-The public CLI hides this distinction and always performs verification as part
-of `fre3nder backup create`.
+Execution verifies staging and delivery before `backup_result.complete` is
+true. Selected role results include `verified: true`, `target`, `archive`,
+`size`, and `sha256`. The CLI also retains its explicit final verification.
+The internal selection syntax accepts `--home download|usb`; the existing
+bare `--home` still means USB. SYS accepts `--sys download|usb|home`.
+`--no-home` and `--no-sys` remain explicit declines.
 
 ### `archive`
 
@@ -614,7 +634,10 @@ known-good state
 OTA owns those concepts.
 
 During OTA preflight, OTA obtains available backup choices from the backup
-core.
+core and filters them to persistent targets: HOME `usb`, SYS `usb|home`.
+Planning, execution, and stored-transaction validation reject `download`; no
+implicit selection is introduced. Existing transaction archive metadata remains
+compatible, and later OTA stages still reverify it before system changes.
 
 OTA then records the user's explicit backup selection as part of its own
 workflow.
@@ -636,42 +659,19 @@ See [ota.md](ota.md) for the OTA-specific workflow.
 
 ## Frontend integration
 
-Other frontends should consume the same backup-core API rather than
-reimplementing backup policy.
+Maintenance Web and the protected local Screen use the same asynchronous
+[Management API](api/management.md#standalone-backup-endpoints). They select roles
+and destinations and display receipts; they do not archive files themselves.
 
-For example, a future Fre3nderScreen integration could use:
-
-```text
-offer
-  |
-  v
-render currently valid choices
-  |
-  v
-plan or validate selection
-  |
-  v
-execute
-  |
-  v
-verify
-  |
-  v
-show successful completion
-```
-
-A graphical frontend may present this very differently from the CLI.
-
-That does not change ownership of the underlying backup policy.
-
-The public CLI itself is one such frontend.
-
-Its implementation deliberately collapses the internal sequence into the
-single user-facing operation:
-
-```text
-fre3nder backup create
-```
+Manual Core execution shares `/run/fre3nder/ota/write.lock` with OTA and app
+mutations, using a nonblocking lock. OTA passes its already-held open lock
+descriptor to its Backup-Core child, so the child does not acquire a second
+independent lock. Management also serializes acceptance of running manual
+backup, OTA and app jobs. Downloads only read completed archives and do not
+hold the platform operation lock. Discarding an open download unlinks its name;
+the existing reader can finish through its open descriptor, including a
+verification already in progress. The complete SHA-256 pass does not hold the
+receipt lock, so status and discard remain available during verification.
 
 ## Failure behavior
 
@@ -701,7 +701,13 @@ The current automated fixtures cover:
 * archive creation;
 * filesystem-boundary handling;
 * symbolic-link handling;
-* HOME backup-directory exclusion;
+* HOME `.tmp/` and backup-directory exclusions;
+* download staging and permanent delivery;
+* reserve checks, ENOSPC, checksum and USB-change failures;
+* shared operation locking;
+* authenticated streaming, repeat and aborted downloads;
+* explicit discard and asynchronous job receipts;
+* Maintenance backup selection and error handling;
 * archive size and SHA-256 calculation;
 * archive verification;
 * rejection of modified archives;
@@ -722,4 +728,15 @@ They do not by themselves constitute hardware qualification of every
 supported USB filesystem, USB storage device, storage failure mode, or
 power-loss scenario.
 
-Hardware qualification must be performed and recorded separately.
+The operator reports successful development-build and A/B-deployment validation
+on the reference Ender-3 V3 KE running Fre3nder `2026.5.a`, with the new
+Backup-Core present in the RootFS. SYS backups to HOME passed through the CLI,
+Maintenance Web and Fre3nderScreen. The browser-download path also passed:
+the downloaded TAR had the same SHA-256 as the archive on the printer, and
+discarding the temporary archive succeeded. The Screen package passed signature
+verification and installation, and its backup panel was tested on the physical
+touchscreen.
+
+HOME backups and USB destinations have not yet been hardware-qualified. The
+reported SYS results do not qualify those paths, every supported USB filesystem,
+or power-loss recovery.

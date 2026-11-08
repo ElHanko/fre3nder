@@ -552,6 +552,10 @@ def interactive_backup_selection():
             "backup core returned invalid targets"
         )
 
+    # The CLI retains permanent destinations; browser downloads belong to Web.
+    home_targets = [target for target in home_targets if target == "usb"]
+    sys_targets = [target for target in sys_targets if target in ("usb", "home")]
+
     while True:
         print("Fre3nder backup")
         print("")

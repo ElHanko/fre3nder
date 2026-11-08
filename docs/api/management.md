@@ -3,8 +3,8 @@
 The Fre3nder Management API is the platform-owned interface for local
 administration that must not be implemented independently by the web UI or local
 display. API v1 covers system status, explicit Maintenance Web activation and
-temporary browser-administration pairing, manual platform OTA and manual
-signed application management. Application package semantics continue to use
+temporary browser-administration pairing, manual platform OTA, standalone
+backups and manual signed application management. Application package semantics continue to use
 the existing Package-Core.
 
 ## Transport and privilege boundary
@@ -33,7 +33,7 @@ platform-management authority merely because applications currently share the
 Screen package from a protected, manager-owned runtime. `SO_PEERCRED` must match
 both the generic application UID and this primary GID; ordinary `.fre3app`
 processes receive neither this GID nor socket access. This never runs the Screen
-as Root. The selected Screen may call System details, Apps, OTA and local
+as Root. The selected Screen may call System details, Apps, OTA, Backup and local
 Maintenance-control routes directly through the Unix socket; it does not use
 browser cookies, CSRF, or port 8081. Core signature/transaction checks are
 unchanged. The generic app UID alone has no privileged access.
@@ -42,7 +42,8 @@ The explicit browser OTA routes additionally permit paired browser administrator
 through the existing worker/session/CSRF/Origin checks. This exception does not
 expand local Maintenance-control or application-user permissions.
 
-The protocol is HTTP/1.x with JSON responses. API v1 paths use the prefix:
+The protocol is HTTP/1.x with JSON responses, except the binary backup-download
+response. API v1 paths use the prefix:
 
 ```text
 /fre3nder/api/v1/
@@ -224,6 +225,102 @@ actions from clients that only discover the Maintenance URL, but it does not
 provide transport confidentiality against a party able to observe or modify LAN
 traffic. No credential or session token is stored persistently.
 
+## Standalone backup endpoints
+
+Paired browser administrators and the protected Fre3nderScreen peer use the
+same API under `/fre3nder/api/v1/backup/`. GET requires a valid browser session
+or Screen credentials. POST additionally uses existing browser Origin/Host and
+CSRF checks; Screen uses its Unix peer credentials. Creation requires an active
+Fre3nder runtime. These routes exist only on Maintenance port 8081, never the
+selected app webserver on port 80.
+
+| Method / suffix | Request | Response |
+|---|---|---|
+| `GET status` | No body | `200 backup-status`, `backup` snapshot |
+| `POST create` | Exactly `{"role":"home","target":"download"}` | `202 backup-accepted`, `execution` receipt |
+| `GET download?id=…` | Exactly one server-generated job ID | Verified TAR, streamed in 64 KiB blocks |
+| `POST discard` | Exactly `{"id":"<job-id>"}` | `200 backup-discard`, `discarded` ID |
+
+Roles are lowercase `home` or `sys`. HOME permits `download|usb`; SYS permits
+`download|usb|home`. A target must be explicitly supplied; Core has no UI default.
+USB availability comes from runtime storage. Client-supplied paths, filenames,
+archive metadata and additional JSON fields are rejected.
+
+The status envelope is:
+
+```json
+{
+  "api_version": 1,
+  "ok": true,
+  "operation": "backup-status",
+  "backup": {
+    "backup_offer": {
+      "selection_required": true,
+      "home": {"role":"HOME","offered":true,"required":false,"targets":["download"]},
+      "sys": {"role":"SYS","offered":true,"required":false,"targets":["download","home"]},
+      "targets": {
+        "download":{"available":true,"path":"/home/.tmp/backup"},
+        "home":{"available":true,"path":"/home/Fre3nderBackup"},
+        "usb":{"available":false,"path":null}
+      }
+    },
+    "runtime_usb": {"available":false,"status":"absent","mount":null},
+    "execution": null,
+    "downloads": []
+  }
+}
+```
+
+`execution` is the latest job or null. Jobs contain a random 128-bit hexadecimal
+`id`, `operation: create`, `role`, `target`, and `state: running|succeeded|failed|discarded`.
+A successful job includes `result`, the unchanged Core execution envelope with
+`backup_selection` and `backup_result`; selected archive metadata includes
+`archive`, `size`, `sha256`, `target`, and `verified: true`. `backup_result.complete`
+is true only after creation and delivery verification. A failed job contains
+`error: {code,message}` and must never be presented as complete. Poll status
+while running. A disconnected create response does not cancel the job; query
+status before explicitly retrying. A daemon restart preserves completed receipts
+and downloads and marks an interrupted creation failed, never successful.
+
+`downloads` lists all retained download results as `{id, ...archiveMetadata}`,
+including older jobs. Random IDs are server-side lookup keys, not authentication
+credentials. Every download revalidates the stored size and SHA-256 before sending
+headers. Only private staged archives registered by completed jobs are served.
+The response uses `Content-Type: application/x-tar`, `Content-Disposition:
+attachment; filename="…"`, the exact `Content-Length`, and `Cache-Control: no-store`.
+It never loads the archive into RAM. Reader disconnection preserves the archive;
+repeat downloads are allowed. The descriptor is opened under the receipt lock;
+SHA-256 verification then uses that same descriptor outside the lock, so status
+and discard do not wait for the hash pass. No byte-range or resume protocol is
+defined.
+
+Downloads use plain HTTP on the Maintenance origin. Archives can include full
+HOME data and credentials; pairing does not protect their confidentiality in
+transit. Use a trusted LAN or an operator-provided protected transport.
+
+Discard removes only the temporary download copy for the ID; it does not remove
+HOME/USB backups or files on the browser's computer. Staged data remains below
+root-controlled `/home/.tmp/backup/` until discarded or the existing next-boot
+cleanup. There is no extra cleanup service or expiry timer. Discard first
+commits removal from the download registry, then unlinks the archive while the
+short receipt lock is held. If the receipt cannot be stored, the archive stays
+available and the API returns 503. An unlink failure restores the receipt and
+returns 409 for retry. An already missing archive or job directory can still be
+removed from the registry. Once the archive is gone, failure to remove its empty
+job directory does not restore a stale download; cleanup is deferred to boot.
+
+Malformed selections/IDs/queries return 400; unknown or discarded download IDs
+return 404; unavailable targets, changed archives, or colliding operations return
+409. Worker failures appear in the receipt, including storage/write failures.
+Unpaired sessions return 401, and invalid peers, Origin, or CSRF return 403.
+
+Management refuses overlapping manual backup, OTA and app jobs. Core uses the
+existing nonblocking OTA/app operation lock for CLI and API execution. OTA shares
+its already-held lock description with its backup child, avoiding nested locks.
+Reading or discarding completed downloads does not acquire that platform lock.
+OTA offers only persistent HOME `usb|none` and SYS `usb|home|none` selections;
+`download` is rejected by OTA planning, execution, and transaction validation.
+
 ## Manual OTA endpoints
 
 All paths below have the prefix `/fre3nder/api/v1/ota/`. The read endpoint
@@ -372,8 +469,8 @@ POST /fre3nder/api/v1/auth/lock
 
 The root-only Maintenance mutation paths (`enable`, `disable`, pairing-code
 creation and global `lock`) are not routed by either web listener. The explicit
-documented OTA routes are projected only on Maintenance; manual Apps routes are also projected only on Maintenance; there are no
-standalone backup, SSH or command-execution routes.
+documented OTA, standalone Backup and manual Apps routes are projected only on
+Maintenance. There are no SSH or command-execution routes.
 
 Port separation is an origin boundary, not a cookie boundary. Authenticated
 browser mutations therefore additionally require the session CSRF token and a

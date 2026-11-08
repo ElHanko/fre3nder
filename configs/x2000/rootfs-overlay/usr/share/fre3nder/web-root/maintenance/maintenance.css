@@ -325,3 +325,7 @@ summary { color: var(--muted); cursor: pointer; }
 .system-usage meter { width: 100%; min-width: 0; height: 1rem; accent-color: var(--ok); }
 .system-usage span { flex: 0 0 auto; font-size: .85rem; }
 #system-view details { max-height: 65vh; overflow: auto; }
+
+.backup-download { display: flex; flex-wrap: wrap; align-items: center; gap: 1rem; margin: 1rem 0; }
+.backup-download a { color: var(--cyan, #00e5ff); }
+.backup-result { white-space: pre-wrap; overflow-wrap: anywhere; }

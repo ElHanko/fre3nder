@@ -57,6 +57,7 @@ const renderAuth = (auth) => {
     auth.csrf_token.length > 0;
   csrfToken = authenticated ? auth.csrf_token : null;
   if (typeof systemAuthChanged === "function") systemAuthChanged(authenticated);
+  if (typeof backupAuthChanged === "function") backupAuthChanged(authenticated);
   const label = authenticated ? "Unlocked" : "Locked";
   const kind = authenticated ? "ok" : "neutral";
 
@@ -673,19 +674,23 @@ const renderNavigation = () => {
   const updates = window.location.hash === "#updates" || Boolean(rebootStatus());
   const appPage = !updates && window.location.hash === "#apps";
   const systemPage = !updates && window.location.hash === "#system";
+  const backupPage = !updates && window.location.hash === "#backups";
   const enteringUpdates = updates && document.getElementById("updates-view").hidden;
   const enteringApps = appPage && document.getElementById("apps-view").hidden;
-  document.getElementById("overview-view").hidden = updates || appPage || systemPage;
+  const enteringBackups = backupPage && document.getElementById("backups-view").hidden;
+  document.getElementById("overview-view").hidden = updates || appPage || systemPage || backupPage;
   document.getElementById("updates-view").hidden = !updates;
   document.getElementById("apps-view").hidden = !appPage;
   document.getElementById("system-view").hidden = !systemPage;
+  document.getElementById("backups-view").hidden = !backupPage;
   for (const link of document.querySelectorAll("nav a")) {
-    const active = link.getAttribute("href") === (updates ? "#updates" : appPage ? "#apps" : systemPage ? "#system" : "#overview");
+    const active = link.getAttribute("href") === (updates ? "#updates" : appPage ? "#apps" : systemPage ? "#system" : backupPage ? "#backups" : "#overview");
     link.classList.toggle("active", active);
     if (active) link.setAttribute("aria-current", "page");
     else link.removeAttribute("aria-current");
   }
   if (systemPage && typeof systemLoad === "function") systemLoad();
+  if (enteringBackups && typeof backupLoad === "function") backupLoad();
   if (csrfToken && enteringUpdates) loadOta().catch(handleStatusError);
   if (csrfToken && enteringApps && typeof appsLoad === "function") appsLoad().catch((error) => appsError(error.message));
 };

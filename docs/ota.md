@@ -798,7 +798,14 @@ internal core API are documented in [backup.md](backup.md).
 OTA consumes the backup core through its internal API.
 
 During preflight, OTA obtains the currently available backup targets from the
-backup core. The OTA workflow then requires an explicit selection or decline
+backup core and restricts them to persistent safety backups: HOME `usb|none`,
+SYS `usb|home|none`. Standalone `download` backups are temporary and are rejected
+by OTA planning, execution and stored-transaction validation. The expanded Core
+offer introduces no OTA defaults. The shared staging/delivery pipeline and
+archive metadata remain compatible with existing transactions; OTA still
+reverifies selected archives before system changes. OTA passes its already-held
+operation lock descriptor to Backup-Core instead of acquiring a nested lock.
+The OTA workflow then requires an explicit selection or decline
 for `HOME` and `SYS`, invokes backup execution, and binds the returned archive
 metadata to the volatile OTA transaction.
 

@@ -1183,6 +1183,267 @@ class ManagementApiTests(unittest.TestCase):
               patch.object(self.daemon.os, "statvfs", return_value=types.SimpleNamespace(f_bavail=reserve + 10, f_frsize=1))):
             self.assertEqual(self.daemon.upload_space(10)["max_package_bytes"], 96 * 1024 * 1024)
 
+    def setup_backup(self):
+        headers = self.setup_ota()
+        backups = self.daemon.backups
+        backups.EXECUTION_FILE = self.runtime / "backup-execution.json"
+        core = backups.core
+        core.OPERATION_LOCK = self.runtime / "write.lock"
+        (self.home / ".tmp").chmod(0o711)
+        core.STAGING_DIRECTORY = self.home / ".tmp/backup"
+        upper = self.root / "upper"
+        upper.mkdir()
+        (self.home / "data").write_bytes(b"fixture data" * 200000)
+        (upper / "config").write_text("fixture config")
+        original = core.execute_backup
+        def execute(version, arguments, **kwargs):
+            return original(version, arguments, home_source=self.home, sys_source=upper,
+                home_backup_directory=self.home / "Fre3nderBackup", staging=core.STAGING_DIRECTORY, **kwargs)
+        for mocked in (patch.object(core, "execute_backup", side_effect=execute),
+                patch.object(core, "read_installed_version", return_value="fixture"),
+                patch.object(core, "read_runtime_usb_state", return_value={"available": False, "status": "absent"})):
+            mocked.start()
+            self.addCleanup(mocked.stop)
+        return headers
+
+    def backup_request(self, operation, payload, headers):
+        return self.request_full("POST", "/fre3nder/api/v1/backup/" + operation,
+            body=json.dumps(payload).encode(), headers={**headers, "Content-Type": "application/json"})
+
+    def wait_backup(self):
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline:
+            with self.daemon.backups._lock:
+                execution = self.daemon.backups._execution
+            if execution and execution["state"] != "running":
+                return execution
+            time.sleep(.01)
+        self.fail("Backup did not complete")
+
+    def backup_download(self, job_id, headers):
+        connection = UnixHTTPConnection(self.daemon.SOCKET_PATH)
+        connection.request("GET", "/fre3nder/api/v1/backup/download?id=" + job_id, headers=headers)
+        answer = connection.getresponse()
+        body, reply_headers = answer.read(), dict(answer.getheaders())
+        connection.close()
+        return answer.status, body, reply_headers
+
+    def test_backup_download_without_usb_repeat_disconnect_discard(self):
+        headers = self.setup_backup()
+        code, text, _ = self.backup_request("create", {"role": "home", "target": "download"}, headers)
+        self.assertEqual(code, 202, text)
+        job = json.loads(text)["execution"]
+        self.assertRegex(job["id"], r"^[0-9a-f]{32}$")
+        completed = self.wait_backup()
+        self.assertEqual(completed["state"], "succeeded", completed)
+        archive = pathlib.Path(completed["result"]["backup_result"]["home"]["archive"])
+        self.assertEqual(archive.parent.parent, self.daemon.backups.core.STAGING_DIRECTORY)
+        connection = UnixHTTPConnection(self.daemon.SOCKET_PATH)
+        connection.request("GET", "/fre3nder/api/v1/backup/download?id=" + job["id"], headers=headers)
+        answer = connection.getresponse()
+        self.assertEqual(answer.status, 200)
+        connection.close()  # Reader aborts without consuming the body.
+        for _ in range(2):
+            code, data, reply_headers = self.backup_download(job["id"], headers)
+            self.assertEqual(code, 200)
+            self.assertEqual(data, archive.read_bytes())
+            self.assertEqual(int(reply_headers["Content-Length"]), len(data))
+            self.assertIn('attachment; filename="fre3nder-home-', reply_headers["Content-Disposition"])
+        self.daemon.backups.restore()
+        self.assertEqual(self.backup_download(job["id"], headers)[0], 200)
+        code, status, _ = self.request_full("GET", "/fre3nder/api/v1/backup/status", headers=headers)
+        self.assertEqual(code, 200)
+        value = json.loads(status)["backup"]
+        self.assertEqual(value["backup_offer"]["home"]["targets"], ["download"])
+        self.assertEqual(value["downloads"][0]["id"], job["id"])
+        stream, _, _ = self.daemon.backups.open_download(job["id"])
+        code, text, _ = self.backup_request("discard", {"id": job["id"]}, headers)
+        self.assertEqual(code, 200, text)
+        self.assertFalse(archive.exists())
+        with stream:
+            self.assertTrue(stream.read(512))  # Concurrent discard preserves the open download.
+        self.assertEqual(self.backup_download(job["id"], headers)[0], 404)
+
+    def test_backup_verification_allows_status_and_discard_concurrently(self):
+        headers = self.setup_backup()
+        self.backup_request("create", {"role": "home", "target": "download"}, headers)
+        job = self.wait_backup()
+        self.assertEqual(job["state"], "succeeded")
+        backups = self.daemon.backups
+        path = pathlib.Path(job["result"]["backup_result"]["home"]["archive"])
+        expected = path.read_bytes()
+        entered, released = threading.Event(), threading.Event()
+        opened, errors = [], []
+        original = backups.core.sha256_stream
+        def slow_hash(stream):
+            entered.set()
+            self.assertTrue(released.wait(5), "verification fixture was not released")
+            return original(stream)
+        def download():
+            try:
+                opened.append(backups.open_download(job["id"])[0])
+            except Exception as exc:
+                errors.append(exc)
+        with patch.object(backups.core, "sha256_stream", side_effect=slow_hash):
+            reader = threading.Thread(target=download)
+            reader.start()
+            try:
+                self.assertTrue(entered.wait(2))
+                code, text, _ = self.request_full("GET", "/fre3nder/api/v1/backup/status", headers=headers)
+                self.assertEqual(code, 200, text)
+                self.assertFalse(released.is_set(), "status must not await verification")
+                code, text, _ = self.backup_request("discard", {"id": job["id"]}, headers)
+                self.assertEqual(code, 200, text)
+                self.assertFalse(path.exists())
+            finally:
+                released.set()
+                reader.join(3)
+        self.assertFalse(reader.is_alive())
+        self.assertFalse(errors, errors)
+        self.assertEqual(len(opened), 1)
+        with opened[0] as stream:
+            self.assertEqual(stream.read(), expected)
+        self.assertEqual(self.backup_download(job["id"], headers)[0], 404)
+
+    def test_backup_discard_failures_keep_receipts_consistent(self):
+        headers = self.setup_backup()
+        self.backup_request("create", {"role": "home", "target": "download"}, headers)
+        job = self.wait_backup()
+        self.assertEqual(job["state"], "succeeded")
+        backups = self.daemon.backups
+        path = pathlib.Path(job["result"]["backup_result"]["home"]["archive"])
+        with patch.object(backups, "store", side_effect=OSError(errno.ENOSPC, "fixture receipt full")):
+            code, text, _ = self.backup_request("discard", {"id": job["id"]}, headers)
+            self.assertEqual(code, 503, text)
+        self.assertTrue(path.is_file())
+        backups.restore()
+        self.assertIn(job["id"], backups._downloads)
+        unlink = pathlib.Path.unlink
+        def denied(candidate, *args, **kwargs):
+            if candidate == path:
+                raise PermissionError(errno.EACCES, "fixture unlink denied")
+            return unlink(candidate, *args, **kwargs)
+        with patch.object(pathlib.Path, "unlink", denied):
+            code, text, _ = self.backup_request("discard", {"id": job["id"]}, headers)
+            self.assertEqual(code, 409, text)
+        backups.restore()
+        self.assertEqual(backups._execution["state"], "succeeded")
+        self.assertIn(job["id"], backups._downloads)
+        self.assertEqual(self.backup_download(job["id"], headers)[0], 200)
+        rmdir = pathlib.Path.rmdir
+        def directory_denied(candidate, *args, **kwargs):
+            if candidate == path.parent:
+                raise PermissionError(errno.EACCES, "fixture rmdir denied")
+            return rmdir(candidate, *args, **kwargs)
+        with patch.object(pathlib.Path, "rmdir", directory_denied):
+            code, text, _ = self.backup_request("discard", {"id": job["id"]}, headers)
+            self.assertEqual(code, 200, text)
+        self.assertFalse(path.exists())
+        self.assertTrue(path.parent.is_dir())
+        backups.restore()
+        self.assertNotIn(job["id"], backups._downloads)
+        self.assertEqual(backups._execution["state"], "discarded")
+        self.assertNotIn("result", backups._execution)
+
+    def test_backup_discard_handles_missing_and_unsafe_archives(self):
+        headers = self.setup_backup()
+        self.backup_request("create", {"role": "home", "target": "download"}, headers)
+        job = self.wait_backup()
+        self.assertEqual(job["state"], "succeeded")
+        path = pathlib.Path(job["result"]["backup_result"]["home"]["archive"])
+        path.unlink()
+        preserved = self.root / "unrelated-file"
+        preserved.write_text("must survive")
+        path.symlink_to(preserved)
+        self.assertEqual(self.backup_request("discard", {"id": job["id"]}, headers)[0], 409)
+        self.assertEqual(preserved.read_text(), "must survive")
+        path.unlink()
+        path.parent.rmdir()
+        code, text, _ = self.backup_request("discard", {"id": job["id"]}, headers)
+        self.assertEqual(code, 200, text)
+        self.daemon.backups.restore()
+        self.assertNotIn(job["id"], self.daemon.backups._downloads)
+        self.assertEqual(self.daemon.backups._execution["state"], "discarded")
+
+    def test_backup_auth_paths_and_corruption(self):
+        headers = self.setup_backup()
+        for operation, payload in (("create", {"role": "home", "target": "download"}), ("discard", {"id": "a" * 32})):
+            self.assertEqual(self.backup_request(operation, payload, {})[0], 403)
+            no_csrf = {key: value for key, value in headers.items() if key != "X-Fre3nder-CSRF"}
+            self.assertEqual(self.backup_request(operation, payload, no_csrf)[0], 403)
+            self.assertEqual(self.backup_request(operation, payload, {**headers, "Origin": "http://printer.test"})[0], 403)
+        self.assertEqual(self.backup_download("a" * 32, {})[0], 401)
+        for payload in ({"role": "home", "target": "home"}, {"role": "home", "target": "/tmp"},
+                {"role": "invalid", "target": "download"}, {"role": "sys", "target": "download", "path": "/etc/passwd"}):
+            self.assertEqual(self.backup_request("create", payload, headers)[0], 400)
+        self.assertEqual(self.backup_request("create", {"role": "home", "target": "usb"}, headers)[0], 409)
+        self.assertEqual(self.backup_download("../../etc/passwd", headers)[0], 400)
+        for query in ("", "id", "id=", "id=a&id=b", "id=a&path=/etc/passwd"):
+            path = "/fre3nder/api/v1/backup/download" + ("?" + query if query else "")
+            self.assertEqual(self.request_full("GET", path, headers=headers)[0], 400)
+        with patch.object(self.daemon.Handler, "peer_uid", return_value=41001), \
+                patch.object(self.daemon, "web_uids", return_value={41000}):
+            self.assertEqual(self.backup_download("a" * 32, headers)[0], 403)
+        self.backup_request("create", {"role": "home", "target": "download"}, headers)
+        completed = self.wait_backup()
+        job_id = completed["id"]
+        path = pathlib.Path(completed["result"]["backup_result"]["home"]["archive"])
+        with path.open("r+b") as output:
+            output.write(b"corruption")
+        self.assertEqual(self.backup_download(job_id, headers)[0], 409)
+        self.assertEqual(self.backup_request("discard", {"id": job_id}, headers)[0], 200)
+
+    def test_backup_excludes_colliding_operations_and_failures_never_succeed(self):
+        headers = self.setup_backup()
+        released = threading.Event()
+        self.addCleanup(released.set)
+        core = self.daemon.backups.core
+        original = core.execute_response
+        def blocked(arguments, **kwargs):
+            released.wait(5)
+            return original(arguments, **kwargs)
+        with patch.object(core, "execute_response", side_effect=blocked):
+            self.assertEqual(self.backup_request("create", {"role": "sys", "target": "home"}, headers)[0], 202)
+            self.assertEqual(self.backup_request("create", {"role": "home", "target": "download"}, headers)[0], 409)
+            self.assertEqual(self.ota_request("preflight", {}, headers)[0], 409)
+            self.assertEqual(self.request_full("POST", "/fre3nder/api/v1/apps/acknowledge", body=b"{}",
+                headers={**headers, "Content-Type": "application/json"})[0], 409)
+            released.set()
+            self.assertEqual(self.wait_backup()["state"], "succeeded")
+        for patcher in (patch.object(self.daemon.apps, "running", return_value=True),
+                patch.object(self.daemon, "_execution", {"state": "running"})):
+            with patcher:
+                self.assertEqual(self.backup_request("create", {"role": "home", "target": "download"}, headers)[0], 409)
+        with patch.object(core, "create_backup_archive", side_effect=OSError(errno.ENOSPC, "fixture full")):
+            self.assertEqual(self.backup_request("create", {"role": "home", "target": "download"}, headers)[0], 202)
+            self.assertEqual(self.wait_backup()["state"], "failed")
+        self.assertFalse(list(core.STAGING_DIRECTORY.iterdir()))
+
+    def test_backup_binds_usb_identity_at_acceptance(self):
+        headers = self.setup_backup()
+        core = self.daemon.backups.core
+        old = {"backup_available": True, "available": True, "source": "/dev/fixture-old", "filesystem": "ext4"}
+        new = {**old, "source": "/dev/fixture-new"}
+        with patch.object(core, "read_runtime_usb_state", side_effect=[old, new]):
+            code, text, _ = self.backup_request("create", {"role": "home", "target": "usb"}, headers)
+            self.assertEqual(code, 202, text)
+            job = self.wait_backup()
+            self.assertEqual(job["state"], "failed")
+            self.assertIn("changed after preflight", job["error"]["message"])
+
+    def test_backup_screen_uses_same_api_and_boot_receipt_is_not_false_success(self):
+        self.setup_backup()
+        with patch.object(self.daemon.Handler, "is_screen_peer", return_value=True):
+            code, text, _ = self.backup_request("create", {"role": "sys", "target": "home"}, {})
+            self.assertEqual(code, 202, text)
+            self.assertEqual(self.wait_backup()["state"], "succeeded")
+            self.assertEqual(self.request("GET", "/fre3nder/api/v1/backup/status")[0], 200)
+        backup = self.daemon.backups
+        backup.store({"id": "a" * 32, "role": "home", "target": "download", "state": "running"}, {})
+        backup.restore()
+        self.assertEqual(backup._execution["state"], "failed")
+
+
 
 if __name__ == "__main__":
     unittest.main()

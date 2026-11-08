@@ -18,6 +18,7 @@
         <a class="nav-item active" href="#overview" aria-current="page">Overview</a>
         <a class="nav-item" href="#updates">System Updates</a>
         <a class="nav-item" href="#apps">Apps</a>
+        <a class="nav-item" href="#backups">Backups</a>
         <a class="nav-item" href="#system">System</a>
       </nav>
 
@@ -170,6 +171,32 @@
         </div>
       </div>
 
+      <div id="backups-view" hidden>
+        <header class="page-header">
+          <p class="eyebrow">Backups</p>
+          <h1>Create a backup</h1>
+          <p>Save HOME user data or SYS system customizations.</p>
+        </header>
+        <p id="backup-locked" class="section-note">Unlock administrative access on Overview to manage backups.</p>
+        <section id="backup-panel" class="status-section" hidden>
+          <form id="backup-form" class="ota-controls">
+            <label for="backup-role">Storage role</label>
+            <select id="backup-role"><option value="home">HOME</option><option value="sys">SYS</option></select>
+            <label for="backup-target">Destination</label>
+            <select id="backup-target" disabled></select>
+            <div class="ota-controls">
+              <button id="backup-create" type="submit" disabled>Create backup</button>
+              <button id="backup-refresh" class="secondary-button" type="button">Refresh status</button>
+            </div>
+          </form>
+          <p id="backup-status" role="status" aria-live="polite"></p>
+          <p id="backup-error" class="error" role="alert" hidden></p>
+          <pre id="backup-result" class="backup-result"></pre>
+          <div id="backup-downloads"></div>
+          <p class="section-note">Download backups remain temporarily on the printer until discarded or the next system start. Save valuable backups to independent storage.</p>
+        </section>
+      </div>
+
       <div id="updates-view" hidden>
         <div id="ota-workflow">
         <header class="page-header">
@@ -318,5 +345,6 @@
   <script src="maintenance.js"></script>
   <script src="apps.js"></script>
   <script src="system.js"></script>
+  <script src="backup.js"></script>
 </body>
 </html>
