@@ -13,6 +13,9 @@ from urllib.parse import urlsplit
 
 
 PRIVATE_KEY = re.compile(rb"^[ \t]*-----BEGIN (?:[A-Z0-9]+ )?PRIVATE KEY-----[ \t]*\r?$", re.MULTILINE)
+# Public TLS example fixture; never allow a locally substituted key at this path.
+# https://github.com/ithewei/libhv/blob/a1d81857131fe7ea499a23e333513bfb279df6b0/cert/server.key
+LIBHV_TEST_KEY_SHA256 = "bee1020ebe025cfd5e5edbad3185bd7273a8b5202a3fc96ba17d891860954cf9"
 
 
 def git(source, *args):
@@ -20,7 +23,7 @@ def git(source, *args):
                                     '-C', str(source), *args])
 
 
-def checked_source(root, name):
+def checked_source(root, name, submodule=None):
     path = root
     for part in pathlib.PurePosixPath(name).parts:
         path /= part
@@ -28,7 +31,10 @@ def checked_source(root, name):
             raise ValueError(f"symlink in local Screen source: {name}")
     if not path.is_file():
         raise ValueError(f"missing regular local Screen source: {name}")
-    if PRIVATE_KEY.search(path.read_bytes()):
+    data = path.read_bytes()
+    if PRIVATE_KEY.search(data) and not (
+            submodule == 'libhv' and name == 'cert/server.key'
+            and hashlib.sha256(data).hexdigest() == LIBHV_TEST_KEY_SHA256):
         raise ValueError(f"private key in local Screen source: {name}")
 
 
@@ -68,7 +74,7 @@ def snapshot(source, destination):
     for name in submodules:
         for raw_name in git(source / name, 'ls-files', '-z').split(b'\0'):
             if raw_name:
-                checked_source(source / name, os.fsdecode(raw_name))
+                checked_source(source / name, os.fsdecode(raw_name), submodule=name)
     if destination.exists():
         shutil.rmtree(destination)
     clone(source, destination)

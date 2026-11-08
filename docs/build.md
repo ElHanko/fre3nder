@@ -161,9 +161,16 @@ files, edits and deletions are preserved. Non-ignored new C/C++ sources, headers
 CMake fragments, patches and `themes/*.json` are included; add other intended
 inputs to the Git index explicitly. Arbitrary untracked files, ignored files,
 local Git configuration/hooks and old Git history are excluded. Symlinks,
-PEM private keys and credential-bearing origin URLs are rejected. Initialized,
-clean submodules must match the local recorded Git links; existing source
-patches are applied to their copies. The artifact's `source` records
+PEM private keys and credential-bearing origin URLs are rejected. The sole key
+exception is the public `libhv/cert/server.key` TLS example fixture from
+[libhv commit `a1d8185`](https://github.com/ithewei/libhv/blob/a1d81857131fe7ea499a23e333513bfb279df6b0/cert/server.key),
+matched by submodule, exact path and SHA-256. It remains intentionally in the
+Git source snapshot, preserving the submodule tree and commit identity; changed
+or additional keys are rejected. Screen builds only the `libhv` library target,
+which does not use the fixture. App artifacts contain only the binary, themes,
+license texts and generated manifests/checksums, with no Git sources or keys.
+Initialized, clean submodules must match the local recorded Git links; existing
+source patches are applied to their copies. The artifact's `source` records
 `origin: local-worktree`, the baseline
 commit, `worktree_status`, and `worktree_sha256`. The current local repository is
 never reset or cleaned. Without the variable, development keeps the remote

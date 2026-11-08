@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Development orchestration fixtures; no builds, packages, signing or keys."""
 
+import hashlib
 import json
 import os
 import runpy
@@ -10,6 +11,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -287,6 +289,21 @@ class LocalScreenSourceTests(unittest.TestCase):
     def git(self, *args):
         return subprocess.check_output(["git", "-C", str(self.source), *args], stderr=subprocess.DEVNULL)
 
+    def add_submodule(self, name="module", files=None):
+        module = self.root / name
+        module.mkdir()
+        subprocess.run(["git", "init", "-q", str(module)], check=True)
+        for relative, data in (files or {"source.h": b"/* module fixture */\n"}).items():
+            path = module / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(data)
+        subprocess.run(["git", "-C", str(module), "add", "."], check=True)
+        subprocess.run(["git", "-C", str(module), "-c", "user.name=Fixture", "-c",
+                        "user.email=fixture@example.invalid", "commit", "-qm", "fixture"], check=True)
+        self.git("-c", "protocol.file.allow=always", "submodule", "add", str(module), name)
+        self.git("commit", "-qam", "module baseline")
+        return module
+
     def test_snapshot_preserves_pending_sources_and_leaves_checkout_untouched(self):
         snapshot = runpy.run_path(str(ROOT / "build/x2000/snapshot-fre3nderscreen.py"))["snapshot"]
         before = self.git("status", "--porcelain=v1")
@@ -356,15 +373,7 @@ class LocalScreenSourceTests(unittest.TestCase):
 
     def test_snapshot_keeps_selected_submodule_without_local_metadata(self):
         snapshot = runpy.run_path(str(ROOT / "build/x2000/snapshot-fre3nderscreen.py"))["snapshot"]
-        module = self.root / "module"
-        module.mkdir()
-        subprocess.run(["git", "init", "-q", str(module)], check=True)
-        (module / "source.h").write_text("/* module fixture */\n")
-        subprocess.run(["git", "-C", str(module), "add", "."], check=True)
-        subprocess.run(["git", "-C", str(module), "-c", "user.name=Fixture", "-c",
-                        "user.email=fixture@example.invalid", "commit", "-qm", "fixture"], check=True)
-        self.git("-c", "protocol.file.allow=always", "submodule", "add", str(module), "module")
-        self.git("commit", "-qam", "module baseline")
+        module = self.add_submodule()
         local_config = self.source / ".git/modules/module/config"
         with local_config.open("a") as config:
             config.write("\n[fixture]\n\tsecret = local-only\n")
@@ -374,6 +383,97 @@ class LocalScreenSourceTests(unittest.TestCase):
         self.assertNotIn("local-only", (destination / "module/.git/config").read_text())
         status = subprocess.check_output(["git", "-C", str(destination), "submodule", "status"], text=True)
         self.assertTrue(status.startswith(" "), status)
+
+    def test_public_test_key_exception_requires_exact_bytes_path_and_submodule(self):
+        checked_source = runpy.run_path(str(ROOT / "build/x2000/snapshot-fre3nderscreen.py"))["checked_source"]
+        key = b"-----BEGIN " + b"PRIVATE KEY-----\nfixture, not a key\n"
+        path = self.source / "cert/server.key"
+        path.parent.mkdir()
+        path.write_bytes(key)
+        with mock.patch.dict(checked_source.__globals__, LIBHV_TEST_KEY_SHA256=hashlib.sha256(key).hexdigest()):
+            checked_source(self.source, "cert/server.key", submodule="libhv")
+            for submodule in (None, "other", "nested/libhv"):
+                with self.subTest(submodule=submodule), self.assertRaisesRegex(ValueError, "private key"):
+                    checked_source(self.source, "cert/server.key", submodule=submodule)
+            other = path.with_name("other.key")
+            other.write_bytes(key)
+            with self.assertRaisesRegex(ValueError, "private key"):
+                checked_source(self.source, "cert/other.key", submodule="libhv")
+            path.write_bytes(key + b"changed\n")
+            with self.assertRaisesRegex(ValueError, "private key"):
+                checked_source(self.source, "cert/server.key", submodule="libhv")
+            path.unlink()
+            path.symlink_to(other)
+            with self.assertRaisesRegex(ValueError, "symlink"):
+                checked_source(self.source, "cert/server.key", submodule="libhv")
+
+    def test_snapshot_keeps_public_test_fixture_and_provenance_without_ignored_keys(self):
+        snapshot = runpy.run_path(str(ROOT / "build/x2000/snapshot-fre3nderscreen.py"))["snapshot"]
+        key = b"-----BEGIN " + b"PRIVATE KEY-----\nfixture, not a key\n"
+        self.add_submodule("libhv", {"cert/server.key": key, "source.h": b"/* module */\n",
+                                     ".gitignore": b"ignored.key\n"})
+        (self.source / "libhv/ignored.key").write_bytes(key + b"local secret sentinel\n")
+        (self.source / "main.cpp").write_text("pending edit")
+        (self.source / "added.h").write_text("staged header")
+        self.git("add", "added.h")
+        before = self.git("status", "--porcelain=v1")
+        commit = self.git("-C", "libhv", "rev-parse", "HEAD")
+        destination = self.root / "work/source"
+        with mock.patch.dict(snapshot.__globals__, LIBHV_TEST_KEY_SHA256=hashlib.sha256(key).hexdigest()):
+            snapshot(self.source, destination)
+            record = json.loads(destination.with_suffix(".snapshot.json").read_text())
+            self.assertEqual(set(record), {"origin", "worktree_status", "worktree_sha256"})
+            self.assertEqual(record["origin"], "local-worktree")
+            self.assertEqual(record["worktree_status"], "dirty")
+            self.assertEqual((destination / "main.cpp").read_text(), "pending edit")
+            self.assertEqual((destination / "new.cpp").read_text(), "new VT source")
+            self.assertEqual((destination / "added.h").read_text(), "staged header")
+            self.assertFalse((destination / "deleted.cpp").exists())
+            self.assertEqual((destination / "libhv/cert/server.key").read_bytes(), key)
+            self.assertFalse((destination / "libhv/ignored.key").exists())
+            self.assertEqual(subprocess.check_output(["git", "-C", str(destination / "libhv"),
+                                                     "rev-parse", "HEAD"]), commit)
+            self.assertEqual(self.git("status", "--porcelain=v1"), before)
+            (self.source / "new.cpp").write_text("different pending source")
+            snapshot(self.source, destination)
+            changed = json.loads(destination.with_suffix(".snapshot.json").read_text())
+            self.assertNotEqual(record["worktree_sha256"], changed["worktree_sha256"])
+
+    def test_snapshot_rejects_unrecognized_key_even_in_clean_libhv(self):
+        snapshot = runpy.run_path(str(ROOT / "build/x2000/snapshot-fre3nderscreen.py"))["snapshot"]
+        self.add_submodule("libhv", {"cert/server.key": b"-----BEGIN " + b"PRIVATE KEY-----\nnot upstream\n"})
+        destination = self.root / "work/source"
+        with self.assertRaisesRegex(ValueError, "private key"):
+            snapshot(self.source, destination)
+        self.assertFalse(destination.exists())
+
+    def test_snapshot_rejects_private_keys_in_pending_staged_and_committed_sources(self):
+        snapshot = runpy.run_path(str(ROOT / "build/x2000/snapshot-fre3nderscreen.py"))["snapshot"]
+        (self.source / "new.cpp").write_bytes(b"-----BEGIN " + b"PRIVATE KEY-----\nnot a key\n")
+        destination = self.root / "work/source"
+        for state in ("pending", "staged", "committed"):
+            if state == "staged":
+                self.git("add", "new.cpp")
+            elif state == "committed":
+                self.git("commit", "-qm", "fixture with rejected key")
+            with self.subTest(state=state), self.assertRaisesRegex(ValueError, "private key"):
+                snapshot(self.source, destination)
+            self.assertFalse(destination.exists())
+
+    def test_snapshot_rejects_dirty_or_unrecorded_submodules(self):
+        snapshot = runpy.run_path(str(ROOT / "build/x2000/snapshot-fre3nderscreen.py"))["snapshot"]
+        self.add_submodule("libhv")
+        (self.source / "libhv/source.h").write_text("pending module edit")
+        destination = self.root / "work/source"
+        with self.assertRaisesRegex(ValueError, "submodule changes are unsupported"):
+            snapshot(self.source, destination)
+        self.assertEqual((self.source / "libhv/source.h").read_text(), "pending module edit")
+        self.git("-C", "libhv", "add", "source.h")
+        self.git("-C", "libhv", "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid",
+                 "commit", "-qm", "new module revision")
+        with self.assertRaisesRegex(ValueError, "submodules must be initialized at their recorded commits"):
+            snapshot(self.source, destination)
+        self.assertFalse(destination.exists())
 
 
 if __name__ == "__main__":
