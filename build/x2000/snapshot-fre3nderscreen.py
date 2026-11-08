@@ -93,6 +93,9 @@ def snapshot(source, destination):
             copied.unlink()
         digest.update(raw_name + b'\0')
         if not original.exists() and not original.is_symlink():
+            # A removed submodule leaves an empty directory in the baseline clone.
+            if copied.is_dir():
+                copied.rmdir()
             digest.update(b'deleted\0')
             continue
         copied.parent.mkdir(parents=True, exist_ok=True)
@@ -104,6 +107,8 @@ def snapshot(source, destination):
         commit = git(source / name, 'rev-parse', 'HEAD').strip()
         subprocess.run(['git', '-C', str(destination / name), 'checkout', '--quiet', '--detach', commit.decode()], check=True)
         digest.update(name.encode() + b'\0' + commit + b'\0')
+    # Record pending gitlink additions/removals and pins before initialization.
+    git(destination, 'add', '--all')
     # Register the fresh copies without importing the source's local Git config.
     git(destination, 'submodule', 'init')
     record = {'origin': 'local-worktree', 'worktree_status':

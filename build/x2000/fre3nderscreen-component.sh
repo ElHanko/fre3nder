@@ -123,7 +123,8 @@ PY
 
 	grep -Fq 'GNU GENERAL PUBLIC LICENSE' "$source_dir/LICENSE"
 	grep -Fq 'MIT licence' "$source_dir/lvgl/LICENCE.txt"
-	grep -Fq 'MIT License' "$source_dir/lv_drivers/LICENSE"
+	grep -Fq 'Copyright (c) 2005-2018 Lode Vandevenne' \
+		"$source_dir/lvgl/src/libs/lodepng/LICENSE.txt"
 	grep -Fq 'BSD 3-Clause License' "$source_dir/libhv/LICENSE"
 	grep -Fq 'MIT License' "$source_dir/licenses/NLOHMANN-JSON-LICENSE.txt"
 	grep -Fq 'Copyright (c) 2013-2025 Niels Lohmann' \
@@ -134,14 +135,10 @@ PY
 	grep -Fq 'Apache License' \
 		"$source_dir/licenses/MATERIAL-DESIGN-ICONS-LICENSE.txt"
 
-	git -C "$source_dir/lv_drivers" apply --check \
-		"$source_dir/patches/0001-lv_driver_fb_ioctls.patch"
-	git -C "$source_dir/lv_drivers" apply \
-		"$source_dir/patches/0001-lv_driver_fb_ioctls.patch"
 	git -C "$source_dir/lvgl" apply --check \
-		"$source_dir/patches/0003-lvgl-dpi-text-scale.patch"
+		"$source_dir/patches/0001-lvgl-evdev-raw-mode.patch"
 	git -C "$source_dir/lvgl" apply \
-		"$source_dir/patches/0003-lvgl-dpi-text-scale.patch"
+		"$source_dir/patches/0001-lvgl-evdev-raw-mode.patch"
 }
 
 build_app() {
@@ -190,8 +187,9 @@ build_app() {
 		"$tmp/app/licenses/COPYING"
 	install -m 0644 "$source_dir/lvgl/LICENCE.txt" \
 		"$tmp/app/licenses/LVGL-LICENSE"
-	install -m 0644 "$source_dir/lv_drivers/LICENSE" \
-		"$tmp/app/licenses/LV-DRIVERS-LICENSE"
+	# Preserve the active bundled PNG decoder's notice in the LVGL license member.
+	printf '\n' >> "$tmp/app/licenses/LVGL-LICENSE"
+	cat "$source_dir/lvgl/src/libs/lodepng/LICENSE.txt" >> "$tmp/app/licenses/LVGL-LICENSE"
 	install -m 0644 "$source_dir/libhv/LICENSE" \
 		"$tmp/app/licenses/LIBHV-LICENSE"
 	# Keep libhv's embedded JSON notice in the existing dependency license file.

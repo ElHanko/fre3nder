@@ -181,13 +181,12 @@ RootFS build manifest records the embedded package hash in `system_apps`.
 
 ## Fre3nderScreen application artifact
 
-The release-mode Fre3nderScreen source is pinned in the Fre3nder-maintained fork
-`https://github.com/ElHanko/fre3nderscreen.git` at commit
-`0fb10b6a9d3d0b28b849aa9572f34996d4c67291` (release `2026.2`), under
-`GPL-3.0-only`. This source includes native management, the subsequent cleanup
-and dependency updates. The matching platform builder and apps importer
-are integrated. The repository retains the original GuppyScreen Git history
-and upstream provenance. See the remaining
+The Fre3nder-maintained source is `https://github.com/ElHanko/fre3nderscreen.git`
+(release `2026.2`), under `GPL-3.0-only`. The exact source commit is recorded in
+`configs/x2000/sources.json`; it selects the committed LVGL 9.6 migration.
+The source retains native
+management, the subsequent cleanup, original GuppyScreen Git history and upstream
+provenance. See the remaining
 [release integration steps](build.md#fre3nderscreen-20262-release-integration).
 
 The fork descends from the published `ballaswag/guppyscreen` `0.0.26-beta`
@@ -197,18 +196,19 @@ submodule identities are recorded in
 source and submodules before the network-disabled build phase and builds them
 with Fre3nder's Buildroot GCC 13.4.0 MIPS userspace toolchain.
 
-The pinned submodules remain LVGL 8.3.11 and lv_drivers under MIT, libhv under
+The three submodules are LVGL v9.6.0 under MIT, libhv v1.3.4 under
 BSD-3-Clause, and spdlog v1.17.0 with bundled fmt v12.1.0 under MIT.
 Their license texts are copied alongside the GPL text into the neutral app
 artifact and then into the signed package payload. libhv v1.3.4 embeds the
 unmodified nlohmann/json v3.12.0 header under MIT. Its source path and SHA-256
-are recorded in `sources.json` and the
-app artifact's submodule provenance. `LIBHV-LICENSE` includes both libhv's
+are recorded in `sources.json` and the app artifact's submodule provenance. `LIBHV-LICENSE` includes both libhv's
 BSD-3-Clause notice and the JSON MIT notice from Screen's
 `licenses/NLOHMANN-JSON-LICENSE.txt`; the package file set stays unchanged.
 The cleaned Screen source removes its unused vendored WPA control
 code; the builder no longer checks or copies `wpa_supplicant/COPYING`.
-The app artifact carries seven license texts: GPL, LVGL, lv_drivers, libhv,
+LVGL embeds LodePNG version 20230410 under Zlib; its upstream
+`src/libs/lodepng/LICENSE.txt` is appended to `LVGL-LICENSE` unchanged.
+The app artifact carries six license files: GPL, LVGL/LodePNG, libhv,
 spdlog, DejaVu and Material Design Icons. Fre3nder's independent Buildroot
 `userspace.wpa_supplicant` system service and its licensing remain required
 and unchanged. Older app artifacts retain their original notices.
@@ -220,8 +220,10 @@ The pinned Fre3nderScreen source carries both asset license texts in `licenses/`
 the artifact builder records them as `DEJAVU-FONTS-LICENSE` and
 `MATERIAL-DESIGN-ICONS-LICENSE` for unchanged package import.
 
-Fre3nderScreen retains the two LVGL/lv_drivers dependency patches. The obsolete
-spdlog fmt initializer patch is removed for spdlog v1.17.0.
+The separate lv_drivers submodule and all three old dependency patches are gone.
+The sole source-owned patch, `0001-lvgl-evdev-raw-mode.patch`, adds an opt-in raw
+coordinate mode to LVGL v9.6.0's native evdev driver for the existing affine
+calibration. LVGL's default min/max scaling is unchanged when it is disabled.
 The dedicated pin removes the old generic product matrix and carries its
 runtime-path overrides, corrected touch rotation, fixed 272x480 portrait
 layout, and flat single-printer configuration directly in source. Fre3nder

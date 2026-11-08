@@ -136,7 +136,7 @@
     "fre3nderscreen": {
       "repository": "https://github.com/ElHanko/fre3nderscreen.git",
       "release": "2026.2",
-      "commit": "0fb10b6a9d3d0b28b849aa9572f34996d4c67291",
+      "commit": "9769260807a90135cd88f8d178131199d2f3ec27",
       "license": "GPL-3.0-only",
       "role": "Fre3nderScreen native framebuffer and evdev local UI",
       "submodules": {
@@ -154,14 +154,18 @@
             }
           }
         },
-        "lv_drivers": {
-          "commit": "71830257710f430b6d8d1c324f89f2eab52488f1",
-          "license": "MIT"
-        },
         "lvgl": {
-          "commit": "74d0a816a440eea53e030c4f1af842a94f7ce3d3",
+          "commit": "80ca777e37a2b176770726a02e07a6fb79ef0b39",
           "license": "MIT",
-          "version": "8.3.11"
+          "version": "9.6.0",
+          "embedded_dependencies": {
+            "LodePNG": {
+              "repository": "https://github.com/lvandeve/lodepng.git",
+              "version": "20230410",
+              "license": "Zlib",
+              "source_path": "src/libs/lodepng/lodepng.h"
+            }
+          }
         },
         "spdlog": {
           "commit": "79524ddd08a4ec981b7fea76afd08ee05f83755d",

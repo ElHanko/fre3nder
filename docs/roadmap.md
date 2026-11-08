@@ -30,8 +30,9 @@ unused Guppy scope. The operator reports hardware qualification of those
 management paths at `65b37b9` on Fre3nder 2026.5, and successful Docker/SDL
 build, manual UI testing and local X2000 Development cross-build after cleanup.
 
-The Screen source, including cleanup and dependency updates, is pinned at
-`0fb10b6a9d3d0b28b849aa9572f34996d4c67291`, retaining release `2026.2`.
+The LVGL v9.6.0 source migration replaces lv_drivers with integrated LVGL
+drivers, retaining release `2026.2`. Its combined build and hardware validation
+remain pending. The Screen main source pin records the migration commit.
 The matching platform and apps integration is complete. Finish the
 [release preparation](build.md#fre3nderscreen-20262-release-integration):
 build the production X2000 artifact, package/sign it through fre3nder-apps,

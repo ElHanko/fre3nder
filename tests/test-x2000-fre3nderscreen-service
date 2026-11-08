@@ -406,7 +406,7 @@ assert "fre3nderscreen" not in user
 
 assert source["repository"] == "https://github.com/ElHanko/fre3nderscreen.git"
 assert source["release"] == "2026.2"
-assert source["commit"] == "0fb10b6a9d3d0b28b849aa9572f34996d4c67291"
+assert source["commit"] == "9769260807a90135cd88f8d178131199d2f3ec27"
 assert source["license"] == "GPL-3.0-only"
 assert "vendored_dependency" not in source
 assert sources["userspace"]["wpa_supplicant"]["source"] == "upstream Buildroot package"

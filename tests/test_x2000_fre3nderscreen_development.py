@@ -321,6 +321,18 @@ class LocalScreenSourceTests(unittest.TestCase):
         changed = json.loads(destination.with_suffix(".snapshot.json").read_text())
         self.assertNotEqual(record["worktree_sha256"], changed["worktree_sha256"])
 
+    def test_snapshot_preserves_pending_submodule_removal(self):
+        snapshot = runpy.run_path(str(ROOT / "build/x2000/snapshot-fre3nderscreen.py"))["snapshot"]
+        self.add_submodule()
+        self.git("rm", "module")
+        before = self.git("status", "--porcelain=v1")
+        destination = self.root / "work/source"
+        snapshot(self.source, destination)
+        self.assertFalse((destination / "module").exists())
+        self.assertEqual(subprocess.check_output(
+            ["git", "-C", str(destination), "submodule", "status"]), b"")
+        self.assertEqual(self.git("status", "--porcelain=v1"), before)
+
     def test_cross_builder_refuses_remote_main_when_local_sources_would_be_lost(self):
         repo = self.root / "fre3nder"
         wrapper = repo / "scripts/build-x2000-fre3nderscreen"

@@ -262,18 +262,21 @@ are separate steps.
 ### Fre3nderScreen 2026.2 release integration
 
 The cross-builder and fre3nder-apps importer now agree on a reduced app
-artifact: one binary, six themes and seven required license texts, plus
+artifact: one binary, six themes and six required license texts, plus
 `artifact-manifest.json` and `SHA256SUMS`. The unused Screen-vendored WPA
 control client is gone; Core's separate Buildroot `wpa_supplicant` remains.
 Submodule/patch, static MIPS32r2 hardfloat ABI, provenance, exact file-set
 and checksum validation remain in place. No Management/OTA API changes
 are needed.
 
-`userspace.fre3nderscreen.commit` records the selected Screen source. It
-includes the source cleanup, libhv v1.3.4 with embedded nlohmann/json v3.12.0,
-and spdlog v1.17.0 with bundled fmt v12.1.0. LVGL, lv_drivers and release
-`2026.2` remain unchanged. The dependency updates await a combined build. The JSON
-MIT notice is included in the existing `LIBHV-LICENSE` artifact member.
+The selected source uses LVGL v9.6.0 with integrated fbdev/evdev/SDL drivers,
+libhv v1.3.4 with embedded nlohmann/json v3.12.0, and spdlog v1.17.0 with bundled
+fmt v12.1.0. `lv_drivers` and the old dependency patches are removed; only the
+opt-in evdev raw-mode patch remains for the unchanged affine touch coefficients.
+Release `2026.2` remains unchanged. The JSON MIT notice is included in
+`LIBHV-LICENSE`, and LodePNG's Zlib notice in `LVGL-LICENSE`.
+The dependency updates await the combined build and runtime qualification.
+`userspace.fre3nderscreen.commit` pins the committed LVGL 9.6 migration.
 Before a release build, the selected source commit must be available from the
 configured repository. Local Development builds use the explicit source
 snapshot path described above.
