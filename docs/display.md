@@ -10,6 +10,9 @@ X11, Wayland, first-boot download or standalone installer is required.
 Release source, submodules and licenses are recorded in
 [sources.json](../configs/x2000/sources.json) and
 [licensing and provenance](licensing-and-provenance.md#fre3nderscreen-application-artifact).
+The current Screen pin is `3a8ad6a`: LVGL 9.6.0, libhv 1.3.4 and
+spdlog 1.17.0 with bundled fmt 12.1.0. LVGL's integrated drivers replace the
+removed `lv_drivers` dependency.
 A source pin or unchanged application source is not hardware qualification of
 a new release binary or signed package.
 
@@ -21,7 +24,7 @@ Fre3nderScreen has a fixed production contract:
 - one local Moonraker endpoint;
 - Linux fbdev and evdev;
 - 272x480 logical portrait UI;
-- LVGL software rotation `LV_DISP_ROT_90`;
+- LVGL software rotation `LV_DISPLAY_ROTATION_90`;
 - calibrated NS2009 touch input;
 - touch feedback and physical backlight standby;
 - one small-screen Material asset set.
@@ -49,6 +52,10 @@ through the package core and explicitly selects it. The persistent
 `complete`. A completed bootstrap is never rerun after OTA, removal, or a
 different display choice. A new RootFS seed therefore does not update an
 already installed app; follow the [explicit app-update procedure](installation.md#update-the-installed-display-app).
+The default installation is in persistent SYS. Firmware deployment does not
+replace that version; after a SYS reset, recovery restores the installed package
+from the signed HOME cache. Unlike required [system apps](apps.md#image-system-applications),
+the Factory app is not automatically reconciled to a newer RootFS seed.
 `S64fre3nder-display` manages VT, framebuffer, touch, optional backlight, and
 optional beeper access; S65 skips display frontends.
 
@@ -88,7 +95,11 @@ Moonraker, or Fluidd.
 
 The investigated Ender-3 V3 KE uses the Ingenic fbdev/fb_stage path with a
 480x272 landscape framebuffer and portrait-mounted panel. Fre3nderScreen
-provides the 272x480 logical portrait presentation with `LV_DISP_ROT_90`.
+provides the 272x480 logical portrait presentation with `LV_DISPLAY_ROTATION_90`.
+It uses LVGL 9's native Linux-fbdev driver with XRGB8888 output and native evdev
+input. The source-owned opt-in evdev raw-mode patch preserves the existing
+six-coefficient affine calibration and inverse touch rotation. VT ownership
+gates the native framebuffer flush; local IOCTLs retain blanking and pan reset.
 fbcon rotates only the text console; the framebuffer geometry and app rotation
 remain unchanged. A stable input `eventN` number is not part of this contract.
 The platform discovers the NS2009 `ns2009_ts` device and supplies paths through
@@ -155,6 +166,23 @@ local root shell have been exercised on the investigated reference system.
 Exact artifacts, dated results and untested failure scenarios are recorded in
 [display qualification](../research/docs/display-qualification.md#2026-10-11-linux-vt-integration-qualification).
 Missing local UI does not block SSH, Klipper, Moonraker or the web frontend.
+
+The operator reports completed upstream-migration validation at Screen
+`3a8ad6a`, using signed Development app
+`2026.2.3a8ad6a-fre3nder.0.937984e` on the reference Ender-3 V3 KE:
+
+- MIPS/X2000 cross-build, Docker/SDL simulator build and interactive use;
+- complete Fre3nder Development build with Linux 6.6.161, RootFS and OTA,
+  plus creation and verification of the signed Screen package;
+- deployment and successful boot on slot B, followed by updating the installed
+  Screen from the RootFS-contained `.fre3app`;
+- startup/rendering, touch, standby after 300 seconds, wake by touch, and
+  switching between tty1 and tty7 with working touch after returning.
+
+These results qualify that Development package and the listed paths. They do
+not qualify a later production release package. The separate FRE3NDER OS
+identity change `040b313` is implemented and tested, but has not yet been
+validated on the device with a newly built RootFS; see [OS identity](versioning.md#operating-system-identity).
 
 ## Linux virtual terminals
 

@@ -21,7 +21,7 @@ Its SHA256 is:
 
 ## Preparation
 
-The qualified Screen implementation uses `LV_DISP_ROT_90` with software
+The current LVGL 9 Screen implementation uses `LV_DISPLAY_ROTATION_90` with software
 rotation: portrait coordinates map to native coordinates as
 `(x, y) -> (y, 271 - x)`. This is a 90-degree counterclockwise pixel rotation,
 also used by fbcon's `rotate_all=3`. The bootlogo must apply that rotation in
@@ -49,6 +49,7 @@ the patch and use the existing `scripts/pic2logo` converter; they do not run
 FFmpeg or read the portrait source. No new build or runtime dependency is
 introduced.
 
-The new logo is offline-validated, not yet built or hardware-qualified. The
-first hardware check must confirm upright presentation, colors and contours,
-then the existing tty1 boot output and tty7 Screen handoff.
+The later reference-system qualification confirmed logo retention through the
+visible boot, successful Screen startup and manual tty1/tty7 switching; see
+[the display guide](../../docs/display.md#boot-output). This does not qualify
+every console fallback or failure path.

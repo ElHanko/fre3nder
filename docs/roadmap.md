@@ -30,15 +30,19 @@ unused Guppy scope. The operator reports hardware qualification of those
 management paths at `65b37b9` on Fre3nder 2026.5, and successful Docker/SDL
 build, manual UI testing and local X2000 Development cross-build after cleanup.
 
-The LVGL v9.6.0 source migration replaces lv_drivers with integrated LVGL
-drivers, retaining release `2026.2`. Its combined build and hardware validation
-remain pending. The Screen main source pin records the migration commit.
-The matching platform and apps integration is complete. Finish the
-[release preparation](build.md#fre3nderscreen-20262-release-integration):
-build the production X2000 artifact, package/sign it through fre3nder-apps,
-and qualify the final package on hardware under separate authorization.
-Development tests do not qualify that release binary. Resolve the existing
-old `2026.2` tag explicitly before publication.
+The upstream migration is complete at Screen `3a8ad6a`: LVGL 9.6.0 with
+integrated drivers replaces LVGL 8.3.11 and `lv_drivers`; libhv is 1.3.4 and
+spdlog is 1.17.0 with bundled fmt 12.1.0. Cross-build, interactive simulator,
+full Fre3nder Development build (Linux 6.6.161, RootFS and OTA), signed package,
+slot-B boot and the RootFS-seed app update passed. Display/touch, 300-second
+standby, touch wake and tty1/tty7 handoff were validated with
+`2026.2.3a8ad6a-fre3nder.0.937984e`; see the compact
+[qualification scope](display.md#configuration-and-qualification-boundary).
+
+Remaining [release preparation](build.md#fre3nderscreen-20262-release-integration)
+concerns the production package and publication, not completion of the migration.
+The Development results do not qualify a later production release binary.
+Resolve the existing old `2026.2` tag explicitly before publication.
 
 ### Local UI product experience
 

@@ -275,15 +275,21 @@ fmt v12.1.0. `lv_drivers` and the old dependency patches are removed; only the
 opt-in evdev raw-mode patch remains for the unchanged affine touch coefficients.
 Release `2026.2` remains unchanged. The JSON MIT notice is included in
 `LIBHV-LICENSE`, and LodePNG's Zlib notice in `LVGL-LICENSE`.
-The dependency updates await the combined build and runtime qualification.
-`userspace.fre3nderscreen.commit` pins the committed LVGL 9.6 migration.
+`userspace.fre3nderscreen.commit` pins `3a8ad6a`, including the LVGL static-link
+and simulator spdlog rebuild fixes. LVGL is built through its upstream static
+CMake target, using Screen's `lv_conf.h`; the build needs C and C++17 compilers,
+GNU Make, CMake and Python 3, supplied by the Debian 13 build container.
 Before a release build, the selected source commit must be available from the
 configured repository. Local Development builds use the explicit source
 snapshot path described above.
-The operator reports successful Docker/SDL build and manual UI testing, and
-a local X2000 Development cross-build of the cleaned sources. Production
-release packaging and hardware qualification of the final release binary
-remain pending.
+The operator reports a successful MIPS/X2000 cross-build, Docker/SDL build and
+interactive use, and a complete Fre3nder Development build with Linux 6.6.161,
+RootFS and OTA. The signed package was created and verified. Deployment and
+boot on slot B, the update from the embedded Factory package, display/touch,
+300-second standby, touch wake and VT switching passed with Development app
+`2026.2.3a8ad6a-fre3nder.0.937984e`. See the
+[qualification boundary](display.md#configuration-and-qualification-boundary),
+including the separately unqualified OS identity change `040b313`.
 
 The app template remains `2026.2-fre3nder.2`, serial `2`; Development uses
 serial `0` and cannot silently replace a Release. The standalone Screen
@@ -320,11 +326,12 @@ Remaining release steps:
    Package-Core verifies the package checksums and Ed25519 signature. Confirm
    package/Factory-seed byte equality and SHA256 without installing anything.
 3. Separately authorize installation and regression testing of that exact
-   package on X2000. Prior hardware tests cover Screen `65b37b9`; the
-   cleanup simulator and Development cross-build do not qualify the release.
-4. Before publishing, explicitly resolve the existing local/remote Screen
-   tag `2026.2`, currently targeting `63e7ecb`. Do not move or delete it
-   automatically. Correcting that prepared tag requires a separate
+   production package on X2000. Migration hardware tests cover Development app
+   `2026.2.3a8ad6a-fre3nder.0.937984e`, not the later production release binary.
+4. Before publishing, explicitly resolve the existing local Screen tag
+   `2026.2`, currently targeting `823d090` before the dependency migration,
+   and check the remote tag state. Do not move or delete a tag automatically.
+   Correcting that prepared tag requires a separate
    decision; choosing a new version instead also requires matching pin
    and package-version changes. Tags, pushes and releases need approval.
 

@@ -180,6 +180,18 @@ contains either `pending` or `complete`:
 The seed path may change during an OTA. A `complete` marker remains in
 persistent `/home`, so the new seed is never imported over a later user choice.
 
+Fre3nderScreen is installed in persistent SYS by default. A firmware deployment
+does not replace the installed version; after SYS reset, signed-cache recovery
+restores that version from HOME. To apply the embedded Factory app explicitly:
+
+```sh
+fre3nder app update /usr/share/fre3nder/factory-apps/fre3nderscreen.fre3app
+```
+
+Follow the [verification and update procedure](installation.md#update-the-installed-display-app).
+This differs from required [system apps](#image-system-applications), whose
+image seeds are reconciled automatically at boot when `release_serial` increases.
+
 ## Platform web services
 
 The selected application frontend and core Maintenance UI use independent

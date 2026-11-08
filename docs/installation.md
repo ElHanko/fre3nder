@@ -146,9 +146,13 @@ selector or partially written target in a usable state.
 ## Update the installed display app
 
 A new RootFS Factory seed does not replace an already installed Fre3nderScreen
-app. Completed Factory bootstrap and the verified package cache live in HOME;
+app in persistent SYS (the default installation role). On first installation,
+Factory bootstrap automatically installs and selects the RootFS-contained app.
+Completed Factory bootstrap and the verified package cache live in HOME;
 after a SYS reset, recovery reconstructs that cached package. Do not reset the
-Factory marker to force an update.
+Factory marker to force an update. This differs from required
+[system apps](apps.md#image-system-applications), which automatically reconcile
+newer image seeds by release serial at boot.
 
 When the new seed contains the intended app update, first verify it on the
 active Fre3nder runtime:

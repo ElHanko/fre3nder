@@ -49,6 +49,11 @@ cached under `/home/.fre3nder/packages/` for offline recovery; see the
 
 ## Operating-system identity
 
+Implemented and tested in `040b313`. This change has not yet been
+validated on the physical printer with a newly built RootFS. The completed
+[Screen migration validation](display.md#configuration-and-qualification-boundary)
+does not qualify this later OS identity change.
+
 The RootFS post-build hook writes `NAME=FRE3NDER`, `ID=fre3nder`, and
 `PRETTY_NAME="FRE3NDER <version>"` to `/usr/lib/os-release`;
 `/etc/os-release` is a relative symlink to it. Both `VERSION` and `VERSION_ID`

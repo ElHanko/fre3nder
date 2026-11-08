@@ -183,7 +183,8 @@ RootFS build manifest records the embedded package hash in `system_apps`.
 
 The Fre3nder-maintained source is `https://github.com/ElHanko/fre3nderscreen.git`
 (release `2026.2`), under `GPL-3.0-only`. The exact source commit is recorded in
-`configs/x2000/sources.json`; it selects the committed LVGL 9.6 migration.
+`configs/x2000/sources.json`; it selects `3a8ad6a`, the completed LVGL 9.6
+migration including build fixes.
 The source retains native
 management, the subsequent cleanup, original GuppyScreen Git history and upstream
 provenance. See the remaining
@@ -230,15 +231,22 @@ layout, and flat single-printer configuration directly in source. Fre3nder
 does not execute or redistribute the removed GuppyScreen installers or
 Creality-specific binary payloads.
 
-The operator reports X2000 hardware qualification with Fre3nder 2026.5 and
+Earlier, the operator reported X2000 hardware qualification with Fre3nder 2026.5 and
 Screen `65b37b9`: unprivileged startup as `fre3nder` with primary GID
 `fre3nder-management`, protected root-owned app runtime, native system
 information, app management including writes, and the full OTA workflow
 through backup, readback, activation and restart. The subsequent cleanup
 passed a Docker/SDL build, manual UI testing and a local X2000 Development
-cross-build according to the operator. Production release packaging and
-hardware qualification of the final release binary remain pending; the
-development results do not qualify that binary or every UI function.
+cross-build according to the operator. The completed upstream migration at
+`3a8ad6a` additionally passed the cross-build, interactive simulator, full
+Fre3nder Development build with Linux 6.6.161/RootFS/OTA, signed-package
+verification, slot-B boot and update from the embedded Factory app. The tested
+Development package is `2026.2.3a8ad6a-fre3nder.0.937984e`; its display, touch,
+standby/wake and VT results are scoped in the
+[display guide](display.md#configuration-and-qualification-boundary).
+Production release packaging and hardware qualification of that later binary
+remain separate; these results do not qualify every UI function or the later
+OS identity change `040b313`.
 Earlier Factory-app qualification remains historical evidence in
 [display qualification](../research/docs/display-qualification.md).
 
