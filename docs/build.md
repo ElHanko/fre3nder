@@ -269,10 +269,13 @@ Submodule/patch, static MIPS32r2 hardfloat ABI, provenance, exact file-set
 and checksum validation remain in place. No Management/OTA API changes
 are needed.
 
-The source cleanup is committed and fetchable at
-`823d090bc97f9e6b429aebda93f588450b33f40b`, the current
-`userspace.fre3nderscreen.commit` pin. Release `2026.2` and the four submodule
-pins remain unchanged. The matching platform and apps integration is committed.
+`userspace.fre3nderscreen.commit` records the selected Screen source. It
+includes the source cleanup and libhv v1.3.4 with embedded nlohmann/json v3.12.0;
+the other three submodule pins and release `2026.2` remain unchanged. The JSON
+MIT notice is included in the existing `LIBHV-LICENSE` artifact member.
+Before a release build, the selected source commit must be available from the
+configured repository. Local Development builds use the explicit source
+snapshot path described above.
 The operator reports successful Docker/SDL build and manual UI testing, and
 a local X2000 Development cross-build of the cleaned sources. Production
 release packaging and hardware qualification of the final release binary

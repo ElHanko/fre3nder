@@ -200,7 +200,12 @@ with Fre3nder's Buildroot GCC 13.4.0 MIPS userspace toolchain.
 The pinned submodules remain LVGL 8.3.11 and lv_drivers under MIT, libhv under
 BSD-3-Clause, and spdlog under MIT. Their license texts are copied alongside
 the GPL text into the neutral app artifact and then into the signed package
-payload. The cleaned Screen source removes its unused vendored WPA control
+payload. libhv v1.3.4 embeds the unmodified nlohmann/json v3.12.0 header
+under MIT. Its source path and SHA-256 are recorded in `sources.json` and the
+app artifact's submodule provenance. `LIBHV-LICENSE` includes both libhv's
+BSD-3-Clause notice and the JSON MIT notice from Screen's
+`licenses/NLOHMANN-JSON-LICENSE.txt`; the package file set stays unchanged.
+The cleaned Screen source removes its unused vendored WPA control
 code; the builder no longer checks or copies `wpa_supplicant/COPYING`.
 The app artifact carries seven license texts: GPL, LVGL, lv_drivers, libhv,
 spdlog, DejaVu and Material Design Icons. Fre3nder's independent Buildroot

@@ -136,13 +136,23 @@
     "fre3nderscreen": {
       "repository": "https://github.com/ElHanko/fre3nderscreen.git",
       "release": "2026.2",
-      "commit": "823d090bc97f9e6b429aebda93f588450b33f40b",
+      "commit": "21a0fa2dd8484a205e350cb54743909e854f9f0b",
       "license": "GPL-3.0-only",
       "role": "Fre3nderScreen native framebuffer and evdev local UI",
       "submodules": {
         "libhv": {
-          "commit": "a1d81857131fe7ea499a23e333513bfb279df6b0",
-          "license": "BSD-3-Clause"
+          "commit": "71770e04becaa149e0ef8ffc4d3900c5466ddddb",
+          "license": "BSD-3-Clause",
+          "version": "1.3.4",
+          "embedded_dependencies": {
+            "nlohmann/json": {
+              "repository": "https://github.com/nlohmann/json.git",
+              "version": "3.12.0",
+              "license": "MIT",
+              "source_path": "cpputil/json.hpp",
+              "sha256": "aaf127c04cb31c406e5b04a63f1ae89369fccde6d8fa7cdda1ed4f32dfc5de63"
+            }
+          }
         },
         "lv_drivers": {
           "commit": "71830257710f430b6d8d1c324f89f2eab52488f1",

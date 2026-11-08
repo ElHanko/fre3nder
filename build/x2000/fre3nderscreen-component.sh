@@ -125,6 +125,9 @@ PY
 	grep -Fq 'MIT licence' "$source_dir/lvgl/LICENCE.txt"
 	grep -Fq 'MIT License' "$source_dir/lv_drivers/LICENSE"
 	grep -Fq 'BSD 3-Clause License' "$source_dir/libhv/LICENSE"
+	grep -Fq 'MIT License' "$source_dir/licenses/NLOHMANN-JSON-LICENSE.txt"
+	grep -Fq 'Copyright (c) 2013-2025 Niels Lohmann' \
+		"$source_dir/licenses/NLOHMANN-JSON-LICENSE.txt"
 	grep -Fq 'The MIT License (MIT)' "$source_dir/spdlog/LICENSE"
 	grep -Fq 'Bitstream Vera Fonts Copyright' \
 		"$source_dir/licenses/DEJAVU-FONTS-LICENSE.txt"
@@ -194,6 +197,10 @@ build_app() {
 	install -m 0644 "$source_dir/lv_drivers/LICENSE" \
 		"$tmp/app/licenses/LV-DRIVERS-LICENSE"
 	install -m 0644 "$source_dir/libhv/LICENSE" \
+		"$tmp/app/licenses/LIBHV-LICENSE"
+	# Keep libhv's embedded JSON notice in the existing dependency license file.
+	printf '\n' >> "$tmp/app/licenses/LIBHV-LICENSE"
+	cat "$source_dir/licenses/NLOHMANN-JSON-LICENSE.txt" >> \
 		"$tmp/app/licenses/LIBHV-LICENSE"
 	install -m 0644 "$source_dir/spdlog/LICENSE" \
 		"$tmp/app/licenses/SPDLOG-LICENSE"
