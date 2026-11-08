@@ -143,6 +143,13 @@ staging or post-boot validation fails, keep the failure output and use the
 [recovery decision path](recovery.md); do not assume a failed command left the
 selector or partially written target in a usable state.
 
+The operator confirmed the Development deployment of `2026.5.a` from
+`2a47ebf`, including Kernel/RootFS readback, A/B activation and restart into
+slot A (`/dev/mmcblk0p7`). The new RootFS's OS identity, login banner and
+interactive SSH prompt passed hardware validation; the network hostname and
+existing SSH access were retained. See the compact
+[OS identity results](versioning.md#operating-system-identity).
+
 ## Update the installed display app
 
 A new RootFS Factory seed does not replace an already installed Fre3nderScreen

@@ -49,10 +49,9 @@ cached under `/home/.fre3nder/packages/` for offline recovery; see the
 
 ## Operating-system identity
 
-Implemented and tested in `040b313`. This change has not yet been
-validated on the physical printer with a newly built RootFS. The completed
-[Screen migration validation](display.md#configuration-and-qualification-boundary)
-does not qualify this later OS identity change.
+Implemented and tested in `040b313`, then confirmed on the reference Ender-3
+V3 KE with a newly built and deployed RootFS. Hardware validation is complete
+for the Development build identified below.
 
 The RootFS post-build hook writes `NAME=FRE3NDER`, `ID=fre3nder`, and
 `PRETTY_NAME="FRE3NDER <version>"` to `/usr/lib/os-release`;
@@ -74,6 +73,25 @@ build manifests as technical build provenance. Linux keeps its independent
 kernel version and `-fre3nder` suffix; component and app versions remain
 independent. The Management API, Maintenance UI and OTA continue to consume
 `/usr/share/fre3nder/VERSION` for the OS version, without API changes.
+
+The operator reports a successful full Development build from
+`2a47ebffb65d6b8cdc0a3445561f7b6c9350b0c4`: Kernel, toolchain, RootFS and OTA
+`2026.5.a` passed in `00:06:37`. Deployment through
+`deploy-x2000 --develop --write`, Kernel/RootFS readback, A/B activation and
+restart passed. The active RootFS after deployment was slot A
+(`/dev/mmcblk0p7`). The following results were confirmed on the physical printer:
+
+| Interface | Confirmed result |
+| --- | --- |
+| `/etc/os-release` | `NAME=FRE3NDER`, `ID=fre3nder`, `VERSION="2026.5.a"`, `VERSION_ID="2026.5.a"`, `PRETTY_NAME="FRE3NDER 2026.5.a"` |
+| `/etc/issue` | `Welcome to FRE3NDER 2026.5.a` |
+| Interactive SSH prompt | `root@FRE3NDER#` |
+| `hostname` | `fre3nder` |
+| `uname -r` | `6.6.161-fre3nder` |
+
+The OS name and shell prompt therefore use `FRE3NDER`, while the network
+hostname deliberately remains `fre3nder`. Existing SSH access continued to
+work after deployment.
 
 ## 2026.4 managed-platform line
 

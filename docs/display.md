@@ -181,8 +181,8 @@ The operator reports completed upstream-migration validation at Screen
 
 These results qualify that Development package and the listed paths. They do
 not qualify a later production release package. The separate FRE3NDER OS
-identity change `040b313` is implemented and tested, but has not yet been
-validated on the device with a newly built RootFS; see [OS identity](versioning.md#operating-system-identity).
+identity change `040b313` was subsequently confirmed on hardware with a newly
+built RootFS; see [OS identity](versioning.md#operating-system-identity).
 
 ## Linux virtual terminals
 

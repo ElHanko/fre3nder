@@ -288,8 +288,9 @@ RootFS and OTA. The signed package was created and verified. Deployment and
 boot on slot B, the update from the embedded Factory package, display/touch,
 300-second standby, touch wake and VT switching passed with Development app
 `2026.2.3a8ad6a-fre3nder.0.937984e`. See the
-[qualification boundary](display.md#configuration-and-qualification-boundary),
-including the separately unqualified OS identity change `040b313`.
+[qualification boundary](display.md#configuration-and-qualification-boundary).
+The later OS identity change `040b313` has since passed its own
+[build, deployment and hardware validation](versioning.md#operating-system-identity).
 
 The app template remains `2026.2-fre3nder.2`, serial `2`; Development uses
 serial `0` and cannot silently replace a Release. The standalone Screen

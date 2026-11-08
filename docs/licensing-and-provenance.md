@@ -245,8 +245,9 @@ Development package is `2026.2.3a8ad6a-fre3nder.0.937984e`; its display, touch,
 standby/wake and VT results are scoped in the
 [display guide](display.md#configuration-and-qualification-boundary).
 Production release packaging and hardware qualification of that later binary
-remain separate; these results do not qualify every UI function or the later
-OS identity change `040b313`.
+remain separate; these results do not qualify every UI function. The later
+OS identity change `040b313` has its own completed
+[RootFS hardware validation](versioning.md#operating-system-identity).
 Earlier Factory-app qualification remains historical evidence in
 [display qualification](../research/docs/display-qualification.md).
 
