@@ -270,8 +270,9 @@ and checksum validation remain in place. No Management/OTA API changes
 are needed.
 
 `userspace.fre3nderscreen.commit` records the selected Screen source. It
-includes the source cleanup and libhv v1.3.4 with embedded nlohmann/json v3.12.0;
-the other three submodule pins and release `2026.2` remain unchanged. The JSON
+includes the source cleanup, libhv v1.3.4 with embedded nlohmann/json v3.12.0,
+and spdlog v1.17.0 with bundled fmt v12.1.0. LVGL, lv_drivers and release
+`2026.2` remain unchanged. The dependency updates await a combined build. The JSON
 MIT notice is included in the existing `LIBHV-LICENSE` artifact member.
 Before a release build, the selected source commit must be available from the
 configured repository. Local Development builds use the explicit source

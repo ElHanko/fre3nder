@@ -138,10 +138,6 @@ PY
 		"$source_dir/patches/0001-lv_driver_fb_ioctls.patch"
 	git -C "$source_dir/lv_drivers" apply \
 		"$source_dir/patches/0001-lv_driver_fb_ioctls.patch"
-	git -C "$source_dir/spdlog" apply --check \
-		"$source_dir/patches/0002-spdlog_fmt_initializer_list.patch"
-	git -C "$source_dir/spdlog" apply \
-		"$source_dir/patches/0002-spdlog_fmt_initializer_list.patch"
 	git -C "$source_dir/lvgl" apply --check \
 		"$source_dir/patches/0003-lvgl-dpi-text-scale.patch"
 	git -C "$source_dir/lvgl" apply \

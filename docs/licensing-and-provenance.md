@@ -183,9 +183,9 @@ RootFS build manifest records the embedded package hash in `system_apps`.
 
 The release-mode Fre3nderScreen source is pinned in the Fre3nder-maintained fork
 `https://github.com/ElHanko/fre3nderscreen.git` at commit
-`823d090bc97f9e6b429aebda93f588450b33f40b` (release `2026.2`), under
-`GPL-3.0-only`. This committed, fetchable source includes native management
-and the subsequent cleanup. The matching platform builder and apps importer
+`0fb10b6a9d3d0b28b849aa9572f34996d4c67291` (release `2026.2`), under
+`GPL-3.0-only`. This source includes native management, the subsequent cleanup
+and dependency updates. The matching platform builder and apps importer
 are integrated. The repository retains the original GuppyScreen Git history
 and upstream provenance. See the remaining
 [release integration steps](build.md#fre3nderscreen-20262-release-integration).
@@ -198,10 +198,11 @@ source and submodules before the network-disabled build phase and builds them
 with Fre3nder's Buildroot GCC 13.4.0 MIPS userspace toolchain.
 
 The pinned submodules remain LVGL 8.3.11 and lv_drivers under MIT, libhv under
-BSD-3-Clause, and spdlog under MIT. Their license texts are copied alongside
-the GPL text into the neutral app artifact and then into the signed package
-payload. libhv v1.3.4 embeds the unmodified nlohmann/json v3.12.0 header
-under MIT. Its source path and SHA-256 are recorded in `sources.json` and the
+BSD-3-Clause, and spdlog v1.17.0 with bundled fmt v12.1.0 under MIT.
+Their license texts are copied alongside the GPL text into the neutral app
+artifact and then into the signed package payload. libhv v1.3.4 embeds the
+unmodified nlohmann/json v3.12.0 header under MIT. Its source path and SHA-256
+are recorded in `sources.json` and the
 app artifact's submodule provenance. `LIBHV-LICENSE` includes both libhv's
 BSD-3-Clause notice and the JSON MIT notice from Screen's
 `licenses/NLOHMANN-JSON-LICENSE.txt`; the package file set stays unchanged.
@@ -219,7 +220,8 @@ The pinned Fre3nderScreen source carries both asset license texts in `licenses/`
 the artifact builder records them as `DEJAVU-FONTS-LICENSE` and
 `MATERIAL-DESIGN-ICONS-LICENSE` for unchanged package import.
 
-Fre3nderScreen retains the three dependency patches shipped by the source tree.
+Fre3nderScreen retains the two LVGL/lv_drivers dependency patches. The obsolete
+spdlog fmt initializer patch is removed for spdlog v1.17.0.
 The dedicated pin removes the old generic product matrix and carries its
 runtime-path overrides, corrected touch rotation, fixed 272x480 portrait
 layout, and flat single-printer configuration directly in source. Fre3nder
