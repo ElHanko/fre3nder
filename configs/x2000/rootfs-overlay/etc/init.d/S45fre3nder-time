@@ -7,6 +7,7 @@ pid_file=$runtime/ntpd.pid
 proc_root=${FRE3NDER_PROC_ROOT:-/proc}
 ntpd=${FRE3NDER_NTPD:-/usr/sbin/ntpd}
 peer=${FRE3NDER_NTP_PEER:-pool.ntp.org}
+timezone_helper=${FRE3NDER_TIMEZONE_HELPER:-/usr/libexec/fre3nder/system_timezone.py}
 
 log() {
 	echo "fre3nder-x2000 time: $*"
@@ -55,6 +56,7 @@ stop() {
 start() {
 	mkdir -p "$runtime" || return 1
 	chmod 0700 "$runtime" || return 1
+	python3 "$timezone_helper" "$runtime" || log 'timezone activation failed; continuing time synchronization'
 
 	if [ -r "$pid_file" ]; then
 		pid=$(cat "$pid_file")

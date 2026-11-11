@@ -3,7 +3,7 @@
 The Fre3nder Management API is the platform-owned interface for local
 administration that must not be implemented independently by the web UI or local
 display. API v1 covers system status, explicit Maintenance Web activation and
-temporary browser-administration pairing, manual platform OTA, standalone
+temporary browser-administration pairing, system timezone settings, manual platform OTA, standalone
 backups and manual signed application management. Application package semantics continue to use
 the existing Package-Core.
 
@@ -33,7 +33,7 @@ platform-management authority merely because applications currently share the
 Screen package from a protected, manager-owned runtime. `SO_PEERCRED` must match
 both the generic application UID and this primary GID; ordinary `.fre3app`
 processes receive neither this GID nor socket access. This never runs the Screen
-as Root. The selected Screen may call System details, Apps, OTA, Backup and local
+as Root. The selected Screen may call System details, Timezone, Apps, OTA, Backup and local
 Maintenance-control routes directly through the Unix socket; it does not use
 browser cookies, CSRF, or port 8081. Core signature/transaction checks are
 unchanged. The generic app UID alone has no privileged access.
@@ -159,6 +159,73 @@ usage meters; USB connections and drivers start collapsed and scroll when long.
 Overview stays the compact summary. This API/UI has host and Chromium fixture
 coverage; field availability on the target system remains a separate runtime
 check, not evidence of a newly performed hardware qualification.
+
+### `GET /fre3nder/api/v1/system/timezone`
+
+Returns `operation: system-timezone` and a `timezone` object:
+
+```json
+{
+  "active": "Etc/UTC",
+  "configured": "Europe/Berlin",
+  "reboot_required": true,
+  "available": ["America/Indiana/Indianapolis", "Etc/UTC", "Europe/Berlin"]
+}
+```
+
+The example catalog is abbreviated. Core derives region-qualified names in
+`available` from the installed IANA TZif files under `/usr/share/zoneinfo`, including Buildroot's internal
+region links. Duplicate `posix/` and leap-second `right/` namespaces, metadata
+and links escaping the database are excluded. Split at the **first** slash for
+region/place selectors; retain the entire remainder (`Indiana/Indianapolis`).
+There is no frontend-maintained list, online lookup or Python tzdata package.
+
+Access uses the same Root-local, protected Screen or authenticated Maintenance
+browser read boundary as System details. `active` identifies `/etc/localtime`;
+it is `null` if its target cannot be identified, and `Etc/UTC` when absent
+(glibc default). `configured` is the validated HOME selection or `Etc/UTC`.
+`reboot_required` compares the two; an unknown active zone requires a restart.
+The existing `/system` and UTC `system/details.runtime.system_time` contracts
+are unchanged.
+
+### `POST /fre3nder/api/v1/system/timezone`
+
+Accepts exactly `{"timezone":"Europe/Berlin"}`. Uses the existing protected
+Screen credentials or browser session, Origin/Host and CSRF checks, plus the
+active writable-runtime requirement. Unknown zones, paths, TZ expressions,
+non-string values and additional fields return `400 invalid-timezone`.
+
+Core writes `/home/.fre3nder/system/timezone` atomically with file and directory
+fsync, Root ownership and mode `0600`; configuration directories use `0700`
+when created. HOME and every configuration component must be real,
+manager-owned and not group/other-writable. Symlinks and nonregular files are
+rejected; unsafe/unwritable storage returns `409 timezone-storage-unsafe`.
+An existing invalid regular configuration can be replaced through this API.
+The `200` response contains `operation: system-timezone` and the three state
+fields above, without repeating the catalog.
+
+Saving changes no running timezone or clock and invokes no services or reboot.
+At boot, `S45fre3nder-time` applies the selection before NTP and the application
+services, configuring `/etc/localtime` and the derived `/etc/timezone` in the
+writable overlay. Missing, malformed or unsafe saved configuration falls back
+to `Etc/UTC` without stopping boot. Its `/run/fre3nder/time/timezone` marker
+prevents a repeated init start/restart from applying a pending selection during
+the same boot; stop does not reset it. HOME survives OTA and SYS reset.
+
+Maintenance System and Screen Settings → Fre3nder → System → Timezone derive
+their region/place dropdowns from this endpoint, preselect the saved value and
+show the restart requirement. Both explain that the saved selection takes
+effect after restart. No general reboot API with printer-state safety checks
+currently exists; the OTA reboot endpoint requires an OTA transaction and must
+not be reused here. Users restart later when the printer is idle. A future safe
+general reboot capability is needed before either view can offer “Restart now”.
+Older Core versions return `404`; both clients disable timezone controls and
+show an unsupported-version message while leaving System information usable.
+
+The clock remains UTC and the existing NTP behavior is unchanged. IANA rules
+handle DST locally without Internet access. Without network synchronization
+and without an RTC, the wall clock may be incorrect; timezone selection neither
+corrects it nor simulates elapsed time. See [networking](../networking.md#time-and-timezone).
 
 ### `GET /fre3nder/api/v1/maintenance`
 
@@ -461,6 +528,8 @@ While Maintenance is enabled, the dedicated port-8081 Lighttpd worker proxies:
 ```text
 GET  /fre3nder/api/v1/system
 GET  /fre3nder/api/v1/system/details  (Root locally or paired browser)
+GET  /fre3nder/api/v1/system/timezone (Root locally or paired browser)
+POST /fre3nder/api/v1/system/timezone (paired browser with CSRF/Origin checks)
 GET  /fre3nder/api/v1/maintenance
 GET  /fre3nder/api/v1/auth/session
 POST /fre3nder/api/v1/auth/unlock

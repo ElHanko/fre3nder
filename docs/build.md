@@ -39,6 +39,13 @@ recorded in the [source manifest](../configs/x2000/sources.json) and
 
 ## Container inputs and outputs
 
+The RootFS fragment uses Buildroot's `BR2_TARGET_TZ_INFO=y`, the complete
+`default` zone list and `BR2_TARGET_LOCALTIME="Etc/UTC"`. With the pinned glibc
+toolchain this selects the normal system `tzdata` package. Core offers only
+installed TZif zones; no Python timezone database or online service is added.
+See [timezone behavior](networking.md#time-and-timezone) and
+[provenance](licensing-and-provenance.md#iana-timezone-data).
+
 The X2000 Kernel, Buildroot and Screen wrappers and the sibling OctoApp native
 builder use `scripts/x2000-build-input-sha256 --snapshot <new-directory>` to
 prepare a temporary project input tree. The existing fingerprint tool copies

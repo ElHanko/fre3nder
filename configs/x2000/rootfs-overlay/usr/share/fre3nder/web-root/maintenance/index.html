@@ -134,6 +134,24 @@
             <dl id="system-memory" class="status-list"></dl>
             <p class="section-note">RAM used = total − MemAvailable. Reclaimable cache counts as available memory.</p>
           </section>
+          <section class="status-section" aria-labelledby="system-timezone-title">
+            <h2 id="system-timezone-title">Timezone</h2>
+            <dl id="system-timezone-state" class="status-list"></dl>
+            <div class="ota-controls">
+              <label for="system-timezone-region">Region</label>
+              <select id="system-timezone-region" disabled></select>
+              <label for="system-timezone-place">Location / timezone</label>
+              <select id="system-timezone-place" disabled></select>
+              <button id="system-timezone-save" type="button" disabled>Save timezone</button>
+            </div>
+            <p id="system-timezone-message" class="section-note" role="status" aria-live="polite"></p>
+            <p id="system-timezone-error" class="error" role="alert" hidden></p>
+            <div id="system-timezone-saved" hidden>
+              <p>The timezone was saved and will take effect after a restart.</p>
+              <p class="section-note">Restart the printer when idle. Core does not yet provide a safe general restart API, so restarting from this page is unavailable.</p>
+              <button id="system-timezone-later" type="button" class="secondary">Restart later</button>
+            </div>
+          </section>
           <section class="status-section" aria-labelledby="system-storage-title">
             <h2 id="system-storage-title">Storage</h2>
             <div id="system-storage"></div>

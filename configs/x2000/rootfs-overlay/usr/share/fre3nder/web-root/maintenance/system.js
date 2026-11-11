@@ -2,6 +2,8 @@
 
 let systemLoading = false;
 let systemEpoch = 0;
+let systemTimezoneZones = [];
+let systemTimezoneBusy = false;
 const systemElement = (name) => document.getElementById(`system-${name}`);
 const systemValue = (value) => value === null || value === undefined ? "Unavailable" : String(value);
 const systemBytes = (value) => {
@@ -136,6 +138,13 @@ const systemAuthChanged = (authenticated) => {
     systemElement("info-status").textContent = "";
     systemElement("info-error").hidden = true;
     systemElement("information").setAttribute("aria-busy", "false");
+    systemTimezoneZones = [];
+    systemTimezoneBusy = false;
+    for (const name of ["state", "region", "place"]) systemElement(`timezone-${name}`).replaceChildren();
+    systemElement("timezone-message").textContent = "";
+    systemElement("timezone-error").hidden = true;
+    systemElement("timezone-saved").hidden = true;
+    systemTimezoneControls();
   }
   systemElement("locked").hidden = authenticated;
   systemElement("refresh").disabled = !authenticated || systemLoading;
@@ -143,7 +152,7 @@ const systemAuthChanged = (authenticated) => {
 };
 
 const systemLoad = async () => {
-  if (!csrfToken || systemLoading) return;
+  if (!csrfToken || systemLoading || systemTimezoneBusy) return;
   const epoch = ++systemEpoch;
   systemLoading = true;
   systemElement("refresh").disabled = true;
@@ -156,6 +165,7 @@ const systemLoad = async () => {
     systemRender(response.system);
     systemElement("information").hidden = false;
     systemElement("info-status").textContent = "Current snapshot loaded. Use Refresh to update.";
+    await systemTimezoneLoad(epoch);
   } catch (error) {
     if (epoch !== systemEpoch) return;
     systemElement("information").hidden = true;
@@ -171,5 +181,98 @@ const systemLoad = async () => {
     }
   }
 };
+
+const systemTimezoneControls = () => {
+  const disabled = !csrfToken || systemTimezoneBusy || !systemTimezoneZones.length;
+  for (const name of ["region", "place", "save"]) systemElement(`timezone-${name}`).disabled = disabled;
+};
+const systemTimezonePlaces = (selected) => {
+  const region = systemElement("timezone-region").value;
+  const select = systemElement("timezone-place");
+  select.replaceChildren();
+  for (const zone of systemTimezoneZones.filter((name) => name.startsWith(`${region}/`))) {
+    const option = systemNode("option", zone.slice(region.length + 1));
+    option.value = zone;
+    select.append(option);
+  }
+  if (selected && systemTimezoneZones.includes(selected)) select.value = selected;
+};
+const systemTimezoneState = (state) => {
+  systemRows(systemElement("timezone-state"), [["Active timezone", state.active],
+    ["Configured timezone", state.configured], ["Restart required", state.reboot_required ? "Yes" : "No"]]);
+};
+const systemTimezoneLoad = async (epoch) => {
+  systemTimezoneBusy = true;
+  systemTimezoneControls();
+  systemElement("timezone-error").hidden = true;
+  systemElement("timezone-saved").hidden = true;
+  try {
+    const response = await requestJson("/fre3nder/api/v1/system/timezone");
+    if (epoch !== systemEpoch) return;
+    const state = response.timezone;
+    if (!state || !Array.isArray(state.available) || !state.available.length ||
+        !state.available.every((name) => typeof name === "string" && name.includes("/")) ||
+        !state.available.includes(state.configured)) throw new Error("Invalid timezone response from Core.");
+    systemTimezoneZones = state.available;
+    const regions = [...new Set(systemTimezoneZones.map((name) => name.split("/", 1)[0]))].sort();
+    const select = systemElement("timezone-region");
+    select.replaceChildren();
+    for (const region of regions) {
+      const option = systemNode("option", region);
+      option.value = region;
+      select.append(option);
+    }
+    select.value = state.configured.split("/", 1)[0];
+    systemTimezonePlaces(state.configured);
+    systemTimezoneState(state);
+    systemElement("timezone-message").textContent = "Changes take effect after a restart. UTC and NTP time synchronization are unchanged.";
+  } catch (error) {
+    if (epoch !== systemEpoch) return;
+    systemTimezoneZones = [];
+    systemElement("timezone-state").replaceChildren();
+    systemElement("timezone-message").textContent = "";
+    systemElement("timezone-error").textContent = error.status === 404
+      ? "This Core version does not support timezone settings." : error.message;
+    systemElement("timezone-error").hidden = false;
+    if (error.status === 401) renderAuth({authenticated: false});
+  } finally {
+    if (epoch === systemEpoch) {
+      systemTimezoneBusy = false;
+      systemTimezoneControls();
+    }
+  }
+};
+const systemTimezoneSave = async () => {
+  if (!csrfToken || systemTimezoneBusy || !systemTimezoneZones.includes(systemElement("timezone-place").value)) return;
+  const epoch = systemEpoch;
+  systemTimezoneBusy = true;
+  systemTimezoneControls();
+  systemElement("refresh").disabled = true;
+  systemElement("timezone-error").hidden = true;
+  systemElement("timezone-saved").hidden = true;
+  try {
+    const response = await requestJson("/fre3nder/api/v1/system/timezone", {
+      method: "POST", headers: {"Content-Type": "application/json", "X-Fre3nder-CSRF": csrfToken},
+      body: JSON.stringify({timezone: systemElement("timezone-place").value}),
+    });
+    if (epoch !== systemEpoch) return;
+    systemTimezoneState(response.timezone);
+    systemElement("timezone-saved").hidden = false;
+  } catch (error) {
+    if (epoch !== systemEpoch) return;
+    systemElement("timezone-error").textContent = error.message;
+    systemElement("timezone-error").hidden = false;
+    if (error.status === 401) renderAuth({authenticated: false});
+  } finally {
+    if (epoch === systemEpoch) {
+      systemTimezoneBusy = false;
+      systemTimezoneControls();
+      systemElement("refresh").disabled = !csrfToken;
+    }
+  }
+};
+systemElement("timezone-region").addEventListener("change", () => systemTimezonePlaces());
+systemElement("timezone-save").addEventListener("click", systemTimezoneSave);
+systemElement("timezone-later").addEventListener("click", () => { systemElement("timezone-saved").hidden = true; });
 systemElement("refresh").addEventListener("click", systemLoad);
 if (window.location.hash === "#system") systemLoad();

@@ -94,6 +94,34 @@
     await until(() => reads() === noPoll + 1 && !el("refresh").disabled);
     assertFits();
     assert(fixture.requests.every((item) => item.method === "GET"), "navigation and refresh must remain read-only");
+  } else if (fixture.mode === "timezone") {
+    await until(() => !el("timezone-save").disabled);
+    assert(el("timezone-region").value === "Europe" && el("timezone-place").value === "Europe/Berlin", "configured timezone must be selected");
+    assert(el("timezone-region").options.length === 3, "derive regions from API");
+    el("timezone-region").value = "America";
+    el("timezone-region").dispatchEvent(new Event("change"));
+    assert(el("timezone-place").options.length === 1 && el("timezone-place").options[0].text === "Indiana/Indianapolis", "retain complete multilevel place");
+    el("timezone-save").click();
+    await until(() => !el("timezone-saved").hidden);
+    const post = fixture.requests.find((item) => item.method === "POST");
+    assert(post.path.endsWith("/system/timezone") && JSON.parse(post.body).timezone === "America/Indiana/Indianapolis", "save complete IANA identifier");
+    assert(post.headers["X-Fre3nder-CSRF"] === "fixture-csrf", "use authenticated CSRF transport");
+    assert(el("timezone-state").textContent.includes("Etc/UTC") && el("timezone-state").textContent.includes("America/Indiana/Indianapolis"), "active timezone remains unchanged");
+    assert(el("timezone-saved").textContent.includes("after a restart"), "explain deferred activation");
+    assert(!fixture.requests.some((item) => /reboot|restart/.test(item.path)), "no unchecked reboot");
+    el("timezone-later").click();
+    assert(el("timezone-saved").hidden, "restart later dismisses notice");
+    assertFits();
+    fixture.timezoneFail = 409;
+    el("timezone-save").click();
+    await until(() => !el("timezone-error").hidden);
+    assert(el("timezone-error").textContent.includes("unavailable"), "storage failure must be visible");
+    fixture.timezoneFail = 404;
+    el("refresh").click();
+    await until(() => el("timezone-error").textContent.includes("does not support"));
+    assert(el("timezone-save").disabled && !el("information").hidden, "older Core disables settings but keeps System available");
+    renderAuth({authenticated: false});
+    assert(!el("timezone-state").textContent && !el("timezone-place").options.length, "locking clears timezone state");
   } else if (fixture.mode === "access") {
     await until(() => document.getElementById("admin-action").textContent === "Unlock");
     assert(reads() === 0 && el("refresh").disabled && !el("locked").hidden, "locked browser must not fetch protected information");

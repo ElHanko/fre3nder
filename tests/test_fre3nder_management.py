@@ -145,6 +145,90 @@ class ManagementApiTests(unittest.TestCase):
         headers.update(extra or {})
         return headers
 
+    def timezone_fixture(self):
+        from test_system_timezone import fixture
+        fixture(self.daemon.system_timezone, self.root)
+        runtime = self.root / "time"
+        runtime.mkdir()
+        self.daemon.system_timezone.activate(runtime)
+        return runtime
+
+    def test_timezone_api_selection_activation_and_existing_utc_contract(self):
+        runtime = self.timezone_fixture()
+        route = "/fre3nder/api/v1/system/timezone"
+        status, body = self.request("GET", route)
+        state = json.loads(body)["timezone"]
+        self.assertEqual(status, 200)
+        self.assertEqual(state["configured"], "Etc/UTC")
+        self.assertFalse(state["reboot_required"])
+        self.assertIn("America/Indiana/Indianapolis", state["available"])
+        with patch.object(self.daemon.Handler, "is_screen_peer", return_value=True), \
+             patch.object(self.daemon.subprocess, "run", side_effect=AssertionError("No commands or reboots")):
+            status, body, _ = self.request_full("POST", route, json.dumps({"timezone": "Europe/Berlin"}),
+                                               {"Content-Type": "application/json"})
+        self.assertEqual(status, 200, body)
+        self.assertEqual(json.loads(body)["timezone"], {"active": "Etc/UTC", "configured": "Europe/Berlin", "reboot_required": True})
+        (runtime / "timezone").unlink()
+        self.daemon.system_timezone.activate(runtime)
+        status, body = self.request("GET", route)
+        self.assertFalse(json.loads(body)["timezone"]["reboot_required"])
+        with patch.object(self.daemon.system_info, "snapshot", return_value={"runtime": self.daemon.system_info.runtime()}):
+            status, body = self.request("GET", "/fre3nder/api/v1/system/details")
+        self.assertEqual(status, 200)
+        self.assertTrue(json.loads(body)["system"]["runtime"]["system_time"].endswith("+00:00"))
+        status, body = self.request("GET", "/fre3nder/api/v1/system")
+        self.assertEqual(set(json.loads(body)["system"]), {"version", "root_status"})
+
+    def test_timezone_api_rejects_invalid_payloads_and_unsafe_storage(self):
+        self.timezone_fixture()
+        route = "/fre3nder/api/v1/system/timezone"
+        with patch.object(self.daemon.Handler, "is_screen_peer", return_value=True):
+            for payload in ({}, {"timezone": "Europe/Berlin", "extra": 1}, {"timezone": "../etc/passwd"},
+                            {"timezone": "/etc/localtime"}, {"timezone": "Unknown/City"}, {"timezone": ["Etc/UTC"]}):
+                status, body, _ = self.request_full("POST", route, json.dumps(payload), {"Content-Type": "application/json"})
+                self.assertEqual(status, 400, body)
+            selected = self.home / ".fre3nder/system/timezone"
+            selected.parent.parent.mkdir(mode=0o700)
+            selected.parent.mkdir(mode=0o700)
+            protected = self.root / "protected"
+            protected.write_text("preserved")
+            selected.symlink_to(protected)
+            status, body, _ = self.request_full("POST", route, '{"timezone":"Europe/Berlin"}', {"Content-Type": "application/json"})
+            self.assertEqual(status, 409, body)
+            self.assertEqual(protected.read_text(), "preserved")
+        self.root_status.write_text("degraded\n")
+        with patch.object(self.daemon.Handler, "is_screen_peer", return_value=True):
+            status, body, _ = self.request_full("POST", route, '{"timezone":"Etc/UTC"}', {"Content-Type": "application/json"})
+            self.assertEqual(status, 409)
+
+    def test_timezone_api_uses_existing_browser_and_screen_authorization(self):
+        self.timezone_fixture()
+        self.daemon.set_maintenance(True)
+        route = "/fre3nder/api/v1/system/timezone"
+        payload = '{"timezone":"Europe/Berlin"}'
+        headers = self.browser_headers({"Content-Type": "application/json"})
+        self.daemon.ADMIN_UID_OVERRIDE = "99999"
+        status, _ = self.request("GET", route)
+        self.assertEqual(status, 401)
+        status, _, _ = self.request_full("POST", route, payload, headers)
+        self.assertEqual(status, 401)
+        token = self.daemon.create_web_session()
+        headers["Cookie"] = f"{self.daemon.SESSION_COOKIE_NAME}={token}"
+        status, _, _ = self.request_full("POST", route, payload, headers)
+        self.assertEqual(status, 403)
+        headers["X-Fre3nder-CSRF"] = self.daemon._sessions[token]["csrf"]
+        status, body, _ = self.request_full("POST", route, payload, headers)
+        self.assertEqual(status, 200, body)
+        headers["Origin"] = "http://untrusted.test"
+        status, _, _ = self.request_full("POST", route, payload, headers)
+        self.assertEqual(status, 403)
+        self.daemon.WEB_UID_OVERRIDE = "99999"
+        status, _ = self.request("GET", route)
+        self.assertEqual(status, 403)
+        with patch.object(self.daemon.Handler, "is_screen_peer", return_value=True):
+            status, _ = self.request("GET", route)
+            self.assertEqual(status, 200)
+
     def test_system_and_default_maintenance_status(self):
         status, body = self.request(
             "GET",

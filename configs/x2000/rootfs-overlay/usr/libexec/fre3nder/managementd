@@ -35,6 +35,11 @@ _system_spec = importlib.util.spec_from_file_location("fre3nder_management_syste
 system_info = importlib.util.module_from_spec(_system_spec)
 _system_spec.loader.exec_module(system_info)
 
+_timezone_source = pathlib.Path(__file__).with_name("system_timezone.py")
+_timezone_spec = importlib.util.spec_from_file_location("fre3nder_system_timezone", _timezone_source)
+system_timezone = importlib.util.module_from_spec(_timezone_spec)
+_timezone_spec.loader.exec_module(system_timezone)
+
 _backup_source = pathlib.Path(__file__).with_name("management_backup.py")
 _backup_spec = importlib.util.spec_from_file_location("fre3nder_management_backup", _backup_source)
 backups = importlib.util.module_from_spec(_backup_spec)
@@ -836,6 +841,13 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
     def do_GET(self):
         try:
+            if self.path == "/fre3nder/api/v1/system/timezone":
+                if self.peer_uid() not in mutation_uids():
+                    self.require_screen_or_web_session()
+                zones = system_timezone.available()
+                self.send_json(200, response("system-timezone", timezone={
+                    **system_timezone.status(zones), "available": zones}))
+                return
             if self.path == "/fre3nder/api/v1/backup/status":
                 self.require_screen_or_web_session()
                 self.send_json(200, response("backup-status", backup=backups.status()))
@@ -932,6 +944,19 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
     def do_POST(self):
         try:
+            if self.path == "/fre3nder/api/v1/system/timezone":
+                self.require_screen_or_web_admin()
+                require_active_root()
+                payload = self.read_json_body()
+                zones = system_timezone.available()
+                if set(payload) != {"timezone"} or not isinstance(payload["timezone"], str) or payload["timezone"] not in zones:
+                    raise ManagementError(400, "invalid-timezone", "Expected one installed IANA timezone")
+                try:
+                    system_timezone.save(payload["timezone"], zones)
+                except (OSError, ValueError) as exc:
+                    raise ManagementError(409, "timezone-storage-unsafe", "Timezone configuration cannot be safely stored on HOME") from exc
+                self.send_json(200, response("system-timezone", timezone=system_timezone.status(zones)))
+                return
             backup_prefix = "/fre3nder/api/v1/backup/"
             if self.path.startswith(backup_prefix):
                 operation = self.path[len(backup_prefix):]

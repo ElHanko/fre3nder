@@ -99,6 +99,20 @@ The F005 build reuses that same Buildroot userspace wrapper for its X2000
 `c_helper.so`; its separate `arm-none-eabi` toolchain targets only the
 GD32F303 bare-metal MCU.
 
+### IANA timezone data
+
+Buildroot `2025.02.19` at the pinned commit
+`4f924fd52841608d68ac3dcb83fccee8b8c90316` supplies its ordinary `tzdata`
+package (`2026e`) from IANA. Its
+[package recipe](https://gitlab.com/buildroot.org/buildroot/-/blob/4f924fd52841608d68ac3dcb83fccee8b8c90316/package/tzdata/tzdata.mk)
+classifies the data as Public domain and records `LICENSE`; the adjacent
+`tzdata.hash` verifies the source archive and license. The complete default
+zone set is compiled by Buildroot's host-zic and installed as system TZif data.
+No third-party timezone files are copied into this repository and no separate
+Python tzdata package is used. The upstream public-domain grant permits
+redistribution of the installed data; Fre3nder's code license does not relicense
+that data.
+
 ### CYW43430 WLAN firmware
 
 The pinned Buildroot selects its regular `linux-firmware` package at release

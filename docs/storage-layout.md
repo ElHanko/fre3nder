@@ -31,6 +31,17 @@ artifacts, including diagnostic operation when a backend is absent or invalid.
 No internal p9/p10 fallback is implemented. Detailed degraded-runtime results
 remain in [storage evidence](../research/docs/storage-layout.md#fre3nder-persistence-roles).
 
+## System timezone on HOME
+
+`/home/.fre3nder/system/timezone` holds the Root-managed IANA timezone selection
+as one newline-terminated identifier. Management writes it atomically; new
+directories are `0700` and the file is `0600`. It survives OTA and a SYS overlay
+reset. `S45fre3nder-time` validates and activates it at boot, defaulting to
+`Etc/UTC` for missing, invalid or unsafe configuration. `/etc/localtime` and
+`/etc/timezone` are derived overlay state, not the persistence source; a
+boot-local `/run/fre3nder/time/timezone` marker prevents early activation on
+service restart. See [Management API](api/management.md#get-fre3nderapiv1systemtimezone).
+
 ## App runtimes and reserved temporary HOME storage
 
 Package-Core owns two fixed runtime roles. New installations use SYS at

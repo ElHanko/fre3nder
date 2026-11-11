@@ -46,8 +46,18 @@ fixture.requests = []; fixture.errors = [];
 window.addEventListener("error", (event) => fixture.errors.push(event.message));
 window.addEventListener("unhandledrejection", (event) => fixture.errors.push(String(event.reason)));
 window.fetch = async (path, options = {}) => {
-  fixture.requests.push({path, method: options.method || "GET"});
+  fixture.requests.push({path, method: options.method || "GET", headers: options.headers, body: options.body});
   const reply = (value, status = 200) => ({ok: status < 400, status, json: async () => ({api_version: 1, ok: status < 400, ...value})});
+  if (path.endsWith("/system/timezone")) {
+    if (fixture.timezoneFail) return reply({error: {code: "fixture-error", message: "Timezone fixture unavailable"}}, fixture.timezoneFail);
+    fixture.timezone = fixture.timezone || {active: "Etc/UTC", configured: "Europe/Berlin", reboot_required: true,
+      available: ["America/Indiana/Indianapolis", "Etc/UTC", "Europe/Berlin", "Europe/London"]};
+    if (options.method === "POST") {
+      fixture.timezone.configured = JSON.parse(options.body).timezone;
+      fixture.timezone.reboot_required = fixture.timezone.configured !== fixture.timezone.active;
+    }
+    return reply({timezone: JSON.parse(JSON.stringify(fixture.timezone))});
+  }
   if (path.endsWith("/system/details")) {
     if (fixture.hold) await new Promise((resolve) => { fixture.release = () => { fixture.hold = false; fixture.release = null; resolve(); }; });
     if (fixture.fail) return reply({error: {code: "fixture-error", message: "fixture unavailable"}}, fixture.fail);
@@ -77,6 +87,11 @@ class MaintenanceSystemBrowserTests(unittest.TestCase):
 
     def test_locked_missing_data_and_expired_session(self):
         self.run_browser("access", authenticated=False)
+
+    def test_timezone_selection_save_and_older_core(self):
+        for size in ("1100,800", "360,640"):
+            with self.subTest(window_size=size):
+                self.run_browser("timezone", size)
 
     def test_backup_selection_download_discard_and_errors(self):
         for size in ("1100,800", "360,640"):

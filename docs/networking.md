@@ -7,6 +7,20 @@ The productive behavior is implemented by
 It is scoped to the supported reference path; unrelated network-manager,
 Bluetooth and runtime failover features are not promised.
 
+## Time and timezone
+
+`S45fre3nder-time` first activates the persistent IANA timezone independently
+of the network, before the relevant Fre3nder services. The default and fallback
+are `Etc/UTC`. Maintenance System and Fre3nderScreen's System → Timezone settings
+use the [Management API](api/management.md#get-fre3nderapiv1systemtimezone);
+saved changes take effect only after a reboot, including automatic DST rules.
+
+NTP still waits for the existing network lease and starts BusyBox
+`ntpd -n -p pool.ntp.org`. The internal system clock and System details API remain UTC.
+There is no RTC or replacement clock mechanism. Without network time, the wall
+clock may be wrong even though the selected timezone and its IANA rules are
+available offline. No time is manually advanced or corrected by this setting.
+
 ## Network selection
 
 S40 brings up loopback at `127.0.0.1/8`. It first tries a suitable non-wireless
