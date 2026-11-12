@@ -88,6 +88,7 @@ buildroot_commit=$("$project/scripts/source-value" buildroot.commit)
 buildroot_legacy_adoption_commit=$("$project/scripts/source-value" buildroot.legacy_adoption_commit)
 buildroot_patch="$project/patches/buildroot/0001-mips-add-ingenic-xburst2-target.patch"
 buildroot_python_patch="$project/patches/buildroot/0002-klipper-python-dependencies.patch"
+buildroot_version_patch="$project/patches/buildroot/0003-fre3nder-version.patch"
 buildroot_toolchain_marker=.fre3nder-toolchain-fingerprint
 klipper_url=$("$project/scripts/source-value" userspace.klipper.repository)
 klipper_commit=$("$project/scripts/source-value" userspace.klipper.commit)
@@ -244,10 +245,11 @@ prepare_buildroot() {
 	git -C "$buildroot" clean -fdx
 	git -C "$buildroot" checkout --detach "$buildroot_commit"
 	verify_buildroot_release
-	git -C "$buildroot" apply "$buildroot_patch"
-	git -C "$buildroot" apply --reverse --check "$buildroot_patch"
-	git -C "$buildroot" apply "$buildroot_python_patch"
-	git -C "$buildroot" apply --reverse --check "$buildroot_python_patch"
+	for patch in "$buildroot_patch" "$buildroot_python_patch" "$buildroot_version_patch"; do
+		git -C "$buildroot" apply --check "$patch"
+		git -C "$buildroot" apply "$patch"
+		git -C "$buildroot" apply --reverse --check "$patch"
+	done
 	git -C "$buildroot" diff --check
 	grep -Fxq 'config BR2_mips_xburst2' "$buildroot/arch/Config.in.mips"
 	grep -Fq 'bool "XBurst II"' "$buildroot/arch/Config.in.mips"
@@ -265,6 +267,34 @@ prepare_buildroot() {
 		"$buildroot/package/python-greenlet/python-greenlet.mk"
 	grep -Fxq "PYTHON_CFFI_VERSION = $("$project/scripts/source-value" userspace.cffi.version)" \
 		"$buildroot/package/python-cffi/python-cffi.mk"
+}
+
+check_buildroot_source() {
+	(
+		verify_buildroot_release
+		git -C "$buildroot" diff --cached --quiet "$buildroot_commit" || {
+			echo 'Unexpected staged Buildroot source changes' >&2
+			exit 1
+		}
+		# Buildroot includes package Makefiles via wildcards.
+		[ -z "$(git -C "$buildroot" ls-files --others --exclude-standard)" ] || {
+			echo 'Unexpected untracked Buildroot source files' >&2
+			exit 1
+		}
+		check_dir=$(mktemp -d)
+		trap 'rm -rf -- "$check_dir"' EXIT HUP INT TERM
+		export GIT_INDEX_FILE="$check_dir/index"
+		git -C "$buildroot" read-tree "$buildroot_commit"
+		for patch in "$buildroot_patch" "$buildroot_python_patch" "$buildroot_version_patch"; do
+			git -C "$buildroot" apply --cached --check "$patch"
+			git -C "$buildroot" apply --cached "$patch"
+		done
+		# Compare exact tracked contents; generated build outputs are excluded.
+		git -C "$buildroot" diff --quiet || {
+			echo 'Unexpected tracked Buildroot source changes' >&2
+			exit 1
+		}
+	)
 }
 
 buildroot_metadata() {
@@ -305,14 +335,19 @@ buildroot_toolchain_fingerprint() {
 	defconfig="$project/configs/x2000/buildroot.defconfig"
 	defconfig_record=$(sha256sum "$defconfig")
 	patch_record=$(sha256sum "$buildroot_patch")
+	python_patch_record=$(sha256sum "$buildroot_python_patch")
+	version_patch_record=$(sha256sum "$buildroot_version_patch")
 	defconfig_sha256=${defconfig_record%% *}
 	patch_sha256=${patch_record%% *}
 	{
 		printf '%s\n' \
-			'fre3nder-buildroot-toolchain-fingerprint-v1' \
-			"buildroot_commit=$buildroot_commit"
+			'fre3nder-buildroot-toolchain-fingerprint-v2' \
+			"buildroot_commit=$buildroot_commit" \
+			"buildroot_version=$buildroot_version"
 		printf 'buildroot.defconfig=%s\n' "$defconfig_sha256"
 		printf 'xburst2.patch=%s\n' "$patch_sha256"
+		printf 'klipper-python.patch=%s\n' "${python_patch_record%% *}"
+		printf 'version.patch=%s\n' "${version_patch_record%% *}"
 	} | sha256sum | awk '{print $1}'
 }
 
@@ -381,7 +416,7 @@ buildroot_toolchain_contract_matches() {
 	[ "$("$compiler" -dumpmachine)" = mipsel-buildroot-linux-gnu ] || return 1
 	[ "$("$compiler" -dumpfullversion)" = "$GCC_VERSION" ] || return 1
 	compiler_version=$("$compiler" --version) || return 1
-	expected_compiler_version="mipsel-buildroot-linux-gnu-gcc.br_real (Buildroot ${buildroot_version}-dirty) $GCC_VERSION"
+	expected_compiler_version="mipsel-buildroot-linux-gnu-gcc.br_real (Buildroot ${buildroot_version}-fre3nder) $GCC_VERSION"
 	printf '%s\n' "$compiler_version" |
 		grep -Fx "$expected_compiler_version" >/dev/null ||
 		return 1
@@ -417,7 +452,7 @@ buildroot_legacy_toolchain_adoptable() {
 		return 1
 	[ -f "$config" ] && [ ! -L "$config" ] || return 1
 	buildroot_toolchain_metadata "$buildroot_output" || return 1
-	grep -Fxq "# Buildroot ${buildroot_version}-dirty Configuration" "$config" ||
+	grep -Fxq "# Buildroot ${buildroot_version}-fre3nder Configuration" "$config" ||
 		return 1
 	for setting in \
 		'BR2_mipsel=y' \
@@ -513,6 +548,7 @@ write_buildroot_toolchain_fingerprint() {
 }
 
 configure_buildroot() {
+	check_buildroot_source
 	buildroot_output=$1
 	extra_overlay=${2:-}
 	rootfs_overlay="$project/configs/x2000/rootfs-overlay"

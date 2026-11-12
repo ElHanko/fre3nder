@@ -28,8 +28,26 @@ configuration. This covers GCC, binutils, glibc, Linux headers, Python, BusyBox,
 Dropbear, and the linux-firmware license path. Toolchain completion still
 requires the exact package stamps, compiler/linker identities, MIPS ABI,
 wrapper flags, glibc identity, and the libstdc++ filename derived from the
-expected GCC source's libtool version. Cache fingerprints retain the Buildroot
-commit, architecture defconfig, and XBurst II patch as their inputs.
+expected GCC source's libtool version. The v2 toolchain fingerprint includes the
+Buildroot commit and release, architecture defconfig, and all three productive
+Buildroot patches: XBurst II, Klipper Python dependencies, and version marker.
+
+Patch [`0003-fre3nder-version.patch`](../patches/buildroot/0003-fre3nder-version.patch)
+changes the Git dirty suffix in `setlocalversion` to `-fre3nder`. Before any
+Buildroot configuration, the builder compares tracked source contents against
+the exact pinned upstream plus the three ordered patches, using a temporary Git
+index. Additional tracked edits, including edits within patched files, and
+unignored untracked sources fail; the real index is unchanged and ignored build
+outputs are excluded. Unchanged upstream retains its ordinary release identity.
+
+The resulting `BR2_VERSION_FULL` is `2025.02.19-fre3nder`. Buildroot passes it to
+GCC's `--with-pkgversion` and its configuration headers. This requires a one-time
+toolchain rebuild through the normal pipeline: the old `-dirty` compiler fails
+the new identity contract, even with a matching marker or legacy-adoption
+qualification. Existing caches are left intact until the next authorized build
+handles the mismatch through its regular cache-miss path. GCC 13.4.0, binutils
+2.43.1, glibc, target ABI, XBurst workaround and separate kernel flags do not
+change; built binary identities and dependent artifact hashes will change.
 
 The `userspace_toolchain` and `kernel_toolchain` records in `sources.json`
 preserve the qualified Buildroot 2025.02.18 reference. They do not select

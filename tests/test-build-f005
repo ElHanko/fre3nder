@@ -136,6 +136,7 @@ grep -Fq 'mipsel-buildroot-linux-gnu-gcc' "$chelper"
 ! grep -Fq 'gcc.br_real' "$chelper"
 ! grep -Eq 'mips32r5|msoft-float' "$chelper"
 grep -Fq 'buildroot-output-fre3nder/host' "$build"
+grep -Fq 'Buildroot ${buildroot_version}-fre3nder) 13.4.0' "$build"
 grep -Fq '/opt/fre3nder-mips-toolchain:ro' "$build"
 grep -Fq 'c_helper.so' "$build"
 

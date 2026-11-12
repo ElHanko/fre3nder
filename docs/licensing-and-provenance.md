@@ -45,6 +45,12 @@ The RootFS uses an XBurst II target patch against upstream Buildroot and an
 internal Buildroot toolchain. The patch records its exact Ingenic SDK and
 upstream Buildroot provenance; no Ingenic userspace toolchain is redistributed.
 
+The separate `patches/buildroot/0003-fre3nder-version.patch` labels the verified
+Fre3nder Buildroot source as `-fre3nder`. It records upstream Buildroot 2025.02.19
+and its exact commit in the header and remains GPL-2.0-or-later. The source check
+and required toolchain rebuild are described in
+[Buildroot maintenance](buildroot-maintenance.md).
+
 The productive kernel source starts from official stable Linux, with its
 version defined by `kernel.kernel_version` and its upstream URL, commit, and
 baseline tree under `kernel.source` in `configs/x2000/sources.json`.

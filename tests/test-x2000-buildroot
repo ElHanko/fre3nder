@@ -402,7 +402,7 @@ grep -Fq '"refs/tags/$buildroot_version:refs/tags/$buildroot_version"' \
 	"$entrypoint"
 grep -Fq '"refs/tags/${buildroot_version}^{}"' "$entrypoint"
 ! grep -Fq '2025.02.17-113-gd030e36bbc-dirty' "$entrypoint"
-grep -Fq 'expected_compiler_version="mipsel-buildroot-linux-gnu-gcc.br_real (Buildroot ${buildroot_version}-dirty) $GCC_VERSION"' \
+grep -Fq 'expected_compiler_version="mipsel-buildroot-linux-gnu-gcc.br_real (Buildroot ${buildroot_version}-fre3nder) $GCC_VERSION"' \
 	"$entrypoint"
 grep -Fq 'config BR2_mips_xburst2' "$entrypoint"
 grep -Fq 'BR_FP_CONTRACT_OFF' "$entrypoint"
@@ -750,6 +750,96 @@ done
 tmp=$(mktemp -d)
 trap 'rm -rf -- "$tmp"' EXIT HUP INT TERM
 
+# Use the actual pinned source without configuring or compiling any package.
+buildroot_source=${BUILDROOT_SOURCE:-$root/local/production/work/x2000/buildroot}
+[ "$(git -C "$buildroot_source" rev-parse HEAD)" = "$buildroot_commit" ]
+git clone -q --shared --no-checkout "$buildroot_source" "$tmp/buildroot-source"
+git -C "$tmp/buildroot-source" checkout -q --detach "$buildroot_commit"
+python3 - "$root" "$tmp/buildroot-source" "$buildroot_commit" \
+	"$buildroot_version" <<'PY'
+import hashlib
+import os
+from pathlib import Path
+import re
+import subprocess
+import sys
+
+root, source = map(Path, sys.argv[1:3])
+commit, version = sys.argv[3:5]
+patches = [root / 'patches/buildroot' / name for name in (
+    '0001-mips-add-ingenic-xburst2-target.patch',
+    '0002-klipper-python-dependencies.patch', '0003-fre3nder-version.patch')]
+entrypoint = (root / 'build/x2000/entrypoint.sh').read_text()
+
+def function(name):
+    return re.search(r'^' + name + r'\(\) \{\n.*?^\}', entrypoint,
+                     re.M | re.S).group()
+
+shell = '\n'.join(function(name) for name in (
+    'verify_buildroot_release', 'check_buildroot_source', 'configure_buildroot'))
+env = dict(os.environ, buildroot=str(source), buildroot_commit=commit,
+           buildroot_version=version, buildroot_patch=str(patches[0]),
+           buildroot_python_patch=str(patches[1]),
+           buildroot_version_patch=str(patches[2]))
+
+def git(*args):
+    return subprocess.check_output(['git', '-C', str(source), *args], text=True)
+
+def check(command='check_buildroot_source'):
+    index = source / '.git/index'
+    before = hashlib.sha256(index.read_bytes()).digest()
+    result = subprocess.run(['sh', '-ec', shell + '\n' + command], env=env,
+                            capture_output=True, text=True)
+    assert hashlib.sha256(index.read_bytes()).digest() == before
+    return result
+
+def generate(script=None):
+    return subprocess.check_output([
+        str(script or source / 'support/scripts/setlocalversion'), str(source)],
+        text=True)
+
+assert generate() == version
+assert check().returncode != 0
+for number, patch in enumerate(patches):
+    git('apply', '--check', str(patch))
+    git('apply', str(patch))
+    git('apply', '--reverse', '--check', str(patch))
+    if number == 1:
+        assert generate() == version + '-dirty'
+assert check().returncode == 0
+assert generate() == generate() == version + '-fre3nder'
+for name in ('.config', 'output/generated', 'support/kconfig/fixture.o'):
+    path = source / name
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text('generated build output\n')
+    git('check-ignore', name)
+assert check().returncode == 0
+for name in ('Makefile', 'arch/Config.in.mips',
+             'package/python-greenlet/python-greenlet.mk',
+             'support/scripts/setlocalversion'):
+    path = source / name
+    original = path.read_bytes()
+    path.write_bytes(original + b'\n# unexpected tracked change\n')
+    result = check('configure_buildroot unused-output')
+    assert result.returncode != 0
+    assert 'Unexpected tracked Buildroot source changes' in result.stderr
+    path.write_bytes(original)
+extra = source / 'unexpected-source'
+extra.write_text('unexpected tracked source\n')
+assert check().returncode != 0
+git('add', extra.name)
+assert check().returncode != 0
+git('reset', '--', extra.name)
+extra.unlink()
+assert check().returncode == 0
+patched_script = source.parent / 'patched-setlocalversion'
+patched_script.write_bytes((source / 'support/scripts/setlocalversion').read_bytes())
+patched_script.chmod(0o755)
+git('restore', '--source', commit, '--worktree', '--', '.')
+assert generate(patched_script) == version
+print('Pinned Buildroot version, exact source check and index preservation: PASS')
+PY
+
 # Exercise the isolated firmware staging helper with fixture linux-firmware
 # payloads. This does not invoke Buildroot or a build wrapper.
 kernel_firmware_dir=$tmp/kernel-firmware
@@ -845,7 +935,9 @@ mkdir -p "$cache_project/configs/x2000" "$cache_project/patches/buildroot"
 cp "$base" "$cache_project/configs/x2000/buildroot.defconfig"
 cp "$fragment" "$cache_project/configs/x2000/buildroot.fragment"
 cp "$root/patches/buildroot/0001-mips-add-ingenic-xburst2-target.patch" \
-	"$cache_project/patches/buildroot/0001-mips-add-ingenic-xburst2-target.patch"
+	"$root/patches/buildroot/0002-klipper-python-dependencies.patch" \
+	"$root/patches/buildroot/0003-fre3nder-version.patch" \
+	"$cache_project/patches/buildroot/"
 mkdir -p "$cache_project/configs/x2000/rootfs-overlay/etc"
 printf '%s\n' 'rootfs fixture' > \
 	"$cache_project/configs/x2000/rootfs-overlay/etc/fixture"
@@ -867,6 +959,8 @@ done > "$tmp/buildroot-cache-functions.sh"
 project=$cache_project
 buildroot_commit=$("$root/scripts/source-value" buildroot.commit)
 buildroot_patch=$cache_project/patches/buildroot/0001-mips-add-ingenic-xburst2-target.patch
+buildroot_python_patch=$cache_project/patches/buildroot/0002-klipper-python-dependencies.patch
+buildroot_version_patch=$cache_project/patches/buildroot/0003-fre3nder-version.patch
 buildroot_toolchain_marker=.fre3nder-toolchain-fingerprint
 
 # These are deliberately synthetic package versions, independent of any
@@ -921,7 +1015,7 @@ case "\$1" in
 -dumpfullversion) printf '%s\n' '$fixture_gcc_version' ;;
 --version)
 	printf '%s\n' \
-		'mipsel-buildroot-linux-gnu-gcc.br_real (Buildroot ${buildroot_version}-dirty) $fixture_gcc_version'
+		'mipsel-buildroot-linux-gnu-gcc.br_real (Buildroot ${buildroot_version}-fre3nder) $fixture_gcc_version'
 	;;
 -Q)
 	printf '%s\n' \
@@ -955,7 +1049,7 @@ EOF
 		"$cache_output/build/glibc-$fixture_glibc_version/.stamp_staging_installed" \
 		"$cache_output/build/linux-headers-$fixture_headers_version/.stamp_staging_installed"
 	cat > "$cache_output/.config" <<EOF
-# Buildroot ${buildroot_version}-dirty Configuration
+# Buildroot ${buildroot_version}-fre3nder Configuration
 BR2_mipsel=y
 BR2_mips_xburst2=y
 BR2_MIPS_CPU_MIPS32R5=y
@@ -987,6 +1081,15 @@ create_cached_toolchain() {
 # The exact release identity is accepted; the observed previous-tag fallback is not.
 create_toolchain_fixture
 buildroot_toolchain_contract_matches "$cache_output"
+# The old GCC identity is incompatible even when all ABI settings still match.
+cp "${prefix}gcc.br_real" "$tmp/compiler.fre3nder"
+sed -i "s/Buildroot ${buildroot_version}-fre3nder/Buildroot ${buildroot_version}-dirty/" \
+	"${prefix}gcc.br_real"
+if buildroot_toolchain_contract_matches "$cache_output"; then
+	echo 'Buildroot accepted the former dirty compiler identity' >&2
+	exit 1
+fi
+cp "$tmp/compiler.fre3nder" "${prefix}gcc.br_real"
 # Every expected completion stamp is mandatory, even if other old package
 # directories and a matching compiler are present.
 for stamp in \
@@ -1043,7 +1146,7 @@ if buildroot_toolchain_ready "$cache_output"; then
 	exit 1
 fi
 cp "$tmp/versions.mk" "$buildroot/versions.mk"
-sed -i "s/Buildroot ${buildroot_version}-dirty/Buildroot 2025.02.17-113-gd030e36bbc-dirty/" \
+sed -i "s/Buildroot ${buildroot_version}-fre3nder/Buildroot 2025.02.17-113-gd030e36bbc-dirty/" \
 	"$cache_output/host/bin/mipsel-buildroot-linux-gnu-gcc.br_real"
 if buildroot_toolchain_contract_matches "$cache_output"; then
 	echo 'Buildroot accepted the previous-tag compiler identity' >&2
@@ -1083,6 +1186,36 @@ cache_log=$(prepare_buildroot_output "$cache_output")
 [ "$cache_log" = 'Buildroot development cache: HIT' ]
 [ -e "$cache_output/preserved" ]
 [ -f "$cache_output/$buildroot_toolchain_marker" ]
+
+# A v1 marker cannot reuse a toolchain under the new version contract.
+old_fingerprint=$(
+	{
+		printf '%s\n' 'fre3nder-buildroot-toolchain-fingerprint-v1' \
+			"buildroot_commit=$buildroot_commit"
+		printf 'buildroot.defconfig=%s\n' \
+			"$(sha256sum "$cache_project/configs/x2000/buildroot.defconfig" | awk '{print $1}')"
+		printf 'xburst2.patch=%s\n' "$(sha256sum "$buildroot_patch" | awk '{print $1}')"
+	} | sha256sum | awk '{print $1}'
+)
+new_fingerprint=$(buildroot_toolchain_fingerprint)
+[ "$old_fingerprint" != "$new_fingerprint" ]
+[ "$(buildroot_toolchain_fingerprint)" = "$new_fingerprint" ]
+printf '%s\n' "$old_fingerprint" > "$cache_output/$buildroot_toolchain_marker"
+cache_log=$(prepare_buildroot_output "$cache_output")
+[ "$cache_log" = 'Buildroot development cache: MISS (toolchain fingerprint changed)' ]
+[ ! -e "$cache_output" ]
+
+# Even a current marker cannot hide a stale compiler identity or requalify it.
+create_cached_toolchain
+sed -i "s/Buildroot ${buildroot_version}-fre3nder/Buildroot ${buildroot_version}-dirty/" \
+	"${prefix}gcc.br_real"
+if write_buildroot_toolchain_fingerprint "$cache_output" 2>/dev/null; then
+	echo 'Buildroot requalified the former dirty compiler identity' >&2
+	exit 1
+fi
+cache_log=$(prepare_buildroot_output "$cache_output")
+[ "$cache_log" = 'Buildroot development cache: MISS (toolchain output incompatible)' ]
+[ ! -e "$cache_output" ]
 
 # 4. A different valid fingerprint removes the output.
 create_cached_toolchain
@@ -1142,6 +1275,17 @@ cache_log=$(prepare_buildroot_output "$cache_output")
 [ ! -e "$cache_output" ]
 cp "$tmp/xburst2.patch" "$buildroot_patch"
 
+# Both remaining patches participate in the approved version identity.
+for patch in "$buildroot_python_patch" "$buildroot_version_patch"; do
+	create_cached_toolchain
+	cp "$patch" "$tmp/patch.before"
+	printf '%s\n' '# patch identity fixture change' >> "$patch"
+	cache_log=$(prepare_buildroot_output "$cache_output")
+	[ "$cache_log" = 'Buildroot development cache: MISS (toolchain fingerprint changed)' ]
+	[ ! -e "$cache_output" ]
+	cp "$tmp/patch.before" "$patch"
+done
+
 # 9. A valid marker cannot hide an incomplete or malformed toolchain cache.
 create_cached_toolchain
 rm -f -- "$cache_output/host/bin/mipsel-buildroot-linux-gnu-gcc.br_real"
@@ -1194,6 +1338,22 @@ if buildroot_legacy_toolchain_adoptable "$cache_output"; then
 	exit 1
 fi
 buildroot_commit=$qualified_buildroot_commit
+
+# Historical adoption qualification must never override the new compiler check.
+rm -rf -- "$cache_output"
+create_toolchain_fixture
+sed -i "s/Buildroot ${buildroot_version}-fre3nder/Buildroot ${buildroot_version}-dirty/" \
+	"${prefix}gcc.br_real"
+if buildroot_legacy_toolchain_adoptable "$cache_output"; then
+	echo 'Buildroot adopted the old compiler with a forged fre3nder config header' >&2
+	exit 1
+fi
+sed -i "s/Buildroot ${buildroot_version}-fre3nder/Buildroot ${buildroot_version}-dirty/" \
+	"$cache_output/.config"
+if buildroot_legacy_toolchain_adoptable "$cache_output"; then
+	echo 'Buildroot adopted the old dirty toolchain' >&2
+	exit 1
+fi
 
 # 13. A markerless output without its compiler is cleaned.
 rm -rf -- "$cache_output"

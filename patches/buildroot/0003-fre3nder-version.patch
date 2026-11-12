@@ -1,0 +1,21 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+# Upstream: https://gitlab.com/buildroot.org/buildroot.git
+# Release: 2025.02.19
+# Upstream commit: 4f924fd52841608d68ac3dcb83fccee8b8c90316
+# The builder verifies the exact Fre3nder patch set before configuration.
+# Keep the upstream tag/commit description and clean-checkout behavior.
+diff --git a/support/scripts/setlocalversion b/support/scripts/setlocalversion
+--- a/support/scripts/setlocalversion
++++ b/support/scripts/setlocalversion
+@@ -43,6 +43,6 @@
+-		printf '%s' -dirty
+-	fi
+-
+-	# All done with git
+-	exit
++		printf '%s' -fre3nder
++	fi
++
++	# All done with git
++	exit
+ fi
