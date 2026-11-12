@@ -1241,7 +1241,8 @@ check_rootfs() {
 		"$host_mcu_service"
 	grep -Fq 'spi_device=${FRE3NDER_ADXL_SPI_DEVICE:-/dev/spidev2.0}' \
 		"$host_mcu_service"
-	grep -Fq '"$binary" -r -I "$host_tty"' "$host_mcu_service"
+	grep -Fq -- '-c root:fre3nder' "$host_mcu_service"
+	grep -Fq -- '-x "$binary" -- -r -I "$host_tty"' "$host_mcu_service"
 	grep -Fq 'set_status spi-unavailable' "$host_mcu_service"
 	grep -Fq 'set_status startup-failed' "$host_mcu_service"
 	service="$target/etc/init.d/S60fre3nder-klipper"

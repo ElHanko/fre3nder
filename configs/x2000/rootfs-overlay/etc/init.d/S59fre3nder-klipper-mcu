@@ -128,7 +128,12 @@ start() {
 
 	rm -f "$host_tty"
 	set_status starting
-	"$binary" -r -I "$host_tty" >>"$log_file" 2>&1 &
+	# devpts inherits the creating process's group (no gid= mount option).
+	# config_reset execs the MCU again without rerunning this init script, so
+	# retain root privileges but inherit fre3nder for every newly created PTY.
+	# Keep the launcher in the foreground so $! remains the MCU's PID.
+	start-stop-daemon -S -q -p "$pid_file" -c root:fre3nder \
+		-x "$binary" -- -r -I "$host_tty" >>"$log_file" 2>&1 &
 	pid=$!
 	printf '%s\n' "$pid" > "$pid_file" || {
 		stop_verified_pid "$pid"

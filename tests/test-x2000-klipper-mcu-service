@@ -10,6 +10,8 @@ binary=$tmp/klipper_mcu
 spi_device=$tmp/spidev2.0
 mockbin=$tmp/bin
 permissions=$tmp/permissions
+start_calls=$tmp/start-calls
+pty_state=$tmp/pty-state
 cmdline_marker=$tmp/final-cmdline
 race_pid_file=$tmp/race-pid
 mkdir -p "$mockbin"
@@ -30,6 +32,18 @@ if [ -n "${FIXTURE_CMDLINE_MARKER:-}" ] && [ ! -e "$FIXTURE_CMDLINE_MARKER" ]; t
 fi
 exec /usr/bin/tr "$@"
 EOF
+cat > "$mockbin/start-stop-daemon" <<'EOF'
+#!/bin/sh
+[ "$#" -eq 12 ] || exit 1
+[ "$1" = -S ] && [ "$2" = -q ] && [ "$3" = -p ] || exit 1
+[ "$5" = -c ] && [ "$6" = root:fre3nder ] || exit 1
+[ "$7" = -x ] && [ "$9" = -- ] || exit 1
+binary=$8
+printf '%s\n' "$*" >> "$FIXTURE_START_CALLS"
+shift 9
+# Like BusyBox without -b: replace the launcher, preserving the tracked PID.
+exec "$binary" "$@"
+EOF
 chmod 0755 "$mockbin"/*
 
 cleanup() {
@@ -46,38 +60,51 @@ cleanup() {
 trap cleanup EXIT HUP INT TERM
 
 cat > "$binary" <<'EOF'
-#!/bin/sh
+#!/usr/bin/env python3
+import json
+import os
+import pathlib
+import signal
+import sys
+import time
 
-host_tty=
-while [ "$#" -gt 0 ]; do
-	case "$1" in
-	-I) host_tty=$2; shift 2 ;;
-	-r) shift ;;
-	*) exit 2 ;;
-	esac
-done
+assert sys.argv[1:3] == ['-r', '-I'] and len(sys.argv) == 4
+host_tty = pathlib.Path(sys.argv[3])
+if os.environ.get('FIXTURE_FAIL_FAST') == '1':
+    sys.exit(1)
+delay = int(os.environ.get('FIXTURE_TTY_DELAY', '0'))
+if delay:
+    pathlib.Path(os.environ['FIXTURE_RACE_PID_FILE']).write_text(str(os.getpid()))
+    time.sleep(delay)
+    pathlib.Path(os.environ['FIXTURE_CMDLINE_MARKER']).touch()
 
-[ "${FIXTURE_FAIL_FAST:-0}" != 1 ] || exit 1
-if [ "${FIXTURE_TTY_DELAY:-0}" -gt 0 ]; then
-	printf '%s\n' "$$" > "$FIXTURE_RACE_PID_FILE"
-	sleep "$FIXTURE_TTY_DELAY"
-	: > "$FIXTURE_CMDLINE_MARKER"
-fi
-if [ "${FIXTURE_NO_TTY:-0}" != 1 ]; then
-	rm -f "$host_tty"
-	ln -s /dev/null "$host_tty"
-fi
-trap 'exit 0' TERM INT
-while :; do
-	sleep 1
-done
+generation = int(os.environ.get('FIXTURE_GENERATION', '0'))
+
+def reset(signum, frame):
+    os.environ['FIXTURE_GENERATION'] = str(generation + 1)
+    # Model upstream command_config_reset(): exec closes the old PTY fds.
+    os.execv(sys.argv[0], sys.argv)
+
+signal.signal(signal.SIGUSR1, reset)
+if os.environ.get('FIXTURE_NO_TTY') != '1':
+    master, slave = os.openpty()
+    tty = os.ttyname(slave)
+    host_tty.unlink(missing_ok=True)
+    host_tty.symlink_to(tty)
+    os.chmod(tty, 0o660)  # upstream console_setup()
+    state = pathlib.Path(os.environ['FIXTURE_PTY_STATE'])
+    pending = state.with_suffix('.tmp')
+    pending.write_text(json.dumps(dict(pid=os.getpid(), generation=generation,
+                                      tty=tty)))
+    pending.replace(state)
+while True:
+    signal.pause()
 EOF
 chmod 0755 "$binary"
-grep -Fq '"$binary" -r -I "$host_tty"' "$service"
-! grep -Fq 'start-stop-daemon' "$service"
 
 run_service() {
 	PATH=$mockbin:$PATH FIXTURE_PERMISSIONS=$permissions \
+	FIXTURE_START_CALLS=$start_calls FIXTURE_PTY_STATE=$pty_state \
 	FRE3NDER_KLIPPER_MCU_RUNTIME=$runtime \
 	FRE3NDER_KLIPPER_MCU=$binary \
 	FRE3NDER_KLIPPER_HOST_MCU_TTY=$host_tty \
@@ -101,10 +128,55 @@ ln -s /dev/null "$spi_device"
 run_service start
 [ "$(cat "$runtime/status")" = active ]
 [ -L "$host_tty" ] && [ -c "$host_tty" ]
-grep -Fxq 'chown root:fre3nder /dev/null' "$permissions"
-grep -Fxq 'chmod 0660 /dev/null' "$permissions"
+grep -Fxq "chown root:fre3nder $(readlink -f "$host_tty")" "$permissions"
+grep -Fxq "chmod 0660 $(readlink -f "$host_tty")" "$permissions"
 pid=$(cat "$runtime/klipper_mcu.pid")
 kill -0 "$pid"
+
+# Reconnecting (RESTART) and MCU self-exec (FIRMWARE_RESTART or a config CRC
+# mismatch) must work repeatedly without another init-script permission pass.
+python3 - "$host_tty" "$pty_state" "$pid" "$permissions" "$start_calls" <<'PY'
+import json
+import os
+import pathlib
+import signal
+import stat
+import sys
+import time
+
+host_tty, state, pid, permissions, start_calls = sys.argv[1:]
+state = pathlib.Path(state)
+pid = int(pid)
+permission_calls = pathlib.Path(permissions).read_text()
+launch_calls = pathlib.Path(start_calls).read_text()
+initial_owner = os.stat(host_tty).st_uid, os.stat(host_tty).st_gid
+for generation in range(4):
+    current = json.loads(state.read_text())
+    assert current['pid'] == pid and current['generation'] == generation
+    info = os.stat(host_tty)
+    assert stat.S_ISCHR(info.st_mode) and stat.S_IMODE(info.st_mode) == 0o660
+    # The privileged identity switch is checked by the launcher fixture.
+    assert (info.st_uid, info.st_gid) == initial_owner
+    # Repeated Klippy reconnects open the same endpoint without a reset.
+    for _ in range(3):
+        fd = os.open(host_tty, os.O_RDWR | os.O_NOCTTY | os.O_NONBLOCK)
+        os.close(fd)
+    if generation == 3:
+        break
+    # Hold the previous slave open so the new PTY cannot reuse its number.
+    old_slave = os.open(host_tty, os.O_RDWR | os.O_NOCTTY | os.O_NONBLOCK)
+    try:
+        os.kill(pid, signal.SIGUSR1)
+        deadline = time.monotonic() + 3
+        while json.loads(state.read_text())['generation'] == generation:
+            assert time.monotonic() < deadline, 'MCU self-exec did not finish'
+            time.sleep(0.01)
+        assert os.readlink(host_tty) != current['tty'], 'PTY was not replaced'
+    finally:
+        os.close(old_slave)
+assert pathlib.Path(permissions).read_text() == permission_calls
+assert pathlib.Path(start_calls).read_text() == launch_calls
+PY
 
 # Starting an already-active instance must keep the same verified process.
 run_service start
@@ -162,8 +234,8 @@ kill -0 "$race_pid"
 wait "$race_service_pid"
 [ "$(cat "$runtime/status")" = active ]
 [ "$(cat "$runtime/klipper_mcu.pid")" = "$race_pid" ]
-grep -Fxq 'chown root:fre3nder /dev/null' "$permissions"
-grep -Fxq 'chmod 0660 /dev/null' "$permissions"
+grep -Fxq "chown root:fre3nder $(readlink -f "$host_tty")" "$permissions"
+grep -Fxq "chmod 0660 $(readlink -f "$host_tty")" "$permissions"
 run_service stop
 rm -f "$race_pid_file"
 
