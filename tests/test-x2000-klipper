@@ -166,6 +166,7 @@ if grep -E -i -q 'nebula(os)?|openke|bl24c16|eeprom|power.loss|\bplr\b' \
 fi
 
 python3 "$root/tests/test_x2000_klipper.py"
+KLIPPER_SOURCE="$source_tree" python3 "$root/tests/test_filament_change.py"
 python3 "$root/tests/test_f005_bootloader.py"
 if find "$root/configs/x2000/rootfs-overlay/usr/libexec/fre3nder" \
 	\( -type d -name '__pycache__' -o -type f \( -name '*.pyc' -o -name '*.pyo' \) \) \

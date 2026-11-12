@@ -634,6 +634,8 @@ prepare_klipper_overlay() {
 		"$klipper_overlay/usr/share/klipper/klippy/.version"
 	install -m 0644 "$project/configs/klipper-f005/printer-f005-mainline.cfg" \
 		"$klipper_overlay/usr/share/fre3nder/defaults/printer.cfg"
+	install -m 0644 "$project/configs/klipper-f005/fre3nder_filament_recovery.py" \
+		"$klipper_overlay/usr/share/klipper/klippy/extras/fre3nder_filament_recovery.py"
 	install -m 0644 "$project/configs/x2000/f005-mcu-release.json" \
 		"$klipper_overlay/usr/share/fre3nder/f005-mcu-release.json"
 	validate_f005_firmware "$f005_firmware" --runtime-target > \
@@ -1215,6 +1217,8 @@ check_rootfs() {
 	[ -f "$target/usr/share/fre3nder/defaults/camera.conf" ]
 	cmp -s "$project/configs/klipper-f005/printer-f005-mainline.cfg" \
 		"$target/usr/share/fre3nder/defaults/printer.cfg"
+	cmp -s "$project/configs/klipper-f005/fre3nder_filament_recovery.py" \
+		"$target/usr/share/klipper/klippy/extras/fre3nder_filament_recovery.py"
 	cmp -s \
 		"$project/configs/x2000/rootfs-overlay/usr/share/fre3nder/defaults/moonraker.conf" \
 		"$target/usr/share/fre3nder/defaults/moonraker.conf"

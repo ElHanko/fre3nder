@@ -27,6 +27,8 @@ Fre3nder configuration:
   axis-selective semantics implied by `M84 X Y E`;
 - use `PAUSE` for slicer-requested filament changes because the current
   Fre3nder baseline does not define an `M600` macro;
+- call `START_PURGE` for the original two-line start purge, sharing its XY
+  path with paused filament purges in the reference Klipper configuration;
 - enable Klipper's `[exclude_object]` module because OrcaSlicer emits native
   `EXCLUDE_OBJECT_DEFINE`, `EXCLUDE_OBJECT_START`, and `EXCLUDE_OBJECT_END`
   commands for sliced objects.
@@ -41,6 +43,14 @@ The preset depends on OrcaSlicer's built-in
 `Creality Ender-3 V3 KE 0.4 nozzle` parent preset. No physical-printer host,
 IP address, credentials, or other device-specific connection settings are
 stored in this file.
+
+The updated preset requires the reference filament-change macros, including
+`START_PURGE`, to be installed first. Existing `printer.cfg` files are preserved
+by RootFS updates; merge the sections explicitly as described in
+[filament changes](../../docs/configuration.md#filament-changes). Previously
+exported profiles with the inline purge sequence continue to work. The default
+start motion and extrusion are unchanged; custom purge coordinates now belong
+in `_FILAMENT_SETTINGS` in Klipper.
 
 ## Provenance
 

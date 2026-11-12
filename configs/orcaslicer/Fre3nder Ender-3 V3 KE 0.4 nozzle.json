@@ -13,7 +13,7 @@
     "5",
     "5"
   ],
-  "machine_start_gcode": "G90 ;Absolute XYZ positioning\nM83 ;Relative extrusion\nM220 S100 ;Reset Feedrate\nM221 S100 ;Reset Flowrate\n\nM140 S[bed_temperature_initial_layer_single] ;Set bed temperature\nG28 X Y ;Home X/Y\nM190 S[bed_temperature_initial_layer_single] ;Wait for bed temperature\nG28 Z ;Home Z using Fre3nder safe_z_home\nBED_MESH_CALIBRATE ;Generate a fresh mesh\n\nM104 S[nozzle_temperature_initial_layer] ;Set nozzle temperature\nG92 E0 ;Reset Extruder\nG1 X-2.0 Y20 Z0.3 F5000.0 ;Move to purge position\nM109 S[nozzle_temperature_initial_layer] ;Wait for nozzle temperature\nG1 Z0.2 ;Lower nozzle to printing height\nG1 Y145.0 F1500.0 E15 ;Draw first purge line\nG1 X-1.7 F5000.0 ;Move sideways\nG1 Y30 F1500.0 E15 ;Draw second purge line\nG92 E0 ;Reset Extruder",
+  "machine_start_gcode": "G90 ;Absolute XYZ positioning\nM83 ;Relative extrusion\nM220 S100 ;Reset Feedrate\nM221 S100 ;Reset Flowrate\n\nM140 S[bed_temperature_initial_layer_single] ;Set bed temperature\nG28 X Y ;Home X/Y\nM190 S[bed_temperature_initial_layer_single] ;Wait for bed temperature\nG28 Z ;Home Z using Fre3nder safe_z_home\nBED_MESH_CALIBRATE ;Generate a fresh mesh\n\nSTART_PURGE TEMPERATURE=[nozzle_temperature_initial_layer] ;Use the shared Fre3nder purge path",
   "name": "Fre3nder Ender-3 V3 KE 0.4 nozzle",
   "printer_agent": "moonraker",
   "printer_settings_id": "Fre3nder Ender-3 V3 KE 0.4 nozzle",
