@@ -5,6 +5,7 @@ root=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
 source_tree=${KLIPPER_SOURCE:-$root/local/production/work/x2000/klipper}
 commit=$("$root/scripts/source-value" userspace.klipper.commit)
 patch=$root/patches/klipper/0004-x2000-passive-uart-opt-in.patch
+version_patch=$root/patches/klipper/0005-x2000-mcu-fre3nder-version.patch
 linux_config=$root/build/x2000/klipper-linux.config
 printer_config=$root/configs/klipper-f005/printer-f005-mainline.cfg
 tmp=$(mktemp -d)
@@ -16,6 +17,10 @@ mkdir "$tmp/klipper"
 tar -xf "$tmp/klipper.tar" -C "$tmp/klipper"
 git -C "$tmp/klipper" apply --check "$patch"
 git -C "$tmp/klipper" apply "$patch"
+git -C "$tmp/klipper" apply --check "$version_patch"
+git -C "$tmp/klipper" apply "$version_patch"
+git -C "$tmp/klipper" apply --reverse --check "$version_patch"
+git -C "$tmp/klipper" apply --reverse --check "$patch"
 
 python3 - "$tmp/klipper/klippy/serialhdl.py" \
 	"$tmp/klipper/klippy/mcu.py" <<'PY'
@@ -58,9 +63,94 @@ for required in (
 PY
 
 python3 -m py_compile "$tmp/klipper/klippy/serialhdl.py" \
-	"$tmp/klipper/klippy/mcu.py"
+	"$tmp/klipper/klippy/mcu.py" "$tmp/klipper/scripts/buildcommands.py"
 python3 "$tmp/klipper/scripts/check_whitespace.py" \
-	"$tmp/klipper/klippy/serialhdl.py" "$tmp/klipper/klippy/mcu.py"
+	"$tmp/klipper/klippy/serialhdl.py" "$tmp/klipper/klippy/mcu.py" \
+	"$tmp/klipper/scripts/buildcommands.py"
+
+# Exercise the pinned version generator and production source check without make.
+git clone -q --shared --no-checkout "$source_tree" "$tmp/version-source"
+git -C "$tmp/version-source" checkout -q --detach "$commit"
+python3 - "$root" "$tmp/version-source" "$commit" <<'PY'
+import os
+import json
+from pathlib import Path
+import re
+import runpy
+import subprocess
+import sys
+from unittest.mock import patch
+
+root, source = map(Path, sys.argv[1:3])
+commit = sys.argv[3]
+metadata = json.loads((root / 'configs/x2000/sources.json').read_text())
+patches = [metadata['klipper_patch_set'][name]
+           for name in ('file', 'mcu_version_patch')]
+entrypoint = (root / 'build/x2000/entrypoint.sh').read_text()
+
+def function(name):
+    return re.search(r'^' + name + r'\(\) \{\n.*?^\}', entrypoint,
+                     re.M | re.S).group()
+
+shell = function('check_klipper_source') + '\n' + function('build_klipper_mcu')
+env = dict(os.environ, project=str(root), klipper=str(source),
+           klipper_commit=commit, klipper_patches='\n'.join(patches))
+
+def check(command='check_klipper_source'):
+    return subprocess.run(['sh', '-ec', shell + '\n' + command], env=env,
+                          capture_output=True, text=True)
+
+def git(*args):
+    return subprocess.check_output(['git', '-C', str(source), *args], text=True)
+
+os.chdir(source)
+sys.path.insert(0, str(source / 'klippy'))
+upstream = runpy.run_path(str(source / 'scripts/buildcommands.py'))
+base = git('describe', '--always', '--tags', '--long').strip()
+assert upstream['build_version']('', True) == base
+assert check().returncode != 0  # Both production patches are required.
+for name in patches:
+    git('apply', '--check', str(root / name))
+    git('apply', str(root / name))
+    git('apply', '--reverse', '--check', str(root / name))
+assert check().returncode == 0
+version = runpy.run_path(str(source / 'scripts/buildcommands.py'))
+with patch.object(version['time'], 'strftime', side_effect=AssertionError), \
+        patch.object(version['socket'], 'gethostname', side_effect=AssertionError):
+    assert version['build_version']('', True) == base + '-fre3nder'
+    assert version['build_version']('', True) == base + '-fre3nder'
+# Other non-clean build conditions retain upstream's diagnostic suffix.
+with patch.object(version['time'], 'strftime', return_value='20000101_000000'), \
+        patch.object(version['socket'], 'gethostname', return_value='build-host'):
+    assert version['build_version']('-extra', False) == (
+        base + '-fre3nder-20000101_000000-build-host-extra')
+for name in ('out/generated', '.config', 'klippy/chelper/c_helper.so'):
+    path = source / name
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text('generated build output\n')
+    git('check-ignore', name)
+assert check().returncode == 0
+for name in ('src/linux/main.c', 'klippy/mcu.py', 'klippy/serialhdl.py',
+             'scripts/buildcommands.py'):
+    path = source / name
+    original = path.read_bytes()
+    path.write_bytes(original + b'\n# unexpected source change\n')
+    result = check('build_klipper_mcu unused-build-output')
+    assert result.returncode != 0
+    assert 'Unexpected tracked Klipper source changes' in result.stderr
+    path.write_bytes(original)
+assert check().returncode == 0
+extra = source / 'unexpected-source.c'
+extra.write_text('unexpected tracked source\n')
+git('add', extra.name)
+assert check().returncode != 0
+git('reset', '--', extra.name)
+extra.unlink()
+assert check().returncode == 0
+git('restore', '--source', commit, '--worktree', '--', '.')
+assert version['build_version']('', True) == base
+print('Pinned Klipper version and exact source-content checks: PASS')
+PY
 
 cmp -s "$linux_config" "$tmp/klipper/test/configs/linuxprocess.config"
 grep -Fxq 'CONFIG_MACH_LINUX=y' "$linux_config"

@@ -443,6 +443,15 @@ local/production/work/x2000/buildroot-output-fre3nder/host/bin/unsquashfs \
   -ll local/production/artifacts/x2000/rootfs-only/rootfs.squashfs
 ```
 
+The Linux-process MCU uses Klipper patches `0004` (passive UART) and `0005`
+(MCU version marker), in that order. Before MCU compilation, the builder checks
+the tracked source contents against the pinned upstream plus exactly these
+patches; additional tracked changes, including edits in patched files, fail.
+With the existing consistent MIPS toolchain, its version is the upstream Git
+description followed by `-fre3nder`. Other non-clean build conditions retain
+Klipper's timestamp/hostname fallback. This leaves `klippy/.version` and the
+qualified F005 firmware identity unchanged.
+
 ## F005 MCU candidate
 
 A read-only recipe check is available without fetching or building:

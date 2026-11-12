@@ -137,6 +137,8 @@ hash_file = pathlib.Path(sys.argv[1]).parent / (
     "buildroot-external/package/python-streaming-form-data/python-streaming-form-data.hash")
 assert archive in hash_file.read_text()
 assert data["klipper_patch_set"]["source_ref"] == "userspace.klipper.commit"
+assert data["klipper_patch_set"]["mcu_version_patch"] == (
+    "patches/klipper/0005-x2000-mcu-fre3nder-version.patch")
 assert "source_commit" not in data["klipper_patch_set"]
 assert data["userspace_toolchain"] == {
     "identity": "Buildroot internal toolchain",
@@ -1289,6 +1291,8 @@ klipper=$tmp/klipper
 klipper_overlay=$tmp/klipper-overlay
 klipper_commit=$("$root/scripts/source-value" userspace.klipper.commit)
 f005_release_manifest=$root/configs/x2000/f005-mcu-release.json
+klipper_patches="$("$root/scripts/source-value" klipper_patch_set.file)
+$("$root/scripts/source-value" klipper_patch_set.mcu_version_patch)"
 f005_target_path=/var/lib/fre3nder/firmware/f005/klipper-f005-mainline.bin
 f005_firmware=$root/local/production/artifacts/x2000/f005/klipper-f005-mainline.bin
 artifact_mode=release

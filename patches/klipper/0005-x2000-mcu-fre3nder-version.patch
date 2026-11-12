@@ -1,0 +1,21 @@
+Subject: [PATCH] buildcommands: label the verified X2000 MCU patch set
+Upstream-Repository: https://github.com/Klipper3d/klipper.git
+Upstream-Commit: 29d4ec2d6d840ee839333306003a400da186d41d
+License: GPL-3.0-only
+
+The X2000 builder verifies the exact tracked source changes before compiling
+its Linux-process MCU. Keep upstream tool-version checks and the timestamp
+and hostname fallback for other non-clean build conditions unchanged.
+
+diff --git a/scripts/buildcommands.py b/scripts/buildcommands.py
+index 12975f93..8560ba50 100644
+--- a/scripts/buildcommands.py
++++ b/scripts/buildcommands.py
+@@ -482,5 +482,6 @@ def git_version():
+         logging.debug("No '.git' file/directory found")
+         return ""
+-    ver = check_output("git describe --always --tags --long --dirty").strip()
++    ver = check_output(
++        "git describe --always --tags --long --dirty=-fre3nder").strip()
+     logging.debug("Got git version: %s" % (repr(ver),))
+     return ver

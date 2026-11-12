@@ -495,8 +495,10 @@ commit in `patches/klipper/0001-gd32f303-f005-mainline.patch` and
 `research/docs/gd32f303-mainline-port.md`. `0002` is the narrow X2000 passive-UART
 bring-up patch; `0003` is a test-only BLTouch no-auto-retry patch; and `0004`
 is the separate production opt-in passive-UART patch used by the Develop
-RootFS. The pinned upstream Klipper runtime source and `0004` remain GPLv3
-material when staged in that RootFS; their exact commit and patch identity are
+RootFS. `0005` changes only the Linux-process MCU's Git dirty marker to
+`-fre3nder`; its header records the exact upstream repository and commit.
+The pinned upstream Klipper runtime source and `0004`/`0005` remain GPLv3
+material when staged in that RootFS; their exact commit and patch paths are
 recorded in `configs/x2000/sources.json`.
 
 The qualified F005 binary recorded in `configs/x2000/f005-mcu-release.json` is

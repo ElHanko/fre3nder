@@ -91,6 +91,8 @@ buildroot_python_patch="$project/patches/buildroot/0002-klipper-python-dependenc
 buildroot_toolchain_marker=.fre3nder-toolchain-fingerprint
 klipper_url=$("$project/scripts/source-value" userspace.klipper.repository)
 klipper_commit=$("$project/scripts/source-value" userspace.klipper.commit)
+klipper_patches="$("$project/scripts/source-value" klipper_patch_set.file)
+$("$project/scripts/source-value" klipper_patch_set.mcu_version_patch)"
 kernel_firmware_dir="$work/fre3nder-kernel-firmware"
 klipper_overlay="$work/fre3nder-klipper-overlay"
 development_marker="$klipper_overlay/usr/share/fre3nder/DEVELOPMENT"
@@ -614,12 +616,11 @@ prepare_klipper_overlay() {
 	git -C "$klipper" reset --hard "$klipper_commit"
 	git -C "$klipper" checkout --detach "$klipper_commit"
 	[ "$(git -C "$klipper" rev-parse HEAD)" = "$klipper_commit" ]
-	git -C "$klipper" apply --check \
-		"$project/patches/klipper/0004-x2000-passive-uart-opt-in.patch"
-	git -C "$klipper" apply \
-		"$project/patches/klipper/0004-x2000-passive-uart-opt-in.patch"
-	git -C "$klipper" apply --reverse --check \
-		"$project/patches/klipper/0004-x2000-passive-uart-opt-in.patch"
+	for patch in $klipper_patches; do
+		git -C "$klipper" apply --check "$project/$patch"
+		git -C "$klipper" apply "$project/$patch"
+		git -C "$klipper" apply --reverse --check "$project/$patch"
+	done
 
 	rm -rf -- "$klipper_overlay"
 	install -d -m 0755 \
@@ -699,7 +700,32 @@ PY
 		grep -Fq 'Shared library: [ld-linux-mipsn8.so.1]'
 }
 
+check_klipper_source() {
+	(
+		# Reject staged changes, including newly tracked source files.
+		[ "$(git -C "$klipper" rev-parse HEAD)" = "$klipper_commit" ]
+		git -C "$klipper" diff --cached --quiet "$klipper_commit" || {
+			echo 'Unexpected staged Klipper source changes' >&2
+			exit 1
+		}
+		check_dir=$(mktemp -d)
+		trap 'rm -rf -- "$check_dir"' EXIT HUP INT TERM
+		export GIT_INDEX_FILE="$check_dir/index"
+		git -C "$klipper" read-tree "$klipper_commit"
+		for patch in $klipper_patches; do
+			git -C "$klipper" apply --cached --check "$project/$patch"
+			git -C "$klipper" apply --cached "$project/$patch"
+		done
+		# Compare contents against the exact patch set, ignoring build outputs.
+		git -C "$klipper" diff --quiet || {
+			echo 'Unexpected tracked Klipper source changes' >&2
+			exit 1
+		}
+	)
+}
+
 build_klipper_mcu() {
+	check_klipper_source
 	buildroot_output=$1
 	cross_prefix="$buildroot_output/host/bin/mipsel-buildroot-linux-gnu-"
 	strip="${cross_prefix}strip"
