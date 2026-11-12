@@ -374,10 +374,10 @@ Keep that tree unchanged as historical migration/reference material.
 The productive Fre3nder kernel baseline is defined by
 `configs/x2000/sources.json`. For the current `2026.5.a` development line it is:
 
-- Linux stable `v6.6.161`
-- Commit: `b5a1dc3ad4822c6edfb53429e9a3759c9b0ac2be`
-- Baseline tree: `c68569af81eac9a9d9d3b8b201afa7b456244cd6`
-- Fre3nder result tree: `75cd07dbbde866717a9eb1ad2b8780a6f8dabdf2`
+- Linux stable `v6.6.162`
+- Commit: `5139929c698c273e07cb0635732f6a918a7b8e78`
+- Baseline tree: `eeddc0531df8cd12f8e6cc2c2c58c54d3a777692`
+- Fre3nder result tree: `cc67596db3cde3e7570941b2fa62a06801531095`
 
 For productive kernel maintenance and future stable updates, use the pinned
 baseline in `configs/x2000/sources.json` rather than treating the historical

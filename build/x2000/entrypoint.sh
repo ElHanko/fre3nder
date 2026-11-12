@@ -604,7 +604,7 @@ fetch_rootfs_inputs() {
 		git clone --filter=blob:none --no-checkout "$klipper_url" "$klipper"
 	[ "$(git -C "$klipper" remote get-url origin)" = "$klipper_url" ]
 	git -C "$klipper" fetch origin "$klipper_commit"
-	git -C "$klipper" checkout --detach "$klipper_commit"
+	git -C "$klipper" checkout -f --detach "$klipper_commit"
 	[ "$(git -C "$klipper" rev-parse HEAD)" = "$klipper_commit" ]
 
 }

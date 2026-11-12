@@ -11,17 +11,17 @@
     "source": {
       "role": "productive upstream Linux baseline",
       "url": "https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git",
-      "commit": "b5a1dc3ad4822c6edfb53429e9a3759c9b0ac2be",
-      "tree": "c68569af81eac9a9d9d3b8b201afa7b456244cd6"
+      "commit": "5139929c698c273e07cb0635732f6a918a7b8e78",
+      "tree": "eeddc0531df8cd12f8e6cc2c2c58c54d3a777692"
     },
-    "kernel_version": "6.6.161",
+    "kernel_version": "6.6.162",
     "kernel_localversion": "-fre3nder",
     "preemption_model": "PREEMPT",
     "preempt_rt_enabled": false,
     "patch_series": {
       "role": "productive ordered Fre3nder X2000 kernel patch series on the pinned upstream Linux baseline",
       "baseline_ref": "kernel.source.commit",
-      "result_tree": "75cd07dbbde866717a9eb1ad2b8780a6f8dabdf2",
+      "result_tree": "cc67596db3cde3e7570941b2fa62a06801531095",
       "patches": [
         {
           "order": 1,
@@ -129,7 +129,7 @@
   "userspace": {
     "klipper": {
       "repository": "https://github.com/Klipper3d/klipper.git",
-      "commit": "7bc4d09465d31cd30fc0822e8d0abe02cc8c547f",
+      "commit": "29d4ec2d6d840ee839333306003a400da186d41d",
       "license": "GPL-3.0-only",
       "role": "upstream host runtime and Linux-process MCU source with project passive-UART patch"
     },

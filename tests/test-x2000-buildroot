@@ -1250,6 +1250,36 @@ cache_log=$(prepare_buildroot_output "$cache_output")
 # exact resulting source tree are validated above against the productive
 # pinned upstream kernel patch series.
 
+# A previous RootFS build leaves the passive-UART patch in the owned source
+# cache. A pin update must replace those generated changes before checkout.
+(
+	upstream="$tmp/klipper-fetch-upstream"
+	klipper="$tmp/klipper-fetch-cache"
+	git init -q "$upstream"
+	git -C "$upstream" config user.name 'Klipper fetch fixture'
+	git -C "$upstream" config user.email 'klipper-fixture@fre3nder.invalid'
+	mkdir "$upstream/klippy"
+	printf 'old upstream\n' > "$upstream/klippy/serialhdl.py"
+	git -C "$upstream" add .
+	git -C "$upstream" commit -qm previous
+	previous=$(git -C "$upstream" rev-parse HEAD)
+	printf 'new upstream\n' > "$upstream/klippy/serialhdl.py"
+	git -C "$upstream" commit -qam current
+	klipper_commit=$(git -C "$upstream" rev-parse HEAD)
+	klipper_url=$upstream
+	git clone -q "$klipper_url" "$klipper"
+	git -C "$klipper" checkout -q --detach "$previous"
+	printf 'old upstream plus generated passive UART\n' > "$klipper/klippy/serialhdl.py"
+	fetch_buildroot_inputs() { :; }
+	sed -n '/^fetch_rootfs_inputs() {$/,/^}$/p' "$entrypoint" \
+		> "$tmp/fetch-rootfs-inputs.sh"
+	. "$tmp/fetch-rootfs-inputs.sh"
+	fetch_rootfs_inputs
+	[ "$(git -C "$klipper" rev-parse HEAD)" = "$klipper_commit" ]
+	[ "$(cat "$klipper/klippy/serialhdl.py")" = 'new upstream' ]
+	git -C "$klipper" diff --exit-code
+)
+
 # The qualified F005 image is staged into the immutable RootFS overlay from the
 # release-manifest-validated local artifact.
 git clone -q "$klipper_source" "$tmp/klipper"
