@@ -82,8 +82,10 @@ A RootFS update preserves an existing `printer.cfg`; it does not perform this
 merge. Import the updated OrcaSlicer profile only after `START_PURGE` is
 available in the installed configuration. If upgrading the preliminary recovery
 configuration, replace its `[fre3nder_filament_recovery]` settings with the
-current section (remove `required_clearance` and `front_lift`), and include the
-new `RECOVER_PRINT` and `RECOVERY_RESUME` macros.
+current section (remove `required_clearance` and `front_lift`). Replace the
+`RESUME` macro and remove the old `RECOVER_PRINT` and `RECOVERY_RESUME` macro
+sections. `RECOVER_HOMING` is now a diagnostic command supplied by the extra,
+not an additional macro needed for ordinary operation.
 
 During a print:
 
@@ -109,9 +111,9 @@ During a print:
    sensor, restores and waits for the original print temperature, unretracts
    in the purge area, returns in XY at clearance height, then lets upstream
    `RESUME` restore the print Z position and G-code/extrusion state. It never
-   homes over an existing print. Normal `RESUME` refuses after any recorded
-   motor release, including after recovery homing; use `RECOVER_PRINT` and
-   `RECOVERY_RESUME` as described below.
+   runs recovery homing while the original reference is valid. After motor
+   release or loss of axis reference, `RESUME` selects the two-stage recovery
+   path below instead of returning blindly to the object.
 
 The original start purge was inline in the OrcaSlicer preset's
 `machine_start_gcode`: X -2.0 / -1.7, Y20 to Y145 and back to Y30, with two
@@ -148,11 +150,11 @@ The paused SD file/cursor, upstream `PAUSE_STATE`, original heater targets and
 a copy of the active mesh remain in RAM without a pause-duration limit. This
 does not survive a Klippy restart, reboot or loss of power. After motor release,
 saved coordinates cannot establish the physical position. `LOAD`, `UNLOAD` and
-`PURGE` then require a successful `RECOVER_PRINT` first. An inactive timer
+`PURGE` then require successful recovery homing first. An inactive timer
 never cancels the job. Only explicit `CANCEL_PRINT` or an actual print error
 invokes cancellation. `CLEAR_PAUSE` refuses to discard an active filament pause.
 
-Normal resume, `RECOVERY_RESUME`, and `CANCEL_PRINT` restore the
+The final `RESUME` and `CANCEL_PRINT` restore the
 previous normal idle timeout and cancel the one-shot timer. Cancellation turns
 off heaters and motors immediately. Normal idle/print-end shutdown remains
 available. Cooling the bed may release or shift the part; no recovery command
@@ -166,33 +168,57 @@ print error with a second abort error.
 
 ### Recovery after heater/motor shutdown
 
-Use the two Fluidd macro buttons without coordinates or confirmation flags:
+The normal interface uses Fluidd's existing `PAUSE` and `RESUME` actions.
+There are no extra recovery buttons, coordinates or confirmation flags.
+`RESUME` distinguishes three cases:
 
-1. **Before `RECOVER_PRINT`, inspect the print.** It must still adhere to the
-   bed without shifting. Check actual clearance under the entire X gantry,
+- A captured active pause with XYZ still referenced and no recorded motor
+  release follows the existing normal reheat/return/resume path in one action.
+- A lost reference or recorded motor release requires recovery homing. Once
+  automatic recovery has been qualified and enabled as described below, the
+  **first `RESUME`** performs that homing and leaves the print paused.
+- Missing or inconsistent state, an unqualified automatic recovery path or a
+  failed homing sequence refuses continuation with an English console error.
+
+For a long pause on a qualified setup:
+
+1. **Before the first `RESUME`, inspect the print.** It must still adhere to
+   the bed without shifting. Check actual clearance under the entire X gantry,
    including possible sag or tilt after motor release. The full X-homing path,
    Y-homing/bed sweep, travel to the probe point, and nozzle/BLTouch descent
-   must clear the part, brim, skirt and clips. If this cannot be established,
-   keep the print paused or use `CANCEL_PRINT`.
-2. Run **`RECOVER_PRINT`**. It checks the retained software state, homes
-   X → Y → Z at the configured recovery point, lifts locally, restores and
-   waits for the original bed/hotend temperatures, and measures Z again while
-   warm. It restores the original Z frame and mesh, then raises Z at that
-   point to the saved park height. The print stays paused.
+   must clear the part, brim, skirt and clips. Otherwise keep the print paused
+   or use `CANCEL_PRINT`.
+2. Press **`RESUME`**. It runs the existing `RECOVER_HOMING` implementation:
+   check the retained software state, home X → Y → Z at the configured point,
+   lift locally, restore and wait for the original bed/hotend temperatures,
+   then measure Z again while warm. It restores the original Z frame and mesh
+   and raises Z at that point to the saved park height. **It does not resume
+   the print or return to the object.** The console requests a visual check:
+   `Recovery homing completed. Check print adhesion, print position and toolhead
+   clearance along the return path, then press RESUME again to continue.`
 3. If needed, use `UNLOAD`, `LOAD` and optional `PURGE` in the existing purge
-   area. **Inspect adhesion again after reheating and check the entire return
-   path**, including the eventual descent onto the print.
-4. Run **`RECOVERY_RESUME`**. It checks the restored reference, unchanged
-   mesh, original stable heater targets and enabled filament sensor, then
-   reuses the existing return/unretract and upstream resume sequence. The
-   paused SD file continues at its saved cursor with the original extrusion
-   and G-code state.
+   area. **Inspect adhesion and print position again after reheating, and check
+   the entire return path**, including the eventual descent onto the print.
+4. Press **`RESUME` again**. This separate action confirms the requested visual
+   inspection. Software rechecks the pause, XYZ reference, unchanged mesh,
+   original stable heater targets and enabled filament sensor, then uses the
+   existing return/unretract and upstream resume sequence. The paused SD file
+   continues at its saved cursor with its original extrusion and G-code state.
 
-Executing each action deliberately confirms that its preceding visual checks
-have been made. The software cannot detect adhesion, a shifted part, sag,
-obstructions or collision freedom. A command or button does not establish
-unknown mechanical conditions. No measured-clearance value or technical
-confirmation parameter is required.
+The software cannot detect adhesion, a shifted part, sag, obstructions or
+collision freedom. Neither a command nor a qualified configuration establishes
+unknown mechanical conditions for a particular print. No measured-clearance
+value or technical confirmation parameter is required during ordinary use.
+
+Another motor release or loss of XYZ reference invalidates recovery readiness.
+The next `RESUME` must home again and still leaves the print paused; it cannot
+reuse stale success or bypass recovery through an ordinary `G28`. A failed
+homing attempt latches an error: further `RESUME` calls **do not retry its
+motion automatically**. The snapshot remains available as far as Klipper can
+retain it. Inspect and diagnose explicitly with `RECOVER_HOMING`, or use
+`CANCEL_PRINT`. A successful diagnostic retry clears that failure. `RESUME`
+without an active captured pause is rejected; repeated presses after a print
+has resumed do not restore a discarded snapshot or start another homing cycle.
 
 There is no fixed 50-mm recovery-clearance requirement. `PAUSE` still requests
 its configured lift (default 50 mm), capped by Z maximum. Software requires a
@@ -208,6 +234,7 @@ The default in `[fre3nder_filament_recovery]` is:
 
 ```ini
 home_xy_position: 10, 178
+automatic_recovery: False
 probe_lift: 8
 travel_speed: 20
 ```
@@ -221,6 +248,24 @@ Adapt the position for modified printers and requalify it. The previously
 tested front point can be configured as `10, -12`; neither point is guaranteed
 clear for every printed object.
 
+**Automatic recovery is disabled by default**, even though the candidate passes
+software geometry checks. Enable `automatic_recovery: True` in the installed
+configuration only after hardware validation of the selected point, the complete
+homing/bed/return paths and warm Z/mesh restoration. Reset it to `False` when
+changing the point or modifying the machine until that setup is requalified.
+Without this qualification, an ordinary `RESUME` after reference loss refuses
+before any homing or return movement; it explains that automatic recovery is
+disabled pending hardware validation. Ordinary pauses with valid references
+continue to work.
+
+`RECOVER_HOMING` remains separately callable for deliberate, supervised
+hardware qualification and diagnosis. It can run while automatic recovery is
+disabled, so inspect and clear the complete paths before calling it. It uses
+the same technical checks and homing implementation as `RESUME`, leaves the
+print paused and requests the same inspection before a later `RESUME`. Calling
+it is not itself evidence of hardware qualification and is not part of the
+normal user workflow.
+
 The software checks both nozzle coordinates against the configured axis limits
 and the offset-adjusted BLTouch point against the saved measured mesh rectangle
 (reference X5–215/Y10–215). The old front-only `y < 0` restriction is replaced
@@ -231,9 +276,9 @@ not establish that the probe is physically on unobstructed bed.
 Normal `G28` and `safe_z_home` are unchanged. Recovery invokes the pinned
 upstream native homing handler for each axis to avoid the ordinary unreferenced
 Z hop and centre move. It moves only X/Y while Z is unreferenced; no guessed Z
-or `SET_KINEMATIC_POSITION` is used. Normal `RESUME` remains blocked after motor
-release, even after a normal `G28` or recovery homing. Another motor release
-invalidates recovery readiness and requires `RECOVER_PRINT` again.
+or `SET_KINEMATIC_POSITION` is used. A normal `G28` after motor
+release does not establish recovery readiness. Only the recovery sequence can
+restore the saved mesh frame before a later `RESUME` continues the print.
 
 Missing snapshots, changed SD files/cursors or saved print state, missing or
 changed meshes, configured zero-normalization, shifted meshes, changed probe

@@ -151,7 +151,7 @@ class Printer:
     command_error = gcode.CommandError
     config_error = configparser.Error
 
-    def __init__(self, recovery_xy=None):
+    def __init__(self, recovery_xy=None, automatic_recovery=None):
         self.clock = Clock()
         self.events = {}
         self.objects = {}
@@ -161,6 +161,9 @@ class Printer:
         if recovery_xy is not None:
             self.parser.set('fre3nder_filament_recovery', 'home_xy_position',
                             ','.join(str(v) for v in recovery_xy))
+        if automatic_recovery is not None:
+            self.parser.set('fre3nder_filament_recovery', 'automatic_recovery',
+                            str(automatic_recovery))
         self.access = {}
         self.objects["webhooks"] = Mock()
         self.objects["print_stats"] = Mock()
@@ -401,7 +404,7 @@ class FilamentChangeTests(unittest.TestCase):
         self.assertEqual(self.p.toolhead.position[2], 246)
         self.p.toolhead.values["homed_axes"] = "xy"
         moves = len(self.p.toolhead.moves)
-        with self.assertLogs(level="ERROR"), self.assertRaisesRegex(gcode.CommandError, "reference was lost"):
+        with self.assertLogs(level="WARNING"), self.assertRaisesRegex(gcode.CommandError, "automatic recovery is disabled"):
             self.p.run("RESUME")
         self.assertEqual(len(self.p.toolhead.moves), moves)
         self.assertTrue(self.p.pause.is_paused)
@@ -419,14 +422,13 @@ class FilamentChangeTests(unittest.TestCase):
         self.assertEqual(self.p.toolhead.position[:3], [100.0, 100.0, 245.0])
 
     def test_commands_reject_unsafe_use_before_motion(self):
-        for command in ("LOAD", "UNLOAD", "PURGE", "RESUME",
-                        "RECOVER_PRINT", "RECOVERY_RESUME"):
+        for command in ("LOAD", "UNLOAD", "PURGE", "RESUME", "RECOVER_HOMING"):
             with self.subTest(command=command), self.assertLogs(level="WARNING"), self.assertRaises(gcode.CommandError):
                 self.p.run(command)
         self.p.run("PAUSE")
         for command in ("LOAD LENGTH=-1", "UNLOAD LENGTH=1001", "PURGE LENGTH=0",
                         "LOAD TEMPERATURE=100", "PURGE TEMPERATURE=400", "RESUME VELOCITY=0",
-                        "RECOVER_PRINT", "RECOVERY_RESUME"):
+                        "RECOVER_HOMING"):
             moves = len(self.p.toolhead.moves)
             with self.subTest(command=command), self.assertLogs(level="WARNING"), self.assertRaises(gcode.CommandError):
                 self.p.run(command)
@@ -507,7 +509,7 @@ class FilamentChangeTests(unittest.TestCase):
         self.power_off()
         saved = copy.deepcopy(self.p.move.saved_states['PAUSE_STATE'])
         matrix = copy.deepcopy(self.p.objects['bed_mesh'].z_mesh.mesh_matrix)
-        self.p.run('RECOVER_PRINT')
+        self.p.run('RECOVER_HOMING')
         self.assertEqual([h[0] for h in self.p.toolhead.homes], ['x', 'y', 'z', 'z'])
         self.assertEqual([h[4] for h in self.p.toolhead.homes], ['', 'x', 'xy', 'xyz'])
         for home in self.p.toolhead.homes:
@@ -531,34 +533,61 @@ class FilamentChangeTests(unittest.TestCase):
         self.assert_modes_and_e(original)
 
     def test_recovery_resume_returns_to_the_unchanged_sd_print(self):
+        self.p.recovery.automatic_recovery = True  # Model a qualified installation.
         self.p.sd.current_file = io.StringIO('PAUSE\nG1 X120 Y80 Z42 E18\n')
         self.p.sd.work_timer = object()
         self.p.sd.work_handler(self.p.clock.time)
         position = self.p.sd.file_position
         self.power_off()
-        with self.assertLogs(level='WARNING'), self.assertRaisesRegex(gcode.CommandError, 'RECOVER_PRINT'):
-            self.p.run('RECOVERY_RESUME')
-        for command in ('LOAD', 'UNLOAD', 'PURGE', 'RESUME'):
+        for command in ('LOAD', 'UNLOAD', 'PURGE'):
             with self.subTest(command=command), self.assertLogs(level='WARNING'), self.assertRaises(gcode.CommandError):
                 self.p.run(command)
-        self.p.run('RECOVER_PRINT')
+        saved = copy.deepcopy(self.p.move.saved_states['PAUSE_STATE'])
+        output = []
+        self.p.gcode.register_output_handler(output.append)
+        self.p.run('RESUME')
+        self.assertTrue(self.p.pause.is_paused)
+        self.assertIsNone(self.p.sd.work_timer)
+        self.assertEqual(self.p.toolhead.position[:3], [10., 178., 90.])
+        self.assertEqual(self.p.move.saved_states['PAUSE_STATE'], saved)
+        self.assertTrue(any('press RESUME again' in line for line in output))
         self.assertEqual(self.p.sd.file_position, position)
         self.p.run('LOAD LENGTH=10\nPURGE LENGTH=5')
-        # Normal RESUME stays separate even after recovery homing.
-        with self.assertLogs(level='WARNING'), self.assertRaisesRegex(gcode.CommandError, 'RECOVERY_RESUME'):
-            self.p.run('RESUME')
         self.assertTrue(self.p.pause.is_paused)
-        self.p.pause.recover_velocity = 35.
-        self.p.run('RECOVERY_RESUME')
+        homes = len(self.p.toolhead.homes)
+        self.p.run('RESUME VELOCITY=35')
         self.assertFalse(self.p.pause.is_paused)
         self.assertEqual(self.p.toolhead.position[:3], [100., 100., 40.])
         self.assertEqual(self.p.toolhead.moves[-1][1], 35.)
+        self.assertEqual(len(self.p.toolhead.homes), homes)
         self.assertEqual(self.p.idle.idle_timeout, 600)
         before = self.p.toolhead.position[3]
         self.p.sd.work_handler(self.p.clock.time)
         self.assertEqual(self.p.toolhead.position[:3], [120., 80., 42.])
         self.assertAlmostEqual(self.p.toolhead.position[3] - before, .93)
         self.assert_modes_and_e(dict(self.initial, gcode_position=gcode.Coord((120, 80, 42, 18))))
+        moves = len(self.p.toolhead.moves)
+        for _ in range(2):
+            with self.assertLogs(level='ERROR'), self.assertRaisesRegex(gcode.CommandError, 'No filament pause'):
+                self.p.run('RESUME')
+        self.assertEqual(len(self.p.toolhead.moves), moves)
+
+    def test_default_resume_does_not_home_an_unqualified_recovery_point(self):
+        self.assertFalse(self.p.recovery.automatic_recovery)
+        self.power_off()
+        saved = copy.deepcopy(self.p.move.saved_states['PAUSE_STATE'])
+        moves = len(self.p.toolhead.moves)
+        for _ in range(2):
+            with self.assertLogs(level='WARNING'), self.assertRaisesRegex(gcode.CommandError, 'hardware validated'):
+                self.p.run('RESUME')
+        self.assertFalse(self.p.toolhead.homes)
+        self.assertEqual(len(self.p.toolhead.moves), moves)
+        self.assertTrue(self.p.pause.is_paused)
+        self.assertEqual(self.p.move.saved_states['PAUSE_STATE'], saved)
+        # A separate, deliberate diagnostic command remains available.
+        self.p.run('RECOVER_HOMING')
+        self.assertTrue(self.p.recovery.ready)
+        self.assertTrue(self.p.pause.is_paused)
 
     def test_recovery_resume_reapplies_fading_mesh_compensation_exactly_once(self):
         self.p.set_mesh(lambda x, y: .1 + .001*x - .0003*y)
@@ -567,8 +596,8 @@ class FilamentChangeTests(unittest.TestCase):
         original = copy.deepcopy(self.p.move.get_status())
         self.assertNotAlmostEqual(physical[2], 4., msg='Test must exercise active mesh fade')
         self.power_off()
-        self.p.run('RECOVER_PRINT')
-        self.p.run('RECOVERY_RESUME')
+        self.p.run('RECOVER_HOMING')
+        self.p.run('RESUME')
         for expected, actual in zip(physical[:3], self.p.toolhead.position[:3]):
             self.assertAlmostEqual(actual, expected)
         self.assertAlmostEqual(self.p.move.get_status()['gcode_position'].z,
@@ -583,7 +612,7 @@ class FilamentChangeTests(unittest.TestCase):
                 self.power_off()
                 moves = len(self.p.toolhead.moves)
                 with self.assertLogs(level='WARNING'), self.assertRaisesRegex(gcode.CommandError, 'geometry'):
-                    self.p.run('RECOVER_PRINT')
+                    self.p.run('RECOVER_HOMING')
                 self.assertFalse(self.p.toolhead.homes)
                 self.assertEqual(len(self.p.toolhead.moves), moves)
                 self.assertTrue(self.p.pause.is_paused)
@@ -591,7 +620,7 @@ class FilamentChangeTests(unittest.TestCase):
     def test_recovery_point_can_be_configured_to_the_former_front_point(self):
         self.p = Printer(recovery_xy=(10, -12))
         self.power_off()
-        self.p.run('RECOVER_PRINT')
+        self.p.run('RECOVER_HOMING')
         z_homes = [h for h in self.p.toolhead.homes if h[0] == 'z']
         self.assertEqual([h[1][:2] for h in z_homes], [[10., -12.], [10., -12.]])
 
@@ -602,7 +631,7 @@ class FilamentChangeTests(unittest.TestCase):
                 self.p.run('G1 Z%d' % print_z)
                 self.power_off()
                 self.assertEqual(self.p.recovery.get_status(0.)['commanded_lift'], 246 - print_z)
-                self.p.run('RECOVER_PRINT\nRECOVERY_RESUME')
+                self.p.run('RECOVER_HOMING\nRESUME')
                 self.assertFalse(self.p.pause.is_paused)
                 self.assertEqual(self.p.toolhead.position[:3], [100., 100., print_z])
 
@@ -610,7 +639,7 @@ class FilamentChangeTests(unittest.TestCase):
         self.p.run('G1 Z245')
         self.power_off()
         with self.assertLogs(level='WARNING'), self.assertRaisesRegex(gcode.CommandError, 'raised park'):
-            self.p.run('RECOVER_PRINT')
+            self.p.run('RECOVER_HOMING')
         self.assertFalse(self.p.toolhead.homes)
 
     def test_recovery_stops_when_mesh_or_reference_is_unavailable(self):
@@ -625,7 +654,7 @@ class FilamentChangeTests(unittest.TestCase):
                 if mode == 'changed':
                     self.p.objects['bed_mesh'].z_mesh.mesh_offsets[0] = 1.
                 with self.assertLogs(level='WARNING'), self.assertRaises(gcode.CommandError):
-                    self.p.run('RECOVER_PRINT')
+                    self.p.run('RECOVER_HOMING')
                 self.assertFalse(self.p.toolhead.homes)
                 self.assertTrue(self.p.pause.is_paused)
 
@@ -648,7 +677,7 @@ class FilamentChangeTests(unittest.TestCase):
                     self.p.sd.cmd_from_sd = True
                 moves = len(self.p.toolhead.moves)
                 with self.assertLogs(level='WARNING'), self.assertRaises(gcode.CommandError):
-                    self.p.run('RECOVER_PRINT')
+                    self.p.run('RECOVER_HOMING')
                 self.assertFalse(self.p.toolhead.homes)
                 self.assertEqual(len(self.p.toolhead.moves), moves)
                 self.assertTrue(self.p.pause.is_paused)
@@ -658,7 +687,7 @@ class FilamentChangeTests(unittest.TestCase):
             with self.subTest(mode=mode):
                 self.p = Printer()
                 self.power_off()
-                self.p.run('RECOVER_PRINT')
+                self.p.run('RECOVER_HOMING')
                 if mode == 'hotend':
                     self.p.objects['extruder'].values['temperature'] -= 5
                 elif mode == 'bed':
@@ -671,11 +700,12 @@ class FilamentChangeTests(unittest.TestCase):
                     self.p.objects['bed_mesh'].set_mesh(None)
                 moves = len(self.p.toolhead.moves)
                 with self.assertLogs(level='WARNING'), self.assertRaises(gcode.CommandError):
-                    self.p.run('RECOVERY_RESUME')
+                    self.p.run('RESUME')
                 self.assertEqual(len(self.p.toolhead.moves), moves)
                 self.assertTrue(self.p.pause.is_paused)
 
     def test_homing_failure_keeps_the_snapshot_and_shuts_down(self):
+        self.p = Printer(automatic_recovery=True)
         self.power_off()
         saved = copy.deepcopy(self.p.move.saved_states['PAUSE_STATE'])
         normal_home = self.p.toolhead.home
@@ -685,21 +715,77 @@ class FilamentChangeTests(unittest.TestCase):
             normal_home(state)
         self.p.toolhead.home = fail_y
         with self.assertLogs(level='WARNING'), self.assertRaisesRegex(gcode.CommandError, 'Y endstop test failure'):
-            self.p.run('RECOVER_PRINT')
+            self.p.run('RESUME')
         self.assertEqual(self.p.toolhead.values['homed_axes'], '')
         self.assertEqual(self.p.objects['heater_bed'].values['target'], 0.)
         self.assertIsNotNone(self.p.objects['bed_mesh'].z_mesh)
         self.assertEqual(self.p.move.saved_states['PAUSE_STATE'], saved)
         self.assertTrue(self.p.pause.is_paused)
         self.assertFalse(self.p.recovery.ready)
+        self.assertTrue(self.p.recovery.homing_failed)
+        moves, homes = len(self.p.toolhead.moves), len(self.p.toolhead.homes)
+        for _ in range(2):
+            with self.assertLogs(level='WARNING'), self.assertRaisesRegex(gcode.CommandError, 'will not repeat'):
+                self.p.run('RESUME')
+        self.assertEqual(len(self.p.toolhead.moves), moves)
+        self.assertEqual(len(self.p.toolhead.homes), homes)
+        self.assertEqual(self.p.move.saved_states['PAUSE_STATE'], saved)
+        # Only an explicit diagnostic retry clears the failed-homing latch.
+        self.p.toolhead.home = normal_home
+        self.p.run('RECOVER_HOMING')
+        self.assertFalse(self.p.recovery.homing_failed)
+        self.assertTrue(self.p.recovery.ready)
+        self.assertTrue(self.p.pause.is_paused)
 
     def test_motor_release_after_recovery_invalidates_readiness_again(self):
+        self.p = Printer(automatic_recovery=True)
         self.power_off()
-        self.p.run('RECOVER_PRINT')
+        self.p.run('RESUME')
         self.p.run('_FILAMENT_POWER_OFF')
         self.assertFalse(self.p.recovery.ready)
-        with self.assertLogs(level='WARNING'), self.assertRaisesRegex(gcode.CommandError, 'RECOVER_PRINT'):
-            self.p.run('RECOVERY_RESUME')
+        self.p.run('RESUME')
+        self.assertTrue(self.p.recovery.ready)
+        self.assertTrue(self.p.pause.is_paused)
+        self.assertEqual(len(self.p.toolhead.homes), 8)
+        self.p.run('RESUME')
+        self.assertFalse(self.p.pause.is_paused)
+
+    def test_reference_loss_without_motor_off_event_requires_recovery_again(self):
+        self.p = Printer(automatic_recovery=True)
+        self.p.sd.current_file = io.StringIO('PAUSE\nG1 X120\n')
+        self.p.sd.work_timer = object()
+        self.p.sd.work_handler(self.p.clock.time)
+        self.assertFalse(self.p.recovery.powered_down)
+        self.p.toolhead.values['homed_axes'] = 'xy'
+        self.p.run('RESUME')
+        self.assertTrue(self.p.recovery.ready)
+        self.assertTrue(self.p.pause.is_paused)
+        self.p.toolhead.values['homed_axes'] = 'xy'
+        self.p.run('RESUME')
+        self.assertEqual(len(self.p.toolhead.homes), 8)
+        self.assertTrue(self.p.pause.is_paused)
+        self.p.run('RESUME')
+        self.assertFalse(self.p.pause.is_paused)
+
+    def test_cancel_discards_ready_or_failed_recovery_state(self):
+        for failed in (False, True):
+            with self.subTest(failed=failed):
+                self.p = Printer(automatic_recovery=True)
+                self.power_off()
+                if failed:
+                    self.p.toolhead.home = Mock(side_effect=gcode.CommandError('Homing failed'))
+                    with self.assertLogs(level='WARNING'), self.assertRaises(gcode.CommandError):
+                        self.p.run('RESUME')
+                else:
+                    self.p.run('RESUME')
+                self.p.run('CANCEL_PRINT')
+                self.assertFalse(self.p.pause.is_paused)
+                self.assertIsNone(self.p.recovery.snapshot)
+                self.assertFalse(self.p.recovery.ready)
+                self.assertFalse(self.p.recovery.homing_failed)
+                self.assertEqual(self.p.objects['heater_bed'].values['target'], 0)
+                self.assertEqual(self.p.objects['extruder'].values['target'], 0)
+                self.assertEqual(self.p.toolhead.values['homed_axes'], '')
 
     def test_normal_safe_z_homing_keeps_its_original_central_point(self):
         self.p.run('G28')

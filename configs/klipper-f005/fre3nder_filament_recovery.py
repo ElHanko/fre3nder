@@ -1,7 +1,7 @@
 """Operator-requested filament recovery for the pinned Klipper API.
 
-Normal safe_z_home and RESUME are not redirected here. See the recovery section
-in docs/configuration.md before qualification on a physical printer.
+Normal safe_z_home is unchanged. RESUME delegates lost-reference handling here.
+See docs/configuration.md before qualification on a physical printer.
 """
 
 import copy
@@ -13,6 +13,7 @@ class FilamentRecovery:
         self.printer = config.get_printer()
         self.gcode = self.printer.lookup_object('gcode')
         self.recovery_xy = config.getfloatlist('home_xy_position', count=2)
+        self.automatic_recovery = config.getboolean('automatic_recovery', False)
         self.probe_lift = config.getfloat('probe_lift', 8., above=0.)
         self.speed = config.getfloat('travel_speed', 20., above=0.)
         self.zero_reference = config.getsection('bed_mesh').get(
@@ -27,13 +28,14 @@ class FilamentRecovery:
                 ('FILAMENT_RECOVERY_PARKED', self.parked),
                 ('FILAMENT_RECOVERY_POWER_OFF', self.power_off),
                 ('FILAMENT_RECOVERY_RESET', self.cmd_reset),
-                ('_FILAMENT_RECOVERY_HOME', self.home),
+                ('RECOVER_HOMING', self.home),
                 ('_FILAMENT_RECOVERY_RESUME', self.resume)):
             self.gcode.register_command(name, method)
 
     def reset(self):
         self.snapshot = None
         self.powered_down = self.ready = False
+        self.homing_failed = False
         self.park_position = None
         self.mesh_error = ''
         self.correction = None
@@ -49,6 +51,7 @@ class FilamentRecovery:
         lift = 0. if self.park_position is None or self.snapshot is None else (
             self.park_position[2] - self.snapshot['state']['last_position'][2])
         return dict(powered_down=self.powered_down, ready=self.ready,
+                    homing_failed=self.homing_failed,
                     commanded_lift=lift, mesh_error=self.mesh_error,
                     z_correction=self.correction)
 
@@ -137,11 +140,13 @@ class FilamentRecovery:
                 self.snapshot['bed'], self.snapshot['hotend']))
 
     def home(self, gcmd):
+        if not self.powered_down and self.status('toolhead')['homed_axes'] != 'xyz':
+            self.power_off(None)
         self.check_pause(gcmd)
         if not self.powered_down:
             raise gcmd.error('Use normal RESUME while the original reference is valid')
         # A raised commanded park is needed for the later return. Actual
-        # gantry clearance and adhesion must be inspected before RECOVER_PRINT;
+        # gantry clearance and adhesion must be inspected before recovery;
         # neither a fixed lift nor a confirmation flag can establish them.
         min_lift = self.status('gcode_macro _FILAMENT_SETTINGS')['min_lift']
         if (self.park_position is None or min_lift <= 0.
@@ -178,6 +183,9 @@ class FilamentRecovery:
         bedmesh = self.printer.lookup_object('bed_mesh')
         fade_offset = bedmesh.tool_offset
         self.ready = False
+        # Only successful homing clears this latch. RESUME must not retry a
+        # failed or interrupted physical sequence; a diagnostic call is explicit.
+        self.homing_failed = True
         self.gcode.run_script_from_command('SAVE_GCODE_STATE NAME=FILAMENT_RECOVERY_PARK')
         try:
             bedmesh.set_mesh(None)
@@ -209,21 +217,39 @@ class FilamentRecovery:
                 mesh.calc_z(x, y) - bedmesh.fade_target) + bedmesh.fade_target
             toolhead.manual_move([None, None, z], self.speed)
             self.printer.lookup_object('gcode_move').reset_last_position()
-        except Exception:
+        except Exception as exc:
             self.gcode.run_script_from_command('TURN_OFF_HEATERS\nM84')
             bedmesh.set_mesh(copy.deepcopy(mesh))
             bedmesh.tool_offset = fade_offset
-            raise
+            raise gcmd.error('Recovery homing failed: %s. Print remains paused; '
+                             'inspect before using RECOVER_HOMING or cancel.' % exc) from exc
         self.correction = correction
+        self.homing_failed = False
         self.ready = True
-        gcmd.respond_info('Edge homing complete; print remains paused. '
-                          'Inspect adhesion and the complete return path before '
-                          'RECOVERY_RESUME.')
+        gcmd.respond_info('Recovery homing completed. Check print adhesion, '
+                          'print position and toolhead clearance along the return '
+                          'path, then press RESUME again to continue.')
 
     def resume(self, gcmd):
+        if self.status('toolhead')['homed_axes'] != 'xyz':
+            # Account for reference loss even without a motor_off event.
+            if not self.powered_down:
+                self.power_off(None)
+            self.ready = False
         self.check_pause(gcmd)
-        if not self.ready or self.status('toolhead')['homed_axes'] != 'xyz':
-            raise gcmd.error('Run RECOVER_PRINT before RECOVERY_RESUME')
+        velocity = gcmd.get_float('VELOCITY', self.printer.lookup_object(
+            'pause_resume').recover_velocity, above=0.)
+        if self.homing_failed:
+            raise gcmd.error('Cannot resume: previous recovery homing failed. '
+                             'Inspect before using RECOVER_HOMING or cancel; '
+                             'RESUME will not repeat the failed motion.')
+        if not self.ready:
+            if not self.automatic_recovery:
+                raise gcmd.error('Cannot resume: recovery homing is required but '
+                                 'automatic recovery is disabled until the configured '
+                                 'point and paths have been hardware validated.')
+            self.gcode.run_script_from_command('RECOVER_HOMING')
+            return  # A later, explicit RESUME confirms the requested inspection.
         self.check_mesh(gcmd)
         for name, target in (('heater_bed', self.snapshot['bed']),
                              ('extruder', self.snapshot['hotend'])):
@@ -233,8 +259,6 @@ class FilamentRecovery:
         sensor = self.status('filament_switch_sensor filament_sensor')
         if sensor['enabled'] and not sensor['filament_detected']:
             raise gcmd.error('Insert filament before resuming')
-        velocity = gcmd.get_float('VELOCITY', self.printer.lookup_object(
-            'pause_resume').recover_velocity, above=0.)
         self.gcode.run_script_from_command('_FILAMENT_RESUME VELOCITY=%.6f' % velocity)
 
 
