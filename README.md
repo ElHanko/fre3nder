@@ -95,7 +95,14 @@ Fre3nder also opens a path for the F005 controller firmware, with explicit firmw
 
 The host and MCU keep separate update lifecycles because owning more of the machine should not mean throwing away safety boundaries.
 
-### 💾 Recovery is a feature
+### 💾 Boot from internal storage
+
+On the reference Ender-3 V3 KE, Fre3nder can keep the system overlay and user
+data on the internal eMMC. After migration and initial WLAN/SSH provisioning,
+the printer can start and join Wi-Fi with the USB stick removed.
+See [installation and migration](docs/installation.md).
+
+### Recovery and backups
 
 Backups, persistent data and recovery are not afterthoughts.
 

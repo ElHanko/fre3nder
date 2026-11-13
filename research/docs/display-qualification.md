@@ -835,3 +835,25 @@ degraded persistent RootFS, forced frontend crashes and failed stop operations
 remain unvalidated on hardware. Normal stop was not reported as part of this
 test. Extensive repeat-boot, timing and long-term reliability qualification is
 not claimed; fixture results for these error paths remain offline evidence.
+
+## 2026-11-08 LVGL 9.6 migration
+
+The operator reported X2000 hardware validation of native System and Apps
+management, including writes, and the OTA path through backup, readback,
+activation and restart with Screen source `65b37b9`. The subsequent cleanup
+passed the Docker/SDL build, interactive testing and a local X2000 cross-build.
+
+Screen source `3a8ad6a` was used for the LVGL 9.6 validation. The MIPS/X2000
+cross-build, Docker/SDL build and interactive use, full Fre3nder Development
+build with Linux 6.6.161, and signed package creation and verification passed.
+The signed Development package `2026.2.3a8ad6a-fre3nder.0.937984e` passed
+slot-B boot, update from the embedded Factory app, display and touch, standby
+after 300 seconds, touch wake and tty1/tty7 handoff. This evidence applies to
+the recorded Development package and exercised paths.
+
+## 2026-11-13 Fre3nderScreen 2026.3
+
+The reference printer ran the signed `2026.3-fre3nder.1` package from
+`c70c6163f9da236b262294940d66502fb459a8d7` (release serial 3) across multiple
+boots. The operator recorded package SHA-256
+`b9eb6fd5424d098c791906d87e0a1157e5019985b1a534cf0bd9e9e56893283b`.

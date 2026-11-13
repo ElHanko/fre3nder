@@ -1,11 +1,9 @@
 # Installable applications and frontends
 
-The signed `.fre3app` package core is implemented in the platform. The recorded
-Development Fre3nderScreen Factory-app path is qualified on the investigated
-reference system; that does not qualify another package or release binary.
-Fluidd's signed-package migration has no hardware qualification from its earlier
-Legacy-app/web result. Exact scopes remain in [display](display.md#configuration-and-qualification-boundary)
-and [web qualification](../research/docs/apps-web-qualification.md).
+Fre3nder verifies and manages signed `.fre3app` packages. Moonraker is a required
+system app, Fre3nderScreen is the Factory display app, and Fluidd is an optional
+web frontend. See [display](display.md#configuration-and-qualification-boundary)
+and [web qualification](../research/docs/apps-web-qualification.md) for device results.
 Use the [CLI reference](api/cli.md) for complete syntax, rights and output limits.
 
 ## Package lifecycle

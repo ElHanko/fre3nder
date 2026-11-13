@@ -1,6 +1,6 @@
 # Updating the Fre3nder platform
 
-The current update workflow is the explicit `fre3nder ota` CLI sequence below.
+Fre3nderScreen, Maintenance and the CLI use the same platform OTA workflow.
 It targets the inactive X2000 Kernel/RootFS pair, retains HOME and prepares a
 target-specific SYS-overlay reset. It never silently updates F005 firmware.
 This implemented workflow does not establish complete end-to-end hardware
@@ -20,7 +20,8 @@ Development artifacts are not releases or hardware qualifications. Release
 builds require clean, committed inputs; development mode carries a fingerprint.
 Check `artifact_mode`, component provenance and hashes. A reused Kernel and new
 RootFS must agree on version and artifact mode; composition enforces both.
-The 2026.4 release scope is **Managed Platform** (`managed-platform`).
+The running system supplies the active USB or eMMC SYS/HOME pair. See
+[storage layout](storage-layout.md#fre3nder-persistence-roles).
 
 ## Update sequence
 

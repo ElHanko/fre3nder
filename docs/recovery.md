@@ -62,6 +62,12 @@ slot contains. Do not select a slot solely from its name. The
    the historical Mainline-MCU/Stock-host mismatch produced
    `read_swap_prtouch` and a Stock error.
 
+If SYS and HOME were moved to eMMC, p9 and p10 contain Fre3nder data.
+Inactive-slot staging leaves both partitions in place. Use the preserved
+Stock writable-partition material from before the migration when planning
+the return. A complete return from this storage layout requires validation
+of the Stock writable state as well as the host and MCU.
+
 The software-only Fre3nder-to-Stock host handoff still **REQUIRES
 QUALIFICATION**. A manual power-cycle return reached Stock `Printer is ready`
 twice on the reference system. The project has no single qualified public

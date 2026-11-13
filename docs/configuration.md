@@ -18,13 +18,12 @@ and input shaping, require independent calibration on another printer.
 | Web frontend selection and installed packages | `/home/.fre3nder/frontend/active` and `/home/.fre3nder/packages/` | Root-managed persistent package state; managed through `fre3nder app` |
 | SSH host identity | `/home/fre3nder/.fre3nder/ssh/` | Persistent host identity when persistent root is active |
 | Optional local root shell | `/etc/fre3nder/console.enabled` | Root-controlled SYS opt-in; survives ordinary reboots, removed by SYS reset; independent of SSH |
-| WLAN and SSH boot provisioning | FAT32 USB root: `wpa_supplicant.conf`, `authorized_keys`, `enable_ssh` | Boot-local inputs copied to volatile `/run`; not baked into a build |
+| WLAN and SSH boot provisioning | FAT32 USB root: `wpa_supplicant.conf`, `authorized_keys`, `enable_ssh` | Initial import is saved under `/home/.fre3nder-provisioning/current/`; see [provisioning](networking.md#usb-provisioning) |
 | System code and application payloads | `/opt`, `/usr`, and the writable SYS overlay | Reconstructible system state; reset exposes the immutable RootFS baseline |
 
-The logical HOME/SYS roles and current external ext4 backends are specified in
-[storage layout](storage-layout.md). `FRE3NDERHOME` backs `/home`;
-`FRE3NDERSYS` backs the writable system OverlayFS. Internal Stock p9/p10 are
-not current Fre3nder persistence backends. `/run` and `/tmp` are volatile.
+[Storage layout](storage-layout.md) describes the USB and eMMC backends for
+SYS (the writable system OverlayFS) and HOME (mounted at `/home`).
+`/run` and `/tmp` are volatile.
 
 ## Configure the printer
 

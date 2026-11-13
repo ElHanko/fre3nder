@@ -266,82 +266,17 @@ An embedded seed does not replace an installed app after Factory bootstrap has
 completed. Deployment and [updating that app](installation.md#update-the-installed-display-app)
 are separate steps.
 
-### Fre3nderScreen 2026.2 release integration
+### Fre3nderScreen release inputs
 
-The cross-builder and fre3nder-apps importer now agree on a reduced app
-artifact: one binary, six themes and six required license texts, plus
-`artifact-manifest.json` and `SHA256SUMS`. The unused Screen-vendored WPA
-control client is gone; Core's separate Buildroot `wpa_supplicant` remains.
-Submodule/patch, static MIPS32r2 hardfloat ABI, provenance, exact file-set
-and checksum validation remain in place. No Management/OTA API changes
-are needed.
+`configs/x2000/sources.json` pins the Screen 2026.3 source and submodules.
+Fre3nderScreen uses LVGL 9.6.0 with integrated fbdev/evdev/SDL drivers,
+libhv 1.3.4 and spdlog 1.17.0. The app recipe produces
+`fre3nderscreen-2026.3-fre3nder.1-x2000.fre3app` with release serial 3.
 
-The selected source uses LVGL v9.6.0 with integrated fbdev/evdev/SDL drivers,
-libhv v1.3.4 with embedded nlohmann/json v3.12.0, and spdlog v1.17.0 with bundled
-fmt v12.1.0. `lv_drivers` and the old dependency patches are removed; only the
-opt-in evdev raw-mode patch remains for the unchanged affine touch coefficients.
-Release `2026.2` remains unchanged. The JSON MIT notice is included in
-`LIBHV-LICENSE`, and LodePNG's Zlib notice in `LVGL-LICENSE`.
-`userspace.fre3nderscreen.commit` pins `3a8ad6a`, including the LVGL static-link
-and simulator spdlog rebuild fixes. LVGL is built through its upstream static
-CMake target, using Screen's `lv_conf.h`; the build needs C and C++17 compilers,
-GNU Make, CMake and Python 3, supplied by the Debian 13 build container.
-Before a release build, the selected source commit must be available from the
-configured repository. Local Development builds use the explicit source
-snapshot path described above.
-The operator reports a successful MIPS/X2000 cross-build, Docker/SDL build and
-interactive use, and a complete Fre3nder Development build with Linux 6.6.161,
-RootFS and OTA. The signed package was created and verified. Deployment and
-boot on slot B, the update from the embedded Factory package, display/touch,
-300-second standby, touch wake and VT switching passed with Development app
-`2026.2.3a8ad6a-fre3nder.0.937984e`. See the
-[qualification boundary](display.md#configuration-and-qualification-boundary).
-The later OS identity change `040b313` has since passed its own
-[build, deployment and hardware validation](versioning.md#operating-system-identity).
-
-The app template remains `2026.2-fre3nder.2`, serial `2`; Development uses
-serial `0` and cannot silently replace a Release. The standalone Screen
-pipeline does not build Moonraker or require its system-app seed. A later
-RootFS assembly independently requires the signed Moonraker seed, with a
-positive release serial for a release image.
-
-Remaining release steps:
-
-1. Use reviewed, committed inputs and a clean tracked apps worktree. After
-   explicit build/signing approval, run from Fre3nder:
-
-   ```sh
-   scripts/build-x2000-fre3nderscreen-release \
-     --apps-repo ../fre3nder-apps \
-     --key <existing-signing-key>
-   ```
-
-   It needs the prepared Buildroot host toolchain and an existing signing
-   key. The cross-builder fetches the exact pin rather than using an old
-   Development artifact. The apps wrapper replaces the generated payload
-   after rejecting unsafe recipe boundaries and payload symlinks; no manual
-   deletion of old payloads is required. Outputs are the neutral app artifact,
-   `dist/fre3nderscreen-2026.2-fre3nder.2-x2000.fre3app` in fre3nder-apps,
-   and the byte-identical local Factory seed. No Kernel or RootFS rebuild is
-   needed for this app package.
-2. Verify the package offline using Fre3nder Package-Core's `verify_package()`
-   with `BUILTIN_KEYS` set to the local
-   `local/production/keys/apps/` directory containing `fre3nder-official.pem`.
-   Require the official publisher, version `2026.2-fre3nder.2`, serial `2`, display API `1`
-   and `autostart = false`. Check the signed
-   `payload/artifact-manifest.json` against the source/submodule pins and ABI.
-   The importer checks the exact file set, manifest hashes and `SHA256SUMS`;
-   Package-Core verifies the package checksums and Ed25519 signature. Confirm
-   package/Factory-seed byte equality and SHA256 without installing anything.
-3. Separately authorize installation and regression testing of that exact
-   production package on X2000. Migration hardware tests cover Development app
-   `2026.2.3a8ad6a-fre3nder.0.937984e`, not the later production release binary.
-4. Before publishing, explicitly resolve the existing local Screen tag
-   `2026.2`, currently targeting `823d090` before the dependency migration,
-   and check the remote tag state. Do not move or delete a tag automatically.
-   Correcting that prepared tag requires a separate
-   decision; choosing a new version instead also requires matching pin
-   and package-version changes. Tags, pushes and releases need approval.
+Verify the official publisher, package version, serial, display API and signed
+source/submodule/ABI manifest. Compare the package with the staged Factory seed.
+Development packages use serial 0. The Screen-only pipeline has no dependency
+on the separately signed Moonraker system-app seed.
 
 The component scripts are
 [`scripts/build-x2000-kernel`](../scripts/build-x2000-kernel),

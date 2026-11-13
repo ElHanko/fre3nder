@@ -12,8 +12,7 @@ states; a procedure or API description does not qualify a new artifact.
 
 ## Administration / Operations
 
-- [Installation](installation.md): operator staging and activation; the general
-  consumer installer remains future work.
+- [Installation](installation.md): first installation from Stock, A/B deployment and migration to eMMC.
 - [Updates](updates.md): the current explicit platform-update sequence.
 - [Backup](backup.md): HOME/SYS backup roles and verified archives.
 - [Networking](networking.md): Ethernet/WLAN, SSH, provisioning and web access.

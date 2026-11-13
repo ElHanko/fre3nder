@@ -3,7 +3,7 @@
 Fre3nder's first-installation storage preparation runs **on a Linux build/admin
 host with the USB stick plugged into that host**, not on the printer. It does
 not deploy a Kernel/RootFS, change the printer's eMMC, or flash the F005 MCU.
-The only supported storage target in this first version is an entire USB disk.
+The preparation tool takes an entire USB disk.
 
 ## Partition layout
 
@@ -13,9 +13,7 @@ The only supported storage target in this first version is an entire USB disk.
 | 2 | 6 GiB | ext4 | `FRE3NDERHOME-U` | Persistent `/home` and application data |
 | 3 | Remaining space (at least 128 MiB) | FAT32 | `X2000DEV` | Initial WLAN and SSH provisioning |
 
-The previous development stick used a different layout: a 256 MiB FAT volume,
-300 MiB SYS, and the remaining approximately 6.7 GiB for HOME. The new layout
-uses a fixed 6 GiB HOME size. The tool needs a USB disk of at least 6,574 MiB,
+The tool needs a USB disk of at least 6,574 MiB,
 uses an MBR partition table and leaves a 1 MiB alignment offset. It changes
 **all** partitions and filesystems on that USB disk.
 

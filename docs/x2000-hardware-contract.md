@@ -156,9 +156,9 @@ constraints are:
   p9, and part of p10, while p2 lies outside its configured ranges. Actual
   preservation remains unverified until an actual Cloner execution and post-boot
   identity check are authorized and completed.
-- Stock first boot can recreate p9 and p10. Fre3nder currently keeps SYS and
-  HOME on separate external backends; internal persistence needs a separate
-  location and migration decision.
+- Stock first boot can recreate p9 and p10. On the documented layout,
+  Fre3nder can repurpose those partitions for SYS and HOME through the
+  explicit [eMMC migration](installation.md#migrate-usb-persistence-to-emmc).
 - Keep BootROM recovery reachable and do not depend on a permanent undocumented
   special state.
 

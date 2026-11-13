@@ -232,6 +232,10 @@ class FactoryModeTests(unittest.TestCase):
         self.seed = self.root / "seed.fixture"
         self.bin = self.root / "bin"
         executable(self.bin / "git", FAKE_GIT)
+        app_key = self.root / "local/production/keys/apps/fre3nder-official.pem"
+        app_key.parent.mkdir(parents=True)
+        app_key.write_text("fixture public key")
+        executable(self.bin / "openssl", '#!/bin/sh\nprintf "%s\\n" "ED25519 Public-Key:"\n')
         self.log = self.root / "docker.log"
         executable(self.bin / "docker", '#!/bin/sh\nprintf called >> "$FIXTURE_DOCKER_LOG"\n')
         self.env = dict(os.environ, PATH=str(self.bin) + os.pathsep + os.environ["PATH"],

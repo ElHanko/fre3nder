@@ -7,30 +7,27 @@ preflight does not authorize a printer write. Persistent staging, selector
 changes, and reboots require a separately authorized concrete operation under
 [`AGENTS.md`](../AGENTS.md).
 
-For the first-installation external USB stick, use the read-only preflight and
-explicitly authorized preparation in [USB storage setup](first-install-storage.md).
-The internal Stock p9/p10 partitions are not changed by that operation.
+For a first installation from the documented Stock A reference state, prepare
+the [USB persistence and provisioning stick](first-install-storage.md). Run
+`scripts/deploy-x2000 <printer-host> --from-stock` for the read-only preflight.
+The authorized `--from-stock --write` operation stages the verified Kernel and
+RootFS on inactive slot B, activates it and checks the first Fre3nder boot.
+Stock's writable partitions p9 and p10 are retained at this stage.
 
-For a first installation from the qualified Stock A reference state, first
-prepare the USB stick using [USB storage setup](first-install-storage.md) and
-verify both persistence labels on the running Stock printer. Use
-`scripts/deploy-x2000 <printer-host> --from-stock` for read-only preflight.
-An explicitly authorized `--from-stock --write` uses the existing verified
-A/B deployment to install Fre3nder to inactive B, without attempting the
-Fre3nder-only SYS reset marker. It validates the first Fre3nder boot using the
-existing runtime checks. Do not use this mode for Fre3nder-to-Fre3nder updates.
+Existing USB installations with unsuffixed persistence labels need the
+[new USB labels](first-install-storage.md#relabel-an-existing-usb-stick)
+when booting a 2026.5 RootFS. Coordinate relabeling with activation of that
+RootFS because the older boot code uses the previous labels.
 
-For a normal Kernel-and-RootFS `--write`, the active host must already run
-Fre3nder with `/run/fre3nder-root/status` reporting `active`: after staging,
-`deploy-x2000` arms the SYS reset on that runtime before selecting the new
-slot. Its read-only preflight does not prove this later requirement. In
-particular, this command is not a complete first-installation sequence from
-Stock; a write run can stage the inactive pair before refusing the SYS reset.
+For an existing Fre3nder installation, use the standard deployment flow below
+or the [platform update workflow](updates.md). Normal deployment requires
+`/run/fre3nder-root/status` to report `active` so the running system can prepare
+the SYS reset for the next boot.
 
-First installation uses the external ext4 filesystems prepared by
-[USB storage setup](first-install-storage.md). Their labels and roles are
-described in [storage layout](storage-layout.md). A/B deployment stages the
-host image separately from the persistence filesystems. A guided first-installation flow remains [roadmap work](roadmap.md#user-facing-installation-and-releases).
+After a successful first boot on USB, the reference system can
+[migrate SYS and HOME to eMMC](#migrate-usb-persistence-to-emmc). The USB stick
+can be removed once the [WLAN and SSH profile](networking.md#usb-provisioning)
+has been saved on HOME and verified after boot.
 
 ## Before staging
 
@@ -140,13 +137,6 @@ staging or post-boot validation fails, keep the failure output and use the
 [recovery decision path](recovery.md); do not assume a failed command left the
 selector or partially written target in a usable state.
 
-The operator confirmed the Development deployment of `2026.5.a` from
-`2a47ebf`, including Kernel/RootFS readback, A/B activation and restart into
-slot A (`/dev/mmcblk0p7`). The new RootFS's OS identity, login banner and
-interactive SSH prompt passed hardware validation; the network hostname and
-existing SSH access were retained. See the compact
-[OS identity results](versioning.md#operating-system-identity).
-
 ## Migrate USB persistence to eMMC
 
 Use a Fre3nder RootFS with eMMC persistence support on the documented
@@ -186,6 +176,8 @@ eMMC labels. After `EMMC_MIGRATION=PASS`, reboot normally. Keep the USB stick co
 if WLAN or SSH still needs to be [provisioned](networking.md#usb-provisioning).
 Confirm `/run/fre3nder-root/status` is `active`, SYS is mounted
 from `/dev/mmcblk0p9`, and `/home` is mounted from `/dev/mmcblk0p10`.
+After the HOME provisioning profile is in place, shut down, remove the stick,
+boot again and verify WLAN and SSH if provisioned.
 
 Fre3nder selects the eMMC copy only when both internal labels are present.
 An incomplete copy leaves the original USB pair available for boot and retry.

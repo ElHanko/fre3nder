@@ -4,6 +4,49 @@ This file records the user-visible and architecturally relevant changes of
 Fre3nder releases. Technical documentation describes the current system rather
 than preserving release-specific acceptance checklists.
 
+## 2026.5
+
+### Installation and storage
+
+- Added an expert Stock-to-Fre3nder installation path with USB storage
+  preparation, read-only preflight and verified inactive-slot deployment.
+- Added migration of SYS and HOME to internal eMMC on the reference
+  Ender-3 V3 KE. After the initial WLAN and SSH import, the saved HOME profile
+  supports boot and network access without a USB stick. A USB provisioning
+  volume can supply temporary settings for a single boot.
+- Added verified HOME and SYS backups with USB, HOME and browser download
+  options where supported by the frontend. Saved provisioning credentials
+  are excluded from ordinary HOME backup archives.
+
+### Maintenance and applications
+
+- Added opt-in Maintenance web administration with a pairing flow, system
+  details, signed app management and manual A/B OTA updates.
+- Moved Moonraker to an official signed system app. Boot recovers its cached
+  package after a SYS reset and reconciles newer signed image seeds by release
+  serial. Fre3nderScreen remains an independently updated Factory app.
+- Added optional signed repository update discovery and downloads for apps.
+- Updated the Factory app to Fre3nderScreen 2026.3 with LVGL 9.6, local system
+  management and persistent IANA timezone settings. The local display has
+  native VT handoff and a diagnostic console.
+
+### Printer and build
+
+- Added reference Klipper filament-change and print-resume workflows. Recovery
+  homing remains opt-in after validation of the homing point and travel paths.
+- Updated the X2000 baseline to Linux 6.6.162, Buildroot 2025.02.19 and Greenlet
+  3.5.6. The patched Buildroot and Klipper host MCU identify as Fre3nder.
+- Added a release build entry point, component provenance checks and isolated
+  build inputs. The system exposes the Fre3nder identity in `os-release`,
+  the console banner and the shell prompt.
+
+### Reference-device evidence
+
+- A separate resume run completed the eMMC migration after the regular write
+  run stopped on HOME copy verification. The reference printer subsequently
+  booted with SYS and HOME on eMMC and connected to WLAN and SSH with the USB
+  stick and USB LAN adapter removed.
+
 ## 2026.4 - 2026-10-02
 
 Fre3nder 2026.4 is the **Managed Platform** release.

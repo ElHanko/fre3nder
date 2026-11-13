@@ -105,4 +105,4 @@ final release commit belong in [`CHANGELOG.md`](../CHANGELOG.md).
 
 ## Current development line
 
-The current development line uses `2026.5.a`.
+Use the root [`VERSION`](../VERSION) for the version of this checkout.

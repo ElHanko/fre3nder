@@ -64,8 +64,8 @@ PUBLIC / SUPPORTED in the documented scope:
 
 | Role / indicator | Path / meaning |
 | --- | --- |
-| Userdata HOME | `/home`, current backend `LABEL=FRE3NDERHOME` ext4 |
-| System SYS | Current `LABEL=FRE3NDERSYS` ext4, reconstructible OverlayFS upper/work and platform boot metadata |
+| Userdata HOME | `/home`, on the ext4 backend selected at boot. See [storage layout](../storage-layout.md#fre3nder-persistence-roles) |
+| System SYS | Reconstructible OverlayFS upper/work and platform boot metadata, on the ext4 backend selected at boot |
 | Immutable baseline | `/rom`; `/run` and `/tmp` are volatile |
 | SYS app runtime (default) | `/opt/fre3nder/apps-v2/<app>/`, reconstructible after SYS reset |
 | HOME app runtime (explicit) | `/home/.fre3nder-runtime/apps-v2/<app>/`, retained across SYS reset and verified against the signed cache |

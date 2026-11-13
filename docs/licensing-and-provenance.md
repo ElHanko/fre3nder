@@ -202,13 +202,10 @@ RootFS build manifest records the embedded package hash in `system_apps`.
 ## Fre3nderScreen application artifact
 
 The Fre3nder-maintained source is `https://github.com/ElHanko/fre3nderscreen.git`
-(release `2026.2`), under `GPL-3.0-only`. The exact source commit is recorded in
-`configs/x2000/sources.json`; it selects `3a8ad6a`, the completed LVGL 9.6
-migration including build fixes.
-The source retains native
-management, the subsequent cleanup, original GuppyScreen Git history and upstream
-provenance. See the remaining
-[release integration steps](build.md#fre3nderscreen-20262-release-integration).
+(release `2026.3`), under `GPL-3.0-only`. The exact source commit and its
+submodules are pinned in `configs/x2000/sources.json`. The repository retains
+original GuppyScreen history and upstream provenance. See
+[release inputs](build.md#fre3nderscreen-release-inputs).
 
 The fork descends from the published `ballaswag/guppyscreen` `0.0.26-beta`
 baseline at commit `cf5c6d7539a2dca090ca71c177f57a2d96df443a`. Exact source and
@@ -251,24 +248,7 @@ layout, and flat single-printer configuration directly in source. Fre3nder
 does not execute or redistribute the removed GuppyScreen installers or
 Creality-specific binary payloads.
 
-Earlier, the operator reported X2000 hardware qualification with Fre3nder 2026.5 and
-Screen `65b37b9`: unprivileged startup as `fre3nder` with primary GID
-`fre3nder-management`, protected root-owned app runtime, native system
-information, app management including writes, and the full OTA workflow
-through backup, readback, activation and restart. The subsequent cleanup
-passed a Docker/SDL build, manual UI testing and a local X2000 Development
-cross-build according to the operator. The completed upstream migration at
-`3a8ad6a` additionally passed the cross-build, interactive simulator, full
-Fre3nder Development build with Linux 6.6.161/RootFS/OTA, signed-package
-verification, slot-B boot and update from the embedded Factory app. The tested
-Development package is `2026.2.3a8ad6a-fre3nder.0.937984e`; its display, touch,
-standby/wake and VT results are scoped in the
-[display guide](display.md#configuration-and-qualification-boundary).
-Production release packaging and hardware qualification of that later binary
-remain separate; these results do not qualify every UI function. The later
-OS identity change `040b313` has its own completed
-[RootFS hardware validation](versioning.md#operating-system-identity).
-Earlier Factory-app qualification remains historical evidence in
+Hardware and build evidence is recorded in
 [display qualification](../research/docs/display-qualification.md).
 
 ## Public Creality Klipper source

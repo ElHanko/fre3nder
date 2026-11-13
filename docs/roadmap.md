@@ -14,43 +14,17 @@ work.
 
 Define a reproducible public release-artifact and download boundary, including
 how a user selects an exact release and sees its installed version and update
-state through the normal UI or API. Turn the established development deployment
-into a guided Stock-to-Fre3nder installation flow with model checks,
-Point-of-Return backup, safe deployment, understandable recovery and rollback,
+state through the normal UI or API. Turn the documented
+[expert installation](installation.md) into a guided Stock-to-Fre3nder flow
+with model checks, Point-of-Return backup, safe deployment, understandable recovery and rollback,
 and a clear return-to-Stock path. Minimize required SSH and project-specific
 knowledge without removing expert SSH administration or choosing an installer
 technology prematurely.
 
-### Fre3nderScreen project boundary
-
-Fre3nderScreen is maintained outside the Fre3nder platform repository, with
-its original history and upstream provenance retained. Its current source
-includes native System, Apps and OTA management, followed by removal of
-unused Guppy scope. The operator reports hardware qualification of those
-management paths at `65b37b9` on Fre3nder 2026.5, and successful Docker/SDL
-build, manual UI testing and local X2000 Development cross-build after cleanup.
-
-The upstream migration is complete at Screen `3a8ad6a`: LVGL 9.6.0 with
-integrated drivers replaces LVGL 8.3.11 and `lv_drivers`; libhv is 1.3.4 and
-spdlog is 1.17.0 with bundled fmt 12.1.0. Cross-build, interactive simulator,
-full Fre3nder Development build (Linux 6.6.161, RootFS and OTA), signed package,
-slot-B boot and the RootFS-seed app update passed. Display/touch, 300-second
-standby, touch wake and tty1/tty7 handoff were validated with
-`2026.2.3a8ad6a-fre3nder.0.937984e`; see the compact
-[qualification scope](display.md#configuration-and-qualification-boundary).
-
-Remaining [release preparation](build.md#fre3nderscreen-20262-release-integration)
-concerns the production package and publication, not completion of the migration.
-The Development results do not qualify a later production release binary.
-Resolve the existing old `2026.2` tag explicitly before publication.
-
 ### Local UI product experience
 
-Continue optimizing the Fre3nderScreen product experience for the fixed 272x480
-logical portrait display. Improve remaining quality-of-life workflows and local
-administration so normal printer use depends less on the web UI or SSH. Larger
-UX changes remain optional until a concrete scope is selected; this product
-work is separate from the Factory-app integration qualification above.
+Improve local printer and administration workflows on the 272x480
+Fre3nderScreen display so fewer tasks require the web UI or SSH.
 
 ### Managed applications
 
@@ -61,44 +35,21 @@ restore, version/pin, dependency, discovery, and user-management behavior while
 keeping catalog work demand-driven. Avoid introducing a general package-manager
 framework without a concrete need.
 
-### Platform updates (OTA) and rollback
+### Platform updates and rollback
 
-Add a safe release-to-release update path for the Fre3nder platform.
-
-The update architecture should use the existing X2000 A/B system slots so that
-the currently active system remains untouched while a new system is written and
-verified on the inactive side.
-
-Platform updates should preserve the logical `HOME` role while resetting the
-logical `SYS` system overlay for the newly installed release. OTA must operate on
-these logical storage roles rather than depending on their physical backing.
-Physical assignment of `SYS` and `HOME` remains an installation/storage-policy
-responsibility.
-The update must retain a usable fallback, fit the installation and recovery
-workflows, and never imply silent F005 firmware flashing.
-
-The initial implementation is intended for the currently supported external
-Fre3nder persistence backend. Internal persistence and migration are separate
-future work and may require corresponding extensions to OTA.
-
-The same OTA core should eventually be usable through SSH/CLI, the web interface,
-and the local display. Local upload and removable USB storage are the initial
-planned update sources.
-
-A deliberate return to compatible Creality Stock firmware should also be
-supported without requiring a permanently preserved Stock A/B slot. Normal
-Fre3nder platform updates remain separate from F005 firmware updates.
+Expand hardware validation of release-to-release A/B updates on the supported
+USB and eMMC backends. Improve recovery when a newly activated system does not
+boot, and evaluate additional update sources when needed. The current
+[OTA workflow](updates.md) covers the CLI, Maintenance and Fre3nderScreen.
 
 ## Later
 
 ### Application update lifecycle
 
-Integrate Moonraker self-update and Fluidd or other managed-application updates
-with explicit version ownership, dependency handling, and defined service
-restarts. Restore desired applications automatically after a system-overlay
-reset when that can be done safely. Application updates must remain separate
-from platform ownership and must never implicitly replace the kernel, RootFS,
-F005 firmware, or A/B state.
+Improve signed-package updates, recovery and dependency handling as concrete
+apps require them. Moonraker already uses the platform system-app lifecycle.
+Keep app updates independent of the Kernel, RootFS, F005 firmware and A/B
+state. See [applications](apps.md).
 
 ### Kernel upstreaming
 
@@ -106,13 +57,6 @@ The productive kernel is already independently maintainable from official Linux
 stable. Reduce the remaining Fre3nder X2000 hardware-support series over time
 and upstream suitable support where practical. Upstreaming is a maintenance
 improvement, not a prerequisite for the current kernel path.
-
-### Internal persistence backend
-
-Provide an installation-oriented internal backend for the existing system and
-userdata persistence roles, which currently use external Development storage.
-The design must preserve the logical role abstraction, avoid assuming ownership
-of Stock data, and define migration and recovery before changing partitions.
 
 ### Network resilience
 

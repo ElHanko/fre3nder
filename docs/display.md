@@ -10,7 +10,7 @@ X11, Wayland, first-boot download or standalone installer is required.
 Release source, submodules and licenses are recorded in
 [sources.json](../configs/x2000/sources.json) and
 [licensing and provenance](licensing-and-provenance.md#fre3nderscreen-application-artifact).
-The current Screen pin is `3a8ad6a`: LVGL 9.6.0, libhv 1.3.4 and
+Screen 2026.3 is pinned to `c70c616` and uses LVGL 9.6.0, libhv 1.3.4 and
 spdlog 1.17.0 with bundled fmt 12.1.0. LVGL's integrated drivers replace the
 removed `lv_drivers` dependency.
 A source pin or unchanged application source is not hardware qualification of
@@ -167,22 +167,10 @@ Exact artifacts, dated results and untested failure scenarios are recorded in
 [display qualification](../research/docs/display-qualification.md#2026-10-11-linux-vt-integration-qualification).
 Missing local UI does not block SSH, Klipper, Moonraker or the web frontend.
 
-The operator reports completed upstream-migration validation at Screen
-`3a8ad6a`, using signed Development app
-`2026.2.3a8ad6a-fre3nder.0.937984e` on the reference Ender-3 V3 KE:
-
-- MIPS/X2000 cross-build, Docker/SDL simulator build and interactive use;
-- complete Fre3nder Development build with Linux 6.6.161, RootFS and OTA,
-  plus creation and verification of the signed Screen package;
-- deployment and successful boot on slot B, followed by updating the installed
-  Screen from the RootFS-contained `.fre3app`;
-- startup/rendering, touch, standby after 300 seconds, wake by touch, and
-  switching between tty1 and tty7 with working touch after returning.
-
-These results qualify that Development package and the listed paths. They do
-not qualify a later production release package. The separate FRE3NDER OS
-identity change `040b313` was subsequently confirmed on hardware with a newly
-built RootFS; see [OS identity](versioning.md#operating-system-identity).
+The reference Ender-3 V3 KE ran signed Screen package
+`2026.3-fre3nder.1` (source `c70c616`, serial 3) across repeated boots.
+Earlier LVGL migration results and their exact artifact are recorded in
+[display qualification](../research/docs/display-qualification.md#2026-11-08-lvgl-96-migration).
 
 ## Linux virtual terminals
 

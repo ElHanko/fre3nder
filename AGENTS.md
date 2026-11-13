@@ -372,7 +372,7 @@ reference:
 Keep that tree unchanged as historical migration/reference material.
 
 The productive Fre3nder kernel baseline is defined by
-`configs/x2000/sources.json`. For the current `2026.5.a` development line it is:
+`configs/x2000/sources.json`. The current pin is:
 
 - Linux stable `v6.6.162`
 - Commit: `5139929c698c273e07cb0635732f6a918a7b8e78`

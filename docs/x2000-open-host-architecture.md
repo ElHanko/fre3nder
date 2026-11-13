@@ -65,20 +65,11 @@ QUALIFICATION**. The evidence and boundaries are specified in
 
 ## Persistence ownership boundary
 
-The current Fre3nder implementation uses two manually provisioned external
-ext4 backends. `FRE3NDERSYS` supplies the logical system-persistence role;
-its normal data payload consists of OverlayFS `upper` and `work`, with reset
-markers and OTA activation/known-good records as additional boot-control
-metadata; see [storage layout](storage-layout.md#fre3nder-persistence-roles) and
-[OTA](ota.md#persistent-activation-handoff). `FRE3NDERHOME` supplies the logical
-userdata role mounted at `/home`. Persistence backend discovery uses labels and
-the expected filesystem type, independently of USB device names or eMMC
-partition numbers. A targeted reset marker separately names the intended A/B root.
-
-Internal p9 and p10 are future backends for the same logical roles, not the
-current implementation. On the investigated Stock system p9 remains the vendor
-OverlayFS backing store. This implementation does not mount, format, delete, or
-otherwise claim internal p9 or p10.
+SYS holds the writable OverlayFS and boot-control records. HOME holds user
+data mounted at `/home`. The runtime selects an ext4 pair on USB or, after
+migration, on internal eMMC p9/p10. See [storage layout](storage-layout.md#fre3nder-persistence-roles)
+for backend discovery and [OTA](ota.md#persistent-activation-handoff) for
+targeted SYS resets.
 
 Within userdata, `/home/fre3nder/printer_data` owns persistent printer-facing
 state. The current Klipper integration uses `printer_data/config/printer.cfg`

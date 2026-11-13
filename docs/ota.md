@@ -13,10 +13,8 @@ The goal is a simple A/B platform update mechanism with a usable previous
 Fre3nder release as fallback, persistent user data, a clean system state after
 an update, and an explicit path back to Creality Stock firmware.
 
-The initial implementation targets the currently supported external Fre3nder
-persistence model. Later storage backends may extend the storage-policy layer
-without changing the basic OTA contract around the logical `SYS` and `HOME`
-roles.
+OTA supports the USB and eMMC backends through the logical `SYS` and `HOME`
+roles. The running system determines which pair is active.
 
 This document defines architecture and required behavior. It does not itself
 authorize writes to printer block devices, firmware deployment, boot-selector
@@ -98,28 +96,11 @@ runtime consumers
 Changing the physical implementation of `SYS` or `HOME` must not require
 redesigning the normal OTA state machine.
 
-### Initial storage scope
+### Supported storage backends
 
-The first OTA implementation supports only the current qualified Fre3nder
-persistence model:
-
-```text
-SYS  -> external ext4 backend identified as FRE3NDERSYS
-HOME -> external ext4 backend identified as FRE3NDERHOME
-```
-
-The existing runtime storage implementation resolves those backends by logical
-role and does not depend on USB device names.
-
-Internal Fre3nder persistence is explicitly outside the initial
-implementation.
-
-The OTA implementation must not add provisional p9/p10 handling merely for
-future completeness.
-
-If the supported logical persistence roles cannot be resolved through the
-supported initial storage model, OTA must fail closed rather than guessing a
-physical backend.
+[Storage layout](storage-layout.md#fre3nder-persistence-roles) defines the USB
+and eMMC ext4 pairs. OTA resolves the pair matching the active SYS mount and
+requires the mounted SYS and HOME devices to match that pair.
 
 ## A/B platform layout
 
@@ -139,8 +120,8 @@ Side B:
     p6  kernel B
     p8  RootFS B
 
-p9   Stock rootfs_data
-p10  Stock userdata
+p9   Stock rootfs_data / Fre3nder SYS after eMMC migration
+p10  Stock userdata / Fre3nder HOME after eMMC migration
 ```
 
 For the normal Fre3nder Linux platform, the primary A/B release artifacts are:
@@ -739,8 +720,8 @@ The supported roots are:
 
 Any other root, or an ambiguous `root=` command line, fails closed.
 
-The technical preflight also resolves exactly one `FRE3NDERSYS` and exactly one
-`FRE3NDERHOME` backend through `blkid`. It then requires:
+The technical preflight resolves the active SYS and HOME roles through the
+mount table and `blkid`. It then requires:
 
 * `SYS` to be mounted exactly once at `/run/fre3nder-root/system`;
 * `HOME` to be mounted exactly once at `/home`;
@@ -1043,9 +1024,8 @@ Stock restoration follows the same rule: it writes only the components required
 for the selected inactive Stock system target and does not introduce persistence
 migration or storage reprovisioning.
 
-Future installation work may assign different physical storage to `SYS` and
-`HOME`. Any resulting Stock-transition conflicts must then be handled by the
-storage-policy layer without changing the basic OTA abstraction.
+If eMMC p9/p10 have been repurposed, follow the [recovery guide](recovery.md)
+for Stock writable-state requirements.
 
 ## F005 policy
 
@@ -1066,65 +1046,10 @@ qualification as part of the Stock restoration workflow.
 
 ## Installer boundary
 
-OTA is not responsible for choosing the physical backing of `SYS` and `HOME`.
-
-That decision belongs to installation and storage provisioning.
-
-The intended long-term architecture is:
-
-```text
-INSTALL
-
-choose/provision physical storage
-        |
-        +--> bind SYS
-        `--> bind HOME
-
-
-RUNTIME / OTA
-
-use SYS
-use HOME
-```
-
-The current installer and OTA paths do not yet share a complete storage
-lifecycle. This is an accepted development inconsistency for the initial
-implementation.
-
-Fre3nder currently cannot be installed through the original Creality OTA path,
-so the first OTA implementation only needs to support an already installed
-Fre3nder system with the current external persistence model.
-
-When an internal Fre3nder persistence backend is designed later, installation
-will define what physically backs `SYS` and `HOME`.
-
-At that point the storage abstraction and Stock-impact policy must be extended.
-
-Normal OTA semantics should remain:
-
-```text
-SYS  -> reset for a new Fre3nder platform release
-HOME -> preserve
-```
-
-OTA should not need to be redesigned around p9/p10.
-
-## Explicit v1 non-goals
-
-The following are outside the initial OTA implementation:
-
-* using p9 as Fre3nder `SYS`;
-* using p10 as Fre3nder `HOME`;
-* migrating persistence between external and internal storage;
-* repartitioning the eMMC;
-* formatting p9 or p10;
-* maintaining slot-specific `SYS` overlays;
-* silently updating F005 during normal Fre3nder OTA;
-* implementing independent update engines for SSH, Fluidd, and the display;
-* adding a general package manager or enterprise OTA framework without a
-  concrete requirement;
-* solving future installer storage policy before internal persistence is
-  actually implemented.
+The [installation workflow](installation.md) prepares USB persistence and
+offers a separate eMMC migration. OTA uses the active backend, preserving HOME
+and preparing a targeted SYS reset. Partitioning, formatting, storage migration,
+and F005 firmware changes belong to their own workflows.
 
 ## Qualification boundary
 
