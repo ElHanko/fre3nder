@@ -981,9 +981,13 @@ def execute_backup(
     result = {"complete": False, **{role: dict(value) for role, value in selection.items()}}
     retained = []
     try:
-        # HOME first; both temporary data and existing permanent backups are excluded.
+        # HOME first. Keep saved network credentials out of exported archives.
         for role, source, excludes in (
-            ("home", home_source, (home_source / ".tmp", home_source / "Fre3nderBackup")),
+            ("home", home_source, (
+                home_source / ".tmp",
+                home_source / "Fre3nderBackup",
+                home_source / ".fre3nder-provisioning",
+            )),
             ("sys", sys_source, (sys_source / "ota" / "packages",)),
         ):
             if not selection[role]["selected"]:

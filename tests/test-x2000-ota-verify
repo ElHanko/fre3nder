@@ -493,6 +493,10 @@ def test_backup_execution():
             / "fixture.cfg"
         ).write_text("home fixture\n")
 
+        provisioning = home_source / ".fre3nder-provisioning" / "current"
+        provisioning.mkdir(parents=True)
+        (provisioning / "wpa_supplicant.conf").write_text("network fixture\n")
+
         home_backup_directory = (
             home_source / "Fre3nderBackup"
         )
@@ -736,6 +740,9 @@ def test_backup_execution():
                     "home/Fre3nderBackup/"
                 )
                 for name in names
+            )
+            assert not any(
+                name.startswith("home/.fre3nder-provisioning") for name in names
             )
 
         with tarfile.open(

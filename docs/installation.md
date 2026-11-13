@@ -182,9 +182,9 @@ scripts/migrate-x2000-storage <printer-host> --write
 
 This stops printer and application services, copies SYS and HOME from the USB
 filesystems mounted read-only, then verifies both copies before applying the
-eMMC labels. After `EMMC_MIGRATION=PASS`, reboot normally **with the USB stick
-connected**. S20 continues to load WLAN and SSH provisioning from its FAT
-partition. Confirm `/run/fre3nder-root/status` is `active`, SYS is mounted
+eMMC labels. After `EMMC_MIGRATION=PASS`, reboot normally. Keep the USB stick connected
+if WLAN or SSH still needs to be [provisioned](networking.md#usb-provisioning).
+Confirm `/run/fre3nder-root/status` is `active`, SYS is mounted
 from `/dev/mmcblk0p9`, and `/home` is mounted from `/dev/mmcblk0p10`.
 
 Fre3nder selects the eMMC copy only when both internal labels are present.

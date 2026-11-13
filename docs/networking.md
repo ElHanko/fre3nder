@@ -27,7 +27,7 @@ S40 brings up loopback at `127.0.0.1/8`. It first tries a suitable non-wireless
 Ethernet interface with carrier and a DHCP lease. A successful Ethernet path
 leaves WLAN down. The validated external adapter path uses USB CDC-NCM, not the
 X2000 integrated MAC. Boot failure of Ethernet falls back to WLAN when a valid
-boot-local configuration and exactly one wireless interface are available.
+provisioned configuration and exactly one wireless interface are available.
 WLAN uses wpa_supplicant with nl80211 and a long-lived BusyBox DHCP client.
 There is no automatic runtime/hotplug Ethernet/WLAN failover.
 
@@ -37,7 +37,7 @@ Place any needed inputs at the root of a FAT32 provisioning volume:
 
 | Input | Accepted form | Effect |
 | --- | --- | --- |
-| `wpa_supplicant.conf` | Nonempty regular non-symlink file, at most 64 KiB | Boot-local WLAN configuration; association must still succeed |
+| `wpa_supplicant.conf` | Nonempty regular non-symlink file, at most 64 KiB | WLAN configuration; association must still succeed |
 | `authorized_keys` | Regular non-symlink file, at most 64 KiB, accepted public-key lines | SSH authorization input, not an SSH-enable switch |
 | `enable_ssh` | Empty regular non-symlink file | Explicit SSH enable, effective only with valid nonempty authorized keys |
 
@@ -56,10 +56,21 @@ reported; a partial result does not mean SSH or WLAN prerequisites are complete.
 
 Accepted files are copied with restrictive permissions to
 `/run/fre3nder/provisioning/`, then the source is unmounted before network startup.
-The inputs are volatile and are cleared/re-evaluated at boot; the service does
-not persist credentials or write the provisioning medium, SquashFS or eMMC
-partitions. This boot-local path is distinct from the later runtime USB mount
-used by [backup](backup.md#runtime-usb-requirements).
+On the first successful import with active persistent HOME, S20 saves the WLAN
+configuration and the complete SSH enable/key pair, where supplied, under
+`/home/.fre3nder-provisioning/current/`. The directory is root-only. The saved
+profile survives reboot and a SYS reset and is excluded from normal HOME backup
+archives. Keep the original FAT volume as a recovery copy.
+
+With no provisioning volume, S20 loads the saved profile from HOME and reports
+`persistent`. With a single provisioning volume, its accepted inputs apply to
+that boot. The saved profile is left in place, so a recovery stick can supply
+temporary credentials. To replace the saved profile, first boot with an updated
+provisioning volume and verify access. Move the saved `current` directory aside
+as root and reboot with the updated volume still connected.
+Without active persistent HOME the USB import stays boot-local. This path is
+distinct from the later runtime USB mount used by
+[backup](backup.md#runtime-usb-requirements).
 
 ## SSH
 

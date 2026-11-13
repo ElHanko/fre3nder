@@ -14,6 +14,7 @@ trap cleanup EXIT HUP INT TERM
 state=$tmp/run/fre3nder
 volumes=$tmp/volumes
 root_state=$tmp/run/fre3nder-root
+saved=$tmp/home/.fre3nder-provisioning/current
 ssh_dir=$tmp/home/fre3nder/.fre3nder/ssh
 dev_root=$tmp/dev
 bin=$tmp/bin
@@ -97,6 +98,8 @@ run_provision() {
 	X2000_TEST_VOLUMES="$volumes" \
 	X2000_TEST_LOG="$log" \
 	FRE3NDER_STATE="$state" \
+	FRE3NDER_ROOT_STATE="$root_state" \
+	FRE3NDER_HOME_MOUNT="$tmp/home" \
 	FRE3NDER_DEV_ROOT="$dev_root" \
 	FRE3NDER_USB_DEVICES="$*" \
 	FRE3NDER_MOUNT="$bin/mount" \
@@ -157,6 +160,7 @@ cmp -s "$volumes/sda/wpa_supplicant.conf" "$state/provisioning/wpa_supplicant.co
 component_status_is authorized_keys installed
 component_status_is enable_ssh installed
 component_status_is wpa_supplicant.conf installed
+[ ! -e "$saved" ]
 if grep -Fq blkid-called "$log" 2>/dev/null; then exit 1; fi
 
 # B: valid USB SSH provisioning enables the production Dropbear path.
@@ -197,6 +201,65 @@ rm -rf -- "$state/dropbear"
 run_dropbear
 [ "$(sha256sum "$persistent_hostkey" | awk '{print $1}')" = "$first_hostkey" ]
 [ "$(grep -c '^dropbearkey ' "$log")" -eq 1 ]
+
+# Persist WLAN and SSH on the first healthy boot and start without USB later.
+reset_case
+mkdir -p "$root_state"
+printf '%s\n' active > "$root_state/status"
+volume sda
+printf '%s\n' "$key" > "$volumes/sda/authorized_keys"
+: > "$volumes/sda/enable_ssh"
+printf 'network={ key_mgmt=NONE }\n' > "$volumes/sda/wpa_supplicant.conf"
+run_provision "$dev_root/sda"
+status_is provisioned
+[ "$(stat -c %a "${saved%/*}")" = 700 ]
+[ "$(stat -c %a "$saved")" = 700 ]
+for input in wpa_supplicant.conf authorized_keys enable_ssh; do
+	[ "$(stat -c %a "$saved/$input")" = 600 ]
+	cmp -s "$saved/$input" "$volumes/sda/$input"
+done
+run_dropbear
+dropbear_status_is active
+rm -rf -- "$state"
+run_provision
+status_is persistent
+cmp -s "$saved/wpa_supplicant.conf" "$state/provisioning/wpa_supplicant.conf"
+run_dropbear
+dropbear_status_is active
+cmp -s "$saved/authorized_keys" "$state/dropbear/root-ssh/authorized_keys"
+
+# An attached recovery volume applies for one boot only.
+printf '%s\n' 'ssh-ed25519 BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB recovery' > "$volumes/sda/authorized_keys"
+run_provision "$dev_root/sda"
+cmp -s "$volumes/sda/authorized_keys" "$state/provisioning/authorized_keys"
+[ "$(cat "$saved/authorized_keys")" = "$key" ]
+run_provision
+status_is persistent
+cmp -s "$saved/authorized_keys" "$state/provisioning/authorized_keys"
+
+# A HOME profile is unavailable in degraded mode or through an unsafe path.
+rm -f -- "$root_state/status"
+run_provision
+status_is no-volume
+printf '%s\n' active > "$root_state/status"
+chmod 0777 "$saved"
+run_provision
+status_is no-volume
+
+# An incomplete SSH pair cannot become persistent.
+reset_case
+mkdir -p "$root_state"
+printf '%s\n' active > "$root_state/status"
+volume sda
+printf '%s\n' "$key" > "$volumes/sda/authorized_keys"
+printf 'network={ key_mgmt=NONE }\n' > "$volumes/sda/wpa_supplicant.conf"
+run_provision "$dev_root/sda"
+[ -f "$saved/wpa_supplicant.conf" ]
+[ ! -e "$saved/authorized_keys" ]
+run_provision
+status_is persistent
+run_dropbear
+dropbear_status_is disabled
 
 # B3: without an active persistent root the volatile generation path remains.
 reset_case

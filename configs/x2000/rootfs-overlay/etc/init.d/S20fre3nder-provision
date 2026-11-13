@@ -10,6 +10,10 @@ mount_cmd=${FRE3NDER_MOUNT:-mount}
 umount_cmd=${FRE3NDER_UMOUNT:-umount}
 sleep_cmd=${FRE3NDER_SLEEP:-sleep}
 usb_wait_seconds=${FRE3NDER_USB_WAIT_SECONDS:-10}
+root_state=${FRE3NDER_ROOT_STATE:-/run/fre3nder-root}
+home=${FRE3NDER_HOME_MOUNT:-/home}
+store=$home/.fre3nder-provisioning
+saved=$store/current
 mounted=false
 max_wpa_bytes=65536
 max_authorized_keys_bytes=65536
@@ -112,6 +116,7 @@ wait_for_candidate() {
 	while :; do
 		scan_candidates || return 1
 		[ "$candidates" -gt 0 ] && return 0
+		[ "$saved_available" = true ] && return 0
 		[ "$seconds" -ge "$usb_wait_seconds" ] && return 0
 		"$sleep_cmd" 1
 		seconds=$((seconds + 1))
@@ -120,7 +125,7 @@ wait_for_candidate() {
 
 install_provisioning_files() {
 	valid=0
-	wpa=$mount_dir/wpa_supplicant.conf
+	wpa=$1/wpa_supplicant.conf
 	if valid_wpa_supplicant_conf "$wpa"; then
 		install -m 0600 "$wpa" "$provisioning/wpa_supplicant.conf" || return 1
 		set_component_status wpa_supplicant.conf installed
@@ -130,7 +135,7 @@ install_provisioning_files() {
 		log 'rejecting invalid wpa_supplicant.conf'
 	fi
 
-	keys=$mount_dir/authorized_keys
+	keys=$1/authorized_keys
 	if valid_authorized_keys "$keys"; then
 		install -m 0600 "$keys" "$provisioning/authorized_keys" || return 1
 		set_component_status authorized_keys installed
@@ -140,7 +145,7 @@ install_provisioning_files() {
 		log 'rejecting invalid authorized_keys'
 	fi
 
-	marker=$mount_dir/enable_ssh
+	marker=$1/enable_ssh
 	if regular_file "$marker" && [ ! -s "$marker" ]; then
 		install -m 0600 "$marker" "$provisioning/enable_ssh" || return 1
 		set_component_status enable_ssh installed
@@ -153,17 +158,68 @@ install_provisioning_files() {
 	[ "$valid" -gt 0 ]
 }
 
+home_active() {
+	[ "$(cat "$root_state/status" 2>/dev/null)" = active ] &&
+		[ -d "$home" ] && [ ! -L "$home" ] && [ -O "$home" ]
+}
+
+private_directory() {
+	[ -O "$1" ] &&
+		[ "$(find "$1" -maxdepth 0 -type d -perm 0700 -print 2>/dev/null)" = "$1" ]
+}
+
+stage_saved_files() {
+	if [ -f "$provisioning/wpa_supplicant.conf" ]; then
+		install -m 0600 "$provisioning/wpa_supplicant.conf" "$1/" || return 1
+	fi
+	if [ -f "$provisioning/authorized_keys" ] && [ -f "$provisioning/enable_ssh" ]; then
+		install -m 0600 "$provisioning/authorized_keys" "$provisioning/enable_ssh" "$1/" || return 1
+	fi
+}
+
+save_initial_provisioning() {
+	[ -f "$provisioning/wpa_supplicant.conf" ] || {
+		[ -f "$provisioning/authorized_keys" ] && [ -f "$provisioning/enable_ssh" ]
+	} || return 0
+	if ! present "$store"; then
+		mkdir -m 0700 "$store" || return 1
+	fi
+	private_directory "$store" || return 1
+	present "$saved" && return 0
+	staging=$(mktemp -d "$store/.import.XXXXXX") || return 1
+	if ! stage_saved_files "$staging" ||
+	   ! python3 -c 'import os, sys; os.rename(sys.argv[1], sys.argv[2])' "$staging" "$saved"; then
+		rm -rf -- "$staging"
+		return 1
+	fi
+	log 'saved provisioning on HOME'
+}
+
 start() {
 	clear_provisioning || return 1
 	rm -rf -- "$mount_dir"
 	install -d -m 0700 "$mount_dir" || return 1
 	chmod 0710 "$state"
+	saved_available=false
+	if home_active && private_directory "$store" && private_directory "$saved"; then
+		saved_available=true
+	fi
 
 	wait_for_candidate || {
 		set_status scan-failed
 		return 0
 	}
 	if [ "$candidates" -eq 0 ]; then
+		if [ "$saved_available" = true ]; then
+			if install_provisioning_files "$saved"; then
+				set_status persistent
+				log 'loaded provisioning from HOME'
+			else
+				clear_provisioning || return 1
+				set_status invalid-files
+			fi
+			return 0
+		fi
 		set_status no-volume
 		log 'no provisioning volume found'
 		return 0
@@ -179,7 +235,7 @@ start() {
 		return 0
 	fi
 	mounted=true
-	if ! install_provisioning_files; then
+	if ! install_provisioning_files "$mount_dir"; then
 		cleanup || true
 		clear_provisioning || return 1
 		set_status invalid-files
@@ -195,7 +251,10 @@ start() {
 	else
 		set_status partial
 	fi
-	log 'boot-local provisioning complete'
+	if home_active && ! save_initial_provisioning; then
+		log 'could not save provisioning on HOME; using USB for this boot'
+	fi
+	log 'USB provisioning complete'
 }
 
 trap cleanup 0 1 2 15

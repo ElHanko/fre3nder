@@ -28,7 +28,8 @@ Backend discovery uses exact labels and ext4. After the
 (`FRE3NDERSYS-I`) and p10 (`FRE3NDERHOME-I`) take precedence as a pair.
 USB persistence requires the `-U` labels. For older sticks, see
 [relabel an existing USB stick](first-install-storage.md#relabel-an-existing-usb-stick).
-The USB stick stays connected for [FAT provisioning](networking.md#usb-provisioning).
+The FAT partition supplies [initial provisioning](networking.md#usb-provisioning).
+Once provisioning is saved on HOME, the eMMC pair can boot without the stick.
 
 ## System timezone on HOME
 

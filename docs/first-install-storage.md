@@ -11,7 +11,7 @@ The only supported storage target in this first version is an entire USB disk.
 | --- | --- | --- | --- | --- |
 | 1 | 300 MiB | ext4 | `FRE3NDERSYS-U` | Root OverlayFS persistence (`upper`/`work`) |
 | 2 | 6 GiB | ext4 | `FRE3NDERHOME-U` | Persistent `/home` and application data |
-| 3 | Remaining space (at least 128 MiB) | FAT32 | `X2000DEV` | Boot-local provisioning |
+| 3 | Remaining space (at least 128 MiB) | FAT32 | `X2000DEV` | Initial WLAN and SSH provisioning |
 
 The previous development stick used a different layout: a 256 MiB FAT volume,
 300 MiB SYS, and the remaining approximately 6.7 GiB for HOME. The new layout
