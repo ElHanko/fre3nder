@@ -266,8 +266,8 @@ case "$command" in
 		# Check the embedded remote stock and USB guards, not just a marker.
 		printf '%s\n' "$body" | grep -Fq 'uname -r' || exit 1
 		printf '%s\n' "$body" | grep -Fq '/etc/ota_info' || exit 1
-		printf '%s\n' "$body" | grep -Fq 'FRE3NDERSYS' || exit 1
-		printf '%s\n' "$body" | grep -Fq 'FRE3NDERHOME' || exit 1
+		printf '%s\n' "$body" | grep -Fq 'LABEL="FRE3NDERSYS-U"' || exit 1
+		printf '%s\n' "$body" | grep -Fq 'LABEL="FRE3NDERHOME-U"' || exit 1
 		printf '%s\n' "$body" | grep -Fq 'SYS and HOME must belong to the same USB disk' || exit 1
 		printf '%s\n' "$body" | grep -Fq '/sys/class/block/$sys_base/device' || exit 1
 

@@ -6,18 +6,16 @@ revision. Historical Stock captures do not assign ownership to Fre3nder.
 
 ## Fre3nder persistence roles
 
-The current Fre3nder implementation does not use internal p9 or p10.
-Its external Development backend consists of two independently provisioned ext4
-filesystems:
+Fre3nder persistence consists of two separately provisioned ext4 filesystems:
 
 | Logical role | Current backend | Runtime role |
 | --- | --- | --- |
-| System persistence | `LABEL=FRE3NDERSYS` | OverlayFS `upper` and `work` for `/`, plus explicitly defined boot-control metadata |
-| Userdata persistence | `LABEL=FRE3NDERHOME` | mounted at `/home` |
+| System persistence | `FRE3NDERSYS-U` (USB), `FRE3NDERSYS-I` (eMMC) | OverlayFS `upper` and `work` for `/`, plus explicitly defined boot-control metadata |
+| Userdata persistence | `FRE3NDERHOME-U` (USB), `FRE3NDERHOME-I` (eMMC) | mounted at `/home` |
 
 The immutable SquashFS remains the OverlayFS lower and is visible at `/rom`
 after the early root switch. `/run` and `/tmp` are tmpfs. The normal data
-payload of `FRE3NDERSYS` consists of `upper` and `work`. Additional boot-control
+payload of SYS consists of `upper` and `work`. Additional boot-control
 metadata includes the optional legacy `.fre3nder-reset` marker whose exact
 `RESET_ON_NEXT_BOOT` content authorizes recreation of those two directories
 after the filesystem has been uniquely identified and mounted successfully.
@@ -25,11 +23,12 @@ The targeted `.fre3nder-reset-target` marker is consumed only by its intended
 A/B root. OTA also stores activation and known-good records alongside `upper`
 and `work`; their lifecycle is described in
 [OTA](ota.md#persistent-activation-handoff).
-Backend discovery uses exact labels and the expected ext4 type, independently
-of USB device names or future partition numbers. Current backend qualification is limited to the exact recorded reference
-artifacts, including diagnostic operation when a backend is absent or invalid.
-No internal p9/p10 fallback is implemented. Detailed degraded-runtime results
-remain in [storage evidence](../research/docs/storage-layout.md#fre3nder-persistence-roles).
+Backend discovery uses exact labels and ext4. After the
+[eMMC migration](installation.md#migrate-usb-persistence-to-emmc), p9
+(`FRE3NDERSYS-I`) and p10 (`FRE3NDERHOME-I`) take precedence as a pair.
+USB persistence requires the `-U` labels. For older sticks, see
+[relabel an existing USB stick](first-install-storage.md#relabel-an-existing-usb-stick).
+The USB stick stays connected for [FAT provisioning](networking.md#usb-provisioning).
 
 ## System timezone on HOME
 
@@ -144,8 +143,8 @@ those operations; neither slot is permanently reserved for Stock.
 
 Preserve GPT and the pre-p1 loader, p2 factory/identity material, p3/p4 RTOS,
 boot0/boot1, eMMC hardware boot configuration and RPMB. They are not generic
-free space or public configuration stores. Internal p9/p10 are Stock writable
-structures and remain outside current Fre3nder persistence ownership.
+free space or public configuration stores. Internal p9/p10 hold Stock writable data until explicitly repurposed by the
+eMMC migration.
 Gate satisfaction does not authorize partition, selector, bootloader or firmware
 writes; follow [AGENTS.md](../AGENTS.md) and [recovery](recovery.md).
 

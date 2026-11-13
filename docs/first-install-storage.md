@@ -9,8 +9,8 @@ The only supported storage target in this first version is an entire USB disk.
 
 | Partition | Size | Filesystem | Label | Purpose |
 | --- | --- | --- | --- | --- |
-| 1 | 300 MiB | ext4 | `FRE3NDERSYS` | Root OverlayFS persistence (`upper`/`work`) |
-| 2 | 6 GiB | ext4 | `FRE3NDERHOME` | Persistent `/home` and application data |
+| 1 | 300 MiB | ext4 | `FRE3NDERSYS-U` | Root OverlayFS persistence (`upper`/`work`) |
+| 2 | 6 GiB | ext4 | `FRE3NDERHOME-U` | Persistent `/home` and application data |
 | 3 | Remaining space (at least 128 MiB) | FAT32 | `X2000DEV` | Boot-local provisioning |
 
 The previous development stick used a different layout: a 256 MiB FAT volume,
@@ -20,7 +20,9 @@ uses an MBR partition table and leaves a 1 MiB alignment offset. It changes
 **all** partitions and filesystems on that USB disk.
 
 The current `fre3nder-root` init script finds SYS and HOME by their exact
-filesystem labels, not their partition numbers. The existing
+filesystem labels, `FRE3NDERSYS-U` and `FRE3NDERHOME-U`. Relabel
+[older sticks](#relabel-an-existing-usb-stick) before booting a RootFS
+that requires the `-U` labels. The existing
 `S20fre3nder-provision` scans FAT volumes independently of their partition
 position. On first boot it can read optional `wpa_supplicant.conf`,
 `authorized_keys` and an empty `enable_ssh` file from the **root of the FAT
@@ -84,3 +86,20 @@ The first command is read-only; the second writes and activates the inactive
 Kernel/RootFS pair and reboots the printer. The source and USB persistence must
 pass the remote gates before any partition write. Stock p5/p7 are retained.
 No F005 MCU firmware is flashed by the host deployment itself.
+
+## Relabel an existing USB stick
+
+You can rename the existing ext4 filesystems without formatting the stick.
+Shut the printer down
+and attach the stick to the Linux admin host. Use
+`lsblk -o PATH,FSTYPE,LABEL,MOUNTPOINTS` to identify the two ext4 partitions
+by their current labels and unmount both. Substitute their actual device
+paths below. The order of the partitions can vary with older sticks.
+
+```sh
+sudo e2label <usb-sys-partition> FRE3NDERSYS-U
+sudo e2label <usb-home-partition> FRE3NDERHOME-U
+```
+
+Leave the FAT provisioning partition in place. After verifying the new
+labels, reconnect the stick to the printer.

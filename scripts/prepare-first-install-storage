@@ -117,8 +117,8 @@ def verify_partition_layout(info):
 
 def verify_filesystems(partitions):
     for number, filesystem, label in (
-        (1, "ext4", "FRE3NDERSYS"),
-        (2, "ext4", "FRE3NDERHOME"),
+        (1, "ext4", "FRE3NDERSYS-U"),
+        (2, "ext4", "FRE3NDERHOME-U"),
         (3, "vfat", "X2000DEV"),
     ):
         path = partitions[number]
@@ -144,8 +144,8 @@ def main(argv=None):
     free_mib = original["size"] // MIB - 1 - SYS_MIB - HOME_MIB
     print(f"USB device: {device} | {original['model']} | {original['serial']}")
     print(f"Disk capacity: {original['size'] / (1000 ** 3):.2f} GB")
-    print(f"1. ext4 FRE3NDERSYS:  {SYS_MIB} MiB")
-    print(f"2. ext4 FRE3NDERHOME: {HOME_MIB} MiB (6 GiB)")
+    print(f"1. ext4 FRE3NDERSYS-U:  {SYS_MIB} MiB")
+    print(f"2. ext4 FRE3NDERHOME-U: {HOME_MIB} MiB (6 GiB)")
     print(f"3. FAT32 X2000DEV:   remaining ~{free_mib} MiB")
     print("Existing partition table and ALL DATA on this USB disk will be destroyed.")
 
@@ -183,8 +183,8 @@ def main(argv=None):
     partitions = verify_partition_layout(current)
 
     # Never format guessed partition names: use lsblk's verified descendants.
-    run(["mkfs.ext4", "-F", "-m", "0", "-L", "FRE3NDERSYS", partitions[1]])
-    run(["mkfs.ext4", "-F", "-m", "0", "-L", "FRE3NDERHOME", partitions[2]])
+    run(["mkfs.ext4", "-F", "-m", "0", "-L", "FRE3NDERSYS-U", partitions[1]])
+    run(["mkfs.ext4", "-F", "-m", "0", "-L", "FRE3NDERHOME-U", partitions[2]])
     run(["mkfs.vfat", "-F", "32", "-n", "X2000DEV", partitions[3]])
     os.sync()
     verify_filesystems(partitions)

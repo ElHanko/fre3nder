@@ -50,17 +50,25 @@ scan_sources() {
 	userdata_count=0
 	system_source=
 	userdata_source=
+	emmc_sys=
+	emmc_home=
 
 	output=$($blkid_cmd 2>/dev/null) || output=
 	while IFS= read -r line; do
 		device=${line%%:*}
 		[ "$device" != "$line" ] || continue
-		case " $line " in
-		*' LABEL="FRE3NDERSYS" '*)
+		case "$line " in
+		/dev/mmcblk0p9:*' LABEL="FRE3NDERSYS-I" '*)
+			emmc_sys=$device
+			;;
+		/dev/mmcblk0p10:*' LABEL="FRE3NDERHOME-I" '*)
+			emmc_home=$device
+			;;
+		*' LABEL="FRE3NDERSYS-U" '*)
 			system_count=$((system_count + 1))
 			system_source=$device
 			;;
-		*' LABEL="FRE3NDERHOME" '*)
+		*' LABEL="FRE3NDERHOME-U" '*)
 			userdata_count=$((userdata_count + 1))
 			userdata_source=$device
 			;;
@@ -74,6 +82,12 @@ resolve_sources() {
 	waited=0
 	while :; do
 		scan_sources
+		# Keep using the USB pair until both eMMC filesystems are published.
+		if [ -n "$emmc_sys" ] && [ -n "$emmc_home" ]; then
+			system_source=$emmc_sys
+			userdata_source=$emmc_home
+			return 0
+		fi
 		if [ "$system_count" -gt 0 ] && [ "$userdata_count" -gt 0 ]; then
 			break
 		fi

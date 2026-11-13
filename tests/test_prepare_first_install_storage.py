@@ -67,8 +67,8 @@ class FakeHost:
         if op == "blkid":
             part = int(argv[-1][-1])
             typ, label = {
-                1: ("ext4", "FRE3NDERSYS"),
-                2: ("ext4", "FRE3NDERHOME"),
+                1: ("ext4", "FRE3NDERSYS-U"),
+                2: ("ext4", "FRE3NDERHOME-U"),
                 3: ("vfat", "X2000DEV"),
             }[part]
             return (typ if argv[-2] == "TYPE" else label) + "\n"  # -s TYPE|LABEL
@@ -162,8 +162,8 @@ class USBStorageTests(unittest.TestCase):
         self.assertEqual(self.operations().count("mkfs.ext4"), 2)
         self.assertEqual(self.operations().count("mkfs.vfat"), 1)
         calls = [cmd for cmd, _ in self.host.commands]
-        self.assertIn(["mkfs.ext4", "-F", "-m", "0", "-L", "FRE3NDERSYS", DEVICE + "1"], calls)
-        self.assertIn(["mkfs.ext4", "-F", "-m", "0", "-L", "FRE3NDERHOME", DEVICE + "2"], calls)
+        self.assertIn(["mkfs.ext4", "-F", "-m", "0", "-L", "FRE3NDERSYS-U", DEVICE + "1"], calls)
+        self.assertIn(["mkfs.ext4", "-F", "-m", "0", "-L", "FRE3NDERHOME-U", DEVICE + "2"], calls)
         self.assertIn(["mkfs.vfat", "-F", "32", "-n", "X2000DEV", DEVICE + "3"], calls)
         self.assertLess(self.operations().index("sfdisk"), self.operations().index("mkfs.ext4"))
 

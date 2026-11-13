@@ -252,8 +252,8 @@ status_is absent
 # G: Fre3nder SYS/HOME volumes are never runtime-USB candidates even if their
 # filesystem type would otherwise be supported.
 reset_case
-volume sda1 vfat FRE3NDERSYS
-volume sdb1 vfat FRE3NDERHOME
+volume sda1 vfat FRE3NDERSYS-U
+volume sdb1 vfat FRE3NDERHOME-U
 run_service "$dev_root/sda1 $dev_root/sdb1" start
 status_is absent
 [ ! -s "$mounts" ]
@@ -263,8 +263,8 @@ status_is absent
 # no reserved label.
 reset_case
 volume sda1 exfat USB
-volume sda2 ext4 FRE3NDERSYS
-volume sda3 ext4 FRE3NDERHOME
+volume sda2 ext4 FRE3NDERSYS-U
+volume sda3 ext4 FRE3NDERHOME-U
 
 # Only sda1 is presented as a candidate. The helper must still discover the
 # reserved sibling partitions and reject the whole physical device.
@@ -276,8 +276,8 @@ status_is absent
 # G3: reserved partitions on one physical device do not block an independent
 # runtime USB device.
 reset_case
-volume sda2 ext4 FRE3NDERSYS
-volume sda3 ext4 FRE3NDERHOME
+volume sda2 ext4 FRE3NDERSYS-U
+volume sda3 ext4 FRE3NDERHOME-U
 volume sdb1 exfat USB
 
 run_service "$dev_root/sdb1" start

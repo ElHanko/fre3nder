@@ -78,7 +78,7 @@ if [ "$1" = -t ] && [ "$2" = ext4 ]; then
 	cp -a "$source"/. "$target"/
 	chmod 0755 "$target"
 	case "${device##*/}" in
-	home*)
+	home*|mmcblk0p10)
 		case "${X2000_TEST_HOME_MOUNT_RECORD:-valid}" in
 		missing) ;;
 		wrong) printf '/dev/wrong %s ext4 rw 0 0\n' "$target" >> "$X2000_TEST_MOUNTS" ;;
@@ -117,9 +117,9 @@ if [ "$count" -eq 1 ] &&
 	mkdir -p "$X2000_TEST_VOLUMES/system" "$X2000_TEST_VOLUMES/home"
 	printf '%s\n' ext4 > "$X2000_TEST_VOLUMES/.fstype-system"
 	printf '%s\n' ext4 > "$X2000_TEST_VOLUMES/.fstype-home"
-	printf '%s/system: LABEL="FRE3NDERSYS" UUID="fixture-system"\n' \
+	printf '%s/system: LABEL="FRE3NDERSYS-U" UUID="fixture-system"\n' \
 		"$X2000_TEST_DEV_PREFIX" >> "$X2000_TEST_BLKID_OUTPUT"
-	printf '%s/home: LABEL="FRE3NDERHOME" UUID="fixture-home"\n' \
+	printf '%s/home: LABEL="FRE3NDERHOME-U" UUID="fixture-home"\n' \
 		"$X2000_TEST_DEV_PREFIX" >> "$X2000_TEST_BLKID_OUTPUT"
 fi
 
@@ -163,13 +163,13 @@ volume() {
 	type=$3
 	mkdir -p "$volumes/$name"
 	printf '%s\n' "$type" > "$volumes/.fstype-$name"
-	printf '%s/%s: LABEL="%s" UUID="fixture-%s"\n' \
-		"$tmp/dev" "$name" "$label" "$name" >> "$blkid_output"
+	printf '%s/%s: LABEL="%s" UUID="fixture-%s" TYPE="%s"\n' \
+		"${4:-$tmp/dev}" "$name" "$label" "$name" "$type" >> "$blkid_output"
 }
 
 normal_sources() {
-	volume system FRE3NDERSYS ext4
-	volume home FRE3NDERHOME ext4
+	volume system FRE3NDERSYS-U ext4
+	volume home FRE3NDERHOME-U ext4
 }
 
 run_root_setup() {
@@ -244,8 +244,8 @@ status_is active
 [ -d "$state/system/work" ] && [ ! -L "$state/system/work" ]
 [ "$(stat -c '%a' "$state/system/upper")" = 755 ]
 [ "$(stat -c '%a' "$state/system/work")" = 700 ]
-grep -Fq 'LABEL="FRE3NDERSYS"' "$root_setup"
-grep -Fq 'LABEL="FRE3NDERHOME"' "$root_setup"
+grep -Fq 'LABEL="FRE3NDERSYS-U"' "$root_setup"
+grep -Fq 'LABEL="FRE3NDERHOME-U"' "$root_setup"
 grep -Fq 'mount -t overlay overlay -o lowerdir=/,' "$log"
 grep -Fq "mount -t ext4 -o rw,nosuid,nodev $tmp/dev/system $state/system" "$log"
 grep -Fq "mount -t ext4 -o rw,nosuid,nodev $tmp/dev/home $new_root/home" "$log"
@@ -289,43 +289,55 @@ status_is temporary-storage-failed
 
 # Missing, wrong, invalid, and ambiguous role identities fail closed.
 reset_case
-volume home FRE3NDERHOME ext4
+volume system FRE3NDERSYS ext4
+volume home FRE3NDERHOME-U ext4
 run_root_setup
 status_is no-system-source
 
 reset_case
-volume system FRE3NDERSYS ext4
+volume system FRE3NDERSYS-U ext4
+volume home FRE3NDERHOME ext4
+run_root_setup
+status_is no-userdata-source
+
+reset_case
+volume home FRE3NDERHOME-U ext4
+run_root_setup
+status_is no-system-source
+
+reset_case
+volume system FRE3NDERSYS-U ext4
 mkdir -p "$volumes/system/upper" "$volumes/system/work"
 run_root_setup
 status_is no-userdata-source
 
 reset_case
 volume system NOT-FRE3NDER ext4
-volume home FRE3NDERHOME ext4
+volume home FRE3NDERHOME-U ext4
 run_root_setup
 status_is no-system-source
 
 reset_case
-volume system FRE3NDERSYS vfat
-volume home FRE3NDERHOME ext4
+volume system FRE3NDERSYS-U vfat
+volume home FRE3NDERHOME-U ext4
 run_root_setup
 status_is system-mount-failed
 
 reset_case
-volume system FRE3NDERSYS ext4
-volume home FRE3NDERHOME vfat
+volume system FRE3NDERSYS-U ext4
+volume home FRE3NDERHOME-U vfat
 run_root_setup
 status_is userdata-mount-failed
 
 reset_case
 normal_sources
-volume system-duplicate FRE3NDERSYS ext4
+volume system-duplicate FRE3NDERSYS-U ext4
 run_root_setup
 status_is multiple-system-sources
 
 reset_case
 normal_sources
-volume home-duplicate FRE3NDERHOME ext4
+volume home-duplicate FRE3NDERHOME-U ext4
 run_root_setup
 status_is multiple-userdata-sources
 
@@ -489,8 +501,34 @@ grep -Fq 'mount --move /rom/dev /dev' "$log"
 grep -Fq 'mount --move /rom/sys /sys' "$log"
 grep -Fq 'mount --move /rom/tmp /tmp' "$log"
 
-if grep -Eq 'fsck|mkfs|mke2fs|mmcblk0p(9|10)|/dev/sd[a-z]' "$root_setup"; then
-	echo 'root setup contains a forbidden repair, format, or device path' >&2
+# Keep the USB stick attached for provisioning while switching the storage pair.
+for internal_home_type in ext4 vfat missing; do
+	reset_case
+	volume system FRE3NDERSYS-U ext4
+	volume home FRE3NDERHOME-U ext4
+	volume mmcblk0p9 FRE3NDERSYS-I ext4 /dev
+	if [ "$internal_home_type" != missing ]; then
+		volume mmcblk0p10 FRE3NDERHOME-I "$internal_home_type" /dev
+	fi
+	# Production BusyBox reports labels and UUIDs, without a type field.
+	sed -i 's/ TYPE="[^"]*"$//' "$blkid_output"
+	run_root_setup
+	if [ "$internal_home_type" = vfat ]; then
+		status_is userdata-mount-failed
+		continue
+	fi
+	status_is active
+	if [ "$internal_home_type" = ext4 ]; then
+		grep -Fq "/dev/mmcblk0p9 $state/system" "$log"
+		grep -Fq "/dev/mmcblk0p10 $new_root/home" "$log"
+	else
+		grep -Fq "$tmp/dev/system $state/system" "$log"
+		grep -Fq "$tmp/dev/home $new_root/home" "$log"
+	fi
+done
+
+if grep -Eq 'fsck|mkfs|mke2fs|/dev/sd[a-z]' "$root_setup"; then
+	echo 'root setup contains a forbidden repair, format, or USB device path' >&2
 	exit 1
 fi
 

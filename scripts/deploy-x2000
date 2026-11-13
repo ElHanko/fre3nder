@@ -277,6 +277,7 @@ if use_rootfs == "true":
         raise SystemExit("RootFS differs from build manifest")
 
 source_commits = [commit]
+fingerprint_source = "snapshot"
 if artifact_mode == "development" and (
     "component_provenance" in manifest or "composition_provenance" in manifest
 ):
@@ -314,15 +315,17 @@ if artifact_mode == "development" and (
         if components["rootfs"][field] != manifest[field]:
             raise SystemExit(f"RootFS provenance disagrees on {field}")
     build_input_sha256 = composition["build_input_sha256"]
+    fingerprint_source = "checkout"
 
 print(commit)
 print(artifact_mode)
 print(build_input_sha256)
 print(" ".join(source_commits))
+print(fingerprint_source)
 PY
 	) || die "build manifest verification failed"
 
-	[ "${#manifest_output[@]}" -eq 4 ] ||
+	[ "${#manifest_output[@]}" -eq 5 ] ||
 		die "invalid build manifest verification output"
 
 	manifest_commit=${manifest_output[0]}
@@ -342,6 +345,19 @@ PY
 		current_build_input_sha256=$(
 			"$root/scripts/x2000-build-input-sha256" --root "$root"
 		) || die "cannot fingerprint current X2000 build inputs"
+
+		# Component builds fingerprint a snapshot of tracked inputs. A
+		# composed image retains its checkout-based composition fingerprint.
+		if [ "$current_build_input_sha256" != "$manifest_build_input_sha256" ] &&
+		   [ "${manifest_output[4]}" = snapshot ]; then
+			ensure_tmp
+			"$root/scripts/x2000-build-input-sha256" --root "$root" \
+				--snapshot "$tmp/project" ||
+				die "cannot create current X2000 build-input snapshot"
+			current_build_input_sha256=$(
+				"$root/scripts/x2000-build-input-sha256" --root "$tmp/project"
+			) || die "cannot fingerprint current X2000 build-input snapshot"
+		fi
 
 		[ "$current_build_input_sha256" = "$manifest_build_input_sha256" ] ||
 			die "current X2000 build inputs differ from development artifact"
@@ -542,15 +558,15 @@ while IFS= read -r line; do
 	device=${line%%:*}
 	[ "$device" != "$line" ] || continue
 	case " $line " in
-	*' LABEL="FRE3NDERSYS" '*)
+	*' LABEL="FRE3NDERSYS-U" '*)
 		case " $line " in *' TYPE="ext4" '*) : ;;
-			*) fail "FRE3NDERSYS is not ext4" ;; esac
+			*) fail "FRE3NDERSYS-U is not ext4" ;; esac
 		sys_count=$((sys_count + 1))
 		sys_device=$device
 		;;
-	*' LABEL="FRE3NDERHOME" '*)
+	*' LABEL="FRE3NDERHOME-U" '*)
 		case " $line " in *' TYPE="ext4" '*) : ;;
-			*) fail "FRE3NDERHOME is not ext4" ;; esac
+			*) fail "FRE3NDERHOME-U is not ext4" ;; esac
 		home_count=$((home_count + 1))
 		home_device=$device
 		;;
@@ -560,7 +576,7 @@ $output
 EOF
 [ "$sys_count" -eq 1 ] && [ "$home_count" -eq 1 ] &&
 [ "$sys_device" != "$home_device" ] ||
-	fail "expected unique, distinct FRE3NDERSYS and FRE3NDERHOME ext4 filesystems"
+	fail "expected unique, distinct FRE3NDERSYS-U and FRE3NDERHOME-U ext4 filesystems"
 
 # The labels must belong to two partitions on one USB mass-storage device.
 # A valid label on internal eMMC or on two separate sticks is not sufficient.

@@ -27,13 +27,10 @@ slot. Its read-only preflight does not prove this later requirement. In
 particular, this command is not a complete first-installation sequence from
 Stock; a write run can stage the inactive pair before refusing the SYS reset.
 
-The current Fre3nder runtime expects separately prepared external ext4
-filesystems labelled `FRE3NDERSYS` and `FRE3NDERHOME`. Their roles and runtime
-checks are in [storage layout](storage-layout.md). The repository does not yet
-provide a general, qualified public procedure to create and verify those
-backends for a first installation. This expert deployment procedure assumes
-they have already been established; staging a host image does not prepare
-them. A guided first-installation flow remains [roadmap work](roadmap.md#user-facing-installation-and-releases).
+First installation uses the external ext4 filesystems prepared by
+[USB storage setup](first-install-storage.md). Their labels and roles are
+described in [storage layout](storage-layout.md). A/B deployment stages the
+host image separately from the persistence filesystems. A guided first-installation flow remains [roadmap work](roadmap.md#user-facing-installation-and-releases).
 
 ## Before staging
 
@@ -149,6 +146,53 @@ slot A (`/dev/mmcblk0p7`). The new RootFS's OS identity, login banner and
 interactive SSH prompt passed hardware validation; the network hostname and
 existing SSH access were retained. See the compact
 [OS identity results](versioning.md#operating-system-identity).
+
+## Migrate USB persistence to eMMC
+
+Use a Fre3nder RootFS with eMMC persistence support on the documented
+Ender-3 V3 KE reference layout. Confirm the printer's
+[Point of Return](recovery.md), including its original Stock writable data,
+before authorizing migration. The script formats eMMC p9 and p10, replacing
+the Stock contents there. Finish any pending OTA and leave the printer idle.
+
+```sh
+scripts/migrate-x2000-storage <printer-host>
+```
+
+The preflight prints the sources and targets. To save the two partitions
+before authorizing the migration, run:
+
+```sh
+scripts/migrate-x2000-storage <printer-host> --backup
+```
+
+This streams full images of the unmounted p9 and p10 partitions over SSH to
+`local/backup/emmc/<timestamp>-<suffix>/` on the admin host. Allow about
+6.3 GiB of free space. The script publishes `p9.img`, `p10.img`, and
+`SHA256SUMS` only after verifying the transfer. You can recheck the files
+with `sha256sum -c SHA256SUMS` from that directory. The two images cover
+the migration targets. The complete recovery set is described under
+[Point of Return](recovery.md).
+
+After checking for `EMMC_BACKUP=PASS` if you made a backup, start the migration:
+
+```sh
+scripts/migrate-x2000-storage <printer-host> --write
+```
+
+This stops printer and application services, copies SYS and HOME from the USB
+filesystems mounted read-only, then verifies both copies before applying the
+eMMC labels. After `EMMC_MIGRATION=PASS`, reboot normally **with the USB stick
+connected**. S20 continues to load WLAN and SSH provisioning from its FAT
+partition. Confirm `/run/fre3nder-root/status` is `active`, SYS is mounted
+from `/dev/mmcblk0p9`, and `/home` is mounted from `/dev/mmcblk0p10`.
+
+Fre3nder selects the eMMC copy only when both internal labels are present.
+An incomplete copy leaves the original USB pair available for boot and retry.
+To return to the USB pair after a completed migration, clear an internal
+persistence label from a maintenance session with the corresponding eMMC
+filesystem unmounted. The USB copy reflects the state at migration time. Use a RootFS with eMMC
+persistence support for subsequent deployments and OTA updates.
 
 ## Update the installed display app
 

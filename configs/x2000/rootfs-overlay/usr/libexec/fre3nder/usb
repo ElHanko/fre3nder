@@ -165,7 +165,7 @@ persistence_parent_conflict() {
 		) || continue
 
 		case " $sibling_output " in
-		*' LABEL="FRE3NDERSYS" '*|*' LABEL="FRE3NDERHOME" '*)
+		*' LABEL="FRE3NDERSYS-U" '*|*' LABEL="FRE3NDERHOME-U" '*)
 			return 0
 			;;
 		esac
@@ -186,7 +186,7 @@ candidate() {
 	output=$("$blkid_cmd" "$device" 2>/dev/null) || return 1
 
 	case " $output " in
-	*' LABEL="FRE3NDERSYS" '*|*' LABEL="FRE3NDERHOME" '*)
+	*' LABEL="FRE3NDERSYS-U" '*|*' LABEL="FRE3NDERHOME-U" '*)
 		return 1
 		;;
 	esac

@@ -2522,12 +2522,12 @@ def make_runtime(
     )
 
     blkid_lines = [
-        '/dev/fre3nder-sys: LABEL="FRE3NDERSYS" TYPE="ext4"',
-        '/dev/fre3nder-home: LABEL="FRE3NDERHOME" TYPE="ext4"',
+        '/dev/fre3nder-sys: LABEL="FRE3NDERSYS-U" TYPE="ext4"',
+        '/dev/fre3nder-home: LABEL="FRE3NDERHOME-U" TYPE="ext4"',
     ]
     if duplicate_sys:
         blkid_lines.append(
-            '/dev/duplicate-sys: LABEL="FRE3NDERSYS" TYPE="ext4"'
+            '/dev/duplicate-sys: LABEL="FRE3NDERSYS-U" TYPE="ext4"'
         )
 
     blkid.write_text(
@@ -2643,7 +2643,39 @@ def test_status_and_transition_lock():
             raise AssertionError("invalid pending status accepted")
 
 
+def test_emmc_persistence():
+    labels = (
+        '/dev/sda2: LABEL="FRE3NDERSYS-U" TYPE="ext4"\n'
+        '/dev/sda3: LABEL="FRE3NDERHOME-U" TYPE="ext4"\n'
+        '/dev/mmcblk0p9: LABEL="FRE3NDERSYS-I" UUID="fixture"\n'
+        '/dev/mmcblk0p10: LABEL="FRE3NDERHOME-I" UUID="fixture"\n'
+    )
+    args = ({"version": "2026.5.fixture", "artifact_mode": "development"},
+            "2026.5", "active", "root=/dev/mmcblk0p7", labels)
+    for sys_device, home_device in (
+        ("/dev/mmcblk0p9", "/dev/mmcblk0p10"),
+        ("/dev/sda2", "/dev/sda3"),
+    ):
+        mounts = (f"{sys_device} /run/fre3nder-root/system ext4 rw 0 0\n"
+                  f"{home_device} /home ext4 rw 0 0\n")
+        plan = module.build_preflight(*args, mounts)
+        assert plan["sys_source"] == sys_device
+        assert plan["home_source"] == home_device
+
+    invalid_mounts = (
+        "/dev/mmcblk0p9 /run/fre3nder-root/system ext4 rw 0 0\n"
+        "/dev/mmcblk0p10 /home vfat rw 0 0\n"
+    )
+    try:
+        module.build_preflight(*args, invalid_mounts)
+    except ValueError as error:
+        assert "HOME mounted at /home is not ext4" in str(error), error
+    else:
+        raise AssertionError("eMMC HOME accepted a non-ext4 mount")
+
+
 def main():
+    test_emmc_persistence()
     test_download_is_never_an_ota_safety_backup()
     test_status_and_transition_lock()
     assert "BR2_PACKAGE_LIBOPENSSL_BIN=y\n" in BUILDROOT_FRAGMENT.read_text()
@@ -2782,7 +2814,7 @@ def main():
             package,
             public_key,
             runtime,
-            "expected exactly one FRE3NDERSYS backend",
+            "expected exactly one FRE3NDERSYS-U backend",
         )
 
         runtime = make_runtime(

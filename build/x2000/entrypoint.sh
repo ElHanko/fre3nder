@@ -1136,7 +1136,16 @@ check_rootfs() {
 	grep -Fxq 'CONFIG_FEATURE_ADDUSER_TO_GROUP=y' "$busybox_config"
 	grep -Fxq '# BR2_PACKAGE_ANDROID_TOOLS is not set' "$brout/.config"
 	grep -Fxq '# BR2_PACKAGE_DAEMON is not set' "$brout/.config"
-	grep -Fxq '# BR2_PACKAGE_UTIL_LINUX is not set' "$brout/.config"
+	# e2fsprogs needs libblkid and libuuid from util-linux.
+	if ! grep -Fxq 'BR2_PACKAGE_E2FSPROGS=y' "$brout/.config" ||
+	   ! grep -Fxq 'BR2_PACKAGE_RSYNC=y' "$brout/.config" ||
+	   ! grep -Fxq 'BR2_PACKAGE_UTIL_LINUX_LIBBLKID=y' "$brout/.config" ||
+	   ! grep -Fxq 'BR2_PACKAGE_UTIL_LINUX_LIBUUID=y' "$brout/.config" ||
+	   [ ! -x "$target/sbin/mke2fs" ] || [ -L "$target/sbin/mke2fs" ] ||
+	   [ ! -x "$target/sbin/tune2fs" ] || [ ! -x "$target/usr/bin/rsync" ]; then
+		echo 'Fre3nder RootFS is missing the eMMC migration tools or their libraries' >&2
+		exit 1
+	fi
 	grep -Fxq '# BR2_TARGET_GENERIC_REMOUNT_ROOTFS_RW is not set' "$brout/.config"
 	grep -Fxq '# BR2_TARGET_ROOTFS_JFFS2 is not set' "$brout/.config"
 	grep -Fxq '# BR2_TARGET_ROOTFS_UBIFS is not set' "$brout/.config"
@@ -1413,15 +1422,18 @@ check_rootfs() {
 		cut -d: -f1
 	)
 	[ "$root_setup_line" -lt "$rcs_line" ]
-	grep -Fq 'LABEL="FRE3NDERSYS"' "$root_setup"
-	grep -Fq 'LABEL="FRE3NDERHOME"' "$root_setup"
-	! grep -Fq 'TYPE="ext4"' "$root_setup"
+	grep -Fq 'LABEL="FRE3NDERSYS-U"' "$root_setup"
+	grep -Fq 'LABEL="FRE3NDERHOME-U"' "$root_setup"
+	grep -Fq 'LABEL="FRE3NDERSYS-I"' "$root_setup"
+	grep -Fq 'LABEL="FRE3NDERHOME-I"' "$root_setup"
 	[ "$(grep -Fc '"$mount_cmd" -t ext4 -o rw,nosuid,nodev' "$root_setup")" -eq 2 ]
 	grep -Fq 'lowerdir=/,upperdir=$system_mount/upper,workdir=$system_mount/work' \
 		"$root_setup"
 	grep -Fq '"$pivot_root_cmd" "$new_root" "$new_root/rom"' "$root_setup"
-	! grep -Eq 'fsck|mkfs|mke2fs|mmcblk0p(9|10)|/dev/sd[a-z]|FRE3NDERDATA' \
-		"$root_setup"
+	if grep -Eq 'fsck|mkfs|mke2fs|/dev/sd[a-z]|FRE3NDERDATA' "$root_setup"; then
+		echo 'Fre3nder root setup contains filesystem repair, formatting or a fixed USB device' >&2
+		exit 1
+	fi
 	grep -Fq 'root_state=${FRE3NDER_ROOT_STATE:-/run/fre3nder-root}' \
 		"$target/etc/init.d/S60fre3nder-klipper"
 	grep -Fq 'while [ "$seconds" -lt 30 ]' \
@@ -1476,7 +1488,10 @@ check_rootfs() {
 		echo 'Fre3nder RootFS contains credential material' >&2
 		exit 1
 	fi
-	if grep -R -E -i -q 'mmcblk0p(1|9|10)|ota:kernel|slot-b-selector|slot-b-revert' \
+	# Only fre3nder-root may reference the internal persistence partitions.
+	if grep -R -E -i -q 'mmcblk0p1([^0-9]|$)|ota:kernel|slot-b-selector|slot-b-revert' \
+		"$target/etc/init.d" "$target/etc/inittab" "$target/etc/fstab" 2>/dev/null ||
+	   grep -R -E -i -q --exclude=fre3nder-root 'mmcblk0p(9|10)([^0-9]|$)' \
 		"$target/etc/init.d" "$target/etc/inittab" "$target/etc/fstab" 2>/dev/null; then
 		echo 'Fre3nder RootFS contains selector or reserved-partition logic' >&2
 		exit 1

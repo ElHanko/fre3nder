@@ -388,11 +388,14 @@ def discover_active_slot(cmdline):
     )
 
 
-def parse_blkid_roles(output):
-    roles = {
-        "SYS": [],
-        "HOME": [],
+def parse_blkid_roles(output, *, emmc=False):
+    suffix = "I" if emmc else "U"
+    labels = {
+        "SYS": f"FRE3NDERSYS-{suffix}",
+        "HOME": f"FRE3NDERHOME-{suffix}",
     }
+    roles = {role: [] for role in labels}
+    targets = {"SYS": "/dev/mmcblk0p9", "HOME": "/dev/mmcblk0p10"}
 
     for line in output.splitlines():
         if ":" not in line:
@@ -401,15 +404,13 @@ def parse_blkid_roles(output):
         device, metadata = line.split(":", 1)
         fields = metadata.split()
 
-        if 'LABEL="FRE3NDERSYS"' in fields:
-            roles["SYS"].append(device)
-        if 'LABEL="FRE3NDERHOME"' in fields:
-            roles["HOME"].append(device)
+        for role, label in labels.items():
+            if f'LABEL="{label}"' not in fields:
+                continue
+            if not emmc or device == targets[role]:
+                roles[role].append(device)
 
-    for role, label in (
-        ("SYS", "FRE3NDERSYS"),
-        ("HOME", "FRE3NDERHOME"),
-    ):
+    for role, label in labels.items():
         devices = list(dict.fromkeys(roles[role]))
         if len(devices) != 1:
             raise ValueError(
@@ -489,8 +490,12 @@ def build_preflight(
         )
 
     active_slot, target_slot, active_root = discover_active_slot(cmdline)
-    roles = parse_blkid_roles(blkid_output)
     mount_entries = parse_mounts(mounts)
+    emmc = any(
+        path == SYS_MOUNT and os.path.realpath(source) == "/dev/mmcblk0p9"
+        for source, path, _ in mount_entries
+    )
+    roles = parse_blkid_roles(blkid_output, emmc=emmc)
 
     require_role_mount(
         mount_entries,

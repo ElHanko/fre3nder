@@ -1,0 +1,348 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+    echo "Usage: $0 <printer-host> [--backup|--write]"
+}
+
+if [[ ${1:-} == --help ]]; then
+    usage
+    exit 0
+fi
+if [[ $# -lt 1 || $# -gt 2 || -z $1 || $1 == -* ]]; then
+    usage >&2
+    exit 2
+fi
+case ${2:-} in
+    ''|--backup|--write) ;;
+    *) usage >&2; exit 2 ;;
+esac
+
+remote() {
+    ssh -o BatchMode=yes "$1" "/usr/bin/python3 - ${2:-}" <<'REMOTE'
+from contextlib import contextmanager
+import fcntl
+import hashlib
+import json
+import os
+from pathlib import Path
+import re
+import shutil
+import stat
+import subprocess
+import sys
+import tempfile
+import urllib.request
+
+SYS = Path("/run/fre3nder-root/system")
+HOME = Path("/home")
+# Number, GPT name, start and length in 512-byte sectors on the reference KE.
+PARTITIONS = (
+    (9, "rootfs_data", 2103296, 614400, "FRE3NDERSYS", SYS),
+    (10, "userdata", 2717696, 12554240, "FRE3NDERHOME", HOME),
+)
+
+
+def require(condition, message):
+    if not condition:
+        raise ValueError(message)
+
+
+def run(*args):
+    return subprocess.run(args, check=True)
+
+
+def read(path):
+    return Path(path).read_text().strip()
+
+
+def blkid():
+    output = subprocess.check_output(("/sbin/blkid",), text=True)
+    return dict(line.split(":", 1) for line in output.splitlines() if ":" in line)
+
+
+def target(number):
+    return f"/dev/mmcblk0p{number}"
+
+
+def check_targets(*, writable):
+    mounted_devices = {line.split()[2] for line in read("/proc/self/mountinfo").splitlines()}
+    emmc = Path("/sys/class/block/mmcblk0").resolve(strict=True)
+    require(read(emmc / "device/type") == "MMC"
+            and read(emmc / "queue/logical_block_size") == "512",
+            "expected eMMC with the reference sector size")
+    for number, name, start, sectors, _, _ in PARTITIONS:
+        device = target(number)
+        info = os.stat(device)
+        require(stat.S_ISBLK(info.st_mode), f"{device} is not a block device")
+        identity = f"{os.major(info.st_rdev)}:{os.minor(info.st_rdev)}"
+        part = (Path("/sys/class/block") / Path(device).name).resolve(strict=True)
+        require(part.parent == emmc and read(part / "dev") == identity
+                and read(part / "start") == str(start) and read(part / "size") == str(sectors)
+                and f"PARTNAME={name}" in read(part / "uevent").splitlines(),
+                f"{device} does not match the reference GPT layout")
+        require(identity not in mounted_devices and not any((part / "holders").iterdir())
+                and (not writable or read(part / "ro") == "0"),
+                f"{device} is in use or not writable when required")
+
+
+def preflight():
+    require(os.geteuid() == 0, "root SSH access is required")
+    require(read(SYS.parent / "status") == "active", "Fre3nder persistence is inactive")
+    roots = [arg for arg in read("/proc/cmdline").split() if arg.startswith("root=")]
+    require(roots in (["root=/dev/mmcblk0p7"], ["root=/dev/mmcblk0p8"]),
+            "expected Fre3nder on an X2000 eMMC A/B slot")
+    for prefix in ("", "/rom"):
+        script = Path(prefix + "/etc/init.d/fre3nder-root")
+        require("FRE3NDERSYS-I" in read(script),
+                "deploy the RootFS with eMMC persistence support before migrating")
+    for tool in ("mke2fs", "tune2fs", "rsync"):
+        require(shutil.which(tool), f"{tool} is missing from the running RootFS")
+
+    check_targets(writable=True)
+    mounts = [line.split() for line in read("/proc/mounts").splitlines()]
+    devices = blkid()
+    require(not all(f'LABEL="{label}-I"' in devices.get(target(number), "").split()
+                    for number, _, _, _, label, _ in PARTITIONS),
+            "both eMMC persistence labels are already present")
+    sources = []
+    for number, _, _, sectors, label, source in PARTITIONS:
+        rows = [row for row in mounts if row[1] == str(source)]
+        require(len(rows) == 1 and rows[0][2] == "ext4" and "rw" in rows[0][3].split(","),
+                f"{source} must be one writable ext4 mount")
+        usb = rows[0][0]
+        usb_label = f'LABEL="{label}-U"'
+        matches = [dev for dev, fields in devices.items() if usb_label in fields.split()]
+        require(matches == [usb] and re.fullmatch(r"/dev/sd[a-z][1-9][0-9]*", usb),
+                f"{source} must have a unique USB {label}-U filesystem")
+        usb_disk = (Path("/sys/class/block") / Path(usb).name).resolve(strict=True).parent
+        require(any(re.fullmatch(r"usb[0-9]+", item.name) for item in usb_disk.parents),
+                f"{usb} is not USB storage")
+        sources.append(usb_disk)
+
+        device = target(number)
+        used = os.statvfs(source)
+        allocated = (used.f_blocks - used.f_bfree) * used.f_frsize
+        require(allocated < sectors * 512, f"{source} is too full for {device}")
+        print(f"{label}-U: {usb} -> {device} ({label}-I), "
+              f"{allocated // 1048576} MiB allocated", flush=True)
+
+    require(sources[0] == sources[1], "SYS and HOME must come from the same USB disk")
+    require(not any(os.path.lexists(SYS / name) for name in (
+        ".fre3nder-reset", ".fre3nder-reset-target", ".fre3nder-ota-activation.json"
+    )) and not os.path.lexists("/run/fre3nder/ota/pending.json"),
+            "finish the pending OTA or SYS reset first")
+
+
+def stream_backup():
+    check_targets(writable=False)
+    output = sys.stdout.buffer
+    for number, _, _, sectors, _, _ in PARTITIONS:
+        device = target(number)
+        print(f"Reading {device} for backup", file=sys.stderr, flush=True)
+        remaining = sectors * 512
+        digest = hashlib.sha256()
+        # Exclusive read access prevents a concurrent mount of this partition.
+        fd = os.open(device, os.O_RDONLY | os.O_EXCL)
+        with os.fdopen(fd, "rb") as source:
+            while remaining:
+                block = source.read(min(remaining, 1024 * 1024))
+                require(block, f"short read from {device}")
+                digest.update(block)
+                output.write(block)
+                remaining -= len(block)
+        output.write(digest.hexdigest().encode("ascii"))
+        output.flush()
+
+
+def check_idle():
+    state = read("/run/fre3nder-klipper/status")
+    if state == "stopped":
+        return
+    require(state == "active", "Klipper must be active and idle or deliberately stopped")
+    with urllib.request.urlopen(
+        "http://127.0.0.1:17126/printer/objects/query?print_stats&pause_resume", timeout=5
+    ) as response:
+        status = json.load(response)["result"]["status"]
+    require(status["print_stats"]["state"] in ("standby", "complete", "cancelled", "error")
+            and not status["pause_resume"]["is_paused"], "printer must be idle")
+
+
+def copy_role(source, destination, *exclude):
+    args = ["rsync", "-aHXSx", "--numeric-ids"]
+    args += [f"--exclude=/{name}" for name in (*exclude, "lost+found")]
+    paths = [f"{source}/", f"{destination}/"]
+    run(*args, *paths)
+    changes = subprocess.check_output(
+        (*args, "--dry-run", "--checksum", "--itemize-changes", *paths), text=True
+    )
+    require(not changes, f"{source} copy did not verify")
+
+
+def migrate(lock):
+    check_idle()
+    stopped, readonly, mounted, labeled = [], [], [], []
+    work = Path(tempfile.mkdtemp(prefix="fre3nder-emmc-", dir="/run"))
+    success = False
+    try:
+        # Leave Dropbear and networking running. Freeze the actual source
+        # mounts after the normal service stop actions to prevent late writes.
+        # The app stop commands take the same OTA lock themselves.
+        fcntl.flock(lock, fcntl.LOCK_UN)
+        for service in sorted(Path("/etc/init.d").glob("S[5-9][0-9]*"), reverse=True):
+            if int(service.name[1:3]) >= 57:
+                stopped.append(service)
+                run(service, "stop")
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        preflight()
+        for path in (Path("/"), SYS, HOME):
+            run("mount", "-o", "remount,ro", path)
+            readonly.append(path)
+
+        for number, _, _, _, _, source in PARTITIONS:
+            device = target(number)
+            destination = work / str(number)
+            destination.mkdir()
+            print(f"Copying {source} to {device}", flush=True)
+            run("mke2fs", "-q", "-F", "-t", "ext4", "-m", "0", device)
+            run("mount", "-t", "ext4", "-o", "nosuid,nodev", device, destination)
+            mounted.append(destination)
+            if source == SYS:
+                copy_role(source, destination, "work", ".fre3nder-provisioning")
+            else:
+                copy_role(source, destination, ".tmp")
+            run("umount", destination)
+            mounted.pop()
+
+        # Boot selects eMMC only after both labels are present.
+        for number, _, _, _, label, _ in PARTITIONS:
+            device = target(number)
+            labeled.append(device)
+            run("tune2fs", "-L", f"{label}-I", device)
+        devices = blkid()
+        for number, _, _, _, label, _ in PARTITIONS:
+            require(f'LABEL="{label}-I"' in devices.get(target(number), "").split(),
+                    f"could not verify the label on {target(number)}")
+        run("sync")
+        success = True
+    finally:
+        if not success:
+            for device in labeled:
+                subprocess.run(("tune2fs", "-L", "", device))
+            for path in reversed(mounted):
+                subprocess.run(("umount", path))
+            # Remount SYS before reopening its OverlayFS.
+            for path in (SYS, Path("/"), HOME):
+                if path in readonly:
+                    subprocess.run(("mount", "-o", "remount,rw", path))
+            fcntl.flock(lock, fcntl.LOCK_UN)
+            for service in reversed(stopped):
+                subprocess.run((service, "start"))
+        # A failed unmount must never trigger recursive deletion.
+        for directory in work.iterdir():
+            if not os.path.ismount(directory):
+                directory.rmdir()
+        if not any(work.iterdir()):
+            work.rmdir()
+    print("EMMC_MIGRATION=PASS. Reboot normally with the provisioning stick connected.")
+
+
+@contextmanager
+def open_runtime_directory():
+    fd = os.open("/run/fre3nder-root", os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        yield fd
+    finally:
+        os.close(fd)
+
+
+def main():
+    if sys.argv[1:] in (["--backup"], ["--write"]):
+        require(os.geteuid() == 0, "root SSH access is required")
+        lock = Path("/run/fre3nder/ota/write.lock")
+        lock.parent.mkdir(mode=0o700, exist_ok=True)
+        fd = os.open(lock, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW | os.O_NONBLOCK, 0o600)
+        # Serialize migration callers while app stop/start hooks take the OTA lock.
+        with os.fdopen(fd, "r+") as handle, open_runtime_directory() as runtime:
+            fcntl.flock(runtime, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            info = os.fstat(fd)
+            require(stat.S_ISREG(info.st_mode) and info.st_uid == 0
+                    and not info.st_mode & 0o077, "unsafe OTA lock")
+            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            if sys.argv[1] == "--backup":
+                stream_backup()
+            else:
+                preflight()
+                migrate(handle)
+    else:
+        preflight()
+        print("EMMC_MIGRATION=PREFLIGHT_PASS. --write formats eMMC p9 and p10.")
+
+
+try:
+    main()
+except (OSError, ValueError, KeyError, subprocess.CalledProcessError) as error:
+    sys.exit(f"eMMC migration: {error}")
+REMOTE
+}
+
+receive_backup() {
+    python3 - "$1" 3<&0 <<'LOCAL'
+import hashlib
+import os
+from pathlib import Path
+import sys
+
+directory = Path(sys.argv[1])
+sums = []
+with os.fdopen(3, "rb") as stream:
+    for name, size in (("p9.img", 314572800), ("p10.img", 6427770880)):
+        digest = hashlib.sha256()
+        with (directory / name).open("xb") as image:
+            while size:
+                block = stream.read(min(size, 1024 * 1024))
+                if not block:
+                    sys.exit(f"Incomplete backup of {name}")
+                image.write(block)
+                digest.update(block)
+                size -= len(block)
+            image.flush()
+            os.fsync(image.fileno())
+        if stream.read(64) != digest.hexdigest().encode("ascii"):
+            sys.exit(f"SHA-256 mismatch for {name}")
+        sums.append(f"{digest.hexdigest()}  {name}\n")
+    if stream.read(1):
+        sys.exit("Unexpected trailing data in eMMC backup")
+
+with (directory / "SHA256SUMS").open("x") as manifest:
+    manifest.writelines(sums)
+    manifest.flush()
+    os.fsync(manifest.fileno())
+LOCAL
+}
+
+if [[ ${2:-} == --backup ]]; then
+    root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+    backup_root="$root/local/backup/emmc"
+    git -C "$root" check-ignore -q -- local/backup/emmc || {
+        echo "The local eMMC backup directory must be excluded from Git." >&2
+        exit 1
+    }
+
+    umask 077
+    mkdir -p -- "$backup_root"
+    available_kib=$(df -Pk "$backup_root" | awk 'END {print $4}')
+    if [[ ! $available_kib =~ ^[0-9]+$ ]] || (( available_kib < 6584320 )); then
+        echo "The eMMC backup requires at least 6,584,320 KiB of free space." >&2
+        exit 1
+    fi
+
+    staging=$(mktemp -d "$backup_root/.pending.XXXXXXXX")
+    trap 'rm -rf -- "$staging"' EXIT
+    remote "$1" --backup | receive_backup "$staging"
+    destination="$backup_root/$(date -u +%Y%m%dT%H%M%SZ)-${staging##*.}"
+    mv -T -- "$staging" "$destination"
+    printf 'EMMC_BACKUP=PASS\nBackup: %s\n' "$destination"
+else
+    remote "$@"
+fi
