@@ -202,7 +202,7 @@
       "source": "Fre3nder external Buildroot package"
     },
     "greenlet": {
-      "version": "3.3.2",
+      "version": "3.5.6",
       "license": "MIT, PSF-2.0",
       "source": "Fre3nder package-version patch against upstream Buildroot 2025.02.18",
       "required_by": "Klipper for Python >= 3.12"

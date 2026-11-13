@@ -3,7 +3,7 @@
 # Upstream commit: d030e36bbc9669230c015be971b14b6e062cfdde
 # Required by the pinned Klipper Python 3.12 requirements.
 # Package versions, source URLs and archive hashes: official PyPI metadata at
-# https://pypi.org/pypi/greenlet/3.3.2/json
+# https://pypi.org/pypi/greenlet/3.5.6/json
 # https://pypi.org/pypi/cffi/2.1.1/json
 # License-file hashes: locally computed from those verified source archives.
 diff --git a/package/python-cffi/python-cffi.hash b/package/python-cffi/python-cffi.hash
@@ -42,20 +42,20 @@ index 152009e8ca..120b98fad1 100644
 +
  # This host package uses pkg-config to find libffi, so we have to
 diff --git a/package/python-greenlet/python-greenlet.hash b/package/python-greenlet/python-greenlet.hash
-index 7ed4ff13a3..258cadc77b 100644
+index 7ed4ff13a3..79dee2c9ba 100644
 --- a/package/python-greenlet/python-greenlet.hash
 +++ b/package/python-greenlet/python-greenlet.hash
 @@ -1,6 +1,6 @@
  # md5, sha256 from https://pypi.org/pypi/greenlet/json
 -md5  13a71396abdf249280fa25d258acf435  greenlet-3.1.1.tar.gz
 -sha256  4ce3ac6cdb6adf7946475d7ef31777c26d94bccc377e070a7986bd2d5c515467  greenlet-3.1.1.tar.gz
-+md5  be0d9748c252575e8a69cf8724685ed8  greenlet-3.3.2.tar.gz
-+sha256  2eaf067fc6d886931c7962e8c6bede15d2f01965560f3359b27c80bde2d151f2  greenlet-3.3.2.tar.gz
++md5  334c931cef75cc40f6b7a81f7b50f0f0  greenlet-3.5.6.tar.gz
++sha256  8e67c43bdfc88d5fee6db0d3e40175b362fc95fb85f0412d233b9b203c53a575  greenlet-3.5.6.tar.gz
  # Locally computed sha256 checksums
  sha256  769831d6e5dfaf2c20802faccff1fafb4c2025dd8f6253dfa47fcad59d4d0979  LICENSE
  sha256  e5ff3c23c110e494cd7d736c10fd96d462457bafeca310840db6527298c7d46b  LICENSE.PSF
 diff --git a/package/python-greenlet/python-greenlet.mk b/package/python-greenlet/python-greenlet.mk
-index 5575ddaff5..07478807aa 100644
+index 5575ddaff5..e216da5689 100644
 --- a/package/python-greenlet/python-greenlet.mk
 +++ b/package/python-greenlet/python-greenlet.mk
 @@ -4,9 +4,9 @@
@@ -64,10 +64,10 @@ index 5575ddaff5..07478807aa 100644
 -
 +
 -PYTHON_GREENLET_VERSION = 3.1.1
-+PYTHON_GREENLET_VERSION = 3.3.2
++PYTHON_GREENLET_VERSION = 3.5.6
  PYTHON_GREENLET_SOURCE = greenlet-$(PYTHON_GREENLET_VERSION).tar.gz
 -PYTHON_GREENLET_SITE = https://files.pythonhosted.org/packages/2f/ff/df5fede753cc10f6a5be0931204ea30c35fa2f2ea7a35b25bdaf4fe40e46
-+PYTHON_GREENLET_SITE = https://files.pythonhosted.org/packages/a3/51/1664f6b78fc6ebbd98019a1fd730e83fa78f2db7058f72b1463d3612b8db
++PYTHON_GREENLET_SITE = https://files.pythonhosted.org/packages/3e/6e/0091f175ccd02b02bc8811bbcbcc6ac2e980be116e3b2f7a736ca322bf84
  PYTHON_GREENLET_SETUP_TYPE = setuptools
  PYTHON_GREENLET_LICENSE = MIT, PSF-2.0
  PYTHON_GREENLET_LICENSE_FILES = LICENSE LICENSE.PSF
