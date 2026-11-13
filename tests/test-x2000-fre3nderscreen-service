@@ -354,7 +354,9 @@ FIXTURE_DISCOVER_INPUT=yes run_service start
 python3 - "$root" <<'PY'
 import json
 import pathlib
+from pathlib import Path
 import subprocess
+import tempfile
 import sys
 
 root = pathlib.Path(sys.argv[1])
@@ -405,8 +407,8 @@ assert '"$target/etc/init.d/S64fre3nderscreen"' in post_build
 assert "fre3nderscreen" not in user
 
 assert source["repository"] == "https://github.com/ElHanko/fre3nderscreen.git"
-assert source["release"] == "2026.2"
-assert source["commit"] == "9769260807a90135cd88f8d178131199d2f3ec27"
+assert source["release"] == "2026.3"
+assert source["commit"] == "c70c6163f9da236b262294940d66502fb459a8d7"
 assert source["license"] == "GPL-3.0-only"
 assert "vendored_dependency" not in source
 assert sources["userspace"]["wpa_supplicant"]["source"] == "upstream Buildroot package"
@@ -415,32 +417,53 @@ assert "WPA-SUPPLICANT-LICENSE" not in component
 assert '"$tmp/app/bin/fre3nderscreen"' in component
 assert 'rootfs-overlay.tar' not in component
 
-# Execute the builder's actual development branch with only Git queries mocked.
-development = component.split("prepare_source() {", 1)[1].split(
-    'if [ "$artifact_mode" = development ]; then\n', 1
-)[1].split("\n\telse\n", 1)[0]
-fixture = '''
+# Execute the builder's actual version selection with Git queries mocked.
+prepare = component.split("prepare_source() {", 1)[1]
+version_selection = prepare.split('if [ "$artifact_mode" = development ]; then', 1)[1]
+version_selection = ('if [ "$artifact_mode" = development ]; then' +
+                     version_selection.split('\n\tif [ -z', 1)[0])
+fixture = """
 set -eu
 git() {
     case "$*" in
-    "-C fixture rev-parse HEAD") printf '%s\\n' abcdef1000000000000000000000000000000000000 ;;
-    "-C fixture rev-parse --short=7 HEAD") printf '%s\\n' abcdef1 ;;
+    "-C $source_dir rev-parse HEAD") printf '%s\\n' abcdef1000000000000000000000000000000000 ;;
     *) return 1 ;;
     esac
 }
-source_dir=fixture
-release=$1
-'''
-for release, expected in (
-    ("2026.1.1", "2026.1.abcdef1"),
-    ("2026.2", "2026.2.abcdef1"),
-):
-    actual = subprocess.check_output(
-        ["sh", "-c", fixture + development + '\nprintf "%s\\n" "$release"\n',
-         "version-fixture", release], text=True,
-    ).strip()
-    assert actual == expected, (release, actual, expected)
-print("Fre3nderScreen development version checks: PASS (2 cases)")
+source_dir=$1
+artifact_mode=$2
+release=$3
+pinned_commit=1234567000000000000000000000000000000000
+select_version() {
+""" + version_selection + """
+}
+select_version
+printf '%s\\n' "$release" "$commit"
+"""
+with tempfile.TemporaryDirectory() as directory:
+    version_file = Path(directory) / "VERSION"
+    for mode, release, version, expected in (
+        ("development", "2026.1.1", None, "2026.1.abcdef1"),
+        ("development", "2026.3", None, "2026.3.abcdef1"),
+        ("development", "2026.3", "2026.4.a", "2026.4.abcdef1"),
+        ("development", "2026.3", "2026.4.1.rc", "2026.4.abcdef1"),
+        ("development", "2026.3", "2026.4.dev", None),
+        ("release", "2026.3", "2026.4.a", "2026.3"),
+    ):
+        if version is None:
+            version_file.unlink(missing_ok=True)
+        else:
+            version_file.write_text(version + "\n")
+        result = subprocess.run(["sh", "-c", fixture, "version-fixture",
+                                 directory, mode, release], capture_output=True, text=True)
+        if expected is None:
+            assert result.returncode != 0 and "invalid Fre3nderScreen" in result.stderr, result
+        else:
+            assert result.returncode == 0, result.stderr
+            expected_commit = "abcdef1" if mode == "development" else "1234567"
+            actual, commit = result.stdout.splitlines()
+            assert actual == expected and commit.startswith(expected_commit), result.stdout
+print("Fre3nderScreen development and release version checks: PASS (6 cases)")
 
 for source_name, output_name in (
     ("DEJAVU-FONTS-LICENSE.txt", "DEJAVU-FONTS-LICENSE"),

@@ -201,8 +201,10 @@ configuration before reusing a Kernel for the [display contract](display.md#linu
 
 Development packages use
 `<artifact.source.release>-fre3nder.0.<apps-commit>` and `release_serial = 0`.
-The source release includes the resolved Screen commit's short ID; the final
-suffix identifies the apps recipe commit. These version strings do not identify
+The source release combines the series from Screen's `VERSION` with the first
+seven characters of the resolved Screen commit. Older Screen sources use the
+series from the Core release pin. The final suffix identifies the apps recipe
+commit. These version strings do not identify
 pending worktree changes. Inspect `source.worktree_sha256` for local Screen
 content, the signed service and package SHA256 for recipe content, and
 `factory_apps.fre3nderscreen.sha256` for the embedded seed. Rebuilding dirty

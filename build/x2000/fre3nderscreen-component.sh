@@ -83,10 +83,20 @@ prepare_source() {
 	[ "$(git -C "$source_dir" remote get-url origin)" = "$repository" ]
 	if [ "$artifact_mode" = development ]; then
 		commit=$(git -C "$source_dir" rev-parse HEAD)
-		case "$release" in
-		*.*.*) release=${release%.*} ;;
-		esac
-		release="$release.$(git -C "$source_dir" rev-parse --short=7 HEAD)"
+		if [ -f "$source_dir/VERSION" ]; then
+			development_version=$(cat "$source_dir/VERSION")
+			if ! printf '%s\n' "$development_version" | grep -Eq '^[0-9]{4}\.[1-9][0-9]*(\.[1-9][0-9]*)?(\.(a|b|rc))?$'; then
+				echo 'invalid Fre3nderScreen development VERSION' >&2
+				return 1
+			fi
+			release=$(printf '%s\n' "$development_version" | cut -d. -f1,2)
+		else
+			# Older Screen checkouts derive their series from the release pin.
+			case "$release" in
+			*.*.*) release=${release%.*} ;;
+			esac
+		fi
+		release="$release.$(printf '%.7s' "$commit")"
 	else
 		commit=$pinned_commit
 	fi
