@@ -1,8 +1,42 @@
+diff --git a/Makefile b/Makefile
+index 14aebd67bb781171996d45b185be11a91e89803d..347aa1b81f7874ac4433cd3b5458ccab6cda2840 100644
+--- a/Makefile
++++ b/Makefile
+@@ -1653,7 +1653,7 @@ kselftest-merge:
+ # Devicetree files
+ 
+ ifneq ($(wildcard $(srctree)/arch/$(SRCARCH)/boot/dts/),)
+-dtstree := module_drivers/dts
++export dtstree := module_drivers/dts
+ endif
+ 
+ dtbindingtree := Documentation/devicetree/bindings
+diff --git a/arch/mips/xburst2/soc-x2000/pm.c b/arch/mips/xburst2/soc-x2000/pm.c
+index d98232e7211cc414d138422afdb5cdb1ba0e8fa6..5cc5cf8b058bf7a815b6a66d1920fc61c020b54f 100644
+--- a/arch/mips/xburst2/soc-x2000/pm.c
++++ b/arch/mips/xburst2/soc-x2000/pm.c
+@@ -1,6 +1,7 @@
+ #include <linux/init.h>
+ #include <linux/pm.h>
+ #include <linux/ctype.h>
++#include <linux/string.h>
+ #include <linux/module.h>
+ 
+ #include <soc/gpio.h>
+@@ -292,7 +293,7 @@ static int __init suspend_console_setup(char *str)
+ 	char buf[32];
+ 	char *s;
+ 
+-	strncpy(buf, str, sizeof(buf) - 1);
++	strscpy(buf, str, sizeof(buf));
+ 
+ 	for (s = buf; *s; s++)
+ 		if (isdigit(*s) || *s == ',') {
 diff --git a/drivers/mmc/host/sdhci.c b/drivers/mmc/host/sdhci.c
-index 90f334fa6cec43c506b67e7c098039f47a2307b7..6d32ec7a90ed8c2dde35a882bb32710fc833da5f 100644
+index dd11a427da70c7aa246cb00b862b48b70b3fb4a2..852d4614dc5f64c1d1b7b536d98efdb10e17514f 100644
 --- a/drivers/mmc/host/sdhci.c
 +++ b/drivers/mmc/host/sdhci.c
-@@ -3607,12 +3607,14 @@ static void sdhci_data_irq(struct sdhci_host *host, u32 intmask)
+@@ -3611,12 +3611,14 @@ static void sdhci_data_irq(struct sdhci_host *host, u32 intmask)
  		host->data->error = -EILSEQ;
  		if (!mmc_op_tuning(SDHCI_GET_CMD(sdhci_readw(host, SDHCI_COMMAND)))) {
  			sdhci_err_stats_inc(host, DAT_CRC);
@@ -18,10 +52,10 @@ index 90f334fa6cec43c506b67e7c098039f47a2307b7..6d32ec7a90ed8c2dde35a882bb32710f
  			u16 ctrl2 = sdhci_readw(host, SDHCI_HOST_CONTROL2);
  
 diff --git a/drivers/usb/dwc2/core_intr.c b/drivers/usb/dwc2/core_intr.c
-index 97f6a79baf1281c2e17c6a8a826ab74046e8d41c..049885ce8ebf3aaeffb1e48537998d4bde65b636 100644
+index c84eb00c2a311b4d5c3258676e8a0c4cb64eaa45..88b3565bc028b915909a78931845a86b7aefd984 100644
 --- a/drivers/usb/dwc2/core_intr.c
 +++ b/drivers/usb/dwc2/core_intr.c
-@@ -333,7 +333,6 @@ static void dwc2_handle_session_req_intr(struct dwc2_hsotg *hsotg)
+@@ -346,7 +346,6 @@ static void dwc2_handle_session_req_intr(struct dwc2_hsotg *hsotg)
  void dwc2_wakeup_from_lpm_l1(struct dwc2_hsotg *hsotg, bool remotewakeup)
  {
  	u32 glpmcfg;
@@ -29,7 +63,7 @@ index 97f6a79baf1281c2e17c6a8a826ab74046e8d41c..049885ce8ebf3aaeffb1e48537998d4b
  	u32 dctl;
  
  	if (hsotg->lx_state != DWC2_L1) {
-@@ -348,10 +347,6 @@ void dwc2_wakeup_from_lpm_l1(struct dwc2_hsotg *hsotg, bool remotewakeup)
+@@ -361,10 +360,6 @@ void dwc2_wakeup_from_lpm_l1(struct dwc2_hsotg *hsotg, bool remotewakeup)
  		glpmcfg &= ~GLPMCFG_HIRD_THRES_MASK;
  		dwc2_writel(hsotg, glpmcfg, GLPMCFG);
  
@@ -40,11 +74,229 @@ index 97f6a79baf1281c2e17c6a8a826ab74046e8d41c..049885ce8ebf3aaeffb1e48537998d4b
  		glpmcfg = dwc2_readl(hsotg, GLPMCFG);
  		if (glpmcfg & GLPMCFG_ENBESL) {
  			glpmcfg |= GLPMCFG_RSTRSLPSTS;
+diff --git a/drivers/usb/dwc2/hw.h b/drivers/usb/dwc2/hw.h
+index 6aef9f4b3d0a83ba2d0b7b3604c3948a841646b7..fe8c87a2f8b548f8b15c36d1d29adabe35c99d03 100644
+--- a/drivers/usb/dwc2/hw.h
++++ b/drivers/usb/dwc2/hw.h
+@@ -633,6 +633,38 @@
+ 
+ #define DTXFSTS(_a)			HSOTG_REG(0x918 + ((_a) * 0x20))
+ 
++#define PCGCTL				HSOTG_REG(0x0e00)
++#define PCGCTL_IF_DEV_MODE		BIT(31)
++#define PCGCTL_P2HD_PRT_SPD_MASK	(0x3 << 29)
++#define PCGCTL_P2HD_PRT_SPD_SHIFT	29
++#define PCGCTL_P2HD_DEV_ENUM_SPD_MASK	(0x3 << 27)
++#define PCGCTL_P2HD_DEV_ENUM_SPD_SHIFT	27
++#define PCGCTL_MAC_DEV_ADDR_MASK	(0x7f << 20)
++#define PCGCTL_MAC_DEV_ADDR_SHIFT	20
++#define PCGCTL_MAX_TERMSEL		BIT(19)
++#define PCGCTL_MAX_XCVRSELECT_MASK	(0x3 << 17)
++#define PCGCTL_MAX_XCVRSELECT_SHIFT	17
++#define PCGCTL_PORT_POWER		BIT(16)
++#define PCGCTL_PRT_CLK_SEL_MASK		(0x3 << 14)
++#define PCGCTL_PRT_CLK_SEL_SHIFT	14
++#define PCGCTL_ESS_REG_RESTORED		BIT(13)
++#define PCGCTL_EXTND_HIBER_SWITCH	BIT(12)
++#define PCGCTL_EXTND_HIBER_PWRCLMP	BIT(11)
++#define PCGCTL_ENBL_EXTND_HIBER		BIT(10)
++#define PCGCTL_RESTOREMODE		BIT(9)
++#define PCGCTL_RESETAFTSUSP		BIT(8)
++#define PCGCTL_DEEP_SLEEP		BIT(7)
++#define PCGCTL_PHY_IN_SLEEP		BIT(6)
++#define PCGCTL_ENBL_SLEEP_GATING	BIT(5)
++#define PCGCTL_RSTPDWNMODULE		BIT(3)
++#define PCGCTL_PWRCLMP			BIT(2)
++#define PCGCTL_GATEHCLK			BIT(1)
++#define PCGCTL_STOPPCLK			BIT(0)
++
++#define PCGCCTL1                        HSOTG_REG(0xe04)
++#define PCGCCTL1_TIMER                  (0x3 << 1)
++#define PCGCCTL1_GATEEN                 BIT(0)
++
+ #define EPFIFO(_a)			HSOTG_REG(0x1000 + ((_a) * 0x1000))
+ 
+ /* Host Mode Registers */
+diff --git a/module_drivers/Makefile b/module_drivers/Makefile
+index 78707af01502cf8ab11f510ecb07a6c59e36e508..4866512563e9e614ca8696e51b60adf39217b38b 100644
+--- a/module_drivers/Makefile
++++ b/module_drivers/Makefile
+@@ -1,5 +1,8 @@
+ # 用于编译调试错误.
+ subdir-ccflags-y += -Werror
++# Kbuild now enables this diagnostic globally. Keep the inherited
++# vendor prototype warnings visible without making them port blockers.
++subdir-ccflags-y += -Wno-error=missing-prototypes
+ 
+ # Device Tree
+ obj-$(CONFIG_BUILTIN_DTB)       := dts/
+diff --git a/module_drivers/drivers/clk/ingenic-v2/clk-bus.c b/module_drivers/drivers/clk/ingenic-v2/clk-bus.c
+index 10d3ae916947fcf55db91e52a7fab12e201a6258..595c8ef5c46531c1ec66de4776c6a48f63bf1fc3 100644
+--- a/module_drivers/drivers/clk/ingenic-v2/clk-bus.c
++++ b/module_drivers/drivers/clk/ingenic-v2/clk-bus.c
+@@ -58,12 +58,10 @@ static unsigned long clk_bus_divider_recalc_rate(struct clk_hw *hw,
+ 	return bus_div->div_ops->recalc_rate(&bus_div->div.hw, parent_rate);
+ }
+ 
+-static long clk_bus_divider_round_rate(struct clk_hw *hw, unsigned long rate,
+-                                       unsigned long *prate)
++static int clk_bus_divider_determine_rate(struct clk_hw *hw,
++                                      struct clk_rate_request *req)
+ {
+-	struct clk_bus_divider *bus_div = to_clk_bus_divider(hw);
+-
+-	return bus_div->div_ops->round_rate(&bus_div->div.hw, rate, prate);
++	return clk_divider_ops.determine_rate(hw, req);
+ }
+ 
+ static int clk_bus_divider_set_rate(struct clk_hw *hw, unsigned long rate,
+@@ -126,7 +124,7 @@ static int clk_bus_divider_set_rate(struct clk_hw *hw, unsigned long rate,
+ 
+ static struct clk_ops clk_bus_divider_ops = {
+ 	.recalc_rate = clk_bus_divider_recalc_rate,
+-	.round_rate = clk_bus_divider_round_rate,
++	.determine_rate = clk_bus_divider_determine_rate,
+ 	.set_rate = clk_bus_divider_set_rate,
+ };
+ 
+diff --git a/module_drivers/drivers/clk/ingenic-v2/clk-div.c b/module_drivers/drivers/clk/ingenic-v2/clk-div.c
+index 607955f255ed66290fb21f1eec680f45c1f60a61..b24b98455ce3901b3b4ab293fc4785a3544a5b81 100644
+--- a/module_drivers/drivers/clk/ingenic-v2/clk-div.c
++++ b/module_drivers/drivers/clk/ingenic-v2/clk-div.c
+@@ -89,12 +89,10 @@ static unsigned long clk_cgu_divider_recalc_rate(struct clk_hw *hw,
+ 	return cgu_div->div_ops->recalc_rate(&cgu_div->div.hw, parent_rate);
+ }
+ 
+-static long clk_cgu_divider_round_rate(struct clk_hw *hw, unsigned long rate,
+-                                       unsigned long *prate)
++static int clk_cgu_divider_determine_rate(struct clk_hw *hw,
++                                      struct clk_rate_request *req)
+ {
+-	struct clk_cgu_divider *cgu_div = to_clk_cgu_divider(hw);
+-
+-	return  cgu_div->div_ops->round_rate(&cgu_div->div.hw, rate, prate);
++	return clk_divider_ops.determine_rate(hw, req);
+ }
+ 
+ static int clk_cgu_divider_set_rate(struct clk_hw *hw, unsigned long rate, unsigned long parent_rate)
+@@ -155,7 +153,7 @@ static int clk_cgu_divider_enable(struct clk_hw *hw)
+ 
+ static struct clk_ops clk_cgu_divider_ops = {
+ 	.recalc_rate = clk_cgu_divider_recalc_rate,
+-	.round_rate = clk_cgu_divider_round_rate,
++	.determine_rate = clk_cgu_divider_determine_rate,
+ 	.set_rate = clk_cgu_divider_set_rate,
+ 	.enable = clk_cgu_divider_enable,
+ 	.disable = clk_cgu_divider_disable,
+diff --git a/module_drivers/drivers/clk/ingenic-v2/clk-pll-v1.c b/module_drivers/drivers/clk/ingenic-v2/clk-pll-v1.c
+index d4eb262dfbac57e3415002a2e451d75f6fe64192..2814d07a1e5ee8d53c87a8a382bff782b05f6c98 100644
+--- a/module_drivers/drivers/clk/ingenic-v2/clk-pll-v1.c
++++ b/module_drivers/drivers/clk/ingenic-v2/clk-pll-v1.c
+@@ -21,19 +21,21 @@ struct ingenic_clk_pll {
+ 
+ #define to_clk_pll(_hw) container_of(_hw, struct ingenic_clk_pll, hw)
+ 
+-static long ingenic_pll_round_rate(struct clk_hw *hw, unsigned long drate, unsigned long *prate)
++static int ingenic_pll_determine_rate(struct clk_hw *hw, struct clk_rate_request *req)
+ {
+ 	struct ingenic_clk_pll *pll = to_clk_pll(hw);
+ 	const struct ingenic_pll_rate_table *rate_table = pll->rate_table;
+ 	int i;
+ 
+ 	for (i = 0; i < pll->rate_count; i++) {
+-		if (drate >= rate_table[i].rate) {
+-			return  rate_table[i].rate;
++		if (req->rate >= rate_table[i].rate) {
++			req->rate = rate_table[i].rate;
++			return 0;
+ 		}
+ 	}
+ 
+-	return rate_table[i - 1].rate;
++	req->rate = rate_table[i - 1].rate;
++	return 0;
+ 
+ }
+ 
+@@ -83,7 +85,7 @@ Note: the PLL filter is FIN/ (PLLRD+1)
+ 
+ FIN is fixed to 24M.
+ */
+-const static char pll_rd_vs_rg_table[8] = {3, 2, 1, 0, 0, 0, 0, 0};
++static const char pll_rd_vs_rg_table[8] = {3, 2, 1, 0, 0, 0, 0, 0};
+ 
+ static int ingenic_v1_pll_set_rate(struct clk_hw *hw, unsigned long drate, unsigned long prate)
+ {
+@@ -116,7 +118,7 @@ static int ingenic_v1_pll_set_rate(struct clk_hw *hw, unsigned long drate, unsig
+ 
+ static const struct clk_ops ingenic_v1_pll_clk_ops = {
+ 	.recalc_rate = ingenic_v1_pll_recalc_rate,
+-	.round_rate = ingenic_pll_round_rate,
++	.determine_rate = ingenic_pll_determine_rate,
+ 	.set_rate = ingenic_v1_pll_set_rate,
+ };
+ 
+diff --git a/module_drivers/drivers/clk/ingenic-v2/clk.c b/module_drivers/drivers/clk/ingenic-v2/clk.c
+index 1b73f11f9cfbf3552d11fb9b451e3846da974b66..76fe086e4de1e0b2e04a17175f7190c800bb7326 100644
+--- a/module_drivers/drivers/clk/ingenic-v2/clk.c
++++ b/module_drivers/drivers/clk/ingenic-v2/clk.c
+@@ -463,7 +463,7 @@ unsigned long _get_rate(const char *clk_name)
+ }
+ 
+ #ifdef CONFIG_PM
+-static int ingenic_clk_suspend(void)
++static int ingenic_clk_suspend(void *data)
+ {
+ 	struct ingenic_clock_reg_cache *reg_cache;
+ 
+@@ -473,7 +473,7 @@ static int ingenic_clk_suspend(void)
+ 	return 0;
+ }
+ 
+-static void ingenic_clk_resume(void)
++static void ingenic_clk_resume(void *data)
+ {
+ 	struct ingenic_clock_reg_cache *reg_cache;
+ 
+@@ -482,11 +482,15 @@ static void ingenic_clk_resume(void)
+ 	                    reg_cache->nr_reg_sleep);
+ }
+ 
+-static struct syscore_ops ingenic_clk_syscore_ops = {
++static const struct syscore_ops ingenic_clk_syscore_ops = {
+ 	.suspend = ingenic_clk_suspend,
+ 	.resume = ingenic_clk_resume,
+ };
+ 
++static struct syscore ingenic_clk_syscore = {
++	.ops = &ingenic_clk_syscore_ops,
++};
++
+ void __init ingenic_clk_sleep_init(void __iomem *reg_base,
+                                    struct ingenic_clk_reg_sleep  *reg_sleep,
+                                    unsigned long nr_reg_sleep)
+@@ -503,7 +507,7 @@ void __init ingenic_clk_sleep_init(void __iomem *reg_base,
+ 	reg_cache->nr_reg_sleep = nr_reg_sleep;
+ 
+ 	if (list_empty(&clock_reg_cache_list)) {
+-		register_syscore_ops(&ingenic_clk_syscore_ops);
++		register_syscore(&ingenic_clk_syscore);
+ 	}
+ 
+ 	reg_cache->reg_base = reg_base;
 diff --git a/module_drivers/drivers/clocksource/ingenic_core_ost.c b/module_drivers/drivers/clocksource/ingenic_core_ost.c
-index acce90baab38149fe54c522f9d53c74b4edb2760..f06d7937c5cfff178956642d32b49799e29ea375 100644
+index acce90baab38149fe54c522f9d53c74b4edb2760..9bcf112a4f8288030fd5f1fcb340d5d5e0cccb9c 100644
 --- a/module_drivers/drivers/clocksource/ingenic_core_ost.c
 +++ b/module_drivers/drivers/clocksource/ingenic_core_ost.c
-@@ -481,8 +481,6 @@ static int __init ingenic_ost_init(struct device_node *np)
+@@ -27,6 +27,7 @@
+ /* #define VERBOSE_DEBUG */
+ 
+ #include <linux/types.h>
++
+ #include <linux/interrupt.h>
+ #include <linux/err.h>
+ #include <linux/time.h>
+@@ -481,8 +482,6 @@ static int __init ingenic_ost_init(struct device_node *np)
  	void __iomem *g_iobase = NULL;
  	void __iomem *core_iobase = NULL;
  	int irq = -1;
@@ -53,7 +305,7 @@ index acce90baab38149fe54c522f9d53c74b4edb2760..f06d7937c5cfff178956642d32b49799
  	unsigned int pv;
  	int index = 0;
  
-@@ -503,7 +501,7 @@ static int __init ingenic_ost_init(struct device_node *np)
+@@ -503,7 +502,7 @@ static int __init ingenic_ost_init(struct device_node *np)
  		return -EINVAL;
  	}
  
@@ -62,8 +314,42 @@ index acce90baab38149fe54c522f9d53c74b4edb2760..f06d7937c5cfff178956642d32b49799
  		if (index % 2) {
  			cpu_ost_map[index / 2].dev_base = (unsigned int)core_iobase + pv;
  		} else {
+diff --git a/module_drivers/drivers/dma/ingenic/ingenic_dma.c b/module_drivers/drivers/dma/ingenic/ingenic_dma.c
+index 67d289dd6588ac3117bc9e26a3f42957346e44e7..3fcca9e87c38f53ac4d706a9e607facb0162df4e 100644
+--- a/module_drivers/drivers/dma/ingenic/ingenic_dma.c
++++ b/module_drivers/drivers/dma/ingenic/ingenic_dma.c
+@@ -45,7 +45,7 @@
+ #define AHB_MCU_PDMA    1
+ 
+ /* tsz for 1,2,4,8,16,32,64 128bytes */
+-const static char dcm_tsz[8] = { 1, 2, 0, 0, 3, 4, 5, 6};
++static const char dcm_tsz[8] = { 1, 2, 0, 0, 3, 4, 5, 6};
+ 
+ u32 ingenic_dma_read_dtc(struct dma_chan *chan)
+ {
+diff --git a/module_drivers/drivers/i2c/busses/i2c-ingenic.c b/module_drivers/drivers/i2c/busses/i2c-ingenic.c
+index 447382efe2dd952368a8bbbce6edb6baea51d1f5..7147cda58fc78e3796401b7481982db2fb9c175a 100644
+--- a/module_drivers/drivers/i2c/busses/i2c-ingenic.c
++++ b/module_drivers/drivers/i2c/busses/i2c-ingenic.c
+@@ -1098,14 +1098,14 @@ static int i2c_ingenic_probe(struct platform_device *pdev)
+ 	return 0;
+ }
+ 
+-static int i2c_ingenic_remove(struct platform_device *pdev)
++static void i2c_ingenic_remove(struct platform_device *pdev)
+ {
+ 	struct i2c_ingenic *i2c = platform_get_drvdata(pdev);
+ 	if ((!IS_ERR(i2c->clk)) && (!i2c->clk_always_enable)) {
+ 		clk_disable_unprepare(i2c->clk);
+ 	}
+ 	i2c_del_adapter(&i2c->adap);
+-	return 0;
++	return;
+ }
+ 
+ static int i2c_ingenic_suspend(struct platform_device *pdev, pm_message_t state)
 diff --git a/module_drivers/drivers/irqchip/irq-ingenic-chip.c b/module_drivers/drivers/irqchip/irq-ingenic-chip.c
-index 0ea31b4d4d5a13be9bcd483ec9ffd41ae029fd40..da183365cc3415b3cda8949bcb96d9012f980c85 100644
+index 0ea31b4d4d5a13be9bcd483ec9ffd41ae029fd40..92277a684db1d5ed8545ba0202b00e62879fd4b1 100644
 --- a/module_drivers/drivers/irqchip/irq-ingenic-chip.c
 +++ b/module_drivers/drivers/irqchip/irq-ingenic-chip.c
 @@ -342,8 +342,6 @@ static int __init ingenic_intc_of_init(struct device_node *node)
@@ -84,11 +370,223 @@ index 0ea31b4d4d5a13be9bcd483ec9ffd41ae029fd40..da183365cc3415b3cda8949bcb96d901
  		if (index % 2) {
  			cpu_intc_map[index / 2].dev_base = (unsigned int)iobase + pv;
  		} else {
+@@ -381,7 +379,7 @@ static int __init ingenic_intc_of_init(struct device_node *node)
+ 
+ 	irq_chips->intc_clk  = clk_get(NULL, "gate_intc");
+ 
+-	domain = irq_domain_add_legacy(node, INTC_NR_IRQS, 8, 0, &ingenic_irq_domain_ops, chip);
++	domain = irq_domain_create_legacy(of_fwnode_handle(node), INTC_NR_IRQS, 8, 0, &ingenic_irq_domain_ops, chip);
+ 	WARN(!iobase, "Unable to register IRQ domain!\n");
+ 
+ 	percpu_irq_init(irq_chips, 0);
+diff --git a/module_drivers/drivers/irqchip/irq-ingenic-cpu.c b/module_drivers/drivers/irqchip/irq-ingenic-cpu.c
+index f5ac91e9bdb39794a02e7f629c38b58942385671..52f42dcf391a7e78484d60520bc59bb316388112 100644
+--- a/module_drivers/drivers/irqchip/irq-ingenic-cpu.c
++++ b/module_drivers/drivers/irqchip/irq-ingenic-cpu.c
+@@ -107,7 +107,7 @@ static void __init __ingenic_cpu_irq_init(struct device_node *of_node)
+ 	clear_c0_status(ST0_IM);
+ 	clear_c0_cause(CAUSEF_IP);
+ 
+-	domain = irq_domain_add_legacy(of_node, 8, MIPS_CPU_IRQ_BASE, 0,
++	domain = irq_domain_create_legacy(of_fwnode_handle(of_node), 8, MIPS_CPU_IRQ_BASE, 0,
+ 	                               &ingenic_cpu_intc_irq_domain_ops, NULL);
+ 	if (!domain) {
+ 		panic("Failed to add irqdomain for MIPS CPU");
+diff --git a/module_drivers/drivers/mfd/ingenic-tcu.c b/module_drivers/drivers/mfd/ingenic-tcu.c
+index bb822d8086952e6af4bf2bbf51a46aff22782bce..7e3a73aa72f633e94c6327163a8f55308950bc3a 100644
+--- a/module_drivers/drivers/mfd/ingenic-tcu.c
++++ b/module_drivers/drivers/mfd/ingenic-tcu.c
+@@ -951,7 +951,7 @@ static int ingenic_tcu_probe(struct platform_device *pdev)
+ 	return ret;
+ }
+ 
+-static int ingenic_tcu_remove(struct platform_device *pdev)
++static void ingenic_tcu_remove(struct platform_device *pdev)
+ {
+ 	struct ingenic_tcu *tcu = platform_get_drvdata(pdev);
+ 
+@@ -962,7 +962,7 @@ static int ingenic_tcu_remove(struct platform_device *pdev)
+ 	free_irq(tcu->irq, tcu);
+ 	kfree(tcu);
+ 
+-	return 0;
++	return;
+ }
+ static const struct of_device_id tcu_match[] = {
+ 	{ .compatible = "ingenic,tcu", .data = NULL },
+diff --git a/module_drivers/drivers/mfd/ingenic_adc_aux.c b/module_drivers/drivers/mfd/ingenic_adc_aux.c
+index c96d0acc69bf641334a9ebfdc2770b5abef49c6d..5feb74d6b6fe92814bedacaa058f26c1317e4ede 100644
+--- a/module_drivers/drivers/mfd/ingenic_adc_aux.c
++++ b/module_drivers/drivers/mfd/ingenic_adc_aux.c
+@@ -340,7 +340,7 @@ err_free :
+ 
+ }
+ 
+-static int ingenic_adc_aux_remove(struct platform_device *pdev)
++static void ingenic_adc_aux_remove(struct platform_device *pdev)
+ {
+ 	struct ingenic_adc_aux *ingenic_adc_aux = platform_get_drvdata(pdev);
+ 
+@@ -350,7 +350,7 @@ static int ingenic_adc_aux_remove(struct platform_device *pdev)
+ 	release_mem_region(ingenic_adc_aux->mem->start, resource_size(ingenic_adc_aux->mem));
+ 	kfree(ingenic_adc_aux);
+ 
+-	return 0;
++	return;
+ }
+ 
+ static struct platform_driver ingenic_adc_aux_driver = {
+diff --git a/module_drivers/drivers/mfd/ingenic_adc_v13.c b/module_drivers/drivers/mfd/ingenic_adc_v13.c
+index dc7e7776a76b556090bd3769995587607e7bdfcf..34d3043041ab7c69150bde472863e91652376265 100644
+--- a/module_drivers/drivers/mfd/ingenic_adc_v13.c
++++ b/module_drivers/drivers/mfd/ingenic_adc_v13.c
+@@ -314,7 +314,7 @@ static int setup_adc_irq(struct ingenic_adc *adc, struct device_node *np)
+ 		return -EINVAL;
+ 	}
+ 
+-	adc->irq_domain = irq_domain_add_linear(np, adc->priv->aux_channels, &ingenic_adc_irq_domain_ops, (void *)adc);
++	adc->irq_domain = irq_domain_create_linear(of_fwnode_handle(np), adc->priv->aux_channels, &ingenic_adc_irq_domain_ops, (void *)adc);
+ 	if (!adc->irq_domain) {
+ 		return -ENOMEM;
+ 	}
+@@ -460,7 +460,7 @@ static int ingenic_adc_probe(struct platform_device *pdev)
+ 	return ret;
+ }
+ 
+-static int ingenic_adc_remove(struct platform_device *pdev)
++static void ingenic_adc_remove(struct platform_device *pdev)
+ {
+ 	struct ingenic_adc *adc = platform_get_drvdata(pdev);
+ 
+@@ -481,7 +481,7 @@ static int ingenic_adc_remove(struct platform_device *pdev)
+ 	kfree(adc->adc_cells);
+ 	kfree(adc);
+ 
+-	return 0;
++	return;
+ }
+ 
+ static const struct ingenic_adc_priv x1600_adc_priv[] = {
+diff --git a/module_drivers/drivers/misc/bt_power_bluesleep.c b/module_drivers/drivers/misc/bt_power_bluesleep.c
+index 6740803a0c27de4d8926fac2116f9ae21bb38a95..22f104b2c729a9321877f4998a52fe91fda82d70 100644
+--- a/module_drivers/drivers/misc/bt_power_bluesleep.c
++++ b/module_drivers/drivers/misc/bt_power_bluesleep.c
+@@ -13,7 +13,8 @@
+ #include <linux/input.h>
+ #include <linux/rfkill.h>
+ #include <linux/gpio.h>
+-#include <linux/of_gpio.h>
++#include <linux/gpio/consumer.h>
++#include <linux/of.h>
+ #include <asm/atomic.h>
+ /*#include <linux/wakelock.h>*/
+ /*#include <linux/bt-rfkill.h>*/
+@@ -210,7 +211,7 @@ static irqreturn_t bt_wake_host_cb(int i, void *data)
+ static int bluesleep_suspend(struct platform_device *pdev, pm_message_t state)
+ {
+ 
+-	if (bt_wake >= 0) {
++	if (bt_wake) {
+ 		enable_irq_wake(bt_wake_irq);
+ 	}
+ 
+@@ -219,7 +220,7 @@ static int bluesleep_suspend(struct platform_device *pdev, pm_message_t state)
+ 
+ static int bluesleep_resume(struct platform_device *pdev)
+ {
+-	if (bt_wake >= 0) {
++	if (bt_wake) {
+ 		disable_irq_wake(bt_wake_irq);
+ 	}
+ 
+@@ -252,7 +253,7 @@ static int __init_or_module bt_power_probe(struct platform_device *pdev)
+ 	return 0;
+ }
+ 
+-static int bt_power_remove(struct platform_device *pdev)
++static void bt_power_remove(struct platform_device *pdev)
+ {
+ 	int ret;
+ 
+@@ -263,7 +264,8 @@ static int bt_power_remove(struct platform_device *pdev)
+ 	ret = bt_power_control(bt_power_state);
+ 	mutex_unlock(&bt_power_lock);
+ 
+-	return ret;
++	if (ret)
++		dev_warn(&pdev->dev, "Bluetooth power off failed: %d\n", ret);
+ }
+ 
+ static const struct of_device_id bt_power_match[] = {
+diff --git a/module_drivers/drivers/mmc/host/ingenic_sdio.c b/module_drivers/drivers/mmc/host/ingenic_sdio.c
+index 5d9722ee60a73a3e6b443a0645a26137fa33a7d9..cd85bb0ca6b6a212cc5e46e09160b9aa73ec8b07 100644
+--- a/module_drivers/drivers/mmc/host/ingenic_sdio.c
++++ b/module_drivers/drivers/mmc/host/ingenic_sdio.c
+@@ -23,7 +23,7 @@
+ #include <linux/of.h>
+ #include <linux/of_irq.h>
+ #include <linux/of_platform.h>
+-#include <linux/of_gpio.h>
++#include <linux/gpio/consumer.h>
+ #include <linux/regulator/consumer.h>
+ #include <linux/pinctrl/consumer.h>
+ 
+diff --git a/module_drivers/drivers/mmc/host/sdhci-ingenic.c b/module_drivers/drivers/mmc/host/sdhci-ingenic.c
+index 0e11b25a9ba80442892fb2a8493c019225b17a1b..ef88a970425bb9e8e7b825b371647fa6991bbafa 100644
+--- a/module_drivers/drivers/mmc/host/sdhci-ingenic.c
++++ b/module_drivers/drivers/mmc/host/sdhci-ingenic.c
+@@ -7,7 +7,7 @@
+ #include <linux/gpio.h>
+ #include <linux/module.h>
+ #include <linux/of.h>
+-#include <linux/of_gpio.h>
++#include <linux/gpio/consumer.h>
+ #include <linux/of_address.h>
+ #include <linux/pm.h>
+ #include <linux/pm_runtime.h>
+@@ -653,7 +653,7 @@ static int sdhci_ingenic_probe(struct platform_device *pdev)
+ 	return 0;
+ }
+ 
+-static int sdhci_ingenic_remove(struct platform_device *pdev)
++static void sdhci_ingenic_remove(struct platform_device *pdev)
+ {
+ 	struct sdhci_host *host =  platform_get_drvdata(pdev);
+ 	struct sdhci_ingenic *sdhci_ing = sdhci_priv(host);
+@@ -676,10 +676,10 @@ static int sdhci_ingenic_remove(struct platform_device *pdev)
+ 	clk_disable_unprepare(sdhci_ing->clk_cgu);
+ 	/* clk_disable_unprepare(sdhci_ing->clk_gate); */
+ 
+-	sdhci_free_host(host);
++	/* sdhci_alloc_host() now uses devm_mmc_alloc_host(). */
+ 	platform_set_drvdata(pdev, NULL);
+ 
+-	return 0;
++	return;
+ }
+ 
+ #ifdef CONFIG_PM
 diff --git a/module_drivers/drivers/pinctrl/pinctrl-ingenic.c b/module_drivers/drivers/pinctrl/pinctrl-ingenic.c
-index 69822206d0d4a10f027d667ba8dab05e38e4c4e3..c9a46433b45add3aa58608007c5ec07c1301e01c 100644
+index 69822206d0d4a10f027d667ba8dab05e38e4c4e3..9692092487b8a2955d6f9f13dc3a8c5e68c53d2b 100644
 --- a/module_drivers/drivers/pinctrl/pinctrl-ingenic.c
 +++ b/module_drivers/drivers/pinctrl/pinctrl-ingenic.c
-@@ -638,14 +638,14 @@ static int ingenic_gpio_direction_input(struct gpio_chip *chip,
+@@ -613,13 +613,14 @@ static void ingenic_gpio_pins_set(struct ingenic_gpio_chip *jzgc,
+ 	spin_unlock_irqrestore(&pctl->shadow_lock, flags);
+ }
+ 
+-static void ingenic_gpio_set(struct gpio_chip *chip,
++static int ingenic_gpio_set(struct gpio_chip *chip,
+                              unsigned pin, int value)
+ {
+ 	struct ingenic_gpio_chip *jzgc = gc_to_ingenic_gc(chip);
+ 
+ 	BUG_ON(pin > jzgc->gc.ngpio);
+ 	ingenic_gpio_pins_set(jzgc, BIT(pin), value);
++	return 0;
+ }
+ 
+ static int ingenic_gpio_get(struct gpio_chip *chip, unsigned pin)
+@@ -638,14 +639,14 @@ static int ingenic_gpio_direction_input(struct gpio_chip *chip,
                                          unsigned pin)
  {
  	BUG_ON(pin > chip->ngpio);
@@ -105,6 +603,1040 @@ index 69822206d0d4a10f027d667ba8dab05e38e4c4e3..c9a46433b45add3aa58608007c5ec07c
  }
  
  static int ingenic_gpio_to_irq(struct gpio_chip *chip,
+@@ -665,7 +666,6 @@ static int ingenic_gpio_to_irq(struct gpio_chip *chip,
+ static int ingenic_gpio_request(struct gpio_chip *chip, unsigned offset)
+ {
+ 	struct ingenic_gpio_chip *jzgc = gc_to_ingenic_gc(chip);
+-	unsigned gpio = chip->base + offset;
+ 
+ 	if (jzgc->used_pins_bitmap & (1 << offset)) {
+ 		printk("%s: GP:%s  used_pins_bitmap: 0X%08X\n", __func__, jzgc->name, jzgc->used_pins_bitmap);
+@@ -676,13 +676,12 @@ static int ingenic_gpio_request(struct gpio_chip *chip, unsigned offset)
+ 
+ 	jzgc->used_pins_bitmap |= 1 << offset;
+ 
+-	return pinctrl_gpio_request(gpio);
++	return pinctrl_gpio_request(chip, offset);
+ }
+ static void ingenic_gpio_free(struct gpio_chip *chip, unsigned offset)
+ {
+ 	struct ingenic_gpio_chip *jzgc = gc_to_ingenic_gc(chip);
+-	unsigned gpio = chip->base + offset;
+-	pinctrl_gpio_free(gpio);
++	pinctrl_gpio_free(chip, offset);
+ 	jzgc->used_pins_bitmap &= ~(1 << offset);
+ }
+ 
+@@ -785,7 +784,7 @@ static int ingenic_gpio_chip_add(struct ingenic_pinctrl *pctl,
+ 	gc->parent = pctl->dev;
+ 	gc->label = jzgc->name;
+ 	gc->of_xlate = ingenic_of_gpio_xlate;
+-	return gpiochip_add(gc);
++	return gpiochip_add_data(gc, NULL);
+ }
+ 
+ static void ingenic_gpio_sleep_init(struct device_node *np,
+@@ -916,7 +915,7 @@ static int ingenic_gpio_irq_init(struct ingenic_pinctrl *pctl,
+ 		return -EINVAL;
+ 	}
+ 
+-	jzgc->irq_domain = irq_domain_add_linear(np, jzgc->gc.ngpio,
++	jzgc->irq_domain = irq_domain_create_linear(of_fwnode_handle(np), jzgc->gc.ngpio,
+ 	                   &ingenic_irq_domain_ops, (void *)jzgc);
+ 	if (!jzgc->irq_domain) {
+ 		return -ENOMEM;
+@@ -1019,10 +1018,6 @@ static int ingenic_get_group_pins(struct pinctrl_dev *pctldev,
+ 	return 0;
+ }
+ 
+-static int ingenic_gc_match(struct gpio_chip *chip, void *data)
+-{
+-	return chip->fwnode == data;
+-}
+ 
+ static int ingenic_packed_config(int cfgval, int *config)
+ {
+@@ -1114,6 +1109,7 @@ static int of_prase_pincfg_to_map(struct device_node *np,
+ 	struct of_phandle_args out_args;
+ 	struct ingenic_gpio_chip *jzgc;
+ 	struct gpio_chip *gc;
++	struct gpio_device *gdev;
+ 	u32 idx = 0, config = 0, index = 0;
+ 	unsigned long pin, bitmap;
+ 	char *pin_names;
+@@ -1121,7 +1117,10 @@ static int of_prase_pincfg_to_map(struct device_node *np,
+ 	while (!of_parse_phandle_with_args(np, "ingenic,pincfg",
+ 	                                   "#ingenic,pincfg-cells", index++,
+ 	                                   &out_args)) {
+-		gc = gpiochip_find(of_fwnode_handle(out_args.np), ingenic_gc_match);
++		gdev = gpio_device_find_by_fwnode(of_fwnode_handle(out_args.np));
++		gc = gdev ? gpio_device_get_chip(gdev) : NULL;
++		if (gdev)
++			gpio_device_put(gdev);
+ 		if (!gc) {
+ 			return -EINVAL;
+ 		}
+@@ -1165,6 +1164,7 @@ static int ingenic_dt_node_to_map(struct pinctrl_dev *pctldev,
+ {
+ 	struct ingenic_pinctrl *pctl = pinctrl_dev_get_drvdata(pctldev);
+ 	struct gpio_chip *gc;
++	struct gpio_device *gdev;
+ 	struct ingenic_gpio_chip *jzgc;
+ 	struct device_node *node;
+ 	struct ingenic_pinctrl_group *grp;
+@@ -1197,7 +1197,10 @@ static int ingenic_dt_node_to_map(struct pinctrl_dev *pctldev,
+ 	}
+ 	while (!of_parse_phandle_with_args(np_config, "ingenic,pincfg",
+ 	                                   "#ingenic,pincfg-cells", index++, &out_args)) {
+-		gc = gpiochip_find(of_fwnode_handle(out_args.np), ingenic_gc_match);
++		gdev = gpio_device_find_by_fwnode(of_fwnode_handle(out_args.np));
++		gc = gdev ? gpio_device_get_chip(gdev) : NULL;
++		if (gdev)
++			gpio_device_put(gdev);
+ 		if (!gc) {
+ 			return -ENOMEM;
+ 		}
+@@ -1537,6 +1540,7 @@ static int ingenic_init_group(struct device *dev, struct device_node *np,
+                               struct ingenic_pinctrl_group *grp)
+ {
+ 	struct device_node *gpio_np = NULL;
++	struct gpio_device *gdev;
+ 	struct of_phandle_args out_args;
+ 	u32 func;
+ 	int pin, idx = 0, index = 0;
+@@ -1559,7 +1563,10 @@ static int ingenic_init_group(struct device *dev, struct device_node *np,
+ 	if (!gpio_np) {
+ 		return 0;
+ 	}
+-	grp->gc = gpiochip_find(of_fwnode_handle(gpio_np), ingenic_gc_match);
++	gdev = gpio_device_find_by_fwnode(of_fwnode_handle(gpio_np));
++	grp->gc = gdev ? gpio_device_get_chip(gdev) : NULL;
++	if (gdev)
++		gpio_device_put(gdev);
+ 	if (!grp->gc) {
+ 		return -EINVAL;
+ 	}
+@@ -2155,7 +2162,7 @@ static int ingenic_gpio_suspend_set(struct ingenic_gpio_chip *jzgc)
+ 	return 0;
+ }
+ 
+-static int ingenic_pinctrl_suspend(void)
++static int ingenic_pinctrl_suspend(void *data)
+ {
+ 	struct ingenic_pinctrl *pctl = gpctl;
+ 	int idx;
+@@ -2188,7 +2195,7 @@ static void ingenic_check_wakeup_gpio(struct ingenic_gpio_chip *jzgc)
+ 	}
+ }
+ 
+-static void ingenic_pinctrl_resume(void)
++static void ingenic_pinctrl_resume(void *data)
+ {
+ 	struct ingenic_pinctrl *pctl = gpctl;
+ 	int idx;
+@@ -2217,11 +2224,15 @@ static void ingenic_pinctrl_resume(void)
+ #define ingenic_pinctrl_resume  NULL
+ #endif
+ 
+-static struct syscore_ops ingenic_pinctrl_syscore_ops = {
++static const struct syscore_ops ingenic_pinctrl_syscore_ops = {
+ 	.suspend = ingenic_pinctrl_suspend,
+ 	.resume = ingenic_pinctrl_resume,
+ };
+ 
++static struct syscore ingenic_pinctrl_syscore = {
++	.ops = &ingenic_pinctrl_syscore_ops,
++};
++
+ static const struct ingenic_priv common_priv_data[] = {
+ 	{
+ 		.have_shadow = true,
+@@ -2349,14 +2360,14 @@ static struct platform_driver ingenic_pinctrl_drv = {
+ 
+ static int __init ingenic_pinctrl_drv_init(void)
+ {
+-	register_syscore_ops(&ingenic_pinctrl_syscore_ops);
++	register_syscore(&ingenic_pinctrl_syscore);
+ 	return platform_driver_register(&ingenic_pinctrl_drv);
+ }
+ postcore_initcall(ingenic_pinctrl_drv_init);
+ 
+ static void __exit ingenic_pinctrl_drv_exit(void)
+ {
+-	unregister_syscore_ops(&ingenic_pinctrl_syscore_ops);
++	unregister_syscore(&ingenic_pinctrl_syscore);
+ 	platform_driver_unregister(&ingenic_pinctrl_drv);
+ 	return;
+ }
+diff --git a/module_drivers/drivers/pwm/pwm-ingenic-v2.c b/module_drivers/drivers/pwm/pwm-ingenic-v2.c
+index fb5c928df9e6812a6e5ec034498183a19207e3ca..5d90da1082fdb9dec2e9cf99fb0f9a3052ad69fa 100644
+--- a/module_drivers/drivers/pwm/pwm-ingenic-v2.c
++++ b/module_drivers/drivers/pwm/pwm-ingenic-v2.c
+@@ -50,18 +50,13 @@
+ 
+ #define DE_WARNING  0
+ 
+-struct ingenic_pwm_channel {
+-	u32 period_ns;
+-	u32 duty_ns;
+-};
+-
+ enum pwm_mode_sel {
+ 	COMMON_MODE,
+ 	DMA_MODE
+ };
+ 
+ struct ingenic_pwm_chip {
+-	struct pwm_chip chip;
++	struct pwm_chip *chip;
+ 	struct clk *clk_pwm;
+ 	struct clk *clk_gate;
+ 	void __iomem    *iomem;
+@@ -407,7 +402,7 @@ static irqreturn_t ingenic_pwm_interrupt(int irq, void *dev_id)
+ 
+ static inline struct ingenic_pwm_chip *to_ingenic_chip(struct pwm_chip *chip)
+ {
+-	return container_of(chip, struct ingenic_pwm_chip, chip);
++	return pwmchip_get_drvdata(chip);
+ }
+ 
+ static int ingenic_pwm_config(struct pwm_chip *chip, struct pwm_device *pwm,
+@@ -506,7 +501,7 @@ static int ingenic_pwm_config(struct pwm_chip *chip, struct pwm_device *pwm,
+ 	/*DMA mode related configuration*/
+ 	if (DMA_MODE == mode && update_flag) {
+ 
+-		dma_coherent = dma_alloc_coherent(ingenic_pwm->chip.dev, sizeof(int) * TRANS_LEN, &dma_coherent_handle, GFP_KERNEL);
++		dma_coherent = dma_alloc_coherent(pwmchip_parent(ingenic_pwm->chip), sizeof(int) * TRANS_LEN, &dma_coherent_handle, GFP_KERNEL);
+ 		//printk("--%s-------%d-dma_coherent = %x--dma_coherent_handle = %x---write value = %x----\n",__func__,__LINE__,(unsigned int)dma_coherent,dma_coherent_handle,(0x1111ffff));
+ 		dma_cache_wback_inv((unsigned int)dma_coherent, sizeof(int) * TRANS_LEN);
+ 		for (i = 0; i < TRANS_LEN; i++) {
+@@ -580,7 +575,7 @@ static void ingenic_pwm_disable(struct pwm_chip *chip, struct pwm_device *pwm)
+ 	mutex_lock(&ingenic_pwm->mutex);
+ 	if (ingenic_pwm->mode_sel[channel] == DMA_MODE) {
+ 		pwm_dma_disable_hw(ingenic_pwm, channel);
+-		dma_free_coherent(ingenic_pwm->chip.dev, sizeof(int) * TRANS_LEN, ingenic_pwm->vir_addr[channel], ingenic_pwm->phy_addr[channel]);
++		dma_free_coherent(pwmchip_parent(ingenic_pwm->chip), sizeof(int) * TRANS_LEN, ingenic_pwm->vir_addr[channel], ingenic_pwm->phy_addr[channel]);
+ 	}
+ 
+ 	pwm_disable_hw(ingenic_pwm, channel);
+@@ -624,7 +619,6 @@ static int ingenic_pwm_apply(struct pwm_chip *chip, struct pwm_device *pwm,
+ 
+ static const struct pwm_ops ingenic_pwm_ops = {
+ 	.apply = ingenic_pwm_apply,
+-	.owner = THIS_MODULE,
+ };
+ 
+ static ssize_t pwm_show_enable(struct device *dev, struct device_attribute *attr, char *buf)
+@@ -773,7 +767,7 @@ static ssize_t pwm_show_requested_channel(struct device *dev, struct device_attr
+ 	int ret = 0;
+ 
+ 	for (i = 0; i < INGENIC_PWM_NUM ; i++) {
+-		if (ingenic_pwm->debug_pwm[i] == &(ingenic_pwm->chip.pwms[i])) {
++		if (ingenic_pwm->debug_pwm[i] == &(ingenic_pwm->chip->pwms[i])) {
+ 			ret += sprintf(buf + ret, "ch: %02d requested\n", i);
+ 		} else {
+ 			ret += sprintf(buf + ret, "ch: %02d unrequested\n", i);
+@@ -793,18 +787,17 @@ static struct device_attribute pwm_device_attributes[] = {
+ static int ingenic_pwm_probe(struct platform_device *pdev)
+ {
+ 	struct ingenic_pwm_chip *chip;
++	struct pwm_chip *pwm_chip;
+ 	struct resource *res;
+ 	int err = 0;
+ 	int ret = 0;
+ 	int i = 0;
+ 
+-	chip = devm_kzalloc(&pdev->dev,
+-	                    sizeof(struct ingenic_pwm_chip), GFP_KERNEL);
+-	if (!chip) {
+-		pr_err("%s %d,malloc ingenic_pwm_chip error\n",
+-		       __func__, __LINE__);
+-		return -ENOMEM;
+-	}
++	pwm_chip = devm_pwmchip_alloc(&pdev->dev, INGENIC_PWM_NUM, sizeof(*chip));
++	if (IS_ERR(pwm_chip))
++		return PTR_ERR(pwm_chip);
++	chip = pwmchip_get_drvdata(pwm_chip);
++	chip->chip = pwm_chip;
+ 
+ 	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
+ 	if (res == NULL) {
+@@ -855,15 +848,11 @@ static int ingenic_pwm_probe(struct platform_device *pdev)
+ 		}
+ 	}
+ 
+-	chip->chip.dev = &pdev->dev;
+-	chip->chip.ops = &ingenic_pwm_ops;
+-	chip->chip.base = 0;
+-	chip->chip.npwm = INGENIC_PWM_NUM;
++	chip->chip->ops = &ingenic_pwm_ops;
+ 	chip->init_level = PWM_INIT_HIGH;
+ 
+-	ret = pwmchip_add(&chip->chip);
++	ret = pwmchip_add(chip->chip);
+ 	if (ret < 0) {
+-		devm_kfree(&pdev->dev, chip);
+ 		return ret;
+ 	}
+ 
+@@ -893,20 +882,19 @@ static int ingenic_pwm_probe(struct platform_device *pdev)
+ 	return err;
+ }
+ 
+-static int ingenic_pwm_remove(struct platform_device *pdev)
++static void ingenic_pwm_remove(struct platform_device *pdev)
+ {
+ 	struct ingenic_pwm_chip *chip;
+ 	chip = platform_get_drvdata(pdev);
+ 	if (!chip) {
+-		return -ENODEV;
++		return;
+ 	}
+ 
+ 	free_irq(chip->irq, chip);
+-	pwmchip_remove(&chip->chip);
++	pwmchip_remove(chip->chip);
+ 	devm_clk_put(&pdev->dev, chip->clk_pwm);
+ 	devm_clk_put(&pdev->dev, chip->clk_gate);
+-	devm_kfree(&pdev->dev, chip);
+-	return 0;
++	return;
+ }
+ 
+ static const struct of_device_id ingenic_pwm_matches[] = {
+@@ -918,25 +906,6 @@ static const struct of_device_id ingenic_pwm_matches[] = {
+ #ifdef CONFIG_PM_SLEEP
+ static int ingenic_pwm_suspend(struct device *dev)
+ {
+-	struct ingenic_pwm_chip *chip = dev_get_drvdata(dev);
+-	unsigned int i;
+-
+-	/*
+-	 * No one preserves these values during suspend so reset them.
+-	 * Otherwise driver leaves PWM unconfigured if same values are
+-	 * passed to pwm_config() next time.
+-	 */
+-	for (i = 0; i < INGENIC_PWM_NUM; ++i) {
+-		struct pwm_device *pwm = &chip->chip.pwms[i];
+-		struct ingenic_pwm_channel *chan = pwm_get_chip_data(pwm);
+-
+-		if (!chan) {
+-			continue;
+-		}
+-		chan->period_ns = 0;
+-		chan->duty_ns = 0;
+-	}
+-
+ 	return 0;
+ }
+ 
+diff --git a/module_drivers/drivers/rtc/rtc-ingenic.c b/module_drivers/drivers/rtc/rtc-ingenic.c
+index 2d1cd88edb5fbd1be2f8f01d1c22a63b7cf27f73..87bc51fbd3f56579e184a031afb0d00f080cbbfa 100644
+--- a/module_drivers/drivers/rtc/rtc-ingenic.c
++++ b/module_drivers/drivers/rtc/rtc-ingenic.c
+@@ -584,7 +584,7 @@ static int ingenic_rtc_probe(struct platform_device *pdev)
+ 	return ret;
+ }
+ 
+-static int ingenic_rtc_remove(struct platform_device *pdev)
++static void ingenic_rtc_remove(struct platform_device *pdev)
+ {
+ 	struct ingenic_rtc *rtc = platform_get_drvdata(pdev);
+ 
+@@ -599,7 +599,7 @@ static int ingenic_rtc_remove(struct platform_device *pdev)
+ 	release_resource(rtc->res);
+ 	kfree(rtc);
+ 	platform_set_drvdata(pdev, NULL);
+-	return 0;
++	return;
+ }
+ 
+ #ifdef CONFIG_PM
+diff --git a/module_drivers/drivers/tty/serial/ingenic_uart.c b/module_drivers/drivers/tty/serial/ingenic_uart.c
+index f3f9a8b408f85f72a2f413657547a3607dc76c56..86e61e32d1c1afcddf464fc4bf9949f11c0d7322 100644
+--- a/module_drivers/drivers/tty/serial/ingenic_uart.c
++++ b/module_drivers/drivers/tty/serial/ingenic_uart.c
+@@ -31,7 +31,7 @@
+ #include <linux/console.h>
+ #include <linux/sysrq.h>
+ #include <linux/serial_core.h>
+-#include <linux/circ_buf.h>
++#include <linux/kfifo.h>
+ #include <linux/delay.h>
+ #include <linux/interrupt.h>
+ #include <linux/bsearch.h>
+@@ -44,7 +44,7 @@
+ #include <linux/debugfs.h>
+ #include <linux/of.h>
+ #include <linux/of_device.h>
+-#include <linux/of_gpio.h>
++#include <linux/gpio/consumer.h>
+ #include <linux/dmaengine.h>
+ #include <linux/dma-mapping.h>
+ #include <linux/scatterlist.h>
+@@ -516,10 +516,10 @@ static void ingenic_dma_rx(unsigned long data)
+ static void ingenic_dma_tx_complete(void *arg)
+ {
+ 	struct uart_ingenic_port *up = arg;
+-	struct circ_buf *xmit = &up->port.state->xmit;
++	struct tty_port *tport = &up->port.state->port;
+ 
+ 	dma_unmap_sg(up->port.dev, &up->sg_tx, 1, (enum dma_data_direction)DMA_MEM_TO_DEV);
+-	if (!(uart_tx_stopped(&up->port) || uart_circ_empty(xmit))) {
++	if (!(uart_tx_stopped(&up->port) || kfifo_is_empty(&tport->xmit_fifo))) {
+ 		tasklet_schedule(&up->tasklet_dma_tx);
+ 	}
+ }
+@@ -527,15 +527,16 @@ static void ingenic_dma_tx_complete(void *arg)
+ static void ingenic_dma_tx(unsigned long data)
+ {
+ 	struct uart_ingenic_port *up = (struct uart_ingenic_port *)data;
+-	struct circ_buf *xmit = &up->port.state->xmit;
++	struct tty_port *tport = &up->port.state->port;
+ 	int bytes, lsr;
++	unsigned char *tail;
+ 	lsr = serial_in(up, UART_LSR);
+ 	check_modem_status(up);
+ 	if (!(lsr & UART_LSR_THRE)) {
+ 		goto l1;
+ 	}
+ 
+-	if (uart_tx_stopped(&up->port) || uart_circ_empty(xmit)) {
++	if (uart_tx_stopped(&up->port) || kfifo_is_empty(&tport->xmit_fifo)) {
+ 		tasklet_schedule(&up->tasklet_dma_tx);
+ 		return ;
+ 	}
+@@ -546,30 +547,10 @@ static void ingenic_dma_tx(unsigned long data)
+ 		up->port.x_char = 0;
+ 		return ;
+ 	}
+-	if (xmit->tail > xmit->head) {
+-		bytes = CIRC_CNT(UART_XMIT_SIZE, xmit->tail, UART_XMIT_SIZE);
+-		if (bytes > 32) {
+-			sg_init_one(&up->sg_tx, xmit->buf + xmit->tail, 32);
+-			xmit->tail = (xmit->tail + 32) & (UART_XMIT_SIZE - 1);
+-			up->port.icount.tx += 32;
+-		} else {
+-			sg_init_one(&up->sg_tx, xmit->buf + xmit->tail, bytes);
+-			xmit->tail = (xmit->tail + bytes) & (UART_XMIT_SIZE - 1);
+-			up->port.icount.tx += bytes;
+-			xmit->tail = 0;
+-		}
+-	} else {
+-		bytes = CIRC_CNT(xmit->head, xmit->tail, UART_XMIT_SIZE);
+-		if (bytes > 32) {
+-			sg_init_one(&up->sg_tx, xmit->buf + xmit->tail, 32);
+-			xmit->tail = (xmit->tail + 32) & (UART_XMIT_SIZE - 1);
+-			up->port.icount.tx += 32;
+-		} else {
+-			sg_init_one(&up->sg_tx, xmit->buf + xmit->tail, bytes);
+-			xmit->tail = (xmit->tail + bytes) & (UART_XMIT_SIZE - 1);
+-			up->port.icount.tx += bytes;
+-		}
+-	}
++	bytes = kfifo_out_linear_ptr(&tport->xmit_fifo, &tail, 32);
++	sg_init_one(&up->sg_tx, tail, bytes);
++	uart_xmit_advance(&up->port, bytes);
++
+ 	dma_map_sg(up->port.dev, &up->sg_tx, 1, (enum dma_data_direction)DMA_MEM_TO_DEV);
+ 	up->desc_tx = dmaengine_prep_slave_sg(up->chan_tx,
+ 	                                      &up->sg_tx,
+@@ -583,7 +564,7 @@ static void ingenic_dma_tx(unsigned long data)
+ 	up->desc_tx->callback_param = up;
+ 	dmaengine_submit(up->desc_tx);
+ 	dma_async_issue_pending(up->chan_tx);
+-	if (uart_circ_chars_pending(xmit) < WAKEUP_CHARS) {
++	if (kfifo_len(&tport->xmit_fifo) < WAKEUP_CHARS) {
+ 		uart_write_wakeup(&up->port);
+ 	}
+ 	return ;
+@@ -705,15 +686,16 @@ static inline void receive_chars(unsigned long data)
+ /* transmit one char*/
+ static void transmit_chars(struct uart_ingenic_port *up)
+ {
+-	struct circ_buf *xmit = &up->port.state->xmit;
++	struct tty_port *tport = &up->port.state->port;
+ 	int count;
++	unsigned char ch;
+ 	if (up->port.x_char) {
+ 		serial_out(up, UART_TX, up->port.x_char);//transmit char=port.x_char
+ 		up->port.icount.tx++;
+ 		up->port.x_char = 0;//transmit finish x_char=0
+ 		return;
+ 	}
+-	if (uart_circ_empty(xmit) || uart_tx_stopped(&up->port)) {//xmit is empty or stop tx
++	if (kfifo_is_empty(&tport->xmit_fifo) || uart_tx_stopped(&up->port)) {//xmit is empty or stop tx
+ 		serial_ingenic_stop_tx(&up->port);
+ 		return;
+ 	}
+@@ -721,20 +703,20 @@ static void transmit_chars(struct uart_ingenic_port *up)
+ 	/* try to tx char until xmit is empty or count=0*/
+ 	count = up->port.fifosize / 2;
+ 	do {
+-		serial_out(up, UART_TX, xmit->buf[xmit->tail]);
+-		xmit->tail = (xmit->tail + 1) & (UART_XMIT_SIZE - 1);
+-		up->port.icount.tx++;
+-		if (uart_circ_empty(xmit)) {
++		if (!uart_fifo_get(&up->port, &ch))
++			break;
++		serial_out(up, UART_TX, ch);
++		if (kfifo_is_empty(&tport->xmit_fifo)) {
+ 			break;
+ 		}
+ 	} while (--count > 0);
+ 
+ 	/*if circ_chars is less than WARKUP_CHARS,then warkup   */
+-	if (uart_circ_chars_pending(xmit) < WAKEUP_CHARS) { //get the renainder of circ_chars
++	if (kfifo_len(&tport->xmit_fifo) < WAKEUP_CHARS) { //get the renainder of circ_chars
+ 		uart_write_wakeup(&up->port);
+ 	}
+ 
+-	/* if (uart_circ_empty(xmit)) */
++	/* if (kfifo_is_empty(&tport->xmit_fifo)) */
+ 	/*  serial_ingenic_stop_tx(&up->port); */
+ }
+ 
+@@ -1535,6 +1517,7 @@ static const struct file_operations port_regs_ops = {
+ 
+ static const struct of_device_id serial_ingenic_of_match[] = {
+ 	{.compatible = "ingenic,8250-uart", .data = NULL},
++	{},
+ };
+ 
+ MODULE_DEVICE_TABLE(of, serial_ingenic_of_match);
+@@ -1607,17 +1590,16 @@ static int serial_ingenic_probe(struct platform_device *pdev)
+ 		dma_cap_set(DMA_SLAVE, mask);
+ 
+ 		up->chan_rx = dma_request_chan(&pdev->dev, "rx");
+-		if (up->chan_rx < 0) {
++		if (IS_ERR(up->chan_rx)) {
+ 			dev_err(up->port.dev, "%s:dma_request_channel FAILS(rx)\n", __func__);
+-			dma_release_channel(up->chan_rx);
+-			return 0;
++			return PTR_ERR(up->chan_rx);
+ 		}
+ 
+ 		up->chan_tx = dma_request_chan(&pdev->dev, "tx");
+-		if (up->chan_tx < 0) {
++		if (IS_ERR(up->chan_tx)) {
+ 			dev_err(up->port.dev, "%s:dma_request_channel FAILS(tx)\n", __func__);
+-			dma_release_channel(up->chan_tx);
+-			return 0;
++			dma_release_channel(up->chan_rx);
++			return PTR_ERR(up->chan_tx);
+ 		}
+ 
+ 		up->rx_buf_virt = dma_alloc_coherent(up->port.dev, (DESC_NUM * DESC_SIZE),
+@@ -1661,7 +1643,7 @@ static int serial_ingenic_probe(struct platform_device *pdev)
+ 	return 0;
+ }
+ 
+-static int serial_ingenic_remove(struct platform_device *pdev)
++static void serial_ingenic_remove(struct platform_device *pdev)
+ {
+ 	struct uart_ingenic_port *up = platform_get_drvdata(pdev);
+ 
+@@ -1678,7 +1660,7 @@ static int serial_ingenic_remove(struct platform_device *pdev)
+ 		clk_disable_unprepare(up->clk);
+ 	}
+ 
+-	return 0;
++	return;
+ }
+ 
+ static struct platform_driver serial_ingenic_driver = {
+diff --git a/module_drivers/drivers/usb/phy/phy-ingenic-ad100.c b/module_drivers/drivers/usb/phy/phy-ingenic-ad100.c
+index fa9e403f04f59268fb091da5cee796e6340822c0..048e9766609006971b4aa3fb1963b9079ff0c6d9 100644
+--- a/module_drivers/drivers/usb/phy/phy-ingenic-ad100.c
++++ b/module_drivers/drivers/usb/phy/phy-ingenic-ad100.c
+@@ -23,7 +23,7 @@
+ static struct usb_phy_data *ad100_usb_phy0;
+ static unsigned int ad100_port0_set_wakeup;
+ 
+-int ad100_phy_port0_suspend(void)
++int ad100_phy_port0_suspend(void *data)
+ {
+ 	unsigned int value;
+ 
+@@ -55,7 +55,7 @@ int ad100_phy_port0_suspend(void)
+ 	return 0;
+ }
+ 
+-void ad100_phy_port0_resume(void)
++void ad100_phy_port0_resume(void *data)
+ {
+ 	unsigned int value;
+ 
+@@ -77,11 +77,15 @@ void ad100_phy_port0_resume(void)
+ 	usb_phy_writel(ad100_usb_phy0, value, 0x30);
+ }
+ 
+-static struct syscore_ops ad100_phy_port0_syscore_ops = {
++static const struct syscore_ops ad100_phy_port0_syscore_ops = {
+ 	.suspend = ad100_phy_port0_suspend,
+ 	.resume = ad100_phy_port0_resume,
+ };
+ 
++static struct syscore ad100_phy_port0_syscore = {
++	.ops = &ad100_phy_port0_syscore_ops,
++};
++
+ static int ad100_priv_data_port0_init(struct usb_phy_data *usb_phy)
+ {
+ 	usb_cpm_set_bit(usb_phy, SRBC_USB_SR, CPM_SRBC);
+@@ -91,7 +95,7 @@ static int ad100_priv_data_port0_init(struct usb_phy_data *usb_phy)
+ 	usb_cpm_set_bit(usb_phy, OPCR_SPENDN0_BIT, CPM_OPCR);
+ 
+ 	ad100_usb_phy0 = usb_phy;
+-	register_syscore_ops(&ad100_phy_port0_syscore_ops);
++	register_syscore(&ad100_phy_port0_syscore);
+ 	return 0;
+ }
+ 
+@@ -169,7 +173,7 @@ struct usb_phy_priv usb0_phy_ad100_priv = {
+ static struct usb_phy_data *ad100_usb_phy1;
+ static unsigned int ad100_port1_set_wakeup;
+ 
+-int ad100_phy_port1_suspend(void)
++int ad100_phy_port1_suspend(void *data)
+ {
+ 	unsigned int value;
+ 
+@@ -194,7 +198,7 @@ int ad100_phy_port1_suspend(void)
+ 	return 0;
+ }
+ 
+-void ad100_phy_port1_resume(void)
++void ad100_phy_port1_resume(void *data)
+ {
+ 	unsigned int value;
+ 
+@@ -209,11 +213,15 @@ void ad100_phy_port1_resume(void)
+ 	usb_phy_writel(ad100_usb_phy1, value, 0x30);
+ }
+ 
+-static struct syscore_ops ad100_phy_port1_syscore_ops = {
++static const struct syscore_ops ad100_phy_port1_syscore_ops = {
+ 	.suspend = ad100_phy_port1_suspend,
+ 	.resume = ad100_phy_port1_resume,
+ };
+ 
++static struct syscore ad100_phy_port1_syscore = {
++	.ops = &ad100_phy_port1_syscore_ops,
++};
++
+ static int ad100_priv_data_port1_init(struct usb_phy_data *usb_phy)
+ {
+ 	usb_cpm_set_bit(usb_phy, SRBC_USB1_SR, CPM_SRBC);
+@@ -223,7 +231,7 @@ static int ad100_priv_data_port1_init(struct usb_phy_data *usb_phy)
+ 	usb_cpm_set_bit(usb_phy, OPCR_SPENDN1_BIT, CPM_OPCR);
+ 
+ 	ad100_usb_phy1 = usb_phy;
+-	register_syscore_ops(&ad100_phy_port1_syscore_ops);
++	register_syscore(&ad100_phy_port1_syscore);
+ 	return 0;
+ }
+ 
+diff --git a/module_drivers/drivers/usb/phy/phy-ingenic-x1600.c b/module_drivers/drivers/usb/phy/phy-ingenic-x1600.c
+index 75962c21ca09d33fd7df015d01ca2963f007785f..dfcbeb7fce228593724de9f8bba1ab5bdb375f28 100644
+--- a/module_drivers/drivers/usb/phy/phy-ingenic-x1600.c
++++ b/module_drivers/drivers/usb/phy/phy-ingenic-x1600.c
+@@ -23,7 +23,7 @@
+ static struct usb_phy_data *x1600_usb_phy;
+ static unsigned int x1600_set_wakeup;
+ 
+-int x1600_phy_suspend(void)
++int x1600_phy_suspend(void *data)
+ {
+ 	unsigned int value;
+ 
+@@ -55,7 +55,7 @@ int x1600_phy_suspend(void)
+ 	return 0;
+ }
+ 
+-void x1600_phy_resume(void)
++void x1600_phy_resume(void *data)
+ {
+ 	unsigned int value;
+ 
+@@ -78,11 +78,15 @@ void x1600_phy_resume(void)
+ 	}
+ }
+ 
+-static struct syscore_ops x1600_phy_syscore_ops = {
++static const struct syscore_ops x1600_phy_syscore_ops = {
+ 	.suspend = x1600_phy_suspend,
+ 	.resume = x1600_phy_resume,
+ };
+ 
++static struct syscore x1600_phy_syscore = {
++	.ops = &x1600_phy_syscore_ops,
++};
++
+ static int x1600_priv_data_init(struct usb_phy_data *usb_phy)
+ {
+ 	/* reset usb */
+@@ -93,7 +97,7 @@ static int x1600_priv_data_init(struct usb_phy_data *usb_phy)
+ 	usb_cpm_set_bit(usb_phy, OPCR_SPENDN0_BIT, CPM_OPCR);
+ 
+ 	x1600_usb_phy = usb_phy;
+-	register_syscore_ops(&x1600_phy_syscore_ops);
++	register_syscore(&x1600_phy_syscore);
+ 
+ 	return 0;
+ }
+diff --git a/module_drivers/drivers/usb/phy/phy-ingenic-x2000.c b/module_drivers/drivers/usb/phy/phy-ingenic-x2000.c
+index 4c223aa3cadf7cace0f8b4806afb2c92659fb8e8..312c736978cfbeb3ab9c3327a8cffea709f9cd10 100644
+--- a/module_drivers/drivers/usb/phy/phy-ingenic-x2000.c
++++ b/module_drivers/drivers/usb/phy/phy-ingenic-x2000.c
+@@ -23,7 +23,7 @@
+ static struct usb_phy_data *x2000_usb_phy;
+ static unsigned int x2000_set_wakeup;
+ 
+-int x2000_phy_suspend(void)
++static int x2000_phy_suspend(void *data)
+ {
+ 	unsigned int value;
+ 
+@@ -55,7 +55,7 @@ int x2000_phy_suspend(void)
+ 	return 0;
+ }
+ 
+-void x2000_phy_resume(void)
++static void x2000_phy_resume(void *data)
+ {
+ 	unsigned int value;
+ 
+@@ -78,11 +78,15 @@ void x2000_phy_resume(void)
+ 	}
+ }
+ 
+-static struct syscore_ops x2000_phy_syscore_ops = {
++static const struct syscore_ops x2000_phy_syscore_ops = {
+ 	.suspend = x2000_phy_suspend,
+ 	.resume = x2000_phy_resume,
+ };
+ 
++static struct syscore x2000_phy_syscore = {
++	.ops = &x2000_phy_syscore_ops,
++};
++
+ static int x2000_priv_data_init(struct usb_phy_data *usb_phy)
+ {
+ 	usb_cpm_set_bit(usb_phy, SRBC_USB_SR, CPM_SRBC);
+@@ -92,7 +96,7 @@ static int x2000_priv_data_init(struct usb_phy_data *usb_phy)
+ 	usb_cpm_set_bit(usb_phy, OPCR_SPENDN0_BIT, CPM_OPCR);
+ 
+ 	x2000_usb_phy = usb_phy;
+-	register_syscore_ops(&x2000_phy_syscore_ops);
++	register_syscore(&x2000_phy_syscore);
+ 	return 0;
+ }
+ 
+diff --git a/module_drivers/drivers/usb/phy/phy-ingenic-x2600.c b/module_drivers/drivers/usb/phy/phy-ingenic-x2600.c
+index 08ec17f4285a8c2e52ed10d4a0b91e2092ab9787..83231c14f30feaa77a006684874a255ce0fc2c76 100644
+--- a/module_drivers/drivers/usb/phy/phy-ingenic-x2600.c
++++ b/module_drivers/drivers/usb/phy/phy-ingenic-x2600.c
+@@ -33,7 +33,7 @@ static unsigned int x2600_port0_set_wakeup;
+ static struct usb_phy_data *x2600_usb_phy1;
+ static unsigned int x2600_port1_set_wakeup;
+ 
+-int x2600_phy_port0_suspend(void)
++int x2600_phy_port0_suspend(void *data)
+ {
+ 	unsigned int value;
+ 
+@@ -65,7 +65,7 @@ int x2600_phy_port0_suspend(void)
+ 	return 0;
+ }
+ 
+-void x2600_phy_port0_resume(void)
++void x2600_phy_port0_resume(void *data)
+ {
+ 	unsigned int value;
+ 
+@@ -87,11 +87,15 @@ void x2600_phy_port0_resume(void)
+ 	usb_phy_writel(x2600_usb_phy0, value, 0x30);
+ }
+ 
+-static struct syscore_ops x2600_phy_port0_syscore_ops = {
++static const struct syscore_ops x2600_phy_port0_syscore_ops = {
+ 	.suspend = x2600_phy_port0_suspend,
+ 	.resume = x2600_phy_port0_resume,
+ };
+ 
++static struct syscore x2600_phy_port0_syscore = {
++	.ops = &x2600_phy_port0_syscore_ops,
++};
++
+ static int x2600_priv_data_port0_init(struct usb_phy_data *usb_phy)
+ {
+ 	usb_cpm_set_bit(usb_phy, SRBC_USB_SR, CPM_SRBC);
+@@ -101,7 +105,7 @@ static int x2600_priv_data_port0_init(struct usb_phy_data *usb_phy)
+ 	usb_cpm_set_bit(usb_phy, OPCR_SPENDN0_BIT, CPM_OPCR);
+ 
+ 	x2600_usb_phy0 = usb_phy;
+-	register_syscore_ops(&x2600_phy_port0_syscore_ops);
++	register_syscore(&x2600_phy_port0_syscore);
+ 	return 0;
+ }
+ 
+@@ -158,7 +162,7 @@ static int x2600_phy_port0_get_wakeup(struct usb_phy_data *usb_phy)
+ 	return 0;
+ }
+ 
+-int x2600_phy_port1_suspend(void)
++int x2600_phy_port1_suspend(void *data)
+ {
+ 	unsigned int value;
+ 
+@@ -183,7 +187,7 @@ int x2600_phy_port1_suspend(void)
+ 	return 0;
+ }
+ 
+-void x2600_phy_port1_resume(void)
++void x2600_phy_port1_resume(void *data)
+ {
+ 	unsigned int value;
+ 
+@@ -198,11 +202,15 @@ void x2600_phy_port1_resume(void)
+ 	usb_phy_writel(x2600_usb_phy1, value, 0x30);
+ }
+ 
+-static struct syscore_ops x2600_phy_port1_syscore_ops = {
++static const struct syscore_ops x2600_phy_port1_syscore_ops = {
+ 	.suspend = x2600_phy_port1_suspend,
+ 	.resume = x2600_phy_port1_resume,
+ };
+ 
++static struct syscore x2600_phy_port1_syscore = {
++	.ops = &x2600_phy_port1_syscore_ops,
++};
++
+ static int x2600_priv_data_port1_init(struct usb_phy_data *usb_phy)
+ {
+ 	usb_cpm_set_bit(usb_phy, SRBC_USB1_SR, CPM_SRBC);
+@@ -212,7 +220,7 @@ static int x2600_priv_data_port1_init(struct usb_phy_data *usb_phy)
+ 	usb_cpm_set_bit(usb_phy, OPCR_SPENDN1_BIT, CPM_OPCR);
+ 
+ 	x2600_usb_phy1 = usb_phy;
+-	register_syscore_ops(&x2600_phy_port1_syscore_ops);
++	register_syscore(&x2600_phy_port1_syscore);
+ 	return 0;
+ }
+ 
+diff --git a/module_drivers/drivers/usb/phy/phy-ingenic.c b/module_drivers/drivers/usb/phy/phy-ingenic.c
+index 7766f76412f269b393fb44872239bda37e4be588..685cc3acbecbf806a11af647a5ea038a51a806b3 100644
+--- a/module_drivers/drivers/usb/phy/phy-ingenic.c
++++ b/module_drivers/drivers/usb/phy/phy-ingenic.c
+@@ -625,7 +625,7 @@ static int ingenic_usb_phy_probe(struct platform_device *pdev)
+ 	return 0;
+ }
+ 
+-static int ingenic_usb_phy_remove(struct platform_device *pdev)
++static void ingenic_usb_phy_remove(struct platform_device *pdev)
+ {
+ 	struct usb_phy_data *usb_phy = platform_get_drvdata(pdev);
+ 
+@@ -647,7 +647,7 @@ static int ingenic_usb_phy_remove(struct platform_device *pdev)
+ 		device_remove_node(usb_phy->dev, usb_phy_attributes);
+ 	}
+ 
+-	return 0;
++	return;
+ }
+ 
+ #ifdef CONFIG_PM
+diff --git a/module_drivers/drivers/video/fbdev/ingenic/displays/panel-ender3-v3-ke-480x272.c b/module_drivers/drivers/video/fbdev/ingenic/displays/panel-ender3-v3-ke-480x272.c
+index 4cc14e8ddf564886f9d160a4f3614d5616544e74..2d1b73db62f0a6f25b629fcad5d5d8f705a89f55 100644
+--- a/module_drivers/drivers/video/fbdev/ingenic/displays/panel-ender3-v3-ke-480x272.c
++++ b/module_drivers/drivers/video/fbdev/ingenic/displays/panel-ender3-v3-ke-480x272.c
+@@ -50,9 +50,8 @@
+  *     (within 1mm) this driver's already-guessed 54x95mm - left unchanged.
+  *
+  * STILL NOT CONFIRMED:
+- *   - GPIO active-high/low polarity - hardcoded active-high here (this kernel's
+- *     of_get_named_gpio() doesn't return the DT flags cell), easy to invert in
+- *     this file if the panel powers up backwards.
++ *   - GPIO active-high/low polarity: raw descriptor writes preserve the
++ *     original physical signal levels; the hardware polarity remains unverified.
+  *   - Color depth/mode (RGB888 assumed here - could be RGB565/RGB666 on the real
+  *     panel; wrong here would show as color-channel banding/miscoloring, not
+  *     hardware risk).
+@@ -66,16 +65,15 @@
+ #include <linux/init.h>
+ #include <linux/module.h>
+ #include <linux/platform_device.h>
+-#include <linux/gpio.h>
+-#include <linux/of_gpio.h>
++#include <linux/gpio/consumer.h>
+ #include <linux/delay.h>
+ 
+ #include "../include/ingenicfb.h"
+ 
+ struct panel_dev {
+ 	struct device *dev;
+-	int vdd_en_gpio;
+-	int rst_gpio;
++	struct gpio_desc *vdd_en_gpio;
++	struct gpio_desc *rst_gpio;
+ };
+ 
+ static struct panel_dev *panel;
+@@ -91,15 +89,15 @@ static void panel_enable(void *p)
+ {
+ 	if (!panel)
+ 		return;
+-	if (gpio_is_valid(panel->vdd_en_gpio))
+-		gpio_direction_output(panel->vdd_en_gpio, 1);
++	if (panel->vdd_en_gpio)
++		gpiod_direction_output_raw(panel->vdd_en_gpio, 1);
+ 	/* Real panel reset pulse timing not confirmed - 10ms low, 10ms settle
+ 	 * is a conservative, commonly-used default for this class of panel,
+ 	 * not read from a datasheet for this exact part. */
+-	if (gpio_is_valid(panel->rst_gpio)) {
+-		gpio_direction_output(panel->rst_gpio, 0);
++	if (panel->rst_gpio) {
++		gpiod_direction_output_raw(panel->rst_gpio, 0);
+ 		mdelay(10);
+-		gpio_direction_output(panel->rst_gpio, 1);
++		gpiod_direction_output_raw(panel->rst_gpio, 1);
+ 		mdelay(10);
+ 	}
+ }
+@@ -108,8 +106,8 @@ static void panel_disable(void *p)
+ {
+ 	if (!panel)
+ 		return;
+-	if (gpio_is_valid(panel->vdd_en_gpio))
+-		gpio_direction_output(panel->vdd_en_gpio, 0);
++	if (panel->vdd_en_gpio)
++		gpiod_direction_output_raw(panel->vdd_en_gpio, 0);
+ }
+ 
+ static struct lcd_panel_ops panel_ops = {
+@@ -183,7 +181,6 @@ struct lcd_panel lcd_panel = {
+ 
+ static int panel_probe(struct platform_device *pdev)
+ {
+-	struct device_node *np = pdev->dev.of_node;
+ 	int ret;
+ 
+ 	panel = devm_kzalloc(&pdev->dev, sizeof(*panel), GFP_KERNEL);
+@@ -191,28 +188,22 @@ static int panel_probe(struct platform_device *pdev)
+ 		return -ENOMEM;
+ 	panel->dev = &pdev->dev;
+ 
+-	panel->vdd_en_gpio = of_get_named_gpio(np, "ingenic,vdd-en-gpio", 0);
+-	if (gpio_is_valid(panel->vdd_en_gpio)) {
+-		ret = devm_gpio_request_one(&pdev->dev, panel->vdd_en_gpio,
+-					     GPIOF_DIR_OUT, "lcd_vdd_en");
+-		if (ret < 0) {
+-			dev_err(&pdev->dev, "Failed to request vdd_en pin!\n");
++	panel->vdd_en_gpio = devm_gpiod_get_optional(&pdev->dev, "ingenic,vdd-en", GPIOD_ASIS);
++	if (IS_ERR(panel->vdd_en_gpio))
++		return PTR_ERR(panel->vdd_en_gpio);
++	if (panel->vdd_en_gpio) {
++		ret = gpiod_direction_output_raw(panel->vdd_en_gpio, 0);
++		if (ret)
+ 			return ret;
+-		}
+-	} else {
+-		dev_warn(&pdev->dev, "invalid gpio vdd_en: %d\n", panel->vdd_en_gpio);
+ 	}
+ 
+-	panel->rst_gpio = of_get_named_gpio(np, "ingenic,rst-gpio", 0);
+-	if (gpio_is_valid(panel->rst_gpio)) {
+-		ret = devm_gpio_request_one(&pdev->dev, panel->rst_gpio,
+-					     GPIOF_DIR_OUT, "lcd_rst");
+-		if (ret < 0) {
+-			dev_err(&pdev->dev, "Failed to request rst pin!\n");
++	panel->rst_gpio = devm_gpiod_get_optional(&pdev->dev, "ingenic,rst", GPIOD_ASIS);
++	if (IS_ERR(panel->rst_gpio))
++		return PTR_ERR(panel->rst_gpio);
++	if (panel->rst_gpio) {
++		ret = gpiod_direction_output_raw(panel->rst_gpio, 0);
++		if (ret)
+ 			return ret;
+-		}
+-	} else {
+-		dev_warn(&pdev->dev, "invalid gpio rst: %d\n", panel->rst_gpio);
+ 	}
+ 
+ 	ret = ingenicfb_register_panel(&lcd_panel);
+@@ -224,10 +215,10 @@ static int panel_probe(struct platform_device *pdev)
+ 	return 0;
+ }
+ 
+-static int panel_remove(struct platform_device *pdev)
++static void panel_remove(struct platform_device *pdev)
+ {
+ 	panel_disable(NULL);
+-	return 0;
++	return;
+ }
+ 
+ static const struct of_device_id panel_of_match[] = {
+diff --git a/module_drivers/drivers/video/fbdev/ingenic/displays/panel-zc50289hshd02.c b/module_drivers/drivers/video/fbdev/ingenic/displays/panel-zc50289hshd02.c
+index c36b9809819b5e909b26dfbd4704bbb323238c48..950476dc91d66e071fd0497b46f54ad87ddae03f 100644
+--- a/module_drivers/drivers/video/fbdev/ingenic/displays/panel-zc50289hshd02.c
++++ b/module_drivers/drivers/video/fbdev/ingenic/displays/panel-zc50289hshd02.c
+@@ -13,7 +13,7 @@
+ #include <linux/pwm_backlight.h>
+ #include <linux/delay.h>
+ #include <linux/lcd.h>
+-#include <linux/of_gpio.h>
++#include <linux/gpio/consumer.h>
+ #include <linux/fb.h>
+ #include <linux/backlight.h>
+ 
+@@ -894,9 +894,9 @@ static int panel_probe(struct platform_device *pdev)
+ 	return ret;
+ }
+ 
+-static int panel_remove(struct platform_device *pdev)
++static void panel_remove(struct platform_device *pdev)
+ {
+-	return 0;
++	return;
+ }
+ 
+ static const struct of_device_id panel_of_match[] = {
+diff --git a/module_drivers/drivers/video/fbdev/ingenic/fb_stage/ingenicfb.c b/module_drivers/drivers/video/fbdev/ingenic/fb_stage/ingenicfb.c
+index ab5f0f3db5814b3b1d7e092fb1f4ddb695ff2e97..5fea1aa6d662ed97074e7304429c98a49f85d287 100644
+--- a/module_drivers/drivers/video/fbdev/ingenic/fb_stage/ingenicfb.c
++++ b/module_drivers/drivers/video/fbdev/ingenic/fb_stage/ingenicfb.c
+@@ -1493,7 +1493,7 @@ static int ingenicfb_probe(struct platform_device *pdev)
+ 	return 0;
+ }
+ 
+-static int ingenicfb_remove(struct platform_device *pdev)
++static void ingenicfb_remove(struct platform_device *pdev)
+ {
+ 	struct ingenicfb_device *fbdev = platform_get_drvdata(pdev);
+ 
+@@ -1518,7 +1518,7 @@ static int ingenicfb_remove(struct platform_device *pdev)
+ 	ingenicfb_release_vidmem(fbdev);
+ 	framebuffer_release(fbdev->fb);
+ 
+-	return 0;
++	return;
+ }
+ 
+ static void ingenicfb_shutdown(struct platform_device *pdev)
+diff --git a/module_drivers/drivers/video/fbdev/ingenic/jz_mipi_dsi/jz_mipi_dsi.c b/module_drivers/drivers/video/fbdev/ingenic/jz_mipi_dsi/jz_mipi_dsi.c
+index bb3cc0aa30770c93b7e5e1a8f0228f507327da33..8a806e1aabdcf05cfacfcc0bd1d8bf8941bafadb 100644
+--- a/module_drivers/drivers/video/fbdev/ingenic/jz_mipi_dsi/jz_mipi_dsi.c
++++ b/module_drivers/drivers/video/fbdev/ingenic/jz_mipi_dsi/jz_mipi_dsi.c
+@@ -50,7 +50,7 @@ static LIST_HEAD(dsim_ddi_list);
+ static DEFINE_MUTEX(mipi_dsim_lock);
+ 
+ void dump_dsi_reg(struct dsi_device *dsi);
+-static DEFINE_MUTEX(dsi_lock);
++static __maybe_unused DEFINE_MUTEX(dsi_lock);
+ 
+ int jz_dsi_video_cfg(struct dsi_device *dsi)
+ {
 diff --git a/module_drivers/drivers/video/logo-ingenic/logo.png b/module_drivers/drivers/video/logo-ingenic/logo.png
 index d5d5c2045a54ffc92e538cb92cf2dd41edfbdf97..b2b83f6896c7b512d0b606e0b2de0e0894781f92 100644
 GIT binary patch
@@ -602,6 +2134,47 @@ zsOv+}DS_Q8wb@~GA_lc`y2O;cZ7qm>jA`v-=E;Ag&ZbP*!;c<2LWlTFfHMeQeLP%w
 zL?WubdSGp*PQkVQwmIyjB}&$wrq1&YjJtTXfkpvy?bI<zu~8~jIE30Lr#2LDh#b-X
 Y2W{o?gE<o+2><{907*qoM6N<$g0cgX%>V!Z
 
+diff --git a/module_drivers/drivers/watchdog/ingenic_wdt.c b/module_drivers/drivers/watchdog/ingenic_wdt.c
+index 0897014652c7cfbde51c2db2bb9bfe83bacf8b11..4f708a132bba24c9f1db66ff23d50ce7c1203315 100644
+--- a/module_drivers/drivers/watchdog/ingenic_wdt.c
++++ b/module_drivers/drivers/watchdog/ingenic_wdt.c
+@@ -199,7 +199,7 @@ static const struct of_device_id ingenic_wdt_of_matches[] = {
+ 	{ .compatible = "ingenic,watchdog", .data = NULL },
+ 	{},
+ };
+-MODULE_DEVICE_TABLE(of, ingenic_wdt_of_matches)
++MODULE_DEVICE_TABLE(of, ingenic_wdt_of_matches);
+ 
+ #ifdef CONFIG_PM_SLEEP
+ static int ingenic_wdt_suspend(struct device *dev)
+@@ -328,7 +328,7 @@ static int ingenic_wdt_probe(struct platform_device *pdev)
+ 	return ret;
+ }
+ 
+-static int ingenic_wdt_remove(struct platform_device *pdev)
++static void ingenic_wdt_remove(struct platform_device *pdev)
+ {
+ 	struct ingenic_wdt_drvdata *drvdata = platform_get_drvdata(pdev);
+ 
+@@ -341,7 +341,7 @@ static int ingenic_wdt_remove(struct platform_device *pdev)
+ 	clk_put(drvdata->wdt_clk);
+ 	clk_put(drvdata->tcu_clk);
+ 
+-	return 0;
++	return;
+ }
+ 
+ static struct platform_driver ingenic_wdt_driver = {
+diff --git a/module_drivers/dts/Makefile b/module_drivers/dts/Makefile
+index 95352f13c44b96abea8f6899e1b2186ef2b4c178..a1cc73939e3a2489de7fc88a38f075facce00048 100644
+--- a/module_drivers/dts/Makefile
++++ b/module_drivers/dts/Makefile
+@@ -27,4 +27,4 @@ module_driver_ad100_dst_file := $(basename $(module_driver_ad100_dst_file)).dtb
+ dtb-$(CONFIG_DT_AD100_MODULE_BASE) += $(module_driver_ad100_dst_file)
+ 
+ dtb-$(CONFIG_DT_ENDER3_V3_KE) += x2000/ender3-v3-ke.dtb
+-obj-$(CONFIG_BUILTIN_DTB)	+= $(addsuffix .o, $(dtb-y))
++# The generic CONFIG_GENERIC_BUILTIN_DTB link step embeds the selected DTBs.
 diff --git a/module_drivers/dts/x2000/ender3-v3-ke.dts b/module_drivers/dts/x2000/ender3-v3-ke.dts
 new file mode 100644
 index 0000000000000000000000000000000000000000..ab293e04a5c800040ae8635b57fafc934d75c63e
@@ -779,3 +2352,19 @@ index 0000000000000000000000000000000000000000..ab293e04a5c800040ae8635b57fafc93
 +&dpu {
 +	status = "okay";
 +};
+diff --git a/scripts/Makefile.vmlinux b/scripts/Makefile.vmlinux
+index fcae1e432d9add3047d0f3f15cb88a3ed5a66b99..3513ee140078832dd643be22d2b986747cd332e9 100644
+--- a/scripts/Makefile.vmlinux
++++ b/scripts/Makefile.vmlinux
+@@ -38,9 +38,9 @@ quiet_cmd_wrap_dtbs = WRAP    $@
+ 
+ quiet_cmd_gen_dtbs_list = GEN     $@
+       cmd_gen_dtbs_list = \
+-	$(if $(CONFIG_BUILTIN_DTB_NAME), echo "arch/$(SRCARCH)/boot/dts/$(CONFIG_BUILTIN_DTB_NAME).dtb",:) > $@
++	$(if $(CONFIG_BUILTIN_DTB_NAME), echo "$(dtstree)/$(CONFIG_BUILTIN_DTB_NAME).dtb",:) > $@
+ 
+-.builtin-dtbs-list: arch/$(SRCARCH)/boot/dts/dtbs-list FORCE
++.builtin-dtbs-list: $(dtstree)/dtbs-list FORCE
+ 	$(call if_changed,$(if $(CONFIG_BUILTIN_DTB_ALL),copy,gen_dtbs_list))
+ 
+ targets += .builtin-dtbs-list

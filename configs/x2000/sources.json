@@ -11,23 +11,23 @@
     "source": {
       "role": "productive upstream Linux baseline",
       "url": "https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git",
-      "commit": "5139929c698c273e07cb0635732f6a918a7b8e78",
-      "tree": "eeddc0531df8cd12f8e6cc2c2c58c54d3a777692"
+      "commit": "7595a62d45ee1a2297eafa5f2ef5d0a45142d84d",
+      "tree": "d07c331ebf5acbde9ebf9caea9eac6e33b07ad77"
     },
-    "kernel_version": "6.6.162",
+    "kernel_version": "7.3.4",
     "kernel_localversion": "-fre3nder",
     "preemption_model": "PREEMPT",
     "preempt_rt_enabled": false,
     "patch_series": {
       "role": "productive ordered Fre3nder X2000 kernel patch series on the pinned upstream Linux baseline",
       "baseline_ref": "kernel.source.commit",
-      "result_tree": "cc67596db3cde3e7570941b2fa62a06801531095",
+      "result_tree": "8a84d48e9ca1424a9f9354570b281af0a9791902",
       "patches": [
         {
           "order": 1,
           "role": "retained Ingenic-derived X2000 platform support after Fre3nder pruning and upstream forward-porting",
           "patch": "patches/kernel/0001-x2000-platform.patch",
-          "patch_sha256": "30aeaf27aeb5c34cc803ef6e09495b90234112ed7d02ce51902a06719d2caf11",
+          "patch_sha256": "5f6656e13da5a81692c3a1b62b654026b1f960027b797e5bde4f15c550b9dd32",
           "derived_from_repository": "https://github.com/Llixuma/ingenic-linux-kernel6.6-x2000-v1.0-20250221",
           "derived_from_commit": "a98c2e1f22e4263ddd4153a4eca4db4dcfd2777b"
         },
@@ -43,7 +43,7 @@
           "order": 3,
           "role": "NS2009 touchscreen support derived from the NebulaOS/OpenKE kernel integration",
           "patch": "patches/kernel/0003-x2000-touchscreen.patch",
-          "patch_sha256": "121c9ed5f0123864c21077a7dfb207d9b1f366bb783df8dd18916eff0fa04ac5",
+          "patch_sha256": "830171b824d4756b717548ca956104d2f9431c5de5e70ccc4b48b0a03646dbb1",
           "derived_from_repository": "https://github.com/coreflake1/NebulaOS-kernel",
           "derived_from_commit": "88a0e1ecc6ace7c9e4ad99d6fa49e272180fd5a9"
         },
@@ -57,9 +57,9 @@
         },
         {
           "order": 5,
-          "role": "Fre3nder Ender-3 V3 KE board integration and Linux v6.6.157 forward-port fixes",
+          "role": "Fre3nder Ender-3 V3 KE board integration, forward-ported to Linux v7.3.4",
           "patch": "patches/kernel/0005-x2000-board.patch",
-          "patch_sha256": "678f962a0bdfab4f22f1df44586e670b90226b36a4138c987956e49bf0dee1e5"
+          "patch_sha256": "dfa519d94e9d2e5a7a1e968f4be00f3dd87294d77d64898de338bb35ae55bfad"
         }
       ]
     },

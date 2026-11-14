@@ -330,7 +330,7 @@ assert [
     (
         1,
         "patches/kernel/0001-x2000-platform.patch",
-        "30aeaf27aeb5c34cc803ef6e09495b90234112ed7d02ce51902a06719d2caf11",
+        "5f6656e13da5a81692c3a1b62b654026b1f960027b797e5bde4f15c550b9dd32",
     ),
     (
         2,
@@ -340,7 +340,7 @@ assert [
     (
         3,
         "patches/kernel/0003-x2000-touchscreen.patch",
-        "121c9ed5f0123864c21077a7dfb207d9b1f366bb783df8dd18916eff0fa04ac5",
+        "830171b824d4756b717548ca956104d2f9431c5de5e70ccc4b48b0a03646dbb1",
     ),
     (
         4,
@@ -350,7 +350,7 @@ assert [
     (
         5,
         "patches/kernel/0005-x2000-board.patch",
-        "678f962a0bdfab4f22f1df44586e670b90226b36a4138c987956e49bf0dee1e5",
+        "dfa519d94e9d2e5a7a1e968f4be00f3dd87294d77d64898de338bb35ae55bfad",
     ),
 ]
 root = pathlib.Path(sys.argv[1]).resolve().parents[2]

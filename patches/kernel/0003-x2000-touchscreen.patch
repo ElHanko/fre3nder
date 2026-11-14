@@ -1,8 +1,8 @@
 diff --git a/drivers/input/touchscreen/Kconfig b/drivers/input/touchscreen/Kconfig
-index e3e2324547b909d0dc1f0e57a3b32db0c519ddbc..d6a9b95cb44e508d0278ca0857e26463132062f3 100644
+index 9b9ae8ac3f7fd3b9e948083fcd05afabdcd69bca..ded629ec5c9e0969267b8d831700ed3ae2cf152e 100644
 --- a/drivers/input/touchscreen/Kconfig
 +++ b/drivers/input/touchscreen/Kconfig
-@@ -1144,6 +1144,17 @@ config TOUCHSCREEN_TSC2005
+@@ -1169,6 +1169,17 @@ config TOUCHSCREEN_TSC2005
  	  To compile this driver as a module, choose M here: the
  	  module will be called tsc2005.
  
@@ -21,7 +21,7 @@ index e3e2324547b909d0dc1f0e57a3b32db0c519ddbc..d6a9b95cb44e508d0278ca0857e26463
  	tristate "TSC2007 based touchscreens"
  	depends on I2C
 diff --git a/drivers/input/touchscreen/Makefile b/drivers/input/touchscreen/Makefile
-index 62bd24f3ac8e0d382d041325c0de3c53e1cbc118..29b2bc60970b298d85f313c0bb964e5075ff479d 100644
+index bfd9de83389d8833dbe7cc2641cb24493cdf3807..169cf7c634851173d917d13f194ebdaa68a5ff83 100644
 --- a/drivers/input/touchscreen/Makefile
 +++ b/drivers/input/touchscreen/Makefile
 @@ -92,6 +92,7 @@ obj-$(CONFIG_TOUCHSCREEN_TOUCHRIGHT)	+= touchright.o
