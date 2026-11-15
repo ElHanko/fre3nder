@@ -746,6 +746,43 @@ class Fre3AppDisplayTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "not a display frontend"):
             self.core.select_display("screen")
 
+    def test_factory_seed_updates_selected_app_without_starting_display(self):
+        self.core.SCREEN_APP = "screen"
+        self.activate(self.verified())
+        self.core.select_display("screen")
+        seed = self.root / "factory.fre3app"
+        seed.write_bytes(b"newer fixture")
+        with (
+            mock.patch.object(self.core, "verify_package", return_value=self.verified(serial=2)),
+            mock.patch.object(self.core, "official_screen", return_value=True),
+            mock.patch.object(self.core, "check_install_space"),
+            mock.patch.object(self.core, "extract_runtime", side_effect=self.extract),
+            mock.patch.object(self.core, "service_action", return_value=0) as service,
+            mock.patch.object(self.core, "run_display_manager") as display,
+        ):
+            self.assertTrue(self.core.reconcile_factory_app(seed))
+            self.assertFalse(self.core.reconcile_factory_app(seed))
+            service.assert_called_once()
+            self.assertEqual(service.call_args.args[1], "update")
+            display.assert_not_called()
+        self.assertEqual(self.core.active_display(), "screen")
+        self.assertEqual(self.core.read_metadata("screen")["release_serial"], 2)
+        self.assertEqual((self.core.state_dir("screen") / "package.fre3app").read_bytes(),
+                         seed.read_bytes())
+        with (
+            mock.patch.object(self.core, "verify_package", return_value=self.verified(serial=1)),
+            mock.patch.object(self.core, "official_screen", return_value=True),
+        ):
+            self.assertFalse(self.core.reconcile_factory_app(seed))
+        self.core.disable_display()
+        def stopped_service(_name, action, *_args):
+            return 1 if action == "status" else 0
+
+        with mock.patch.object(self.core, "service_action", side_effect=stopped_service):
+            self.core.remove_package("screen")
+        self.assertFalse(self.core.reconcile_factory_app(self.root / "missing.fre3app"))
+        self.assertFalse(self.core.installed("screen"))
+
     def test_update_cannot_change_display_capability(self):
         self.activate(self.verified())
         with self.assertRaisesRegex(ValueError, "display frontend capability differs"):

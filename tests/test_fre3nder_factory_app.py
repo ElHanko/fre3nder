@@ -45,6 +45,8 @@ elif operation == "verify":
                           "display_frontend": True, "display_api": 1}}
 elif operation == "install":
     state["screen"] = True
+elif operation == "reconcile-factory-app":
+    result = {"updated": bool(state.get("screen"))}
 elif operation == "display-select":
     if not state.get("screen"):
         sys.exit(1)
@@ -123,16 +125,18 @@ class FactoryAppTests(unittest.TestCase):
         self.assertNotIn("verify", [call["operation"] for call in self.calls()])
         self.assertEqual(self.calls()[-1]["operation"], "display-select")
 
-    def test_complete_does_nothing(self):
+    def test_complete_only_reconciles_an_existing_app(self):
         self.set_marker("complete")
         self.assertEqual(self.run_boot().returncode, 0)
-        self.assertEqual(self.calls(), [])
+        self.assertEqual([call["operation"] for call in self.calls()], ["reconcile-factory-app"])
+        self.assertFalse(json.loads(self.state_file.read_text()).get("screen"))
 
     def test_existing_display_decision_is_preserved(self):
         self.set_state(other=True, active="other")
         self.assertEqual(self.run_boot().returncode, 0)
         self.assertEqual(self.marker.read_text(), "complete\n")
-        self.assertEqual([call["operation"] for call in self.calls()], ["display-list"])
+        self.assertEqual([call["operation"] for call in self.calls()],
+                         ["display-list", "reconcile-factory-app"])
         self.assertEqual(json.loads(self.state_file.read_text())["active"], "other")
 
     def test_invalid_marker_fails_closed(self):

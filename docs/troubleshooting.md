@@ -55,8 +55,9 @@ Missing UI does not authorize a Factory-marker reset or block the other services
 For `startup-failed`, inspect `/run/fre3nder-boot.log`: readiness diagnostics
 distinguish failed app process status from missing VT_PROCESS / KD_GRAPHICS.
 The VT check can succeed while tty1 is foreground; use
-`/sys/class/tty/tty0/active` to determine which VT is visible. A newer embedded
-Factory seed requires an [explicit installed-app update](installation.md#update-the-installed-display-app).
+`/sys/class/tty/tty0/active` to determine which VT is visible. If the embedded seed has a higher
+`release_serial` and the installed version was retained, check the boot log
+for the factory app reconciliation result.
 See [display](display.md) and [app CLI](api/cli.md#display-selection).
 
 ## Camera is missing

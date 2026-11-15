@@ -882,6 +882,21 @@ def promote_system_app(name: str) -> None:
             staged.unlink(missing_ok=True)
 
 
+def image_app_is_newer(current: dict, candidate: dict) -> bool:
+    if (current.get("publisher") != candidate["publisher"]
+            or current.get("fingerprint") != candidate["fingerprint"]):
+        raise ValueError("installed publisher differs from image app")
+    current_serial = current.get("release_serial")
+    seed_serial = candidate["release_serial"]
+    if type(current_serial) is not int or current_serial < 0:
+        raise ValueError("invalid installed release serial")
+    if (seed_serial == current_serial and seed_serial > 0
+            and current.get("version") != candidate["version"]):
+        raise ValueError("same release serial has different version")
+    # Development serial zero has no ordering.
+    return seed_serial > current_serial
+
+
 def reconcile_system_apps() -> int:
     """Boot-only upgrade of newer signed image seeds; never downgrade."""
     failed = False
@@ -900,23 +915,10 @@ def reconcile_system_apps() -> int:
                                  start_service=False, system_app=True)
                 print(f"fre3nder system apps: installed {name}")
                 continue
-            current = read_metadata(name)
-            if (current.get("publisher") != candidate["publisher"]
-                    or current.get("fingerprint") != candidate["fingerprint"]):
-                raise ValueError("installed publisher differs from image system app")
-            current_serial = current.get("release_serial")
-            seed_serial = candidate["release_serial"]
-            if type(current_serial) is not int or current_serial < 0:
-                raise ValueError("invalid installed release serial")
-            if seed_serial > current_serial:
+            if image_app_is_newer(read_metadata(name), candidate):
                 activate_package(package, "update", start_service=False,
                                  system_app=True)
                 print(f"fre3nder system apps: updated {name}")
-            elif seed_serial == current_serial and current.get("version") != candidate["version"]:
-                if seed_serial != 0:
-                    raise ValueError("same release serial has different version")
-                # Development serial 0 has no ordering: preserve local version.
-                promote_system_app(name)
             else:
                 promote_system_app(name)
         except (OSError, ValueError, RuntimeError) as exc:
@@ -946,6 +948,20 @@ def official_screen(metadata: dict) -> bool:
     if info.st_uid != os.geteuid() or info.st_mode & 0o022:
         raise ValueError("built-in Screen publisher key is not protected")
     return metadata.get("fingerprint") == fingerprint(key)
+
+
+def reconcile_factory_app(package: pathlib.Path) -> bool:
+    """Apply the official image seed only to an existing Fre3nderScreen."""
+    if not installed(SCREEN_APP):
+        return False
+    candidate = verify_package(package)
+    if not official_screen(candidate):
+        raise ValueError("factory seed has an invalid display app identity")
+    current = read_metadata(SCREEN_APP)
+    if not image_app_is_newer(current, candidate):
+        return False
+    activate_package(package, "update", start_service=False)
+    return True
 
 
 def protected_screen_runtime(runtime: pathlib.Path) -> bool:
@@ -1137,6 +1153,9 @@ def activate_package(package: pathlib.Path, operation: str, allow_downgrade: boo
     display_selected = (
         exists and verified["display_frontend"] and active_display() == name
     )
+    manage_display = display_selected and (
+        start_service or display_runtime_status() != "unavailable"
+    )
     if operation == "install" and exists:
         raise ValueError(f"app already installed: {name}")
     if operation == "update" and not exists:
@@ -1177,10 +1196,10 @@ def activate_package(package: pathlib.Path, operation: str, allow_downgrade: boo
         was_running = False
         display_stopped = False
         if exists and current.exists():
-            if display_selected:
+            if manage_display:
                 run_display_manager("stop", required=True)
                 display_stopped = True
-            else:
+            elif not display_selected:
                 was_running = service_action(name, "status", current) == 0
                 if was_running:
                     rc = service_action(name, "stop", current)
@@ -1226,7 +1245,7 @@ def activate_package(package: pathlib.Path, operation: str, allow_downgrade: boo
     (recovery / "restored").touch(exist_ok=True)
     if verified["web_frontend"] and active_frontend() == name:
         refresh_web()
-    if display_selected:
+    if manage_display:
         run_display_manager("start")
     return verified
 
@@ -1534,6 +1553,10 @@ def main() -> int:
         return restore_installed()
     if args == ["reconcile-system-apps"]:
         return reconcile_system_apps()
+    if len(args) == 2 and args[0] == "reconcile-factory-app":
+        updated = reconcile_factory_app(pathlib.Path(args[1]))
+        response(args[0], True, updated=updated)
+        return 0
     if args == ["start-installed"]:
         return start_installed()
     if args == ["stop-installed"]:
@@ -1546,7 +1569,7 @@ if __name__ == "__main__":
         # All callers acquire OTA first, then package, for the whole mutation.
         if sys.argv[1:2] and sys.argv[1] in (
                 "install", "update", "remove", "display-select", "display-disable",
-                "restore-installed", "reconcile-system-apps",
+                "restore-installed", "reconcile-system-apps", "reconcile-factory-app",
                  "service-start", "service-stop",
                 "start-installed", "stop-installed", "key-add", "key-remove"):
             # Keep host fixtures isolated from the machine's global /run.

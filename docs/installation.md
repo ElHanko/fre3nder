@@ -188,17 +188,14 @@ persistence support for subsequent deployments and OTA updates.
 
 ## Update the installed display app
 
-A new RootFS Factory seed does not replace an already installed Fre3nderScreen
-app in persistent SYS (the default installation role). On first installation,
-Factory bootstrap automatically installs and selects the RootFS-contained app.
-Completed Factory bootstrap and the verified package cache live in HOME;
-after a SYS reset, recovery reconstructs that cached package. Do not reset the
-Factory marker to force an update. This differs from required
-[system apps](apps.md#image-system-applications), which automatically reconcile
-newer image seeds by release serial at boot.
+On first installation, Factory bootstrap installs and selects the app delivered
+in RootFS. After a SYS reset, recovery reconstructs the installed app from the
+verified cache in HOME. If the new RootFS carries an official seed with a higher
+`release_serial`, boot updates an installed Fre3nderScreen and preserves the
+display selection. A previously removed Fre3nderScreen stays removed.
 
-When the new seed contains the intended app update, first verify it on the
-active Fre3nder runtime:
+To apply the embedded package explicitly, for example when testing another
+development build with serial zero, first verify it on the active runtime:
 
 ```sh
 ssh -o BatchMode=yes <printer-host> \

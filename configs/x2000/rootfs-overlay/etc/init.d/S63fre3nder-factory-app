@@ -1,5 +1,5 @@
 #!/usr/bin/python3
-"""Install the factory display app once on a fresh persistent Fre3nder root."""
+"""Bootstrap the factory display app and reconcile newer image seeds."""
 
 import json
 import os
@@ -126,25 +126,33 @@ def installed_factory_app():
     return APP_NAME in names
 
 
+def reconcile():
+    if package_core("reconcile-factory-app", str(SEED)).get("updated") is True:
+        print("fre3nder factory app: updated " + APP_NAME)
+
+
 def start():
     if not regular_file(ROOT_STATUS) or ROOT_STATUS.read_bytes() != b"active\n":
         return
     safe_directory(STATE_ROOT)
     safe_directory(MARKER.parent)
     state = marker_state()
-    if state == "complete":
-        return
-    check_package_layout()
     if not regular_file(PACKAGE_CORE) or not os.access(PACKAGE_CORE, os.X_OK):
         raise ValueError("package core is unavailable")
+    if state == "complete":
+        reconcile()
+        return
+    check_package_layout()
     active, apps = display_state()
     if state is None:
         if active is not None or apps:
             write_marker("complete")
+            reconcile()
             return
         write_marker("pending")
     elif active not in (None, APP_NAME) or apps - {APP_NAME}:
         write_marker("complete")
+        reconcile()
         return
 
     if not installed_factory_app():

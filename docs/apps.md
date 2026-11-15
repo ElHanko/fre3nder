@@ -151,12 +151,13 @@ The separate X2000 Fre3nderScreen cross-build produces a neutral app artifact.
 verifies the finished package with the package core and the official publisher
 key, then embeds it unchanged at
 `/usr/share/fre3nder/factory-apps/fre3nderscreen.fre3app`.
-This package is a seed for a new system, not an update channel: later app
-updates, replacement, selection, and removal use the normal package core.
+Package-Core uses the signed seed for first installation and to update an
+existing official Fre3nderScreen installation at boot.
 
 `S63fre3nder-factory-app` runs after the platform services and before
-`S64fre3nder-display`. It uses the package core for separate `install` and
-`display-select` operations. Bootstrap failures are reported without blocking
+`S64fre3nder-display`. First installation selects Fre3nderScreen. Updates use the
+same package transaction as manual updates and preserve the active display
+choice, app data, and storage role. Failures are reported without blocking
 Klipper, Moonraker, or SSH.
 
 The root-controlled file `/home/.fre3nder/factory-apps/fre3nderscreen`
@@ -166,29 +167,17 @@ contains either `pending` or `complete`:
   `pending`, install the factory package through the package core, explicitly
   select `fre3nderscreen`, then write `complete`.
 - With `pending`, resume the interrupted install or selection idempotently.
-- With `complete`, never automatically install, update, or select the
-  factory package again.
-- Preserve any existing user decision instead of replacing it with the
-  factory default. A later Fre3nderScreen removal, another selected display,
-  or `display-disable` leaves `complete` in place.
-- An OTA may deliver a newer factory seed, but `complete` prevents its
-  import on an already initialized system. Damaged or ambiguous package
-  state must fail closed without automatic overwrite.
+- With `complete`, update the installed official app if the seed has a higher
+  `release_serial`. A removed app stays removed. Another selected display
+  and `display-disable` keep their effect.
+- With an existing display decision and no marker, record `complete` and apply
+  the same update rule. Damaged or ambiguous package state fails closed.
 
-The seed path may change during an OTA. A `complete` marker remains in
-persistent `/home`, so the new seed is never imported over a later user choice.
-
-Fre3nderScreen is installed in persistent SYS by default. A firmware deployment
-does not replace the installed version; after SYS reset, signed-cache recovery
-restores that version from HOME. To apply the embedded Factory app explicitly:
-
-```sh
-fre3nder app update /usr/share/fre3nder/factory-apps/fre3nderscreen.fre3app
-```
-
-Follow the [verification and update procedure](installation.md#update-the-installed-display-app).
-This differs from required [system apps](#image-system-applications), whose
-image seeds are reconciled automatically at boot when `release_serial` increases.
+Fre3nderScreen is installed in SYS by default. After a SYS reset, signed-cache
+recovery restores the installed app from HOME before the seed is reconciled.
+The same release ordering applies to [system apps](#image-system-applications).
+Development serial zero has no ordering. An explicit update remains available
+through the [display app update procedure](installation.md#update-the-installed-display-app).
 
 ## Platform web services
 
