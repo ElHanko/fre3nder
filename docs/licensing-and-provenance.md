@@ -70,7 +70,7 @@ Fre3nder applies an ordered five-patch hardware-support series from
    qualified Ender-3 V3 KE path.
 5. `0005-x2000-board.patch` contains
    Fre3nder's board integration and the concrete forward-port adaptations
-   required for Linux `v6.6.157`.
+   required for Linux `v7.3.4`.
 
 The Ingenic-derived layers are traceable to the public Ingenic X2000 kernel
 repository at commit
