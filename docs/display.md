@@ -10,7 +10,7 @@ X11, Wayland, first-boot download or standalone installer is required.
 Release source, submodules and licenses are recorded in
 [sources.json](../configs/x2000/sources.json) and
 [licensing and provenance](licensing-and-provenance.md#fre3nderscreen-application-artifact).
-Screen 2026.3 is pinned to `c70c616` and uses LVGL 9.6.0, libhv 1.3.4 and
+Screen 2026.4.a is pinned to `e5bce78` and uses LVGL 9.6.0, libhv 1.3.4 and
 spdlog 1.17.0 with bundled fmt 12.1.0. LVGL's integrated drivers replace the
 removed `lv_drivers` dependency.
 A source pin or unchanged application source is not hardware qualification of
@@ -49,13 +49,15 @@ identity, release requirements, and full versus RootFS-only builds.
 On a fresh persistent system, `S63fre3nder-factory-app` installs this seed
 through the package core and explicitly selects it. The persistent
 `/home/.fre3nder/factory-apps/fre3nderscreen` marker records `pending` or
-`complete`. A completed bootstrap is never rerun after OTA, removal, or a
-different display choice. A new RootFS seed therefore does not update an
-already installed app; follow the [explicit app-update procedure](installation.md#update-the-installed-display-app).
-The default installation is in persistent SYS. Firmware deployment does not
-replace that version; after a SYS reset, recovery restores the installed package
-from the signed HOME cache. Unlike required [system apps](apps.md#image-system-applications),
-the Factory app is not automatically reconciled to a newer RootFS seed.
+`complete`. After bootstrap, boot updates an installed official Fre3nderScreen
+when the seed has a higher `release_serial`, preserving the display selection
+and app data. A removed app stays removed. Development serial zero has no
+ordering; use the [explicit app-update procedure](installation.md#update-the-installed-display-app)
+to apply another development build.
+The default installation is in persistent SYS. After a SYS reset, recovery
+restores the installed package from the signed HOME cache before reconciling
+the seed. Required [system apps](apps.md#image-system-applications) use the same
+release ordering.
 `S64fre3nder-display` manages VT, framebuffer, touch, optional backlight, and
 optional beeper access; S65 skips display frontends.
 
@@ -169,6 +171,8 @@ Missing local UI does not block SSH, Klipper, Moonraker or the web frontend.
 
 The reference Ender-3 V3 KE ran signed Screen package
 `2026.3-fre3nder.1` (source `c70c616`, serial 3) across repeated boots.
+The `2026.4.a` release package and automatic upgrade path still require
+separate build and printer validation.
 Earlier LVGL migration results and their exact artifact are recorded in
 [display qualification](../research/docs/display-qualification.md#2026-11-08-lvgl-96-migration).
 

@@ -202,7 +202,7 @@ RootFS build manifest records the embedded package hash in `system_apps`.
 ## Fre3nderScreen application artifact
 
 The Fre3nder-maintained source is `https://github.com/ElHanko/fre3nderscreen.git`
-(release `2026.3`), under `GPL-3.0-only`. The exact source commit and its
+(release `2026.4.a`), under `GPL-3.0-only`. The exact source commit and its
 submodules are pinned in `configs/x2000/sources.json`. The repository retains
 original GuppyScreen history and upstream provenance. See
 [release inputs](build.md#fre3nderscreen-release-inputs).

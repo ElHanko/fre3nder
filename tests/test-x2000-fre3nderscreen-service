@@ -407,8 +407,8 @@ assert '"$target/etc/init.d/S64fre3nderscreen"' in post_build
 assert "fre3nderscreen" not in user
 
 assert source["repository"] == "https://github.com/ElHanko/fre3nderscreen.git"
-assert source["release"] == "2026.3"
-assert source["commit"] == "c70c6163f9da236b262294940d66502fb459a8d7"
+assert source["release"] == "2026.4.a"
+assert source["commit"] == "e5bce78a75c200d22ac633c499023cfcfc74eb7a"
 assert source["license"] == "GPL-3.0-only"
 assert "vendored_dependency" not in source
 assert sources["userspace"]["wpa_supplicant"]["source"] == "upstream Buildroot package"

@@ -264,16 +264,19 @@ including `--develop`; the release pipeline accepts no `--develop`. RootFS assem
 validates the finished package using the same package core as runtime install
 and embeds it without unpacking. Its SHA256 is recorded under `factory_apps` in
 the RootFS build manifest; the seed is not part of the Fre3nder build-input hash.
-An embedded seed does not replace an installed app after Factory bootstrap has
-completed. Deployment and [updating that app](installation.md#update-the-installed-display-app)
-are separate steps.
+After Factory bootstrap, boot updates an installed official Fre3nderScreen
+when the embedded seed has a higher release serial. Display selection and app
+data are preserved; a removed app stays removed. The
+[explicit app-update procedure](installation.md#update-the-installed-display-app)
+remains available for development builds with serial zero.
 
 ### Fre3nderScreen release inputs
 
-`configs/x2000/sources.json` pins the Screen 2026.3 source and submodules.
+`configs/x2000/sources.json` pins Screen 2026.4.a at
+`e5bce78a75c200d22ac633c499023cfcfc74eb7a` and its submodules.
 Fre3nderScreen uses LVGL 9.6.0 with integrated fbdev/evdev/SDL drivers,
 libhv 1.3.4 and spdlog 1.17.0. The app recipe produces
-`fre3nderscreen-2026.3-fre3nder.1-x2000.fre3app` with release serial 3.
+`fre3nderscreen-2026.4.a-fre3nder.1-x2000.fre3app` with release serial 4.
 
 Verify the official publisher, package version, serial, display API and signed
 source/submodule/ABI manifest. Compare the package with the staged Factory seed.
