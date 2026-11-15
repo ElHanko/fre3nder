@@ -779,16 +779,16 @@ internal core API are documented in [backup.md](backup.md).
 OTA consumes the backup core through its internal API.
 
 During preflight, OTA obtains the currently available backup targets from the
-backup core and restricts them to persistent safety backups: HOME `usb|none`,
-SYS `usb|home|none`. Standalone `download` backups are temporary and are rejected
-by OTA planning, execution and stored-transaction validation. The expanded Core
-offer introduces no OTA defaults. The shared staging/delivery pipeline and
-archive metadata remain compatible with existing transactions; OTA still
-reverifies selected archives before system changes. OTA passes its already-held
-operation lock descriptor to Backup-Core instead of acquiring a nested lock.
-The OTA workflow then requires an explicit selection or decline
-for `HOME` and `SYS`, invokes backup execution, and binds the returned archive
-metadata to the volatile OTA transaction.
+backup core. The CLI and Screen offer HOME `usb|none` and SYS `usb|home|none`.
+Maintenance Web also offers **Browser download** for HOME and SYS. Each role
+requires an explicit choice. OTA passes its already-held operation lock
+descriptor to Backup-Core instead of acquiring a nested lock.
+
+For browser downloads, Maintenance creates and verifies the selected archives,
+then presents download links while the transaction awaits confirmation. Save
+the files and choose **Continue update** in Maintenance Web after the downloads
+finish. The protected links can be used again while the transaction is active.
+Temporary archives on the printer are cleaned up at the next boot.
 
 OTA owns that transaction binding. The backup core owns backup availability,
 selection validation, archive creation, and archive verification.

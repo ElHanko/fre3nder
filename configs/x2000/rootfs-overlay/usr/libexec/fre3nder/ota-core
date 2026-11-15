@@ -41,6 +41,7 @@ MAX_CHECKSUMS_SIZE = 1024
 ED25519_SIGNATURE_SIZE = 64
 SHA256_RE = re.compile(r"[0-9a-f]{64}")
 MAX_PENDING_TRANSACTION_SIZE = 64 * 1024
+PERSISTENT_BACKUP_TARGETS = {"home": ("usb",), "sys": ("usb", "home")}
 
 INSTALLED_VERSION = pathlib.Path("/usr/share/fre3nder/VERSION")
 ROOT_STATUS = pathlib.Path("/run/fre3nder-root/status")
@@ -602,6 +603,7 @@ def verify_response(package, public_key=TRUSTED_PUBLIC_KEY):
 def preflight_response(
     package,
     backup_core=BACKUP_CORE,
+    browser_downloads=False,
     **kwargs,
 ):
     preflight_kwargs = dict(kwargs)
@@ -616,10 +618,7 @@ def preflight_response(
         **preflight_kwargs,
     )
 
-    backup = backup_offer(
-        usb_helper,
-        backup_core,
-    )
+    backup = backup_offer(usb_helper, backup_core, browser_downloads=browser_downloads)
 
     return {
         "api_version": API_VERSION,
@@ -711,6 +710,8 @@ def run_backup_core(
     arguments,
     backup_core=BACKUP_CORE,
     environment=None,
+    *,
+    browser_downloads=False,
 ):
     backup_core = pathlib.Path(backup_core)
 
@@ -785,11 +786,9 @@ def run_backup_core(
 
         raise ValueError(error)
 
-    # Download archives are temporary and cannot protect an OTA transaction.
     offer = response.get("backup_offer")
-    if isinstance(offer, dict):
-        for role in ("home", "sys"):
-            allowed = ("usb",) if role == "home" else ("usb", "home")
+    if not browser_downloads and isinstance(offer, dict):
+        for role, allowed in PERSISTENT_BACKUP_TARGETS.items():
             offer[role]["targets"] = [target for target in offer[role]["targets"] if target in allowed]
             offer[role]["offered"] = bool(offer[role]["targets"])
         offer.get("targets", {}).pop("download", None)
@@ -804,14 +803,15 @@ def require_persistent_backup_targets(arguments):
 def backup_offer(
     usb_helper=None,
     backup_core=BACKUP_CORE,
+    *,
+    browser_downloads=False,
 ):
     response = run_backup_core(
         "offer",
         (),
         backup_core,
-        backup_environment(
-            usb_helper=usb_helper,
-        ),
+        backup_environment(usb_helper=usb_helper),
+        browser_downloads=browser_downloads,
     )
 
     if (
@@ -835,15 +835,17 @@ def backup_plan(
     arguments,
     usb_helper=None,
     backup_core=BACKUP_CORE,
+    *,
+    browser_downloads=False,
 ):
-    require_persistent_backup_targets(arguments)
+    if not browser_downloads:
+        require_persistent_backup_targets(arguments)
     response = run_backup_core(
         "plan",
         arguments,
         backup_core,
-        backup_environment(
-            usb_helper=usb_helper,
-        ),
+        backup_environment(usb_helper=usb_helper),
+        browser_downloads=browser_downloads,
     )
 
     selection = response.get(
@@ -872,8 +874,11 @@ def backup_execute(
     usb_helper=None,
     backup_core=BACKUP_CORE,
     staging_directory=None,
+    *,
+    browser_downloads=False,
 ):
-    require_persistent_backup_targets(arguments)
+    if not browser_downloads:
+        require_persistent_backup_targets(arguments)
     response = run_backup_core(
         "execute",
         arguments,
@@ -888,6 +893,7 @@ def backup_execute(
             expected_usb=expected_usb,
             staging_directory=staging_directory,
         ),
+        browser_downloads=browser_downloads,
     )
 
     selection = response.get(
@@ -1155,7 +1161,7 @@ def verify_pending_backup_result(state, backup_core=BACKUP_CORE):
             )
 
         if is_selected:
-            if target not in (("usb",) if role == "home" else ("usb", "home")):
+            if target not in (*PERSISTENT_BACKUP_TARGETS[role], "download"):
                 raise ValueError(
                     f"pending OTA {role.upper()} backup target is invalid"
                 )
@@ -1364,6 +1370,7 @@ def confirm_response(
     package,
     arguments,
     pending_transaction_path=PENDING_TRANSACTION,
+    browser_downloads=False,
     **kwargs,
 ):
     if len(arguments) != 1:
@@ -1392,6 +1399,12 @@ def confirm_response(
         state,
         **kwargs,
     )
+
+    if not browser_downloads and any(
+        state["backup_selection"][role].get("target") == "download"
+        for role in PERSISTENT_BACKUP_TARGETS
+    ):
+        raise ValueError("Save the backup downloads and confirm the OTA update in Maintenance Web")
 
     confirmed = store_confirmed_transaction(
         state,
@@ -3990,6 +4003,7 @@ def backup_response(
     activation_record_path=ACTIVATION_RECORD,
     backup_core=BACKUP_CORE,
     staging_directory=None,
+    browser_downloads=False,
     **kwargs,
 ):
     pending_transaction_path = pathlib.Path(
@@ -4004,6 +4018,7 @@ def backup_response(
     response = preflight_response(
         package,
         backup_core=backup_core,
+        browser_downloads=browser_downloads,
         **kwargs,
     )
 
@@ -4020,6 +4035,7 @@ def backup_response(
         ),
         backup_core=backup_core,
         staging_directory=staging_directory,
+        browser_downloads=browser_downloads,
     )
 
     verify_pending_backup_result(execution, backup_core=backup_core)
@@ -4056,11 +4072,13 @@ def backup_plan_response(
     package,
     arguments,
     backup_core=BACKUP_CORE,
+    browser_downloads=False,
     **kwargs,
 ):
     response = preflight_response(
         package,
         backup_core=backup_core,
+        browser_downloads=browser_downloads,
         **kwargs,
     )
 
@@ -4070,6 +4088,7 @@ def backup_plan_response(
             "usb_helper"
         ),
         backup_core=backup_core,
+        browser_downloads=browser_downloads,
     )
 
     response["operation"] = "backup-plan"
@@ -4222,6 +4241,12 @@ def main():
     operation = sys.argv[1]
     package = sys.argv[2]
     arguments = sys.argv[3:]
+    browser_downloads = (
+        operation in ("preflight", "backup-plan", "backup", "confirm")
+        and arguments[:1] == ["--browser-downloads"]
+    )
+    if browser_downloads:
+        arguments = arguments[1:]
 
     if operation in ("verify", "preflight") and arguments:
         print(
@@ -4239,13 +4264,13 @@ def main():
         if operation == "verify":
             response = verify_response(package)
         elif operation == "preflight":
-            response = preflight_response(package)
+            response = preflight_response(package, browser_downloads=browser_downloads)
         elif operation == "backup-plan":
-            response = backup_plan_response(package, arguments)
+            response = backup_plan_response(package, arguments, browser_downloads=browser_downloads)
         elif operation == "backup":
-            response = backup_response(package, arguments)
+            response = backup_response(package, arguments, browser_downloads=browser_downloads)
         elif operation == "confirm":
-            response = confirm_response(package, arguments)
+            response = confirm_response(package, arguments, browser_downloads=browser_downloads)
         elif operation == "write":
             response = write_response(package, arguments)
         elif operation == "readback":

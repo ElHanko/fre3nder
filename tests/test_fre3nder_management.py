@@ -1348,6 +1348,47 @@ class ManagementApiTests(unittest.TestCase):
             self.assertTrue(stream.read(512))  # Concurrent discard preserves the open download.
         self.assertEqual(self.backup_download(job["id"], headers)[0], 404)
 
+    def test_ota_download_selection_and_protected_transaction_download(self):
+        headers = self.setup_backup()
+        package_id, transaction_id = "a" * 32, "b" * 32
+        package = self.daemon.OTA_PACKAGES / (package_id + ".ota")
+        package.write_bytes(b"fixture")
+        package.chmod(0o600)
+        choices = {"package_id": package_id, "home": "download", "sys": "none"}
+        self.assertEqual(self.ota_request("backup-plan", choices, headers)[0], 202)
+        self.assertEqual(self.wait_execution()["state"], "succeeded")
+        self.assertEqual(self.core_calls[-1], ("backup-plan", [
+            str(package), "--browser-downloads", "--home", "download", "--no-sys",
+        ]))
+        with patch.object(self.daemon.Handler, "is_screen_peer", return_value=True):
+            self.assertEqual(self.ota_request("backup-plan", choices, headers)[0], 400)
+
+        backups = self.daemon.backups
+        result = backups.core.execute_response(["--home", "download", "--no-sys"])["backup_result"]
+        self.core_state["transaction"] = {"transaction_id": transaction_id, "backup_result": result}
+        confirmation = {"package_id": package_id, "transaction_id": transaction_id}
+        self.assertEqual(self.ota_request("confirm", confirmation, headers)[0], 202)
+        self.assertEqual(self.wait_execution()["state"], "succeeded")
+        self.assertEqual(self.core_calls[-1], ("confirm", [
+            str(package), "--browser-downloads", transaction_id,
+        ]))
+        with patch.object(self.daemon.Handler, "is_screen_peer", return_value=True):
+            self.assertEqual(self.ota_request("confirm", confirmation, headers)[0], 202)
+            self.assertEqual(self.wait_execution()["state"], "succeeded")
+        self.assertEqual(self.core_calls[-1], ("confirm", [str(package), transaction_id]))
+        url = "/fre3nder/api/v1/backup/download?id=" + transaction_id
+        self.assertEqual(self.request_full("GET", url + "&role=sys", headers=headers)[0], 404)
+        self.assertEqual(self.request_full("GET", url + "&role=home")[0], 401)
+        archive = pathlib.Path(result["home"]["archive"])
+        connection = UnixHTTPConnection(self.daemon.SOCKET_PATH)
+        try:
+            connection.request("GET", url + "&role=home", headers=headers)
+            answer = connection.getresponse()
+            self.assertEqual(answer.status, 200)
+            self.assertEqual(answer.read(), archive.read_bytes())
+        finally:
+            connection.close()
+
     def test_backup_verification_allows_status_and_discard_concurrently(self):
         headers = self.setup_backup()
         self.backup_request("create", {"role": "home", "target": "download"}, headers)

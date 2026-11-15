@@ -536,7 +536,7 @@ def execute_ota(execution, arguments):
             _execution = {**completed, "state": "unknown"}
 
 
-def start_ota(operation, payload, reserved=False):
+def start_ota(operation, payload, reserved=False, *, browser_downloads=False):
     with _ota_lock:
         if not reserved:
             require_ota_idle()
@@ -548,11 +548,15 @@ def start_ota(operation, payload, reserved=False):
         if set(payload) != fields:
             raise ManagementError(400, "invalid-request", "OTA arguments are incomplete or unsupported")
         arguments = [] if operation == "reboot" else [str(package_path(payload["package_id"]))]
+        if browser_downloads and operation in ("preflight", "backup-plan", "backup", "confirm"):
+            arguments.append("--browser-downloads")
         if "home" in fields:
-            if payload["home"] not in ("usb", "none") or payload["sys"] not in ("usb", "home", "none"):
+            home, system = payload["home"], payload["sys"]
+            targets = ("usb", "none", "download") if browser_downloads else ("usb", "none")
+            if home not in targets or system not in (*targets, "home"):
                 raise ManagementError(400, "invalid-selection", "Invalid HOME/SYS backup selection")
-            arguments.append("--home" if payload["home"] == "usb" else "--no-home")
-            arguments.extend(["--no-sys"] if payload["sys"] == "none" else ["--sys", payload["sys"]])
+            arguments.extend(["--no-home"] if home == "none" else ["--home", home])
+            arguments.extend(["--no-sys"] if system == "none" else ["--sys", system])
         if "transaction_id" in fields:
             transaction_id = payload["transaction_id"]
             if not isinstance(transaction_id, str) or re.fullmatch(r"[0-9a-f]{32}", transaction_id) is None:
@@ -859,9 +863,22 @@ class Handler(http.server.BaseHTTPRequestHandler):
                                                   keep_blank_values=True, strict_parsing=True)
                 except ValueError as exc:
                     raise ManagementError(400, "invalid-request", "Invalid backup download query") from exc
-                if len(query) != 1 or query[0][0] != "id":
-                    raise ManagementError(400, "invalid-request", "Expected exactly one backup job ID")
-                stream, filename, size = backups.open_download(query[0][1])
+                parameters = dict(query)
+                if len(query) == 1 and "id" in parameters:
+                    stream, filename, size = backups.open_download(parameters["id"])
+                elif len(query) == 2 and set(parameters) == {"id", "role"}:
+                    role, transaction_id = parameters["role"], parameters["id"]
+                    if role not in ("home", "sys") or re.fullmatch(r"[0-9a-f]{32}", transaction_id) is None:
+                        raise ManagementError(400, "invalid-request", "Invalid OTA backup role or transaction ID")
+                    transaction = run_ota_core("status")["transaction"]
+                    if not transaction or transaction["transaction_id"] != transaction_id:
+                        raise ManagementError(404, "backup-unavailable", "OTA backup transaction is unavailable")
+                    backup = transaction["backup_result"][role]
+                    if not backup["selected"] or backup["target"] != "download" or backup["verified"] is not True:
+                        raise ManagementError(404, "backup-unavailable", "OTA backup is unavailable for download")
+                    stream, filename, size = backups.open_download(ota_backup=backup)
+                else:
+                    raise ManagementError(400, "invalid-request", "Expected a backup job ID or OTA transaction ID and role")
                 with stream:
                     self.send_response(200)
                     self.send_header("Content-Type", "application/x-tar")
@@ -1030,7 +1047,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     if operation == "upload":
                         execution = self.upload_ota()
                     else:
-                        execution = start_ota(operation, self.read_json_body())
+                        execution = start_ota(operation, self.read_json_body(),
+                                              browser_downloads=not self.is_screen_peer())
                 self.send_json(202, response("ota-accepted", execution=execution))
                 return
             actions = {

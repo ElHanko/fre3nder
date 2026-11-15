@@ -82,6 +82,7 @@ const renderAuth = (auth) => {
   } else {
     stopOtaPolling();
     disableOtaControls();
+    otaElement("downloads").replaceChildren();
     if (typeof appsPoll !== "undefined") {
       if (appsPoll) clearTimeout(appsPoll);
       appsPoll = null;
@@ -230,7 +231,7 @@ const rememberTransaction = (transaction) => {
     ...otaReceipt, package_id: packageId, transaction_id: transaction.transaction_id,
     version: transaction.package.version, sha256: transaction.package.sha256,
     size: transaction.package.size, slot: transaction.target.slot,
-    home: transaction.backup_selection.home.selected ? "usb" : "none",
+    home: transaction.backup_selection.home.selected ? transaction.backup_selection.home.target : "none",
     sys: transaction.backup_selection.sys.selected ? transaction.backup_selection.sys.target : "none",
   });
 };
@@ -305,6 +306,9 @@ const progressStatus = (id, completed, active, failed) => {
     completed ? "ok" : active ? "on" : "neutral");
 };
 const currentChoices = () => ({ home: otaElement("home").value, sys: otaElement("sys").value });
+const hasDownload = (choices) => Object.values(choices).includes("download");
+const backupTargetLabel = (target) => target === "none" ? "No backup"
+  : target === "download" ? "Browser download" : target.toUpperCase();
 const canUpdate = () => {
   if (!csrfToken || !otaState || otaActivity || localFileChanged || otaState.core.busy || rebootStatus()) return false;
   const { core, execution } = otaState;
@@ -354,6 +358,8 @@ const renderOta = () => {
   const context = transaction || preflight || (handoff && {
     package: handoff.package, runtime: handoff.previous_runtime, target: handoff.target,
   });
+  const awaitingDownload = transaction && transaction.state === "awaiting-confirmation"
+    && ["home", "sys"].some((role) => transaction.backup_selection[role].target === "download");
   const unknown = execution && execution.state === "unknown";
   const busy = otaActivity || core.busy || (execution && ["uploading", "running"].includes(execution.state));
   const activeOperation = (otaActivity && otaActivity.operation) || (relevant && execution.state === "running" && execution.operation);
@@ -367,6 +373,7 @@ const renderOta = () => {
       : "Package check failed. Review the error and retry the check before updating.")
     : activeOperation ? `${operationLabel[activeOperation]}…`
     : busy ? "Waiting for the active OTA operation. No operation will be repeated."
+    : awaitingDownload ? "Save the selected backup files before continuing the update."
     : transaction ? "Update paused. Confirm continuation from the recorded Core state."
     : localFileChanged ? "Upload and verify the selected local file before starting the update."
     : preflight ? "Package ready. Choose both backup options, then confirm the update."
@@ -399,10 +406,10 @@ const renderOta = () => {
     if (transaction || handoff) {
       const choice = transaction && transaction.backup_selection[role];
       const target = choice ? (choice.selected ? choice.target : "none") : otaReceipt[role];
-      values.push([target, target === "none" ? "No backup" : target.toUpperCase()]);
+      values.push([target, backupTargetLabel(target)]);
       setOptions(otaElement(role), values, target);
     } else {
-      if (offer && offer[role].offered) for (const target of offer[role].targets) values.push([target, target.toUpperCase()]);
+      if (offer && offer[role].offered) for (const target of offer[role].targets) values.push([target, backupTargetLabel(target)]);
       if (offer && offer[role].required === false) values.push(["none", "No backup"]);
       setOptions(otaElement(role), values, previous || (otaReceipt && otaReceipt[role]));
     }
@@ -425,8 +432,19 @@ const renderOta = () => {
   setText("ota-transaction", transaction ? `Transaction: ${transaction.transaction_id}`
     : otaReceipt && otaReceipt.transaction_id ? `Expected transaction: ${otaReceipt.transaction_id}` : "No transaction created.");
   otaElement("backups").replaceChildren();
+  const downloads = otaElement("downloads");
+  downloads.replaceChildren();
   if (transaction) for (const role of ["home", "sys"]) {
     const backup = transaction.backup_result[role];
+    if (csrfToken && backup.selected && backup.target === "download" && backup.verified === true) {
+      const line = document.createElement("p");
+      const link = document.createElement("a");
+      link.href = `/fre3nder/api/v1/backup/download?id=${encodeURIComponent(transaction.transaction_id)}&role=${role}`;
+      link.textContent = `Download ${role.toUpperCase()} backup (${formatBytes(backup.size)})`;
+      link.download = "";
+      line.append(link);
+      downloads.append(line);
+    }
     const line = document.createElement("p");
     line.textContent = backup.selected ? `${role.toUpperCase()}: ${backup.archive}; ${formatBytes(backup.size)}; ${backup.verified === true ? "verified at creation" : "verification required before writing"}; SHA-256 ${backup.sha256}` : `${role.toUpperCase()}: explicitly declined`;
     otaElement("backups").append(line);
@@ -441,7 +459,8 @@ const renderOta = () => {
   otaElement("check").textContent = (otaFailure && otaFailure.operation === "preflight")
     || (relevant && execution.state === "failed" && execution.operation === "preflight") ? "Retry compatibility check" : "Check package";
   for (const role of ["home", "sys"]) otaElement(role).disabled = locked || !offer;
-  otaElement("update").textContent = transaction ? "Continue update" : "Update Fre3nder";
+  otaElement("update").textContent = transaction ? "Continue update"
+    : hasDownload(choices) ? "Create backups" : "Update Fre3nder";
   otaElement("update").disabled = !canUpdate();
 };
 
@@ -531,17 +550,23 @@ const checkPackage = async () => {
 };
 const confirmationText = (context, choices, continuing) => {
   const declined = ["home", "sys"].filter((role) => choices[role] === "none");
+  const download = hasDownload(choices);
+  const prepareDownloads = download && !continuing;
   return [
-    continuing ? "Continue the recorded update? Completed steps will not be repeated." : "Update Fre3nder?",
+    continuing ? "Continue the recorded update? Completed steps will not be repeated."
+      : prepareDownloads ? "Create backups for the Fre3nder update?" : "Update Fre3nder?",
     `${context.runtime.installed_version} → ${context.package.version}`,
     `Active slot ${context.runtime.active_slot} → target slot ${context.target.slot}`,
     continuing ? `Next step: ${operationLabel[nextOperation[context.state]]}.` : "",
-    `HOME backup: ${choices.home === "none" ? "No backup" : choices.home.toUpperCase()}; SYS backup: ${choices.sys === "none" ? "No backup" : choices.sys.toUpperCase()}`,
+    `HOME backup: ${backupTargetLabel(choices.home)}; SYS backup: ${backupTargetLabel(choices.sys)}`,
     declined.length ? `WARNING: ${declined.map((role) => role.toUpperCase()).join(" and ")} backup explicitly declined.`
       : continuing ? "Completed backups will not be recreated." : "Selected backups will be created and verified before writing.",
     "HOME is preserved. SYS is reset when the updated system boots.",
+    prepareDownloads ? "The update will pause so you can save the backup files in your browser." : "",
+    continuing && download && context.state === "awaiting-confirmation"
+      ? "Confirm only after the selected backup downloads have finished." : "",
     continuing ? "Only remaining steps will run: Kernel/RootFS writes if still required, readback, activation and restart."
-      : "Kernel and RootFS will be written to the inactive system, readback verified, activated, and the printer restarted.",
+      : prepareDownloads ? "" : "Kernel and RootFS will be written to the inactive system, readback verified, activated, and the printer restarted.",
     sameVersionNotice(context),
   ].filter(Boolean).join("\n\n");
 };
@@ -576,6 +601,7 @@ const runUpdate = async () => {
           || transaction.target.slot !== context.target.slot) {
         throw new Error("The update context changed after confirmation. Review the recorded transaction and explicitly confirm continuation.");
       }
+      if (hasDownload(choices)) return;
     }
     const transactionId = transaction.transaction_id;
     while (true) {

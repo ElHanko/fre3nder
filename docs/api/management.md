@@ -305,7 +305,8 @@ selected app webserver on port 80.
 |---|---|---|
 | `GET status` | No body | `200 backup-status`, `backup` snapshot |
 | `POST create` | Exactly `{"role":"home","target":"download"}` | `202 backup-accepted`, `execution` receipt |
-| `GET download?id=…` | Exactly one server-generated job ID | Verified TAR, streamed in 64 KiB blocks |
+| `GET download?id=…` | One server-generated standalone backup job ID | Verified TAR, streamed in 64 KiB blocks |
+| `GET download?id=…&role=home\|sys` | Active OTA transaction ID and selected download role | Verified TAR, streamed in 64 KiB blocks |
 | `POST discard` | Exactly `{"id":"<job-id>"}` | `200 backup-discard`, `discarded` ID |
 
 Roles are lowercase `home` or `sys`. HOME permits `download|usb`; SYS permits
@@ -352,7 +353,8 @@ and downloads and marks an interrupted creation failed, never successful.
 `downloads` lists all retained download results as `{id, ...archiveMetadata}`,
 including older jobs. Random IDs are server-side lookup keys, not authentication
 credentials. Every download revalidates the stored size and SHA-256 before sending
-headers. Only private staged archives registered by completed jobs are served.
+headers. Only private staged archives recorded by completed jobs or an active
+OTA transaction are served.
 The response uses `Content-Type: application/x-tar`, `Content-Disposition:
 attachment; filename="…"`, the exact `Content-Length`, and `Cache-Control: no-store`.
 It never loads the archive into RAM. Reader disconnection preserves the archive;
@@ -385,8 +387,9 @@ Management refuses overlapping manual backup, OTA and app jobs. Core uses the
 existing nonblocking OTA/app operation lock for CLI and API execution. OTA shares
 its already-held lock description with its backup child, avoiding nested locks.
 Reading or discarding completed downloads does not acquire that platform lock.
-OTA offers only persistent HOME `usb|none` and SYS `usb|home|none` selections;
-`download` is rejected by OTA planning, execution, and transaction validation.
+OTA downloads are bound to their active transaction and available through the
+protected download endpoint until reboot. The standalone discard endpoint
+accepts standalone job IDs.
 
 ## Manual OTA endpoints
 
@@ -403,9 +406,9 @@ Maintenance-control authorization is independent of the web.
 | `POST upload` | Binary body, `application/octet-stream`, `Content-Length`, URL-encoded local filename in `X-Fre3nder-Filename` |
 | `POST verify` | JSON `{ "package_id": "<id>" }` |
 | `POST preflight` | Same package ID |
-| `POST backup-plan` | Package ID plus explicit `home: usb\|none`, `sys: usb\|home\|none` |
+| `POST backup-plan` | Package ID and explicit HOME/SYS selections from preflight. Maintenance sessions can choose `download` for either role. |
 | `POST backup` | Same explicit selection; Core creates and verifies archives |
-| `POST confirm` | Package ID and `transaction_id` returned by Core backup |
+| `POST confirm` | Package ID and `transaction_id` returned by Core backup. A transaction with a download backup requires a paired Maintenance Web session for this step. |
 | `POST write` | Same package/transaction binding |
 | `POST readback` | Same package/transaction binding |
 | `POST prepare-activation` | Same package/transaction binding |

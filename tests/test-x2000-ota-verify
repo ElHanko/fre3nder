@@ -2567,7 +2567,7 @@ def expect_preflight_invalid(package, public_key, runtime, text):
         raise AssertionError("preflight unexpectedly succeeded")
 
 
-def test_download_is_never_an_ota_safety_backup():
+def test_download_requires_browser_ota_mode():
     for arguments in (["--home", "download", "--no-sys"], ["--no-home", "--sys", "download"]):
         for invoke in (lambda: module.backup_plan(arguments), lambda: module.backup_execute("fixture", arguments)):
             try:
@@ -2576,7 +2576,7 @@ def test_download_is_never_an_ota_safety_backup():
                 assert "not valid for OTA" in str(exc)
             else:
                 raise AssertionError("OTA accepted a temporary download target")
-    for role, target in (("home", "download"), ("sys", "download"), ("home", "home")):
+    for role, target in (("home", "home"), ("sys", "/tmp")):
         selection = {"complete": True, "home": {"selected": False, "target": None},
                      "sys": {"selected": False, "target": None}}
         selection[role] = {"selected": True, "target": target}
@@ -2586,6 +2586,62 @@ def test_download_is_never_an_ota_safety_backup():
             assert "backup target is invalid" in str(exc)
         else:
             raise AssertionError("OTA accepted an invalid stored backup target")
+
+
+def test_browser_download_archives_are_bound_to_ota_transaction():
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        private_key, public_key = generate_keys(root)
+        package = root / "download.ota"
+        make_package(package, private_key, public_key)
+        runtime = make_runtime(root / "runtime")
+        usb_helper = make_usb_helper(root / "runtime" / "fre3nder-usb")
+        home, system = root / "home", root / "sys-upper"
+        for source in (home, system):
+            source.mkdir()
+            (source / "settings").write_text(source.name)
+        staging = home / ".tmp/backup"
+        pending = root / "ota-state/pending.json"
+        options = {"public_key": public_key, "usb_helper": usb_helper, **runtime}
+        arguments = ["--home", "download", "--sys", "download"]
+        planned = module.backup_plan_response(package, arguments, browser_downloads=True, **options)
+        assert planned["backup_offer"]["home"]["targets"] == ["download"]
+        assert planned["backup_selection"]["sys"]["target"] == "download"
+        result = module.backup_response(
+            package, arguments, home_source=home, sys_source=system,
+            staging_directory=staging, pending_transaction_path=pending,
+            activation_record_path=root / "activation.json", browser_downloads=True, **options,
+        )
+        state = module.load_pending_transaction(pending)
+        assert state["state"] == "awaiting-confirmation"
+        assert state["transaction_id"] == result["confirmation"]["transaction_id"]
+        module.verify_pending_backup_result(state)
+        for role in ("home", "sys"):
+            backup = state["backup_result"][role]
+            assert backup["verified"] is True
+            assert Path(backup["archive"]).parent.parent == staging
+        confirmation = [state["transaction_id"]]
+        confirm_options = {"pending_transaction_path": pending, **options}
+        try:
+            module.confirm_response(package, confirmation, **confirm_options)
+        except ValueError as exc:
+            assert "confirm the OTA update in Maintenance Web" in str(exc)
+        else:
+            raise AssertionError("OTA accepted download confirmation outside Maintenance Web")
+        assert module.load_pending_transaction(pending)["state"] == "awaiting-confirmation"
+
+        sys_archive = Path(state["backup_result"]["sys"]["archive"])
+        original = sys_archive.read_bytes()
+        sys_archive.unlink()
+        try:
+            module.confirm_response(package, confirmation, browser_downloads=True, **confirm_options)
+        except ValueError as exc:
+            assert "SYS backup archive changed" in str(exc)
+        else:
+            raise AssertionError("OTA accepted a missing download archive")
+        sys_archive.write_bytes(original)
+        confirmed = module.confirm_response(package, confirmation, browser_downloads=True, **confirm_options)
+        assert confirmed["confirmation"]["state"] == "confirmed"
 
 
 def test_status_and_transition_lock():
@@ -2683,7 +2739,8 @@ def test_emmc_persistence():
 
 def main():
     test_emmc_persistence()
-    test_download_is_never_an_ota_safety_backup()
+    test_download_requires_browser_ota_mode()
+    test_browser_download_archives_are_bound_to_ota_transaction()
     test_status_and_transition_lock()
     assert "BR2_PACKAGE_LIBOPENSSL_BIN=y\n" in BUILDROOT_FRAGMENT.read_text()
     test_backup_execution()

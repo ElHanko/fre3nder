@@ -259,13 +259,14 @@
             <label for="ota-sys">SYS backup</label>
             <select id="ota-sys" disabled></select>
           </div>
-          <p class="section-note">Choose both options explicitly. Selected backups are created and verified during the update. Staged OTA packages are excluded from SYS backups.</p>
+          <p class="section-note">Choose both options explicitly. If you choose Browser download, save the backup files before continuing the update. Staged OTA packages are excluded from SYS backups.</p>
+          <div id="ota-downloads" aria-live="polite"></div>
         </section>
 
         <section class="status-section" aria-labelledby="ota-install-title">
           <h2 id="ota-install-title">3. Update Fre3nder</h2>
           <button id="ota-update" class="primary-update" type="button" disabled>Update Fre3nder</button>
-          <p class="section-note">One confirmation covers backups, writing Kernel and RootFS, verification, activation and restart. Stop printing and heating before proceeding.</p>
+          <p class="section-note">Stop printing and heating before proceeding. Continuing the update writes and verifies Kernel and RootFS, then restarts the printer.</p>
           <ol class="ota-progress" aria-label="Update progress" aria-live="polite">
             <li>Preparing update <span id="ota-progress-prepare" class="status status-neutral">Waiting</span></li>
             <li><span id="ota-backup-label">Creating backups</span> <span id="ota-progress-backups" class="status status-neutral">Waiting</span></li>

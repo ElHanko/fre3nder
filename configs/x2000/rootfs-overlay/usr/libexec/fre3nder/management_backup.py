@@ -131,6 +131,10 @@ def download_entry(job_id, allow_missing=False):
     value = _downloads.get(job_id)
     if value is None:
         raise BackupError(404, "backup-unavailable", "No downloadable backup exists for this job")
+    return value, staging_archive(value, allow_missing)
+
+
+def staging_archive(value, allow_missing=False):
     path = pathlib.Path(value["archive"])
     if path.parent.parent != core.STAGING_DIRECTORY or not path.parent.name.startswith("job-"):
         raise BackupError(409, "storage-unsafe", "Backup is outside staging")
@@ -143,14 +147,17 @@ def download_entry(job_id, allow_missing=False):
             raise BackupError(409, "storage-unsafe", "Backup staging is unavailable or unsafe") from exc
         if info.st_uid != os.geteuid() or info.st_mode & 0o022:
             raise BackupError(409, "storage-unsafe", "Backup staging is not root-controlled")
-    return value, path
+    return path
 
 
-def open_download(job_id):
+def open_download(job_id=None, *, ota_backup=None):
     stream = None
     try:
         with _lock:
-            value, path = download_entry(job_id)
+            if ota_backup is None:
+                value, path = download_entry(job_id)
+            else:
+                value, path = ota_backup, staging_archive(ota_backup)
             value = dict(value)
             info = core.require_regular_file(path, "download archive")
             if info.st_uid != os.geteuid() or info.st_mode & 0o077:

@@ -318,8 +318,9 @@ add later integrity checks using `verify`.
 ## Selection policy
 
 Core accepts `download` or `usb` for HOME and `download`, `usb`, or `home`
-for SYS. Each role may also be explicitly declined. The public CLI and OTA
-retain their narrower permanent choices: HOME `usb|none`, SYS `usb|home|none`.
+for SYS. Each role may also be explicitly declined. The CLI and Screen OTA
+offer HOME `usb|none` and SYS `usb|home|none`. Maintenance Web OTA also offers
+`download` for both roles.
 
 A selection must be explicit.
 
@@ -327,9 +328,6 @@ There is no implicit default that silently creates or skips a backup.
 
 Selecting no backup at all is not a useful standalone backup operation and is
 rejected by the public CLI.
-
-OTA additionally rejects temporary `download` targets on the server. It does
-not inherit new defaults from the expanded standalone offer.
 
 ## Backup execution
 
@@ -634,10 +632,10 @@ known-good state
 OTA owns those concepts.
 
 During OTA preflight, OTA obtains available backup choices from the backup
-core and filters them to persistent targets: HOME `usb`, SYS `usb|home`.
-Planning, execution, and stored-transaction validation reject `download`; no
-implicit selection is introduced. Existing transaction archive metadata remains
-compatible, and later OTA stages still reverify it before system changes.
+core. Maintenance Web offers the temporary download target for both roles in
+addition to the persistent targets. The browser pauses before confirmation so
+the user can save the verified archives. Later OTA stages reverify archives
+against the recorded metadata before system changes.
 
 OTA then records the user's explicit backup selection as part of its own
 workflow.

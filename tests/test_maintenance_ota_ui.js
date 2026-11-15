@@ -262,6 +262,33 @@ async function main() {
     assert.equal(api.state.core.transaction.backup_result.sys.verified, true);
     assert.equal(ui.get("ota-progress-backups").textContent, "Done");
   });
+  await test("OTA downloads pause before confirm and remain available after reload", async () => {
+    const api = backend();
+    api.preflight.backup_offer.home.targets = ["download"];
+    api.preflight.backup_offer.sys.targets.unshift("download");
+    api.ready();
+    const ui = browser(api);
+    await ui.load();
+    ui.choices("download", "download");
+    assert.equal(ui.get("ota-update").textContent, "Create backups");
+    await ui.call("runUpdate()");
+    assert.deepEqual(operations(api), ["backup-plan", "backup"]);
+    assert.equal(api.state.core.transaction.state, "awaiting-confirmation");
+    assert.equal(ui.get("ota-update").textContent, "Continue update");
+
+    const reloaded = browser(api, ui.storage);
+    await reloaded.load();
+    assert.deepEqual(reloaded.get("ota-downloads").children.map((row) => row.children[0].href),
+      ["home", "sys"].map((role) => `/fre3nder/api/v1/backup/download?id=${transactionId}&role=${role}`));
+    assert.equal(reloaded.get("ota-home").value, "download");
+    api.approve = false;
+    await reloaded.call("runUpdate()");
+    assert.deepEqual(operations(api), ["backup-plan", "backup"]);
+    api.approve = true;
+    await reloaded.call("runUpdate()");
+    assert.match(api.confirmation.at(-1), /after the selected backup downloads have finished/);
+    assert.deepEqual(operations(api), sequence);
+  });
   await test("declined confirmation starts no Core operation", async () => {
     const api = backend(); api.ready(); api.approve = false;
     const ui = browser(api); await ui.load(); ui.choices("none", "none"); await ui.call("runUpdate()");
