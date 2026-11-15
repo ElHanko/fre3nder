@@ -1,5 +1,6 @@
 {
   "change_filament_gcode": "PAUSE",
+  "default_print_profile": "0.20mm Standard @Fre3nder Ender3V3KE",
   "from": "User",
   "host_type": "octoprint",
   "inherits": "Creality Ender-3 V3 KE 0.4 nozzle",

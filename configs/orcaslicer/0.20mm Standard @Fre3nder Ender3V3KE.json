@@ -1,0 +1,17 @@
+{
+  "compatible_printers": [
+    "Fre3nder Ender-3 V3 KE 0.4 nozzle"
+  ],
+  "default_jerk": "5",
+  "from": "User",
+  "infill_jerk": "5",
+  "inherits": "0.20mm Standard @Creality Ender3V3KE",
+  "initial_layer_jerk": "5",
+  "inner_wall_jerk": "5",
+  "name": "0.20mm Standard @Fre3nder Ender3V3KE",
+  "outer_wall_jerk": "5",
+  "print_settings_id": "0.20mm Standard @Fre3nder Ender3V3KE",
+  "top_surface_jerk": "5",
+  "travel_jerk": "5",
+  "version": "2.4.2.0"
+}
