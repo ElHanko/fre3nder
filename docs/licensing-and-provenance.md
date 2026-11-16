@@ -55,22 +55,21 @@ The productive kernel source starts from official stable Linux, with its
 version defined by `kernel.kernel_version` and its upstream URL, commit, and
 baseline tree under `kernel.source` in `configs/x2000/sources.json`.
 
-Fre3nder applies an ordered five-patch hardware-support series from
-`patches/kernel/`:
+Fre3nder applies the hardware-support series whose paths, order, and SHA-256
+digests are defined by `kernel.patch_series.patches` in
+[`configs/x2000/sources.json`](../configs/x2000/sources.json). Its components
+cover:
 
-1. `0001-x2000-platform.patch` contains the retained
-   Ingenic-derived X2000 platform support after Fre3nder pruning and
-   forward-porting.
-2. `0002-x2000-display.patch` contains the Ender-3 V3 KE
-   display integration derived from the public NebulaOS/OpenKE implementation.
-3. `0003-x2000-touchscreen.patch` contains the NS2009 touchscreen
-   integration derived from the public NebulaOS/OpenKE implementation.
-4. `0004-x2000-wlan.patch` contains the retained
-   Ingenic-derived WLAN power/reset/detect integration required by the
-   qualified Ender-3 V3 KE path.
-5. `0005-x2000-board.patch` contains
-   Fre3nder's board integration and the concrete forward-port adaptations
-   required for Linux `v7.3.4`.
+- retained Ingenic-derived X2000 platform support after Fre3nder pruning and
+  forward-porting;
+- Ender-3 V3 KE display integration derived from the public NebulaOS/OpenKE
+  implementation;
+- NS2009 touchscreen integration derived from the public NebulaOS/OpenKE
+  implementation;
+- retained Ingenic-derived WLAN power/reset/detect integration required by
+  the qualified Ender-3 V3 KE path; and
+- Fre3nder's board integration and the forward-port adaptations required by
+  the pinned Linux baseline.
 
 The Ingenic-derived layers are traceable to the public Ingenic X2000 kernel
 repository at commit
@@ -78,14 +77,14 @@ repository at commit
 record their derivation from `coreflake1/NebulaOS-kernel` at commit
 `88a0e1ecc6ace7c9e4ad99d6fa49e272180fd5a9`.
 
-Applied in order, the current five patches must produce the source tree
+Applied in order, the patches must produce the source tree
 recorded by `kernel.patch_series.result_tree` in `configs/x2000/sources.json`.
 
 The original provenance split produced
 `40d8b5cee4341505c12373e9bb1386e80241f0d6`, matching the source tree that had
 already been built and hardware-qualified as `6.6.157-fre3nder`. The later
 A/B slot-neutral kernel change updated the Fre3nder-specific board-integration
-layer to remove embedded slot-specific boot arguments, producing the current
+layer to remove embedded slot-specific boot arguments, producing a new
 tree while retaining the same provenance-separated patch structure.
 
 The historical Ingenic SDK and RT23 trees remain provenance and migration

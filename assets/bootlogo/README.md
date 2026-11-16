@@ -11,8 +11,9 @@ The source PNG and its kernel-carried derivative are classified as
 `GPL-2.0-only` in `REUSE.toml` and the kernel patch policy.
 
 The prepared 480x272 RGB PNG is carried as a binary replacement of
-`module_drivers/drivers/video/logo-ingenic/logo.png` in
-`patches/kernel/0005-x2000-board.patch`.
+`module_drivers/drivers/video/logo-ingenic/logo.png` in the board-integration
+patch of the series defined by `kernel.patch_series.patches` in the
+[source manifest](../../configs/x2000/sources.json).
 Its SHA256 is:
 
 ```text
@@ -43,11 +44,11 @@ to remove the supplied image's near-black background noise. The resulting
 PNG is opaque RGB, with a black perimeter and preserved cyan/white artwork.
 
 Regenerating the asset also requires refreshing the binary replacement in
-patch 0005, its `patch_sha256`, the verified kernel `result_tree`, and the
-existing test checksum. Normal kernel builds consume the prepared PNG from
-the patch and use the existing `scripts/pic2logo` converter; they do not run
-FFmpeg or read the portrait source. No new build or runtime dependency is
-introduced.
+the board-integration patch, its manifest `patch_sha256`, the verified kernel
+`result_tree`, and the existing test checksum. Normal kernel builds consume
+the prepared PNG from the patch and use the existing `scripts/pic2logo`
+converter; they do not run FFmpeg or read the portrait source. No new build
+or runtime dependency is introduced.
 
 The later reference-system qualification confirmed logo retention through the
 visible boot, successful Screen startup and manual tty1/tty7 switching; see

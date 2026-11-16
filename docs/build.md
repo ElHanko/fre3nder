@@ -458,7 +458,7 @@ must dereference to `buildroot.commit`. This centralization changes no source
 version, commit, patch content, or expected source tree.
 
 The F3 kernel bootlogo uses the existing Ingenic `CONFIG_TRUE_COLOR_LOGO_FILE`
-path and `scripts/pic2logo`. Patch 0005 replaces
+path and `scripts/pic2logo`. The manifest's board-integration patch replaces
 `module_drivers/drivers/video/logo-ingenic/logo.png` with the prepared 480x272
 RGB image; `kernel-fre3nder.defconfig` selects a black logo background. The
 binary replacement is covered by the ordered patch checksum and result-tree

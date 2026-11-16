@@ -126,12 +126,12 @@ selected unprivileged service with the relevant paths and supplementary groups.
 ## Build integration
 
 The productive X2000 kernel build carries display and touch support through the
-ordered kernel patch series, specifically:
+display, touchscreen, and board-integration components of the kernel patch
+series. Its paths, order, and SHA-256 digests are defined by
+`kernel.patch_series.patches` in the
+[source manifest](../configs/x2000/sources.json). Kernel configuration comes from:
 
 ~~~text
-patches/kernel/0002-x2000-display.patch
-patches/kernel/0003-x2000-touchscreen.patch
-patches/kernel/0005-x2000-board.patch
 configs/x2000/kernel-fre3nder.defconfig
 configs/x2000/kernel.fragment
 ~~~
@@ -193,9 +193,10 @@ software rotation.
 ### Boot output
 
 The kernel's existing Ingenic `fb_stage` logo path now carries the F3 artwork
-from [the versioned bootlogo source](../assets/bootlogo/README.md). Patch 0005
-replaces the embedded PNG with an opaque 480x272 image, prepared with a
-90-degree counterclockwise rotation for the portrait-mounted display. The
+from [the versioned bootlogo source](../assets/bootlogo/README.md). The
+manifest's board-integration patch replaces the embedded PNG with an opaque
+480x272 image, prepared with a 90-degree counterclockwise rotation for the
+portrait-mounted display. The
 configured logo background is black. `scripts/pic2logo`, `pan_init_logo()` and
 `show_logo()` remain the existing build and display path. The intended sequence
 is F3 logo -> Fre3nderScreen on tty7. With no selected frontend or a handled

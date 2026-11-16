@@ -371,13 +371,10 @@ reference:
 
 Keep that tree unchanged as historical migration/reference material.
 
-The productive Fre3nder kernel baseline is defined by
-`configs/x2000/sources.json`. The current pin is:
-
-- Linux stable `v7.3.4`
-- Commit: `7595a62d45ee1a2297eafa5f2ef5d0a45142d84d`
-- Baseline tree: `d07c331ebf5acbde9ebf9caea9eac6e33b07ad77`
-- Fre3nder result tree: `775308b2db8f0370dc58eab40eb431c0e461df92`
+The active Fre3nder X2000 kernel pins are maintained only in
+[`configs/x2000/sources.json`](configs/x2000/sources.json): kernel version,
+upstream commit, baseline and result trees, and ordered patch paths with
+their SHA-256 digests.
 
 For productive kernel maintenance and future stable updates, use the pinned
 baseline in `configs/x2000/sources.json` rather than treating the historical

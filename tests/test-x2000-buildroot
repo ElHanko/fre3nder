@@ -78,8 +78,6 @@ post_build="$root/configs/x2000/rootfs-post-build.sh"
 nvram="$root/configs/x2000/rootfs-overlay/lib/firmware/brcm/brcmfmac43430-sdio.txt"
 nvram_license="$root/configs/x2000/rootfs-overlay/usr/share/licenses/radxa-rkwifibt/LICENSE"
 reuse="$root/REUSE.toml"
-kernel_wlan_patch=$root/patches/kernel/0004-x2000-wlan.patch
-kernel_integration_patch=$root/patches/kernel/0005-x2000-board.patch
 
 python3 - "$sources" "$klipper_commit" \
 	"$buildroot_url" "$buildroot_version" "$buildroot_commit" \
@@ -270,17 +268,12 @@ assert "patch_set" not in data
 assert "display_patch_set" not in data
 assert "touch_patch_set" not in data
 
-assert data["wlan_kernel_source_provenance"]["carried_in"] == (
-    "patches/kernel/0004-x2000-wlan.patch")
-assert data["display_source_provenance"]["carried_in"] == (
-    "patches/kernel/0002-x2000-display.patch")
-assert data["touch_source_provenance"]["carried_in"] == (
-    "patches/kernel/0003-x2000-touchscreen.patch")
-
+patch_paths = {item["patch"] for item in data["kernel"]["patch_series"]["patches"]}
 for provenance in (
         data["wlan_kernel_source_provenance"],
         data["display_source_provenance"],
         data["touch_source_provenance"]):
+    assert provenance["carried_in"] in patch_paths, provenance["carried_in"]
     assert provenance["migration_source_commit"] == (
         "a98c2e1f22e4263ddd4153a4eca4db4dcfd2777b")
 
@@ -319,55 +312,19 @@ assert series["baseline_ref"] == "kernel.source.commit"
 assert "baseline_commit" not in series
 assert series["result_tree"] == sys.argv[6]
 
-assert [
-    (
-        item["order"],
-        item["patch"],
-        item["patch_sha256"],
-    )
-    for item in series["patches"]
-] == [
-    (
-        1,
-        "patches/kernel/0001-x2000-platform.patch",
-        "5f6656e13da5a81692c3a1b62b654026b1f960027b797e5bde4f15c550b9dd32",
-    ),
-    (
-        2,
-        "patches/kernel/0002-x2000-display.patch",
-        "50e4ff298bea856a91183482ef8ed4d6578c6860e50833986601d9072f9c6516",
-    ),
-    (
-        3,
-        "patches/kernel/0003-x2000-touchscreen.patch",
-        "830171b824d4756b717548ca956104d2f9431c5de5e70ccc4b48b0a03646dbb1",
-    ),
-    (
-        4,
-        "patches/kernel/0004-x2000-wlan.patch",
-        "01a8a472de7235f06630e599ade5645aed9c803c0a2e7c516a97362eb2578085",
-    ),
-    (
-        5,
-        "patches/kernel/0005-x2000-board.patch",
-        "dfa519d94e9d2e5a7a1e968f4be00f3dd87294d77d64898de338bb35ae55bfad",
-    ),
-]
+assert series["patches"], "kernel patch series is empty"
 root = pathlib.Path(sys.argv[1]).resolve().parents[2]
-for item in series["patches"]:
-    assert hashlib.sha256((root / item["patch"]).read_bytes()).hexdigest() == item["patch_sha256"]
+seen_paths = set()
+for order, item in enumerate(series["patches"], 1):
+    path = item["patch"]
+    assert item["order"] == order, f"kernel patch order must be {order}: {path}"
+    assert path not in seen_paths, f"duplicate kernel patch path: {path}"
+    seen_paths.add(path)
+    patch = root / path
+    assert patch.is_file(), f"kernel patch is missing: {path}"
+    actual_sha256 = hashlib.sha256(patch.read_bytes()).hexdigest()
+    assert actual_sha256 == item["patch_sha256"], f"kernel patch SHA256 mismatch: {path}"
 PY
-
-for patch in \
-    0001-x2000-platform.patch \
-    0002-x2000-display.patch \
-    0003-x2000-touchscreen.patch \
-    0004-x2000-wlan.patch \
-    0005-x2000-board.patch
-do
-    grep -Fq "$patch" "$sources"
-    [ -f "$root/patches/kernel/$patch" ]
-done
 
 for record in \
 	'kernel_url:kernel.source.url' \
@@ -517,13 +474,23 @@ done
 grep -Fxq '# CONFIG_INGENIC_SPI is not set' \
 	"$root/configs/x2000/kernel.fragment"
 ! grep -Fxq 'CONFIG_SPI_MASTER=y' "$root/configs/x2000/kernel.fragment"
-python3 - "$kernel_integration_patch" "$kernel_wlan_patch" <<'PY'
+python3 - "$sources" <<'PY'
+import json
 import pathlib
 import re
 import sys
 
-integration_patch = pathlib.Path(sys.argv[1]).read_text(encoding="utf-8")
-wlan_patch = pathlib.Path(sys.argv[2]).read_text(encoding="utf-8")
+sources = pathlib.Path(sys.argv[1]).resolve()
+data = json.loads(sources.read_text(encoding="utf-8"))
+root = sources.parents[2]
+patches = [(root / item["patch"]).read_text(encoding="utf-8")
+           for item in data["kernel"]["patch_series"]["patches"]]
+# Find the board integration by its DTS, independently of patch name or order.
+integration_patch, = (patch for patch in patches if re.search(
+    r"^diff --git a/module_drivers/dts/x2000/ender3-v3-ke\.dts ",
+    patch, re.MULTILINE))
+wlan_patch = (root / data["wlan_kernel_source_provenance"]["carried_in"]).read_text(
+    encoding="utf-8")
 
 integration_paths = re.findall(
     r"^diff --git a/(\S+) b/(\S+)$",
