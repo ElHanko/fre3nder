@@ -3236,10 +3236,10 @@ index 0000000000000000000000000000000000000000..0a578231069926be2ac871ee3fa7c5ec
 +}
 diff --git a/arch/mips/xburst2/core/sc.c b/arch/mips/xburst2/core/sc.c
 new file mode 100644
-index 0000000000000000000000000000000000000000..50c25a1c696a6ef3504c8ac81744dc3961cb4838
+index 0000000000000000000000000000000000000000..9eef4476a92a66c0916bd290cbc5e115e4110f7c
 --- /dev/null
 +++ b/arch/mips/xburst2/core/sc.c
-@@ -0,0 +1,170 @@
+@@ -0,0 +1,171 @@
 +/*
 + * Copyright (C) 2006 Chris Dearman (chris@mips.com),
 + */
@@ -3299,6 +3299,7 @@ index 0000000000000000000000000000000000000000..50c25a1c696a6ef3504c8ac81744dc39
 +			printk("Error: Second CacheLine size.\n");
 +		}
 +	} else {
++		__fast_iob();
 +		cache_op(Hit_Writeback_Inv_SD, addr & almask);
 +		cache_op(Hit_Writeback_Inv_SD, (addr + size - 1) & almask);
 +		blast_inv_scache_range(addr, addr + size);
