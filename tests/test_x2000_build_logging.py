@@ -74,7 +74,14 @@ esac
         self.write(self.scripts / "build-f005", '. "$FIXTURE_DIR/functions"\nsimulate F005\n')
         self.write(self.scripts / "build-x2000-fre3nderscreen",
                    '. "$FIXTURE_DIR/functions"\nsimulate Fre3nderScreen\n')
-        self.write(self.bin / "python3", '. "$FIXTURE_DIR/functions"\nsimulate OTA\n')
+        self.write(self.bin / "python3", r'''
+. "$FIXTURE_DIR/functions"
+case "$1" in
+*/f005_firmware.py) printf 'validated F005 candidate\n' ;;
+-) simulate OTA ;;
+*) exit 99 ;;
+esac
+''')
         self.write(self.bin / "openssl", r'''
 case " $* " in
 *' -pubout '*)
@@ -162,7 +169,8 @@ printf 'Package:  %s/factory.fre3app\n' "$FIXTURE_DIR"
             self.assertIn(f"{phase} stderr", result.stdout)
         self.assertEqual(self.row(result.stdout, "Kernel"), ("00:00:04", "PASS"))
         self.assertEqual(self.row(result.stdout, "Toolchain"), ("00:00:04", "PASS"))
-        self.assertEqual(self.row(result.stdout, "Gesamt"), ("00:00:22", "PASS"))
+        self.assertEqual(self.row(result.stdout, "F005"), ("00:00:02", "PASS"))
+        self.assertEqual(self.row(result.stdout, "Gesamt"), ("00:00:26", "PASS"))
         phases = ("Kernel", "Toolchain", "RootFS", "OTA")
         for index, phase in enumerate(phases):
             position = self.assert_phase_summary(result.stdout, phase)
@@ -171,19 +179,22 @@ printf 'Package:  %s/factory.fre3app\n' "$FIXTURE_DIR"
                 self.assertLess(position, result.stdout.index(f"\n{phases[index + 1]} stdout\n"))
         self.assertIn("  Device Tree: ender3-v3-ke.dtb\n", result.stdout)
         self.assertIn("  Manifest und Integrität: OK\n", result.stdout)
+        self.assert_phase_summary(result.stdout, "F005")
         self.assertTrue(result.stdout.endswith(
             "Phase               Dauer    Status\n"
             "Kernel           00:00:04    PASS\n"
             "Toolchain        00:00:04    PASS\n"
+            "F005             00:00:02    PASS\n"
             "RootFS           00:00:02    PASS\n"
             "OTA              00:00:02    PASS\n"
             "------------------------------------\n"
-            "Gesamt           00:00:22    PASS\n"), result.stdout)
+            "Gesamt           00:00:26    PASS\n"
+            "F005 candidate reused\n"), result.stdout)
 
     def test_scopes_and_optional_components(self):
         for scope, passed, skipped in (
             ("--kernel-only", ("Kernel", "Toolchain"), ("RootFS", "OTA")),
-            ("--rootfs-only", ("Toolchain", "RootFS"), ("Kernel", "OTA")),
+            ("--rootfs-only", ("Toolchain", "F005", "RootFS"), ("Kernel", "OTA")),
         ):
             with self.subTest(scope=scope):
                 result = self.run_build("--develop", scope)
@@ -195,6 +206,8 @@ printf 'Package:  %s/factory.fre3app\n' "$FIXTURE_DIR"
                 for phase in skipped:
                     self.assertEqual(self.row(result.stdout, phase), ("--:--:--", "SKIP"))
                     self.assertNotIn(f"  {phase}:", result.stdout)
+                if scope == "--kernel-only":
+                    self.assertNotIn("validated F005 candidate", result.stdout)
         result = self.run_build("--develop", "--rootfs-only", "--f005-build",
                                 "--fre3nderscreen-app")
         self.assertEqual(result.returncode, 0, result.stdout)
@@ -205,6 +218,7 @@ printf 'Package:  %s/factory.fre3app\n' "$FIXTURE_DIR"
         self.assertIn(f"  Package: {self.directory}/factory.fre3app\n", result.stdout)
         self.assertIn("ScreenPackage stdout", result.stdout)
         self.assertIn("ScreenPackage stderr", result.stdout)
+        self.assertIn("F005 candidate rebuilt\n", result.stdout)
         result = self.run_build("--develop", "--f005-build", "--fre3nderscreen-app")
         self.assertEqual(result.returncode, 0, result.stdout)
         self.assert_log(result)

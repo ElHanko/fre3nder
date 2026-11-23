@@ -39,17 +39,6 @@ while [ "$#" -gt 0 ]; do
 done
 [ -n "$phase" ] || usage
 
-case "$f005_firmware_mode" in
-qualified) ;;
-candidate)
-	[ "$artifact_mode" = development ] || {
-		echo 'F005 candidate requires a development RootFS' >&2
-		exit 1
-	}
-	;;
-*) echo 'invalid FRE3NDER_F005_FIRMWARE_MODE' >&2; exit 1 ;;
-esac
-
 case "$factory_mode" in
 release) ;;
 development)
@@ -94,6 +83,19 @@ if [ "$phase" = --toolchain ]; then
 		"$image" prepare-buildroot-toolchain
 	exit 0
 fi
+
+case "$artifact_mode:$f005_firmware_mode" in
+release:qualified|development:candidate) ;;
+release:candidate)
+	echo 'F005 candidate requires a development RootFS' >&2
+	exit 1
+	;;
+development:qualified)
+	echo 'development RootFS requires an F005 candidate selected by scripts/build-x2000 --develop' >&2
+	exit 1
+	;;
+*) echo 'invalid FRE3NDER_F005_FIRMWARE_MODE' >&2; exit 1 ;;
+esac
 
 command -v openssl >/dev/null 2>&1 || {
 	echo 'openssl is required to validate the OTA and app public keys' >&2

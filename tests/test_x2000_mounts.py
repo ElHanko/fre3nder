@@ -199,6 +199,12 @@ class MountTests(unittest.TestCase):
         seeds = next(m for m in self.calls()[-1]['mounts'] if m['target'] == '/system-app-seeds')
         self.assertEqual(seeds['files'], ['moonraker.fre3app'])
 
+    def test_development_rootfs_rejects_qualified_default(self):
+        result = self.run_script('build-x2000-buildroot', '--assemble', '--develop')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('development RootFS requires an F005 candidate', result.stderr)
+        self.assertEqual(self.calls(), [])
+
     def test_screen_mounts_and_artifact_path(self):
         result = self.run_script('build-x2000-fre3nderscreen')
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -212,10 +218,12 @@ class MountTests(unittest.TestCase):
         firmware.write_bytes(b'candidate fixture')
         (firmware.parent / 'unrelated-secret.txt').write_text('EXTERNAL_INPUT_SECRET')
         sources = json.loads((self.project / 'configs/x2000/sources.json').read_text())
+        version = (self.project / 'VERSION').read_text().strip()
         record = {'schema': 1, 'classification': 'candidate', 'qualified_release_match': False,
-                  'upstream': {'commit': sources['userspace']['klipper']['commit']},
+                  'upstream': {'commit': sources['userspace']['klipper']['commit'],
+                               'prepared_source_commit': '1' * 40},
                   'project_commit': git(self.project, 'rev-parse', 'HEAD').decode().strip(),
-                  'runtime_version': 'fixture-candidate',
+                  'runtime_version': f'fre3nder-f005-{version}-0-g1111111',
                   'inputs': {name: hashlib.sha256((self.project / name).read_bytes()).hexdigest()
                              for name in validator['CANDIDATE_INPUTS']},
                   'artifacts': {firmware.name: {'size': firmware.stat().st_size,
@@ -230,7 +238,7 @@ class MountTests(unittest.TestCase):
         destination = self.base / 'candidate-project'
         inputs['snapshot'](self.project, destination)
         self.assertEqual(validator['validate'](destination, firmware, 'candidate', 'development')['runtime_version'],
-                         'fixture-candidate')
+                         record['runtime_version'])
 
     def test_selected_submodule_copies_only_versioned_contents(self):
         module = self.base / 'module'

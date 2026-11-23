@@ -562,11 +562,12 @@ sys.path.insert(0, str(root / "build/x2000"))
 from f005_firmware import CANDIDATE_INPUTS, runtime_target, sha256
 
 sources = json.loads((root / "configs/x2000/sources.json").read_text())
+version = (root / "VERSION").read_text().strip()
 candidate = {
     "schema": 1, "classification": "candidate", "qualified_release_match": False,
-    "runtime_version": "fre3nder-f005-development-fixture",
+    "runtime_version": f"fre3nder-f005-{version}-0-g1111111",
     "project_commit": subprocess.check_output(["git", "-C", str(root), "rev-parse", "HEAD"], text=True).strip(),
-    "upstream": {"commit": sources["userspace"]["klipper"]["commit"]},
+    "upstream": {"commit": sources["userspace"]["klipper"]["commit"], "prepared_source_commit": "1" * 40},
     "inputs": {relative: sha256(root / relative) for relative in CANDIDATE_INPUTS},
     "artifacts": {firmware.name: {"size": firmware.stat().st_size, "sha256": sha256(firmware)}},
 }

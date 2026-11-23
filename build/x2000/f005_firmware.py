@@ -5,6 +5,7 @@ import argparse
 import hashlib
 import json
 from pathlib import Path
+import re
 import subprocess
 
 
@@ -65,8 +66,10 @@ def validate(root, firmware, mode, artifact_mode, candidate_manifest=None):
         label = "release"
     else:
         regular_file(sidecar, "F005 candidate manifest")
-        candidate = json.loads(sidecar.read_text())
-        if type(candidate.get("schema")) is not int or candidate["schema"] != 1:
+        manifest_bytes = sidecar.read_bytes()
+        candidate = json.loads(manifest_bytes.decode("utf-8"))
+        if (not isinstance(candidate, dict) or type(candidate.get("schema")) is not int
+                or candidate["schema"] != 1):
             raise ValueError("unsupported F005 candidate manifest schema")
         if candidate.get("classification") != "candidate":
             raise ValueError("F005 manifest classification is not candidate")
@@ -76,6 +79,10 @@ def validate(root, firmware, mode, artifact_mode, candidate_manifest=None):
         sources = json.loads((root / "configs/x2000/sources.json").read_text())
         if upstream["commit"] != sources["userspace"]["klipper"]["commit"]:
             raise ValueError("F005 candidate Klipper upstream commit mismatch")
+        prepared_commit = upstream.get("prepared_source_commit")
+        if (not isinstance(prepared_commit, str) or not re.fullmatch(r"[0-9a-f]{40}", prepared_commit)
+                or prepared_commit == upstream["commit"]):
+            raise ValueError("F005 candidate has an invalid prepared Klipper source commit")
         if (root / ".git").exists():
             current_commit = subprocess.check_output(
                 ["git", "-C", str(root), "rev-parse", "HEAD"], text=True
@@ -92,17 +99,23 @@ def validate(root, firmware, mode, artifact_mode, candidate_manifest=None):
             regular_file(path, f"F005 input {relative}")
             if inputs[relative] != sha256(path):
                 raise ValueError(f"stale F005 candidate input: {relative}")
-        runtime = candidate["runtime_version"]
-        if not isinstance(runtime, str) or not runtime:
-            raise ValueError("F005 candidate has no runtime version")
+        version = (root / "VERSION").read_text().rstrip("\n")
+        runtime = candidate.get("runtime_version")
+        # The builder lets git describe choose the commit abbreviation length.
+        pattern = rf"fre3nder-f005-{re.escape(version)}-0-g([0-9a-f]{{4,40}})"
+        match = re.fullmatch(pattern, runtime) if isinstance(runtime, str) else None
+        if not match or match[1] != prepared_commit[:len(match[1])]:
+            raise ValueError("F005 candidate runtime version does not match VERSION and prepared Klipper source")
         expected = candidate["artifacts"][FIRMWARE_NAME]
+        if expected["size"] == 0:
+            raise ValueError("F005 candidate firmware is empty")
         identity = {
             "classification": "candidate",
             "runtime_version": runtime,
             "upstream_commit": upstream["commit"],
+            "prepared_source_commit": prepared_commit,
+            "candidate_manifest_sha256": hashlib.sha256(manifest_bytes).hexdigest(),
         }
-        if "prepared_source_commit" in upstream:
-            identity["prepared_source_commit"] = upstream["prepared_source_commit"]
         label = "candidate"
 
     if type(expected["size"]) is not int or firmware.stat().st_size != expected["size"]:

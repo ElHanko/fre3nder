@@ -98,9 +98,8 @@ class DevelopmentOrchestrationTests(unittest.TestCase):
         self.package = self.apps / "dist/development output.fixture"
         self.log = self.root / "calls.jsonl"
         self.bin = self.root / "bin"
-        # Only the final composition uses this fake Python; component fakes use
-        # an absolute interpreter. No OTA archive or signature is produced.
-        executable(self.bin / "python3", '#!/bin/sh\ncat >/dev/null\nexit 0\n')
+        # Simulate Candidate validation and skip the final OTA composition.
+        executable(self.bin / "python3", '#!/bin/sh\n[ "$1" != - ] || cat >/dev/null\n')
         executable(self.bin / "git", FAKE_GIT)
         executable(self.bin / "openssl", f"#!{sys.executable}\n" + '''
 from pathlib import Path
@@ -153,12 +152,13 @@ else:
                 expected = ["build-x2000-fre3nderscreen", "build-fre3nderscreen-development"]
                 if "--rootfs-only" not in scope:
                     expected.append("build-x2000-kernel")
+                expected.append("build-x2000-buildroot")
                 if "--f005-build" in scope:
                     expected.append("build-f005")
-                expected += ["build-x2000-buildroot", "build-x2000-buildroot"]
+                expected.append("build-x2000-buildroot")
                 self.assertEqual(commands, expected)
-                self.assertEqual(calls[-2]["args"], ["--toolchain", "--develop"])
-                self.assertEqual(calls[-1]["args"], ["--assemble", "--develop"])
+                self.assertEqual([c["args"] for c in calls if c["command"] == "build-x2000-buildroot"],
+                                 [["--toolchain", "--develop"], ["--assemble", "--develop"]])
                 self.assertEqual(calls[-1]["seed"], str(self.package))
                 self.assertEqual(calls[-1]["mode"], "development")
                 self.assertEqual(self.seed.read_bytes(), b"canonical release seed untouched")
@@ -246,7 +246,7 @@ class FactoryModeTests(unittest.TestCase):
     def run_gate(self, serial, mode=None, develop=True):
         self.seed.write_text(json.dumps(dict(name="fre3nderscreen", publisher="fre3nder-official",
                             display_frontend=True, display_api=1, autostart=False, release_serial=serial)))
-        env = dict(self.env)
+        env = dict(self.env, FRE3NDER_F005_FIRMWARE_MODE="candidate" if develop else "qualified")
         if mode is not None:
             env["FRE3NDER_FACTORY_FRE3NDERSCREEN_MODE"] = mode
         return subprocess.run([str(self.wrapper), "--assemble", *(["--develop"] if develop else [])],

@@ -12,6 +12,7 @@ ota_public_key="$ota_key_dir/public.pem"
 build_scope=full
 scope_seen=false
 f005_build=false
+f005_selection=
 compose_only=false
 develop=false
 fre3nderscreen_app=false
@@ -85,7 +86,7 @@ development_report() {
 	awk -v log_path="$development_log" -v started="$development_started" \
 		-v finished="${development_finished:-0}" -v result="$2" \
 		-v summary_phase="$1" -v scope="$build_scope" -v screen_package="$factory_seed" \
-		-v f005="$f005_build" -v screen="$fre3nderscreen_app" '
+		-v f005_selection="$f005_selection" -v screen="$fre3nderscreen_app" '
 		function duration(seconds) {
 			if (seconds < 0) seconds = 0
 			return sprintf("%02d:%02d:%02d", int(seconds / 3600), int(seconds / 60) % 60, seconds % 60)
@@ -135,11 +136,13 @@ development_report() {
 			}
 			printf "\n=== Fre3nder Development Build ===\nLog: %s\n\n", log_path
 			printf "%-16s %8s    %s\n", "Phase", "Dauer", "Status"
-			row("Kernel"); row("Toolchain"); row("RootFS"); row("OTA")
-			if (f005 == "true") row("F005")
+			row("Kernel"); row("Toolchain")
+			if (scope != "kernel") row("F005")
+			row("RootFS"); row("OTA")
 			if (screen == "true") row("Fre3nderScreen")
 			print "------------------------------------"
 			printf "%-16s %8s    %s\n", "Gesamt", duration(finished - started), (result == 0 ? "PASS" : "FAIL")
+			if (f005_selection) printf "F005 candidate %s\n", f005_selection
 		}
 	' "$development_dir/phases" "$development_log" | tee -a "$development_log"
 }
@@ -172,9 +175,10 @@ Build scope:
 Build mode:
   --develop          Allow a development build from the current worktree
                      Write a live /tmp log and phase timing summary
+                     Reuse or rebuild the current F005 candidate for RootFS
 
 Additional components:
-  --f005-build       Rebuild the F005 firmware candidate before RootFS assembly
+  --f005-build       Force an F005 candidate rebuild (requires --develop and RootFS)
   --fre3nderscreen-app  Build a development Screen app (requires --develop and RootFS)
 
 General:
@@ -269,6 +273,11 @@ clean_rootfs_python_cache() {
 	find "$overlay" \
 		-type d -name '__pycache__' \
 		-prune -exec rm -rf -- {} +
+}
+
+validate_f005_candidate() {
+	python3 "$root/build/x2000/f005_firmware.py" --root "$root" \
+		--firmware "$1" --mode candidate --artifact-mode development
 }
 
 if [ "$build_scope" = full ] || [ "$build_scope" = rootfs ]; then
@@ -368,30 +377,34 @@ if [ "$build_scope" = full ] || [ "$build_scope" = kernel ]; then
 fi
 
 if [ "$build_scope" = full ] || [ "$build_scope" = rootfs ]; then
-	f005_firmware=
-	export FRE3NDER_F005_FIRMWARE_MODE=qualified
-	if [ "$f005_build" = true ]; then
-		begin_phase F005
-		"$f005_builder"
-		end_phase
-		f005_firmware="$root/local/production/artifacts/f005/candidate/klipper-f005-mainline.bin"
-		export FRE3NDER_F005_FIRMWARE_MODE=candidate
-	fi
-
 	export FRE3NDER_FACTORY_FRE3NDERSCREEN_APP="$factory_seed"
 	export FRE3NDER_FACTORY_FRE3NDERSCREEN_MODE="$factory_mode"
 	begin_phase Toolchain
 	"$buildroot_builder" --toolchain $component_args
 	end_phase
-	begin_phase RootFS
-	if [ -n "$f005_firmware" ]; then
-		FRE3NDER_F005_FIRMWARE="$f005_firmware" \
-		FRE3NDER_OTA_PUBLIC_KEY="$ota_public_key" \
-			"$buildroot_builder" --assemble $component_args
-	else
-		FRE3NDER_OTA_PUBLIC_KEY="$ota_public_key" \
-			"$buildroot_builder" --assemble $component_args
+
+	f005_firmware=${FRE3NDER_F005_FIRMWARE:-}
+	f005_firmware_mode=qualified
+	if [ "$develop" = true ]; then
+		begin_phase F005
+		f005_firmware="$root/local/production/artifacts/f005/candidate/klipper-f005-mainline.bin"
+		f005_firmware_mode=candidate
+		if [ "$f005_build" = false ] && validate_f005_candidate "$f005_firmware"; then
+			f005_selection=reused
+		else
+			printf '%s\n' 'Building F005 development candidate'
+			"$f005_builder"
+			validate_f005_candidate "$f005_firmware"
+			f005_selection=rebuilt
+		fi
+		end_phase
 	fi
+
+	begin_phase RootFS
+	FRE3NDER_F005_FIRMWARE="$f005_firmware" \
+	FRE3NDER_F005_FIRMWARE_MODE="$f005_firmware_mode" \
+	FRE3NDER_OTA_PUBLIC_KEY="$ota_public_key" \
+		"$buildroot_builder" --assemble $component_args
 	end_phase
 fi
 

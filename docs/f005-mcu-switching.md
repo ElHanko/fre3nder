@@ -15,6 +15,17 @@ output is intentionally separate from the currently qualified deployment
 artifact and is not considered hardware-qualified merely because it built
 successfully.
 
+`scripts/build-x2000 --develop` reuses a current validated F005 candidate for
+RootFS. It builds one when the existing candidate is missing or invalid.
+`--f005-build` forces a rebuild. Release RootFS builds use the exact qualified
+image from the release record. See [F005 build inputs](build.md#f005-mcu-candidate).
+
+On the 2026.6.a reference development build, `--develop` alone selected the
+qualified target `?-20260830_120730-cde6ec7a76a4`. The installed MCU reported
+`fre3nder-f005-2026.6.a-0-g8248ba66`. The exact identity check reported
+`unknown-mcu` despite matching UART and MCU constants. Klipper stayed stopped
+and Moonraker reported `klipper-unavailable`.
+
 The repository also provides
 [`scripts/deploy-f005`](../scripts/deploy-f005) as the standardized
 operator-side deployment interface. The immutable RootFS baseline embeds its
@@ -89,6 +100,12 @@ Klippy. It never automatically upgrades this predecessor, including when the
 Stock auto-transition opt-in is enabled. A Development Candidate update requires
 the explicit `deploy-f005 --develop [--write]` workflow above and subsequent
 on-device qualification; recognizing the predecessor does not qualify the target.
+
+For a mismatch, compare the installed MCU's exact runtime identity with
+`f005-runtime-target.json`. A supported predecessor can use the read-only
+`deploy-f005 <printer-host> --develop` preflight. An `unknown-mcu` result
+requires investigation of the installed firmware and the selected RootFS target
+before any MCU write. Host deployment updates X2000 Kernel and RootFS only.
 
 ## Fre3nder MCU requirements
 

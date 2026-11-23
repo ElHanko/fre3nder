@@ -101,11 +101,50 @@ cp "$buildroot_builder" "$rootfs_fixture/scripts/build-x2000-buildroot"
 cp "$root/build/x2000/f005_firmware.py" "$rootfs_fixture/build/x2000/"
 cp "$root/configs/x2000/f005-mcu-release.json" "$rootfs_fixture/configs/x2000/"
 cp "$root/VERSION" "$rootfs_fixture/"
+qualified_firmware="$tmp/klipper-f005-mainline.bin"
+printf 'qualified firmware fixture\n' > "$qualified_firmware"
+python3 - "$rootfs_fixture/configs/x2000/f005-mcu-release.json" "$qualified_firmware" <<'PY'
+import hashlib
+import json
+from pathlib import Path
+import sys
+
+manifest, binary = map(Path, sys.argv[1:])
+release = json.loads(manifest.read_text())
+release['fre3nder_release']['firmware'].update(
+    size=binary.stat().st_size, sha256=hashlib.sha256(binary.read_bytes()).hexdigest())
+manifest.write_text(json.dumps(release))
+PY
 printf '/local/\n' > "$rootfs_fixture/.gitignore"
 git -C "$rootfs_fixture" init -q
 git -C "$rootfs_fixture" add .
 git -C "$rootfs_fixture" -c user.name=Fixture -c user.email=fixture@example.invalid \
 	commit -qm fixture
+development_firmware="$tmp/development-candidate/klipper-f005-mainline.bin"
+mkdir -p "$(dirname -- "$development_firmware")"
+printf 'development firmware fixture\n' > "$development_firmware"
+python3 - "$rootfs_fixture" "$development_firmware" <<'PY'
+import json
+from pathlib import Path
+import runpy
+import subprocess
+import sys
+
+project, firmware = map(Path, sys.argv[1:])
+validator = runpy.run_path(str(project / 'build/x2000/f005_firmware.py'))
+sha256 = validator['sha256']
+sources = json.loads((project / 'configs/x2000/sources.json').read_text())
+version = (project / 'VERSION').read_text().strip()
+candidate = {
+    'schema': 1, 'classification': 'candidate', 'qualified_release_match': False,
+    'project_commit': subprocess.check_output(['git', '-C', str(project), 'rev-parse', 'HEAD'], text=True).strip(),
+    'upstream': {'commit': sources['userspace']['klipper']['commit'], 'prepared_source_commit': '1' * 40},
+    'runtime_version': f'fre3nder-f005-{version}-0-g1111111',
+    'inputs': {name: sha256(project / name) for name in validator['CANDIDATE_INPUTS']},
+    'artifacts': {firmware.name: {'size': firmware.stat().st_size, 'sha256': sha256(firmware)}},
+}
+firmware.with_name('build-manifest.json').write_text(json.dumps(candidate))
+PY
 chmod 0755 "$rootfs_fixture/local/production/system-apps"
 cp "$root/configs/x2000/rootfs-overlay/usr/libexec/fre3nder/package-core" "$core_dir/"
 app_public_key="$rootfs_fixture/local/production/keys/apps/fre3nder-official.pem"
@@ -183,6 +222,7 @@ grep -Fq 'FRE3NDER_ARTIFACT_MODE=development' "$docker_log"
 
 : > "$docker_log"
 if FRE3NDER_FACTORY_FRE3NDERSCREEN_APP="$tmp/missing-seed" \
+	FRE3NDER_F005_FIRMWARE_MODE=candidate \
 	X2000_BUILD_DOCKER="$fake_docker" X2000_TEST_DOCKER_LOG="$docker_log" \
 	"$buildroot_builder" --assemble --develop >/dev/null 2>&1; then
 	echo 'RootFS assembly accepted a missing factory app' >&2
@@ -260,8 +300,7 @@ if FRE3NDER_F005_FIRMWARE="$tmp/wrong.bin" X2000_BUILD_DOCKER="$fake_docker" \
 	exit 1
 fi
 
-cp "$root/local/production/artifacts/x2000/f005/klipper-f005-mainline.bin" \
-	"$tmp/wrong-sha.bin"
+cp "$qualified_firmware" "$tmp/wrong-sha.bin"
 printf x | dd of="$tmp/wrong-sha.bin" bs=1 count=1 conv=notrunc status=none
 if FRE3NDER_F005_FIRMWARE="$tmp/wrong-sha.bin" X2000_BUILD_DOCKER="$fake_docker" \
 	X2000_TEST_DOCKER_LOG="$docker_log" "$buildroot_builder" --assemble >/dev/null 2>&1; then
@@ -269,16 +308,13 @@ if FRE3NDER_F005_FIRMWARE="$tmp/wrong-sha.bin" X2000_BUILD_DOCKER="$fake_docker"
 	exit 1
 fi
 
-ln -s "$root/local/production/artifacts/x2000/f005/klipper-f005-mainline.bin" \
-	"$tmp/f005-link.bin"
+ln -s "$qualified_firmware" "$tmp/f005-link.bin"
 if FRE3NDER_F005_FIRMWARE="$tmp/f005-link.bin" X2000_BUILD_DOCKER="$fake_docker" \
 	X2000_TEST_DOCKER_LOG="$docker_log" "$buildroot_builder" --assemble >/dev/null 2>&1; then
 	echo 'RootFS builder accepted a symlinked F005 artifact' >&2
 	exit 1
 fi
 
-cp "$root/local/production/artifacts/x2000/f005/klipper-f005-mainline.bin" \
-	"$tmp/klipper-f005-mainline.bin"
 printf '%s\n' '{"qualified_release_match": true}' > "$tmp/build-manifest.json"
 : > "$docker_log"
 # Release rejects serial 0; development accepts 0 and positive release serials.
@@ -288,9 +324,15 @@ for serial in 0 1; do
     for mode in release development; do
         : > "$docker_log"
         set -- --assemble
-        [ "$mode" = release ] || set -- "$@" --develop
+        firmware="$qualified_firmware"
+        f005_mode=qualified
+        if [ "$mode" = development ]; then
+            set -- "$@" --develop
+            firmware="$development_firmware"
+            f005_mode=candidate
+        fi
         release_log="$tmp/moonraker-preflight.log"
-        if FRE3NDER_F005_FIRMWARE="$tmp/klipper-f005-mainline.bin" \
+        if FRE3NDER_F005_FIRMWARE="$firmware" FRE3NDER_F005_FIRMWARE_MODE="$f005_mode" \
             X2000_BUILD_DOCKER="$fake_docker" X2000_TEST_DOCKER_LOG="$docker_log" \
             "$buildroot_builder" "$@" > "$release_log" 2>&1; then
             [ "$mode" = development ] || [ "$serial" -ge 1 ]
@@ -306,30 +348,32 @@ for serial in 0 1; do
         fi
     done
 done
-grep -Fq -- "-v $tmp/klipper-f005-mainline.bin:/f005-firmware:ro" "$docker_log"
+grep -Fq -- "-v $development_firmware:/f005-candidate/klipper-f005-mainline.bin:ro" "$docker_log"
 
 # An explicit key path may use a different filename; trust remains official.
 : > "$docker_log"
 FRE3NDER_APP_PUBLIC_KEY="$generated_keys/public.pem" \
-    FRE3NDER_F005_FIRMWARE="$tmp/klipper-f005-mainline.bin" \
+    FRE3NDER_F005_FIRMWARE="$qualified_firmware" \
     X2000_BUILD_DOCKER="$fake_docker" X2000_TEST_DOCKER_LOG="$docker_log" \
-    "$buildroot_builder" --assemble --develop
+    "$buildroot_builder" --assemble
 grep -Fq -- "-v $generated_keys/public.pem:/app-public-key:ro" "$docker_log"
 
 printf '%s\n' '{"qualified_release_match": false}' > "$tmp/build-manifest.json"
-if FRE3NDER_F005_FIRMWARE="$tmp/klipper-f005-mainline.bin" \
+if FRE3NDER_F005_FIRMWARE="$qualified_firmware" \
 	X2000_BUILD_DOCKER="$fake_docker" X2000_TEST_DOCKER_LOG="$docker_log" \
-	"$buildroot_builder" --assemble --develop >/dev/null 2>&1; then
+	"$buildroot_builder" --assemble >/dev/null 2>&1; then
 	echo 'RootFS builder accepted a non-qualified F005 candidate' >&2
 	exit 1
 fi
 
 fixture="$tmp/project"
 mkdir -p "$fixture/scripts" \
+	"$fixture/build/x2000" \
 	"$fixture/configs/x2000/rootfs-overlay" \
 	"$fixture/local/production/artifacts/x2000" \
 	"$fixture/local/production/keys/ota"
 cp "$orchestrator" "$fixture/scripts/build-x2000"
+cp "$root/scripts/x2000-build-input-sha256" "$fixture/scripts/"
 cp "$generated_keys/private.pem" "$fixture/local/production/keys/ota/private.pem"
 cp "$generated_keys/public.pem" "$fixture/local/production/keys/ota/public.pem"
 cat > "$fixture/scripts/build-x2000-kernel" <<'EOF'
@@ -337,6 +381,12 @@ cat > "$fixture/scripts/build-x2000-kernel" <<'EOF'
 set -eu
 printf 'kernel %s\n' "$*" >> "$X2000_WRAPPER_LOG"
 root=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+artifact_mode=release
+build_input_sha256=
+if [ "${1:-}" = --develop ]; then
+	artifact_mode=development
+	build_input_sha256=$("$root/scripts/x2000-build-input-sha256")
+fi
 dir=$root/local/production/artifacts/x2000/kernel-only
 mkdir -p "$dir"
 printf kernel > "$dir/kernel.uImage"
@@ -345,8 +395,8 @@ printf config > "$dir/effective-kernel-config"
 kernel_hash=$(sha256sum "$dir/kernel.uImage" | awk '{print $1}')
 dtb_hash=$(sha256sum "$dir/ender3-v3-ke.dtb" | awk '{print $1}')
 config_hash=$(sha256sum "$dir/effective-kernel-config" | awk '{print $1}')
-printf '{"version":"2026.4.a","artifact_mode":"release","project_commit":"fixture","project_worktree_status":"clean","build_input_sha256":"","artifacts":{"kernel.uImage":"%s","ender3-v3-ke.dtb":"%s","effective-kernel-config":"%s"}}\n' \
-	"$kernel_hash" "$dtb_hash" "$config_hash" > "$dir/build-manifest.json"
+printf '{"version":"2026.4.a","artifact_mode":"%s","project_commit":"fixture","project_worktree_status":"clean","build_input_sha256":"%s","artifacts":{"kernel.uImage":"%s","ender3-v3-ke.dtb":"%s","effective-kernel-config":"%s"}}\n' \
+	"$artifact_mode" "$build_input_sha256" "$kernel_hash" "$dtb_hash" "$config_hash" > "$dir/build-manifest.json"
 EOF
 cat > "$fixture/scripts/build-x2000-buildroot" <<'EOF'
 #!/bin/sh
@@ -357,6 +407,12 @@ case " $* " in
 *) exit 0 ;;
 esac
 root=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+artifact_mode=release
+build_input_sha256=
+if [ "${2:-}" = --develop ]; then
+	artifact_mode=development
+	build_input_sha256=$("$root/scripts/x2000-build-input-sha256")
+fi
 dir=$root/local/production/artifacts/x2000/rootfs-only
 mkdir -p "$dir"
 printf rootfs > "$dir/rootfs.squashfs"
@@ -364,8 +420,9 @@ printf config > "$dir/buildroot.config"
 rootfs_hash=$(sha256sum "$dir/rootfs.squashfs" | awk '{print $1}')
 config_hash=$(sha256sum "$dir/buildroot.config" | awk '{print $1}')
 ota_key_hash=$(sha256sum "$FRE3NDER_OTA_PUBLIC_KEY" | awk '{print $1}')
-printf '{"version":"2026.4.a","artifact_mode":"release","project_commit":"fixture","project_worktree_status":"clean","build_input_sha256":"","ota_public_key_sha256":"%s","artifacts":{"rootfs.squashfs":"%s","buildroot.config":"%s"}}\n' \
-	"$ota_key_hash" "$rootfs_hash" "$config_hash" > "$dir/build-manifest.json"
+printf '{"version":"2026.4.a","artifact_mode":"%s","project_commit":"fixture","project_worktree_status":"clean","build_input_sha256":"%s","ota_public_key_sha256":"%s","f005_firmware":{"classification":"%s"},"artifacts":{"rootfs.squashfs":"%s","buildroot.config":"%s"}}\n' \
+	"$artifact_mode" "$build_input_sha256" "$ota_key_hash" "$FRE3NDER_F005_FIRMWARE_MODE" \
+	"$rootfs_hash" "$config_hash" > "$dir/build-manifest.json"
 EOF
 cat > "$fixture/scripts/build-x2000-fre3nderscreen" <<'EOF'
 #!/bin/sh
@@ -375,6 +432,18 @@ cat > "$fixture/scripts/build-f005" <<'EOF'
 #!/bin/sh
 set -eu
 printf 'f005\n' >> "$X2000_WRAPPER_LOG"
+root=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+candidate_dir="$root/local/production/artifacts/f005/candidate"
+mkdir -p "$candidate_dir"
+printf 'candidate firmware fixture\n' > "$candidate_dir/klipper-f005-mainline.bin"
+EOF
+cat > "$fixture/build/x2000/f005_firmware.py" <<'EOF'
+from pathlib import Path
+import sys
+
+firmware = Path(sys.argv[sys.argv.index('--firmware') + 1])
+if not firmware.is_file():
+    sys.exit('no candidate in wrapper fixture')
 EOF
 chmod 0755 "$fixture/scripts/build-x2000" \
 	"$fixture/scripts/build-x2000-kernel" \
@@ -436,7 +505,7 @@ run_orchestrator() {
 }
 
 check_ota_report() {
-	python3 - "$1" "$fixture/local/production/artifacts/x2000/full" <<'PY'
+	python3 - "$1" "$fixture/local/production/artifacts/x2000/full" "$2" <<'PY'
 import json
 import pathlib
 import sys
@@ -444,6 +513,9 @@ import sys
 output = pathlib.Path(sys.argv[1]).read_text()
 directory = pathlib.Path(sys.argv[2])
 manifest = json.loads((directory / "build-manifest.json").read_text())
+mode = sys.argv[3]
+assert manifest["artifact_mode"] == mode
+assert manifest["f005_firmware"]["classification"] == ("candidate" if mode == "development" else "qualified")
 package = directory / f'fre3nder-{manifest["version"]}-ender3-v3-ke.ota'
 assert output.count("X2000 composition: PASS") == 1
 for line in (
@@ -468,7 +540,7 @@ printf '%s\n' "$help_output" | grep -Fq -- '--develop'
 
 # Default scope is a complete release build.
 run_orchestrator > "$tmp/full-output.log" 2>&1
-check_ota_report "$tmp/full-output.log"
+check_ota_report "$tmp/full-output.log" release
 printf '%s\n' \
 	'kernel ' \
 	'buildroot --toolchain default' \
@@ -479,17 +551,20 @@ full="$fixture/local/production/artifacts/x2000/full"
 [ -f "$full/rootfs.squashfs" ]
 [ -f "$full/fre3nder-2026.4.a-ender3-v3-ke.ota" ]
 
-# --develop changes provenance mode, not build scope.
+# Full Development builds select a Candidate before RootFS assembly.
+candidate_file="$fixture/local/production/artifacts/f005/candidate/klipper-f005-mainline.bin"
 run_orchestrator --develop > "$tmp/develop-output.log" 2>&1
-check_ota_report "$tmp/develop-output.log"
+check_ota_report "$tmp/develop-output.log" development
 development_log=$(sed -n '/^Log: /{s/^Log: //;p;q;}' "$tmp/develop-output.log")
 [ -f "$development_log" ]
 cmp -s "$tmp/develop-output.log" "$development_log"
 printf '%s\n' \
 	'kernel --develop' \
 	'buildroot --toolchain --develop default' \
-	'buildroot --assemble --develop default' | cmp -s - "$tmp/wrapper.log"
+	'f005' \
+	"buildroot --assemble --develop $candidate_file" | cmp -s - "$tmp/wrapper.log"
 [ -f "$fixture/local/production/artifacts/x2000/full/rootfs.squashfs" ]
+rm -f -- "$development_log"
 
 # Explicit Kernel-only scope.
 run_orchestrator --kernel-only
@@ -513,22 +588,22 @@ printf '%s\n' \
 run_orchestrator --rootfs-only --develop
 printf '%s\n' \
 	'buildroot --toolchain --develop default' \
-	'buildroot --assemble --develop default' | cmp -s - "$tmp/wrapper.log"
+	"buildroot --assemble --develop $candidate_file" | cmp -s - "$tmp/wrapper.log"
 
-# F005 candidates are an explicit Development input in either RootFS scope.
+# Either RootFS scope can force a rebuild of an existing Candidate.
 run_orchestrator --develop --f005-build
 printf '%s\n' \
 	'kernel --develop' \
-	'f005' \
 	'buildroot --toolchain --develop default' \
-	"buildroot --assemble --develop $fixture/local/production/artifacts/f005/candidate/klipper-f005-mainline.bin" | \
+	'f005' \
+	"buildroot --assemble --develop $candidate_file" | \
 	cmp -s - "$tmp/wrapper.log"
 
 run_orchestrator --rootfs-only --develop --f005-build
 printf '%s\n' \
-	'f005' \
 	'buildroot --toolchain --develop default' \
-	"buildroot --assemble --develop $fixture/local/production/artifacts/f005/candidate/klipper-f005-mainline.bin" | \
+	'f005' \
+	"buildroot --assemble --develop $candidate_file" | \
 	cmp -s - "$tmp/wrapper.log"
 
 # Release refuses the Candidate workflow before invoking any builder.
