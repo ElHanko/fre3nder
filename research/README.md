@@ -22,6 +22,8 @@ camera, sensors, MCU protocols, bootloader, and other platform details.
 - [Kernel/DT feasibility](docs/x2000-kernel-dt-feasibility.md),
   [kernel-port audit](docs/x2000-kernel-port-audit.md) and
   [kernel-port plan](docs/x2000-kernel-port-plan.md).
+- [November 2026 kernel audit](docs/x2000-kernel-audit-2026-11.md) and
+  [integrated fixes and validation](docs/x2000-kernel-fix-integration-2026-11.md).
 - [Required kernel delta](docs/x2000-fre3nder-required-kernel-delta.md),
   [clean-port implementation](docs/x2000-clean-port-implementation-plan.md) and
   [patch workflow](docs/x2000-clean-port-patch-workflow.md).

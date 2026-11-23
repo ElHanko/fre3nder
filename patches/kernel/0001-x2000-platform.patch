@@ -3236,10 +3236,10 @@ index 0000000000000000000000000000000000000000..0a578231069926be2ac871ee3fa7c5ec
 +}
 diff --git a/arch/mips/xburst2/core/sc.c b/arch/mips/xburst2/core/sc.c
 new file mode 100644
-index 0000000000000000000000000000000000000000..50c25a1c696a6ef3504c8ac81744dc3961cb4838
+index 0000000000000000000000000000000000000000..9eef4476a92a66c0916bd290cbc5e115e4110f7c
 --- /dev/null
 +++ b/arch/mips/xburst2/core/sc.c
-@@ -0,0 +1,170 @@
+@@ -0,0 +1,171 @@
 +/*
 + * Copyright (C) 2006 Chris Dearman (chris@mips.com),
 + */
@@ -3299,6 +3299,7 @@ index 0000000000000000000000000000000000000000..50c25a1c696a6ef3504c8ac81744dc39
 +			printk("Error: Second CacheLine size.\n");
 +		}
 +	} else {
++		__fast_iob();
 +		cache_op(Hit_Writeback_Inv_SD, addr & almask);
 +		cache_op(Hit_Writeback_Inv_SD, (addr + size - 1) & almask);
 +		blast_inv_scache_range(addr, addr + size);
@@ -18647,10 +18648,10 @@ index 0000000000000000000000000000000000000000..44f03a97a2ae2721ba6cf3984f61c8a1
 +	}
 +}
 diff --git a/block/partitions/efi.c b/block/partitions/efi.c
-index 9865d59093fac0b5efd1bc5b81ee6baa24695405..7d5f4c583883d9ee6713b1b8b628e1303e47539f 100644
+index 9865d59093fac0b5efd1bc5b81ee6baa24695405..be65dd219c590a4e5b1705898aa2d7bbdee30ab1 100644
 --- a/block/partitions/efi.c
 +++ b/block/partitions/efi.c
-@@ -727,10 +727,17 @@ int efi_partition(struct parsed_partitions *state)
+@@ -727,13 +727,23 @@ int efi_partition(struct parsed_partitions *state)
  	for (i = 0; i < le32_to_cpu(gpt->num_partition_entries) && i < state->limit-1; i++) {
  		struct partition_meta_info *info;
  		unsigned label_max;
@@ -18659,17 +18660,24 @@ index 9865d59093fac0b5efd1bc5b81ee6baa24695405..7d5f4c583883d9ee6713b1b8b628e130
 -		u64 size = le64_to_cpu(ptes[i].ending_lba) -
 -			   le64_to_cpu(ptes[i].starting_lba) + 1ULL;
 +		u64 end = le64_to_cpu(ptes[i].ending_lba);
++		u64 size;
+ 
+-		if (!is_pte_valid(&ptes[i], last_lba(state->disk)))
 +		if (end == 0xFFFFFFFFFFFFFFFF || end > disk_size) {
-+			ptes[i].ending_lba = disk_size - 1ULL;
-+			pr_warn("Adjusted to use the entire disk size %llu", le64_to_cpu(ptes[i].ending_lba));
++			end = disk_size - 1ULL;
++			ptes[i].ending_lba = cpu_to_le64(end);
++			pr_warn("Adjusted to use the entire disk size %llu", end);
 +		}
 +
-+		u64 size = end - start + 1ULL;
- 
-+		pr_debug("%s >>>>> (%lld - %lld),size = %lld,i = %d\n",__FUNCTION__,le64_to_cpu(ptes[i].starting_lba),le64_to_cpu(ptes[i].ending_lba), size, i);
- 		if (!is_pte_valid(&ptes[i], last_lba(state->disk)))
++		if (start > end || !is_pte_valid(&ptes[i], last_lba(state->disk)))
  			continue;
  
++		size = end - start + 1ULL;
++		pr_debug("%s >>>>> (%lld - %lld),size = %lld,i = %d\n",__FUNCTION__,le64_to_cpu(ptes[i].starting_lba),le64_to_cpu(ptes[i].ending_lba), size, i);
++
+ 		put_partition(state, i+1, start * ssz, size * ssz);
+ 
+ 		/* If this is a RAID volume, tell md */
 diff --git a/drivers/mmc/core/core.c b/drivers/mmc/core/core.c
 index 29e80e5f928e953b5f3914b3a9863a4dd89fac74..4e42784c827dbf964a906b7597ac2a82691489ae 100644
 --- a/drivers/mmc/core/core.c
@@ -41420,7 +41428,7 @@ index 0000000000000000000000000000000000000000..a000a0ca07d426050d3c0f17e77c93ca
 +EXPORT_SYMBOL(ingenic_bcmdhd_wlan_power_onoff);
 diff --git a/module_drivers/drivers/mmc/host/sdhci-ingenic.c b/module_drivers/drivers/mmc/host/sdhci-ingenic.c
 new file mode 100644
-index 0000000000000000000000000000000000000000..a9ed7b1c338ca2a3260c1d8b6ac9429c7c1b7f41
+index 0000000000000000000000000000000000000000..e7b7c4685ac959cfa07adcac04087d60ee36dbef
 --- /dev/null
 +++ b/module_drivers/drivers/mmc/host/sdhci-ingenic.c
 @@ -0,0 +1,743 @@
@@ -41566,7 +41574,7 @@ index 0000000000000000000000000000000000000000..a9ed7b1c338ca2a3260c1d8b6ac9429c
 +		clk_set_parent(sdhci_ing->clk_mux, sdhci_ing->clk_mpll);
 +	} else {
 +		clk_set_parent(sdhci_ing->clk_mux, sdhci_ing->clk_ext);
-+		*(volatile unsigned int *)0xB0000068 |= 1 << 21;
++		*(volatile unsigned int *)cpm_msc |= 1 << 21;
 +	}
 +
 +	clk_set_rate(sdhci_ing->clk_cgu, clock);
@@ -47132,10 +47140,10 @@ index 0000000000000000000000000000000000000000..5610f781cc2b50a2e5c1895473eb9b80
 +obj-$(CONFIG_SERIAL_INGENIC_UART) += ingenic_uart.o
 diff --git a/module_drivers/drivers/tty/serial/ingenic_uart.c b/module_drivers/drivers/tty/serial/ingenic_uart.c
 new file mode 100644
-index 0000000000000000000000000000000000000000..f3f9a8b408f85f72a2f413657547a3607dc76c56
+index 0000000000000000000000000000000000000000..c3fce7bf6bde810720d62d0efb0982e12394815d
 --- /dev/null
 +++ b/module_drivers/drivers/tty/serial/ingenic_uart.c
-@@ -0,0 +1,1732 @@
+@@ -0,0 +1,1734 @@
 +/*
 + *  Based on drivers/serial/8250.c by Russell King.
 + *
@@ -47753,18 +47761,13 @@ index 0000000000000000000000000000000000000000..f3f9a8b408f85f72a2f413657547a360
 +	return 0;
 +}
 +
-+/*
-+*Function:receive char
-+*Parameter:unsigned long data,unsigned int status
-+*Return:void
-+*/
-+static inline void receive_chars(unsigned long data)
++/* Receive characters starting with the LSR sample taken by the caller. */
++static inline unsigned int receive_chars(struct uart_ingenic_port *up,
++					 unsigned int status)
 +{
-+	struct uart_ingenic_port *up = (struct uart_ingenic_port *)data;
 +	struct tty_struct *tty = up->port.state->port.tty;
 +	unsigned int ch, flag;
 +	int max_count = 256;
-+	unsigned int status = serial_in(up, UART_LSR);
 +	while ((status & UART_LSR_DR) && (max_count-- > 0))
 +		//ready to receive data and max_count>0
 +	{
@@ -47817,7 +47820,6 @@ index 0000000000000000000000000000000000000000..f3f9a8b408f85f72a2f413657547a360
 +#endif
 +#ifdef CONFIG_SERIAL_INGENIC_MAGIC_SYSRQ
 +			if (status == 0xe1) {
-+				printk("handling break ....!\n");
 +#else
 +			if (status & UART_LSR_BI) {
 +#endif
@@ -47829,7 +47831,7 @@ index 0000000000000000000000000000000000000000..f3f9a8b408f85f72a2f413657547a360
 +			}
 +		}
 +#ifdef CONFIG_SERIAL_INGENIC_MAGIC_SYSRQ
-+		if (uart_handle_sysrq_char(&up->port, ch)) {
++		if (uart_prepare_sysrq_char(&up->port, ch)) {
 +			goto ignore_char;
 +		}
 +#endif
@@ -47839,6 +47841,7 @@ index 0000000000000000000000000000000000000000..f3f9a8b408f85f72a2f413657547a360
 +		status = serial_in(up, UART_LSR);
 +	}
 +	tty_flip_buffer_push(tty->port);
++	return status;
 +}
 +/* transmit one char*/
 +static void transmit_chars(struct uart_ingenic_port *up)
@@ -47914,14 +47917,15 @@ index 0000000000000000000000000000000000000000..f3f9a8b408f85f72a2f413657547a360
 +static inline irqreturn_t serial_ingenic_irq(int irq, void *dev_id)
 +{
 +	struct uart_ingenic_port *up = dev_id;
++	unsigned long flags;
 +	unsigned int iir, lsr;
-+	iir = serial_in(up, UART_IIR);
-+	lsr = serial_in(up, UART_LSR);
-+	if (iir & UART_IIR_NO_INT) {
-+		return IRQ_NONE;
-+	}
 +
++	iir = serial_in(up, UART_IIR);
 +	if (up->use_dma) {
++		lsr = serial_in(up, UART_LSR);
++		if (iir & UART_IIR_NO_INT)
++			return IRQ_NONE;
++
 +		serial_out(up, UART_IER, 0);     /* disable_irq */
 +
 +		if ((iir & UART_ISR_MASK) == UART_ISR_IID_RETO) {
@@ -47932,15 +47936,22 @@ index 0000000000000000000000000000000000000000..f3f9a8b408f85f72a2f413657547a360
 +		}
 +
 +		serial_out(up, UART_IER, UART_IER_RLSI | UART_IER_RETOIE);  /* enable_irq */
-+	} else {
-+		if (lsr & UART_LSR_DR) {
-+			receive_chars((unsigned long)up);
-+		}
-+		check_modem_status(up);
-+		if (lsr & UART_LSR_THRE) {
-+			transmit_chars(up);
-+		}
++		return IRQ_HANDLED;
 +	}
++
++	if (iir & UART_IIR_NO_INT)
++		return IRQ_NONE;
++
++	/* Serialize PIO reads and writes with termios and the serial core. */
++	uart_port_lock_irqsave(&up->port, &flags);
++	lsr = serial_in(up, UART_LSR);
++	if (lsr & UART_LSR_DR)
++		lsr = receive_chars(up, lsr);
++	check_modem_status(up);
++	if (lsr & UART_LSR_THRE)
++		transmit_chars(up);
++	uart_unlock_and_check_sysrq_irqrestore(&up->port, flags);
++
 +	return IRQ_HANDLED;
 +}
 +
@@ -48202,7 +48213,6 @@ index 0000000000000000000000000000000000000000..f3f9a8b408f85f72a2f413657547a360
 +	if (!(termios->c_cflag & PARODD)) {
 +		cval |= UART_LCR_EPAR;
 +	}
-+	serial_out(up, UART_LCR, cval);//write cval to UART_LCR
 +	/*
 +	 * Ask the core to calculate the divisor for us.
 +	 */
@@ -48213,6 +48223,7 @@ index 0000000000000000000000000000000000000000..f3f9a8b408f85f72a2f413657547a360
 +	 * interrupts disabled.
 +	 */
 +	spin_lock_irqsave(&up->port.lock, flags);
++	serial_out(up, UART_LCR, cval);
 +	/*
 +	 * Update the per-port timeout.
 +	 */
@@ -48496,26 +48507,25 @@ index 0000000000000000000000000000000000000000..f3f9a8b408f85f72a2f413657547a360
 +static void serial_ingenic_console_write(struct console *co, const char *s, unsigned int count)
 +{
 +	struct uart_ingenic_port *up = serial_ingenic_ports[co->index];
-+	//unsigned int ier;
++	unsigned long flags;
++	unsigned int ier;
 +
-+	/*
-+	 *  First save the IER then disable the interrupts
-+	 */
-+	spin_lock(&up->port.lock);
-+	//ier = up->ier;
-+	up->ier &= ~UART_IER_THRI;
-+	serial_out(up, UART_IER, up->ier);
++	if (oops_in_progress) {
++		if (!uart_port_trylock_irqsave(&up->port, &flags))
++			return;
++	} else {
++		uart_port_lock_irqsave(&up->port, &flags);
++	}
++
++	ier = serial_in(up, UART_IER);
++	serial_out(up, UART_IER, ier & ~UART_IER_THRI);
 +
 +	uart_console_write(&up->port, s, count, serial_ingenic_console_putchar);
 +
-+	/*
-+	 *  Finally, wait for transmitter to become empty
-+	 *  and restore the IER
-+	 */
++	/* Wait for the transmitter to empty before restoring the IER. */
 +	wait_for_xmitr(up);
-+	up->ier |= UART_IER_THRI;
-+	serial_out(up, UART_IER, up->ier);
-+	spin_unlock(&up->port.lock);
++	serial_out(up, UART_IER, ier);
++	uart_port_unlock_irqrestore(&up->port, flags);
 +}
 +
 +static int __init serial_ingenic_console_setup(struct console *co, char *options)
