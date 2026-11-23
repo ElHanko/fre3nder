@@ -21,13 +21,13 @@
     "patch_series": {
       "role": "productive ordered Fre3nder X2000 kernel patch series on the pinned upstream Linux baseline",
       "baseline_ref": "kernel.source.commit",
-      "result_tree": "a8b66921b21b3812b26760db222d6f3a9e7363a6",
+      "result_tree": "ecd479391920f702f0fd1998b136fec50d3b141a",
       "patches": [
         {
           "order": 1,
           "role": "retained Ingenic-derived X2000 platform support after Fre3nder pruning and upstream forward-porting",
           "patch": "patches/kernel/0001-x2000-platform.patch",
-          "patch_sha256": "e58bf202aacde3dd17281e67565ae23f8b2ef088e93428acf1c64ffdb01b0dc8",
+          "patch_sha256": "be7eb5e47680b3b79c6d4d49034ac61ab959be76aa6fb9caf9326e9c377aa48d",
           "derived_from_repository": "https://github.com/Llixuma/ingenic-linux-kernel6.6-x2000-v1.0-20250221",
           "derived_from_commit": "a98c2e1f22e4263ddd4153a4eca4db4dcfd2777b"
         },

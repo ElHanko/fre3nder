@@ -41421,7 +41421,7 @@ index 0000000000000000000000000000000000000000..a000a0ca07d426050d3c0f17e77c93ca
 +EXPORT_SYMBOL(ingenic_bcmdhd_wlan_power_onoff);
 diff --git a/module_drivers/drivers/mmc/host/sdhci-ingenic.c b/module_drivers/drivers/mmc/host/sdhci-ingenic.c
 new file mode 100644
-index 0000000000000000000000000000000000000000..a9ed7b1c338ca2a3260c1d8b6ac9429c7c1b7f41
+index 0000000000000000000000000000000000000000..e7b7c4685ac959cfa07adcac04087d60ee36dbef
 --- /dev/null
 +++ b/module_drivers/drivers/mmc/host/sdhci-ingenic.c
 @@ -0,0 +1,743 @@
@@ -41567,7 +41567,7 @@ index 0000000000000000000000000000000000000000..a9ed7b1c338ca2a3260c1d8b6ac9429c
 +		clk_set_parent(sdhci_ing->clk_mux, sdhci_ing->clk_mpll);
 +	} else {
 +		clk_set_parent(sdhci_ing->clk_mux, sdhci_ing->clk_ext);
-+		*(volatile unsigned int *)0xB0000068 |= 1 << 21;
++		*(volatile unsigned int *)cpm_msc |= 1 << 21;
 +	}
 +
 +	clk_set_rate(sdhci_ing->clk_cgu, clock);
