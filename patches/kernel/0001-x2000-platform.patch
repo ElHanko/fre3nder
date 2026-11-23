@@ -47140,10 +47140,10 @@ index 0000000000000000000000000000000000000000..5610f781cc2b50a2e5c1895473eb9b80
 +obj-$(CONFIG_SERIAL_INGENIC_UART) += ingenic_uart.o
 diff --git a/module_drivers/drivers/tty/serial/ingenic_uart.c b/module_drivers/drivers/tty/serial/ingenic_uart.c
 new file mode 100644
-index 0000000000000000000000000000000000000000..f3f9a8b408f85f72a2f413657547a3607dc76c56
+index 0000000000000000000000000000000000000000..c3fce7bf6bde810720d62d0efb0982e12394815d
 --- /dev/null
 +++ b/module_drivers/drivers/tty/serial/ingenic_uart.c
-@@ -0,0 +1,1732 @@
+@@ -0,0 +1,1734 @@
 +/*
 + *  Based on drivers/serial/8250.c by Russell King.
 + *
@@ -47761,18 +47761,13 @@ index 0000000000000000000000000000000000000000..f3f9a8b408f85f72a2f413657547a360
 +	return 0;
 +}
 +
-+/*
-+*Function:receive char
-+*Parameter:unsigned long data,unsigned int status
-+*Return:void
-+*/
-+static inline void receive_chars(unsigned long data)
++/* Receive characters starting with the LSR sample taken by the caller. */
++static inline unsigned int receive_chars(struct uart_ingenic_port *up,
++					 unsigned int status)
 +{
-+	struct uart_ingenic_port *up = (struct uart_ingenic_port *)data;
 +	struct tty_struct *tty = up->port.state->port.tty;
 +	unsigned int ch, flag;
 +	int max_count = 256;
-+	unsigned int status = serial_in(up, UART_LSR);
 +	while ((status & UART_LSR_DR) && (max_count-- > 0))
 +		//ready to receive data and max_count>0
 +	{
@@ -47825,7 +47820,6 @@ index 0000000000000000000000000000000000000000..f3f9a8b408f85f72a2f413657547a360
 +#endif
 +#ifdef CONFIG_SERIAL_INGENIC_MAGIC_SYSRQ
 +			if (status == 0xe1) {
-+				printk("handling break ....!\n");
 +#else
 +			if (status & UART_LSR_BI) {
 +#endif
@@ -47837,7 +47831,7 @@ index 0000000000000000000000000000000000000000..f3f9a8b408f85f72a2f413657547a360
 +			}
 +		}
 +#ifdef CONFIG_SERIAL_INGENIC_MAGIC_SYSRQ
-+		if (uart_handle_sysrq_char(&up->port, ch)) {
++		if (uart_prepare_sysrq_char(&up->port, ch)) {
 +			goto ignore_char;
 +		}
 +#endif
@@ -47847,6 +47841,7 @@ index 0000000000000000000000000000000000000000..f3f9a8b408f85f72a2f413657547a360
 +		status = serial_in(up, UART_LSR);
 +	}
 +	tty_flip_buffer_push(tty->port);
++	return status;
 +}
 +/* transmit one char*/
 +static void transmit_chars(struct uart_ingenic_port *up)
@@ -47922,14 +47917,15 @@ index 0000000000000000000000000000000000000000..f3f9a8b408f85f72a2f413657547a360
 +static inline irqreturn_t serial_ingenic_irq(int irq, void *dev_id)
 +{
 +	struct uart_ingenic_port *up = dev_id;
++	unsigned long flags;
 +	unsigned int iir, lsr;
-+	iir = serial_in(up, UART_IIR);
-+	lsr = serial_in(up, UART_LSR);
-+	if (iir & UART_IIR_NO_INT) {
-+		return IRQ_NONE;
-+	}
 +
++	iir = serial_in(up, UART_IIR);
 +	if (up->use_dma) {
++		lsr = serial_in(up, UART_LSR);
++		if (iir & UART_IIR_NO_INT)
++			return IRQ_NONE;
++
 +		serial_out(up, UART_IER, 0);     /* disable_irq */
 +
 +		if ((iir & UART_ISR_MASK) == UART_ISR_IID_RETO) {
@@ -47940,15 +47936,22 @@ index 0000000000000000000000000000000000000000..f3f9a8b408f85f72a2f413657547a360
 +		}
 +
 +		serial_out(up, UART_IER, UART_IER_RLSI | UART_IER_RETOIE);  /* enable_irq */
-+	} else {
-+		if (lsr & UART_LSR_DR) {
-+			receive_chars((unsigned long)up);
-+		}
-+		check_modem_status(up);
-+		if (lsr & UART_LSR_THRE) {
-+			transmit_chars(up);
-+		}
++		return IRQ_HANDLED;
 +	}
++
++	if (iir & UART_IIR_NO_INT)
++		return IRQ_NONE;
++
++	/* Serialize PIO reads and writes with termios and the serial core. */
++	uart_port_lock_irqsave(&up->port, &flags);
++	lsr = serial_in(up, UART_LSR);
++	if (lsr & UART_LSR_DR)
++		lsr = receive_chars(up, lsr);
++	check_modem_status(up);
++	if (lsr & UART_LSR_THRE)
++		transmit_chars(up);
++	uart_unlock_and_check_sysrq_irqrestore(&up->port, flags);
++
 +	return IRQ_HANDLED;
 +}
 +
@@ -48210,7 +48213,6 @@ index 0000000000000000000000000000000000000000..f3f9a8b408f85f72a2f413657547a360
 +	if (!(termios->c_cflag & PARODD)) {
 +		cval |= UART_LCR_EPAR;
 +	}
-+	serial_out(up, UART_LCR, cval);//write cval to UART_LCR
 +	/*
 +	 * Ask the core to calculate the divisor for us.
 +	 */
@@ -48221,6 +48223,7 @@ index 0000000000000000000000000000000000000000..f3f9a8b408f85f72a2f413657547a360
 +	 * interrupts disabled.
 +	 */
 +	spin_lock_irqsave(&up->port.lock, flags);
++	serial_out(up, UART_LCR, cval);
 +	/*
 +	 * Update the per-port timeout.
 +	 */
@@ -48504,26 +48507,25 @@ index 0000000000000000000000000000000000000000..f3f9a8b408f85f72a2f413657547a360
 +static void serial_ingenic_console_write(struct console *co, const char *s, unsigned int count)
 +{
 +	struct uart_ingenic_port *up = serial_ingenic_ports[co->index];
-+	//unsigned int ier;
++	unsigned long flags;
++	unsigned int ier;
 +
-+	/*
-+	 *  First save the IER then disable the interrupts
-+	 */
-+	spin_lock(&up->port.lock);
-+	//ier = up->ier;
-+	up->ier &= ~UART_IER_THRI;
-+	serial_out(up, UART_IER, up->ier);
++	if (oops_in_progress) {
++		if (!uart_port_trylock_irqsave(&up->port, &flags))
++			return;
++	} else {
++		uart_port_lock_irqsave(&up->port, &flags);
++	}
++
++	ier = serial_in(up, UART_IER);
++	serial_out(up, UART_IER, ier & ~UART_IER_THRI);
 +
 +	uart_console_write(&up->port, s, count, serial_ingenic_console_putchar);
 +
-+	/*
-+	 *  Finally, wait for transmitter to become empty
-+	 *  and restore the IER
-+	 */
++	/* Wait for the transmitter to empty before restoring the IER. */
 +	wait_for_xmitr(up);
-+	up->ier |= UART_IER_THRI;
-+	serial_out(up, UART_IER, up->ier);
-+	spin_unlock(&up->port.lock);
++	serial_out(up, UART_IER, ier);
++	uart_port_unlock_irqrestore(&up->port, flags);
 +}
 +
 +static int __init serial_ingenic_console_setup(struct console *co, char *options)
