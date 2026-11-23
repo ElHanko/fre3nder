@@ -18648,10 +18648,10 @@ index 0000000000000000000000000000000000000000..44f03a97a2ae2721ba6cf3984f61c8a1
 +	}
 +}
 diff --git a/block/partitions/efi.c b/block/partitions/efi.c
-index 9865d59093fac0b5efd1bc5b81ee6baa24695405..7d5f4c583883d9ee6713b1b8b628e1303e47539f 100644
+index 9865d59093fac0b5efd1bc5b81ee6baa24695405..be65dd219c590a4e5b1705898aa2d7bbdee30ab1 100644
 --- a/block/partitions/efi.c
 +++ b/block/partitions/efi.c
-@@ -727,10 +727,17 @@ int efi_partition(struct parsed_partitions *state)
+@@ -727,13 +727,23 @@ int efi_partition(struct parsed_partitions *state)
  	for (i = 0; i < le32_to_cpu(gpt->num_partition_entries) && i < state->limit-1; i++) {
  		struct partition_meta_info *info;
  		unsigned label_max;
@@ -18660,17 +18660,24 @@ index 9865d59093fac0b5efd1bc5b81ee6baa24695405..7d5f4c583883d9ee6713b1b8b628e130
 -		u64 size = le64_to_cpu(ptes[i].ending_lba) -
 -			   le64_to_cpu(ptes[i].starting_lba) + 1ULL;
 +		u64 end = le64_to_cpu(ptes[i].ending_lba);
++		u64 size;
+ 
+-		if (!is_pte_valid(&ptes[i], last_lba(state->disk)))
 +		if (end == 0xFFFFFFFFFFFFFFFF || end > disk_size) {
-+			ptes[i].ending_lba = disk_size - 1ULL;
-+			pr_warn("Adjusted to use the entire disk size %llu", le64_to_cpu(ptes[i].ending_lba));
++			end = disk_size - 1ULL;
++			ptes[i].ending_lba = cpu_to_le64(end);
++			pr_warn("Adjusted to use the entire disk size %llu", end);
 +		}
 +
-+		u64 size = end - start + 1ULL;
- 
-+		pr_debug("%s >>>>> (%lld - %lld),size = %lld,i = %d\n",__FUNCTION__,le64_to_cpu(ptes[i].starting_lba),le64_to_cpu(ptes[i].ending_lba), size, i);
- 		if (!is_pte_valid(&ptes[i], last_lba(state->disk)))
++		if (start > end || !is_pte_valid(&ptes[i], last_lba(state->disk)))
  			continue;
  
++		size = end - start + 1ULL;
++		pr_debug("%s >>>>> (%lld - %lld),size = %lld,i = %d\n",__FUNCTION__,le64_to_cpu(ptes[i].starting_lba),le64_to_cpu(ptes[i].ending_lba), size, i);
++
+ 		put_partition(state, i+1, start * ssz, size * ssz);
+ 
+ 		/* If this is a RAID volume, tell md */
 diff --git a/drivers/mmc/core/core.c b/drivers/mmc/core/core.c
 index 29e80e5f928e953b5f3914b3a9863a4dd89fac74..4e42784c827dbf964a906b7597ac2a82691489ae 100644
 --- a/drivers/mmc/core/core.c
