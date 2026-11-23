@@ -17,6 +17,7 @@ log="$tmp/builders.log"
 
 mkdir -p \
 	"$fixture/scripts" \
+	"$fixture/build/x2000" \
 	"$artifact_root/kernel-only" \
 	"$artifact_root/rootfs-only" \
 	"$key_dir"
@@ -47,6 +48,14 @@ exit 99
 STUB_EOF
 	chmod 0755 "$fixture/scripts/$name"
 done
+
+cat > "$fixture/build/x2000/f005_firmware.py" <<'PY'
+import os
+from pathlib import Path
+
+Path(os.environ['X2000_COMPOSE_TEST_LOG']).write_text('F005 validation invoked during compose-only\n')
+raise SystemExit(99)
+PY
 
 git -C "$fixture" init -q
 git -C "$fixture" config user.name "Fre3nder Fixture"
@@ -118,6 +127,15 @@ rootfs = {
     "project_worktree_status": "dirty",
     "build_input_sha256": "2" * 64,
     "ota_public_key_sha256": digest(public_key),
+    "f005_firmware": {
+        "classification": "candidate",
+        "runtime_version": "fre3nder-f005-2026.4.a-0-g1111111",
+        "sha256": "4" * 64,
+        "size": 12345,
+        "upstream_commit": "5" * 40,
+        "prepared_source_commit": "1" * 40,
+        "candidate_manifest_sha256": "6" * 64,
+    },
     "artifacts": {
         name: digest(rootfs_dir / name)
         for name in (
@@ -225,6 +243,8 @@ assert manifest["composition_provenance"] == expected_composition
 full_manifest = json.loads(full_manifest_path.read_text())
 assert full_manifest["component_provenance"] == expected
 assert full_manifest["composition_provenance"] == expected_composition
+rootfs_manifest = json.loads((full_manifest_path.parent.parent / "rootfs-only/build-manifest.json").read_text())
+assert manifest["f005_firmware"] == full_manifest["f005_firmware"] == rootfs_manifest["f005_firmware"]
 VERIFY_PY
 
 extract="$tmp/extract"

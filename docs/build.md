@@ -3,8 +3,8 @@
 Builds create local artifacts; they do not access or change a printer. Run the
 commands below from the repository root. The productive entry points are
 [`scripts/build-x2000`](../scripts/build-x2000) for the host and
-[`scripts/build-f005`](../scripts/build-f005) for an optional, separate MCU
-candidate. Building an artifact does not qualify or authorize its deployment.
+[`scripts/build-f005`](../scripts/build-f005) for standalone MCU candidate
+builds. Hardware qualification and deployment authorization are separate steps.
 
 ## Prerequisites
 
@@ -31,10 +31,9 @@ candidate. Building an artifact does not qualify or authorize its deployment.
   before the container build begins.
 
 A normal release build requires a clean project worktree. Use `--develop`
-explicitly for a build from the current worktree. This changes artifact mode
-and provenance, not build scope. It does not authorize `--write` in a deploy
-command. Source versions, toolchains, licenses, and exact patch identities are
-recorded in the [source manifest](../configs/x2000/sources.json) and
+explicitly to record the current build inputs and select a development F005
+target for RootFS. Source versions, toolchains, licenses, and exact patch
+identities are recorded in the [source manifest](../configs/x2000/sources.json) and
 [licensing record](licensing-and-provenance.md).
 
 ## Container inputs and outputs
@@ -314,15 +313,10 @@ Add `--develop` to a Kernel-only or RootFS-only development build.
 `--rootfs-only --develop --fre3nderscreen-app` also uses the optional app path,
 without building a Kernel. The app flag is invalid with `--kernel-only` or
 `--compose-only`, and can be combined with `--f005-build` in full or RootFS scopes.
-Add `--f005-build` to a full or RootFS-only build only when a new F005 candidate
-must be built before RootFS assembly; it invokes the separate F005 builder,
-which requires a clean project worktree. `--f005-build` requires `--develop`
-and is invalid with `--kernel-only` and `--compose-only`.
-
-The F005 builder requires an already prepared X2000 Buildroot `host/` toolchain.
-In a full build, the preceding Kernel step prepares it. With
-`--rootfs-only --f005-build`, it must exist before the command starts: F005 runs
-before that command's Buildroot `--toolchain` phase.
+Full and RootFS-only development builds prepare the Buildroot `host/`
+toolchain before selecting the F005 candidate for RootFS. Add `--f005-build`
+to force a new candidate even when the existing one is valid. Kernel-only
+builds skip F005 selection. See [F005 MCU candidate](#f005-mcu-candidate).
 
 `--compose-only` is a standalone scope and cannot be combined with `--develop`,
 `--kernel-only`, `--rootfs-only`, or `--f005-build`. It requires existing
@@ -333,7 +327,7 @@ It permits Kernel and RootFS from different commits or build-input
 fingerprints; their origins are recorded separately in
 `component_provenance`. The final project state is recorded in
 `composition_provenance`. Check those fields before composing artifacts from
-different origins.
+different origins. Composition uses the existing RootFS and its F005 metadata.
 The composition command reports validation start and an explicit `PASS` or
 `FAIL`; on success it prints the mode, package path, and Kernel/RootFS hashes.
 
@@ -409,20 +403,26 @@ X2000 `c_helper.so`, report, manifest, and checksums. It neither flashes nor
 promotes that candidate to the hardware-qualified release image. The detailed
 recipe is in [`build/klipper-f005/README.md`](../build/klipper-f005/README.md).
 
-RootFS assembly defaults to `FRE3NDER_F005_FIRMWARE_MODE=qualified`, including
-Development builds without `--f005-build`. It verifies the exact size and SHA256
-in `configs/x2000/f005-mcu-release.json`; that hardware-qualified manifest stays
-unchanged. Only a successful `--develop --f005-build` selects `candidate` in the
-orchestrator. The assembler rejects Candidate mode in Release builds.
+Release builds use the `qualified` image verified against the exact size and
+SHA-256 in `configs/x2000/f005-mcu-release.json`. The `--f005-build` option
+requires `--develop` and a RootFS build scope.
 
-Candidate validation uses the adjacent schema-1 `build-manifest.json`: regular
-files without symlinks, Candidate classification, a boolean
-`qualified_release_match`, exact binary size/SHA256, the current canonical Klipper
-pin, the current project commit, and all recorded F005 recipe input hashes.
-Stale Candidates require a new separately authorized build. The RootFS build
-manifest records `f005_firmware` with classification, runtime version, size and
-SHA256, plus Candidate upstream and prepared-source commits. Embedding a Candidate
-does not qualify, promote, deploy, or flash it.
+With `--develop`, `scripts/build-x2000` selects the validated `candidate` from
+`local/production/artifacts/f005/candidate/`. A missing, stale, or damaged
+candidate triggers `scripts/build-f005` after toolchain preparation. The
+builder requires a clean project worktree. `--f005-build` forces that step.
+Build or validation failure stops the development build. The development
+summary reports whether it reused or rebuilt the candidate.
+
+Candidate selection and RootFS assembly use the same validator. It requires a
+regular binary and a regular schema-1 `build-manifest.json` with candidate
+classification. It verifies the exact image size and SHA-256, the current
+project commit, the pinned Klipper commit, and all F005 recipe input hashes.
+The recorded runtime version must match `VERSION` and the abbreviated prepared
+Klipper commit. The RootFS and composed OTA manifests record `f005_firmware`
+with classification, runtime
+version, size and SHA-256, and for a candidate the upstream commit, prepared
+source commit and SHA-256 of the candidate manifest.
 
 The immutable `f005-mcu-release.json` remains the hardware-qualified release
 record. The generated `/usr/share/fre3nder/f005-runtime-target.json` describes
@@ -435,8 +435,8 @@ Without `--develop`, `scripts/deploy-f005` continues to use the qualified record
 and rejects a different effective Runtime target. Its explicit `--develop`
 mode validates the Candidate and exact remote Runtime target before a separately
 authorized MCU update. A previous exact Qualified MCU is recognized as
-`fre3nder-qualified`; S60 reports `f005-update-required` and never upgrades it
-automatically. See [F005 switching](f005-mcu-switching.md#f005-build-and-transitional-deployment-interfaces).
+`fre3nder-qualified` and S60 reports `f005-update-required`. See
+[F005 switching](f005-mcu-switching.md#f005-build-and-transitional-deployment-interfaces).
 
 The current Moonraker authorization and ownership contract is in
 [Moonraker](moonraker.md). Dated source-refresh audits and their exact
@@ -476,8 +476,9 @@ qualification has been performed for it.
   `--develop` for a development artifact.
 - Stale or incompatible partial artifacts: rebuild the affected component;
   `--compose-only` validates them and stops without rebuilding anything.
-- Missing F005 `host/` toolchain: run the Kernel build scope first when using
-  `--rootfs-only --f005-build` or the separate F005 candidate builder.
+- Missing F005 `host/` toolchain with standalone `scripts/build-f005`: prepare
+  the shared Buildroot toolchain first. The X2000 orchestrator prepares it for
+  full and RootFS-only builds.
 
 For installing a checked host artifact, continue with
 [installation](installation.md). For the host design and hardware contracts,
